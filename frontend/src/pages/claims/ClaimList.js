@@ -1,0 +1,175 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getClaimsAPI, getHospitalsAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { toast } from 'react-toastify';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi';
+
+const statusColors = {
+  admitted: 'bg-blue-100 text-blue-700',
+  discharged: 'bg-yellow-100 text-yellow-700',
+  file_received: 'bg-purple-100 text-purple-700',
+  submitted: 'bg-orange-100 text-orange-700',
+  settled: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+};
+
+const ClaimList = () => {
+  const navigate = useNavigate();
+  const { can } = useAuth();
+  const [claims, setClaims] = useState([]);
+  const [hospitals, setHospitals] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({
+    search: '', hospital: '', status: '', claimType: '', month: '', page: 1
+  });
+
+  useEffect(() => {
+    getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    const params = {};
+    Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
+    getClaimsAPI(params)
+      .then(({ data }) => {
+        setClaims(data.claims);
+        setTotal(data.total);
+        setPages(data.pages);
+      })
+      .catch(() => toast.error('Failed to fetch claims'))
+      .finally(() => setLoading(false));
+  }, [filters]);
+
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '-';
+  const formatAmount = (a) => a ? `Rs ${Number(a).toLocaleString('en-IN')}` : '-';
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Claims</h1>
+          <p className="text-sm text-gray-500 mt-1">{total} total claims</p>
+        </div>
+        {can('claims', 'create') && (
+          <button onClick={() => navigate('/claims/new')}
+            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+            <HiOutlinePlus className="w-5 h-5" /> New Claim
+          </button>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="relative lg:col-span-2">
+            <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input placeholder="Search patient, policy, CCN..."
+              value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+          </div>
+          <select value={filters.hospital} onChange={(e) => setFilters({ ...filters, hospital: e.target.value, page: 1 })}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+            <option value="">All Hospitals</option>
+            {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+          </select>
+          <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+            <option value="">All Status</option>
+            <option value="admitted">Admitted</option>
+            <option value="discharged">Discharged</option>
+            <option value="file_received">File Received</option>
+            <option value="submitted">Submitted</option>
+            <option value="settled">Settled</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <select value={filters.claimType} onChange={(e) => setFilters({ ...filters, claimType: e.target.value, page: 1 })}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+            <option value="">All Types</option>
+            <option value="cashless">Cashless</option>
+            <option value="reimbursement">Reimbursement</option>
+            <option value="grievance">Grievance</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">SR</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Patient</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Hospital</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">DOA</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Bill</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {loading ? (
+                <tr><td colSpan={8} className="py-8 text-center text-gray-400">Loading...</td></tr>
+              ) : claims.length === 0 ? (
+                <tr><td colSpan={8} className="py-8 text-center text-gray-400">No claims found</td></tr>
+              ) : claims.map((c) => (
+                <tr key={c._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/claims/${c._id}`)}>
+                  <td className="py-3 px-3 text-sm text-gray-500">{c.srNo}</td>
+                  <td className="py-3 px-3">
+                    <p className="text-sm font-medium text-gray-800">{c.patientName}</p>
+                    <p className="text-xs text-gray-400">{c.policyNo || '-'}</p>
+                  </td>
+                  <td className="py-3 px-3 text-sm text-gray-600">{c.hospital?.name || '-'}</td>
+                  <td className="py-3 px-3">
+                    <span className="text-xs font-medium capitalize">{c.claimType}</span>
+                  </td>
+                  <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
+                  <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
+                  <td className="py-3 px-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[c.status]}`}>
+                      {c.status.replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => navigate(`/claims/${c._id}`)}
+                      className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg">
+                      <HiOutlineEye className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {pages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
+            <p className="text-sm text-gray-500">
+              Page {filters.page} of {pages} ({total} claims)
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setFilters({ ...filters, page: filters.page - 1 })}
+                disabled={filters.page <= 1}
+                className="p-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50">
+                <HiOutlineChevronLeft className="w-4 h-4" />
+              </button>
+              <button onClick={() => setFilters({ ...filters, page: filters.page + 1 })}
+                disabled={filters.page >= pages}
+                className="p-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50">
+                <HiOutlineChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ClaimList;
