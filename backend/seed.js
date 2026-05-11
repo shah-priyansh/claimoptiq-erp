@@ -80,6 +80,18 @@ const defaultRoles = [
       claims: { view: true },
     }),
   },
+  {
+    name: 'Tester',
+    slug: 'tester',
+    description: 'Testing role with limited module access for QA.',
+    isSystem: false,
+    modulePermissions: buildPermissions({
+      dashboard: { view: true },
+      roles: { view: true, create: true, edit: true, delete: true },
+      insurance: { view: true, create: true, edit: true, delete: true },
+      tpa: { view: true, create: true, edit: true, delete: true },
+    }),
+  },
 ];
 
 const seedData = async () => {
@@ -113,6 +125,23 @@ const seedData = async () => {
     existingAdmin.role = roleMap.super_admin;
     await existingAdmin.save();
     console.log('Super Admin role updated');
+  }
+
+  // 2b. Create Tester user
+  const existingTester = await User.findOne({ email: 'tester@claimoptiq.com' });
+  if (!existingTester) {
+    await User.create({
+      name: 'Test User',
+      email: 'tester@claimoptiq.com',
+      password: 'Test@123',
+      role: roleMap.tester,
+      phone: '8888888888'
+    });
+    console.log('Tester created: tester@claimoptiq.com / Test@123');
+  } else {
+    existingTester.role = roleMap.tester;
+    await existingTester.save();
+    console.log('Tester role updated');
   }
 
   // 3. Seed Insurance Companies

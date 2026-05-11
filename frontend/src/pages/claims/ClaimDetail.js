@@ -157,7 +157,7 @@ const ClaimDetail = () => {
     { key: 'documents', label: `Documents (${claim.documents?.length || 0})` },
   ];
 
-  const baseUrl = process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5001';
+  const baseUrl = process.env.REACT_APP_API_URL === '/api' ? '' : (process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5001');
 
   return (
     <div>
