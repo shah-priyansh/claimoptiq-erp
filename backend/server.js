@@ -31,15 +31,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'ClaimOptiq API is running' });
 });
 
-// Serve frontend in production
-if (process.env.NODE_ENV === 'production') {
-  const frontendBuild = path.join(__dirname, '..', 'frontend', 'build');
-  app.use(express.static(frontendBuild));
-  app.get('{*path}', (req, res) => {
-    res.sendFile(path.join(frontendBuild, 'index.html'));
-  });
-}
-
 // Error handling
 app.use((err, req, res, next) => {
   console.error(err.stack);
