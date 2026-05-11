@@ -3,13 +3,9 @@
   "version": "1.0.0",
   "description": "ClaimOptiq AI ERP Suite - Insurance Claim Management System",
   "scripts": {
-    "install:backend": "cd backend && npm install",
-    "install:frontend": "cd frontend && npm install",
-    "build:frontend": "cd frontend && REACT_APP_API_URL=/api npm run build",
-    "seed": "cd backend && node seed.js",
+    "build": "cd backend && npm install && cd ../frontend && npm install && CI=false REACT_APP_API_URL=/api npm run build",
     "start": "cd backend && node server.js",
-    "build": "npm run install:backend && npm run install:frontend && npm run build:frontend",
-    "postinstall": "npm run build"
+    "seed": "cd backend && node seed.js"
   },
   "engines": {
     "node": ">=18.0.0"
