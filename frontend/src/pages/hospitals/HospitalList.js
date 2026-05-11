@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getHospitalsAPI, deleteHospitalAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -12,7 +12,7 @@ const HospitalList = () => {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const fetchHospitals = async () => {
+  const fetchHospitals = useCallback(async () => {
     try {
       const { data } = await getHospitalsAPI({ search, active: 'true' });
       setHospitals(data);
@@ -21,9 +21,9 @@ const HospitalList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search]);
 
-  useEffect(() => { fetchHospitals(); }, [search]);
+  useEffect(() => { fetchHospitals(); }, [fetchHospitals]);
 
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Deactivate hospital "${name}"?`)) return;
