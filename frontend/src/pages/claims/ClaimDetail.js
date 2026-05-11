@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import {
   HiOutlineArrowLeft, HiOutlineUpload, HiOutlineTrash, HiOutlineDownload,
-  HiOutlineCheckCircle, HiOutlineClock, HiOutlineDocumentText
+  HiOutlineCheckCircle, HiOutlineDocumentText
 } from 'react-icons/hi';
 
 const statusSteps = [

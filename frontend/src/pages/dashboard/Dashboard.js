@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { getDashboardAPI } from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
 import {
   HiOutlineDocumentText,
   HiOutlineClock,
@@ -26,7 +25,6 @@ const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
 );
 
 const Dashboard = () => {
-  const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
