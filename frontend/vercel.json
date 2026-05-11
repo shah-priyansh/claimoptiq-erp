@@ -1,4 +1,7 @@
 {
+  "buildCommand": "CI=false REACT_APP_API_URL=https://claimoptiq-api.onrender.com/api npm run build",
+  "outputDirectory": "build",
+  "framework": "create-react-app",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
