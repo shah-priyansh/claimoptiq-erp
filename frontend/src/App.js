@@ -19,6 +19,7 @@ import Reports from './pages/reports/Reports';
 import RoleList from './pages/roles/RoleList';
 import RoleForm from './pages/roles/RoleForm';
 import ClaimStatusMaster from './pages/claimstatus/ClaimStatusMaster';
+import ClaimDocumentTypeMaster from './pages/claimdocumenttypes/ClaimDocumentTypeMaster';
 
 function App() {
   return (
@@ -43,6 +44,7 @@ function App() {
             <Route path="/roles/:id/edit" element={<RoleForm />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/claim-statuses" element={<ClaimStatusMaster />} />
+            <Route path="/claim-document-types" element={<ClaimDocumentTypeMaster />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
