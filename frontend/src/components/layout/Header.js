@@ -10,12 +10,15 @@ const Header = ({ onMenuClick }) => {
   return (
     <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 lg:px-6 py-3">
       <div className="flex items-center justify-between">
-        <button
-          onClick={onMenuClick}
-          className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100"
-        >
-          <HiOutlineMenu className="w-6 h-6" />
-        </button>
+        <div className="flex items-center gap-3 lg:hidden">
+          <button
+            onClick={onMenuClick}
+            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+          >
+            <HiOutlineMenu className="w-6 h-6" />
+          </button>
+          <span className="font-bold text-primary-700 text-lg">ClaimOptiq</span>
+        </div>
 
         <div className="hidden lg:block">
           <h2 className="text-sm text-gray-500">Welcome back,</h2>
