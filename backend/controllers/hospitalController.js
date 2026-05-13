@@ -8,6 +8,14 @@ const validateHospitalFields = (body) => {
   if (body.phone && !isValidPhone(body.phone)) return 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
   if (body.email && !isValidEmail(body.email)) return 'Enter a valid email address';
   if (body.pincode && !isValidPincode(body.pincode)) return 'Enter a valid 6-digit Indian pincode';
+  if (Array.isArray(body.doctors)) {
+    for (let i = 0; i < body.doctors.length; i++) {
+      const d = body.doctors[i];
+      if (!d.name || !d.name.trim()) return `Doctor #${i + 1}: Name is required`;
+      if (d.phone && !isValidPhone(d.phone)) return `Doctor #${i + 1}: Enter a valid 10-digit mobile number`;
+      if (d.email && !isValidEmail(d.email)) return `Doctor #${i + 1}: Enter a valid email address`;
+    }
+  }
   return null;
 };
 

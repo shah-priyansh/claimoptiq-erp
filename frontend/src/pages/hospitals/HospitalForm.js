@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createHospitalAPI, updateHospitalAPI, getHospitalAPI } from '../../services/api';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserCircle } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
+
+const emptyDoctor = { name: '', specialization: '', phone: '', email: '' };
 
 const emptyService = {
   serviceName: '',
@@ -27,6 +29,7 @@ const HospitalForm = () => {
   const [form, setForm] = useState({
     name: '', contact: '', email: '', phone: '', address: '',
     city: '', state: '', pincode: '', referenceBy: '',
+    doctors: [],
     billingServices: [],
   });
   const [errors, setErrors] = useState({});
@@ -61,12 +64,37 @@ const HospitalForm = () => {
     setForm({ ...form, billingServices: services });
   };
 
+  const addDoctor = () => {
+    setForm(f => ({ ...f, doctors: [...f.doctors, { ...emptyDoctor }] }));
+  };
+
+  const removeDoctor = (idx) => {
+    setForm(f => ({ ...f, doctors: f.doctors.filter((_, i) => i !== idx) }));
+  };
+
+  const handleDoctorChange = (idx, field, value) => {
+    const doctors = [...form.doctors];
+    doctors[idx] = { ...doctors[idx], [field]: value };
+    setForm({ ...form, doctors });
+    // clear doctor-level error
+    setErrors(prev => ({ ...prev, [`doctor_${idx}_${field}`]: '' }));
+  };
+
+  const handleDoctorPhone = (idx, value) => {
+    handleDoctorChange(idx, 'phone', onPhoneInput(value));
+  };
+
   const validate = () => {
     const e = {};
     if (!form.name.trim()) e.name = 'Hospital name is required';
     if (form.email && !isValidEmail(form.email)) e.email = 'Enter a valid email address';
     if (form.phone && !isValidPhone(form.phone)) e.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
     if (form.pincode && !isValidPincode(form.pincode)) e.pincode = 'Enter a valid 6-digit Indian pincode';
+    form.doctors.forEach((d, i) => {
+      if (!d.name.trim()) e[`doctor_${i}_name`] = 'Doctor name is required';
+      if (d.phone && !isValidPhone(d.phone)) e[`doctor_${i}_phone`] = 'Enter a valid 10-digit mobile number';
+      if (d.email && !isValidEmail(d.email)) e[`doctor_${i}_email`] = 'Enter a valid email address';
+    });
     return e;
   };
 
@@ -156,6 +184,104 @@ const HospitalForm = () => {
               {errors.pincode && <p className="text-xs text-red-500 mt-1">{errors.pincode}</p>}
             </div>
           </div>
+        </div>
+
+        {/* Doctors */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Doctors</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Panel doctors associated with this hospital</p>
+            </div>
+            <button type="button" onClick={addDoctor}
+              className="flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium border border-primary-200 hover:bg-primary-50 px-3 py-1.5 rounded-lg transition-colors">
+              <HiOutlinePlus className="w-4 h-4" /> Add Doctor
+            </button>
+          </div>
+
+          {form.doctors.length === 0 ? (
+            <div className="border-2 border-dashed border-gray-200 rounded-xl py-8 text-center">
+              <HiOutlineUserCircle className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+              <p className="text-sm text-gray-400">No doctors added yet</p>
+              <button type="button" onClick={addDoctor}
+                className="mt-3 text-sm text-primary-600 hover:text-primary-700 font-medium">
+                + Add first doctor
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {form.doctors.map((doc, idx) => (
+                <div key={idx} className="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-bold">
+                        {idx + 1}
+                      </div>
+                      <span className="text-sm font-semibold text-gray-700">
+                        {doc.name || `Doctor #${idx + 1}`}
+                      </span>
+                    </div>
+                    <button type="button" onClick={() => removeDoctor(idx)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                      <HiOutlineTrash className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Doctor Name *</label>
+                      <input
+                        value={doc.name}
+                        onChange={(e) => handleDoctorChange(idx, 'name', e.target.value)}
+                        placeholder="e.g. Dr. Rajesh Patel"
+                        className={inputCls(!!errors[`doctor_${idx}_name`])}
+                      />
+                      {errors[`doctor_${idx}_name`] && (
+                        <p className="text-xs text-red-500 mt-1">{errors[`doctor_${idx}_name`]}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Specialization</label>
+                      <input
+                        value={doc.specialization}
+                        onChange={(e) => handleDoctorChange(idx, 'specialization', e.target.value)}
+                        placeholder="e.g. Cardiologist, Orthopaedic"
+                        className={inputCls(false)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Mobile <span className="text-gray-400 font-normal">(10 digits)</span></label>
+                      <input
+                        value={doc.phone}
+                        onChange={(e) => handleDoctorPhone(idx, e.target.value)}
+                        inputMode="numeric"
+                        maxLength={10}
+                        placeholder="e.g. 9876543210"
+                        className={inputCls(!!errors[`doctor_${idx}_phone`])}
+                      />
+                      {doc.phone && <p className="text-xs text-gray-400 mt-0.5">{doc.phone.length}/10 digits</p>}
+                      {errors[`doctor_${idx}_phone`] && (
+                        <p className="text-xs text-red-500 mt-1">{errors[`doctor_${idx}_phone`]}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={doc.email}
+                        onChange={(e) => handleDoctorChange(idx, 'email', e.target.value)}
+                        placeholder="doctor@example.com"
+                        className={inputCls(!!errors[`doctor_${idx}_email`])}
+                      />
+                      {errors[`doctor_${idx}_email`] && (
+                        <p className="text-xs text-red-500 mt-1">{errors[`doctor_${idx}_email`]}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Billing Services */}

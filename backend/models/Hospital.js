@@ -22,6 +22,13 @@ const billingServiceSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true }
 }, { _id: true });
 
+const doctorSchema = new mongoose.Schema({
+  name:           { type: String, required: true, trim: true },
+  specialization: { type: String, default: '', trim: true },
+  phone:          { type: String, default: '' },
+  email:          { type: String, default: '' },
+}, { _id: true });
+
 const hospitalSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   contact: { type: String, default: '' },
@@ -33,6 +40,7 @@ const hospitalSchema = new mongoose.Schema({
   pincode: { type: String, default: '' },
   referenceBy: { type: String, default: '' },
   billingServices: [billingServiceSchema],
+  doctors: [doctorSchema],
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
