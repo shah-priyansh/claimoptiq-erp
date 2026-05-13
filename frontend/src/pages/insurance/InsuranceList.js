@@ -77,6 +77,7 @@ const InsuranceList = () => {
 
       {/* List */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -106,22 +107,22 @@ const InsuranceList = () => {
                     {editId === item._id ? (
                       <>
                         <button onClick={() => handleUpdate(item._id)}
-                          className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg">
+                          className="p-2.5 text-green-600 hover:bg-green-50 rounded-lg">
                           <HiOutlineCheck className="w-4 h-4" />
                         </button>
                         <button onClick={() => setEditId(null)}
-                          className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg">
+                          className="p-2.5 text-gray-500 hover:bg-gray-100 rounded-lg">
                           <HiOutlineX className="w-4 h-4" />
                         </button>
                       </>
                     ) : (
                       <>
                         <button onClick={() => { setEditId(item._id); setEditName(item.name); }}
-                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg">
+                          className="p-2.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg">
                           <HiOutlinePencil className="w-4 h-4" />
                         </button>
                         <button onClick={() => handleDelete(item._id, item.name)}
-                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                          className="p-2.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg">
                           <HiOutlineTrash className="w-4 h-4" />
                         </button>
                       </>
@@ -132,6 +133,7 @@ const InsuranceList = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

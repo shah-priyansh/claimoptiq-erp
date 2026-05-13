@@ -36,11 +36,11 @@ const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white rounded-t-2xl sm:rounded-t-xl flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-800">{title}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
+          <button onClick={onClose} className="p-2.5 rounded-lg hover:bg-gray-100 text-gray-500">
             <HiOutlineX className="w-5 h-5" />
           </button>
         </div>

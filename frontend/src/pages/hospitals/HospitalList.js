@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getHospitalsAPI, deleteHospitalAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding } from 'react-icons/hi';
 
 const HospitalList = () => {
   const navigate = useNavigate();
@@ -46,7 +46,7 @@ const HospitalList = () => {
         {can('hospitals', 'create') && (
           <button
             onClick={() => navigate('/hospitals/new')}
-            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg text-sm font-medium transition-colors"
           >
             <HiOutlinePlus className="w-5 h-5" /> Add Hospital
           </button>
@@ -67,9 +67,75 @@ const HospitalList = () => {
         </div>
       </div>
 
-      {/* Table */}
+      {/* List */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+
+        {/* Mobile Cards */}
+        <div className="md:hidden">
+          {loading ? (
+            <div className="py-12 text-center text-gray-400">Loading...</div>
+          ) : hospitals.length === 0 ? (
+            <div className="py-12 text-center text-gray-400">No hospitals found</div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {hospitals.map((h) => (
+                <div key={h._id} className="p-4 active:bg-gray-50"
+                  onClick={() => navigate(`/hospitals/${h._id}`)}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
+                        <HiOutlineOfficeBuilding className="w-5 h-5 text-primary-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-800 truncate">{h.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {[h.city, h.state].filter(Boolean).join(', ') || 'Location not set'}
+                        </p>
+                      </div>
+                    </div>
+                    {can('hospitals', 'create') && (
+                      <div className="flex gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => navigate(`/hospitals/${h._id}/edit`)}
+                          className="p-2.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg"
+                        >
+                          <HiOutlinePencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(h._id, h.name)}
+                          className="p-2.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <HiOutlineTrash className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-gray-500 ml-13">
+                    {(h.phone || h.contact) && (
+                      <span>{h.phone || h.contact}</span>
+                    )}
+                    {h.referenceBy && (
+                      <span>Ref: {h.referenceBy}</span>
+                    )}
+                    {(h.billingServices?.length > 0) && (
+                      <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium">
+                        {h.billingServices.length} service{h.billingServices.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {(h.doctors?.length > 0) && (
+                      <span className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded font-medium">
+                        {h.doctors.length} doctor{h.doctors.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Desktop Table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
