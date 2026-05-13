@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createClaimAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI } from '../../services/api';
 import { toast } from 'react-toastify';
+import { isValidPhone, onPhoneInput, inputCls } from '../../utils/validators';
 
 const ClaimForm = () => {
   const navigate = useNavigate();
@@ -32,12 +33,24 @@ const ClaimForm = () => {
     });
   }, []);
 
+  const [mobileError, setMobileError] = useState('');
+
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
+  const handleMobileChange = (e) => {
+    const val = onPhoneInput(e.target.value);
+    setForm({ ...form, patientMobile: val });
+    setMobileError(val && !isValidPhone(val) ? 'Enter a valid 10-digit Indian mobile number (starts with 6-9)' : '');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (form.patientMobile && !isValidPhone(form.patientMobile)) {
+      setMobileError('Enter a valid 10-digit Indian mobile number (starts with 6-9)');
+      return;
+    }
     setLoading(true);
     try {
       const submitData = { ...form };
@@ -57,7 +70,7 @@ const ClaimForm = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-6">New Claim - Patient Admit</h1>
 
       <form onSubmit={handleSubmit}>
@@ -92,9 +105,12 @@ const ClaimForm = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Patient Mobile</label>
-              <input name="patientMobile" value={form.patientMobile} onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Patient Mobile <span className="text-gray-400 font-normal">(10 digits)</span></label>
+              <input name="patientMobile" value={form.patientMobile} onChange={handleMobileChange}
+                inputMode="numeric" maxLength={10}
+                className={inputCls(!!mobileError)} placeholder="e.g. 9876543210" />
+              {form.patientMobile && <p className="text-xs text-gray-400 mt-1">{form.patientMobile.length}/10 digits</p>}
+              {mobileError && <p className="text-xs text-red-500 mt-0.5">{mobileError}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name</label>

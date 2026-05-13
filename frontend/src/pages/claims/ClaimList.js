@@ -1,24 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getClaimsAPI, getHospitalsAPI } from '../../services/api';
+import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi';
-
-const statusColors = {
-  admitted: 'bg-blue-100 text-blue-700',
-  discharged: 'bg-yellow-100 text-yellow-700',
-  file_received: 'bg-purple-100 text-purple-700',
-  submitted: 'bg-orange-100 text-orange-700',
-  settled: 'bg-green-100 text-green-700',
-  rejected: 'bg-red-100 text-red-700',
-};
+import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 
 const ClaimList = () => {
   const navigate = useNavigate();
   const { can } = useAuth();
   const [claims, setClaims] = useState([]);
   const [hospitals, setHospitals] = useState([]);
+  const [claimStatuses, setClaimStatuses] = useState([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -28,6 +21,7 @@ const ClaimList = () => {
 
   useEffect(() => {
     getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
+    getClaimStatusesAPI().then(({ data }) => setClaimStatuses(data.filter(s => s.isActive))).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -79,12 +73,9 @@ const ClaimList = () => {
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
             <option value="">All Status</option>
-            <option value="admitted">Admitted</option>
-            <option value="discharged">Discharged</option>
-            <option value="file_received">File Received</option>
-            <option value="submitted">Submitted</option>
-            <option value="settled">Settled</option>
-            <option value="rejected">Rejected</option>
+            {claimStatuses.map(s => (
+              <option key={s._id} value={s.slug}>{s.label}</option>
+            ))}
           </select>
           <select value={filters.claimType} onChange={(e) => setFilters({ ...filters, claimType: e.target.value, page: 1 })}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
@@ -131,9 +122,14 @@ const ClaimList = () => {
                   <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
                   <td className="py-3 px-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[c.status]}`}>
-                      {c.status.replace('_', ' ')}
-                    </span>
+                    {(() => {
+                      const st = claimStatuses.find(s => s.slug === c.status);
+                      return (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLOR_MAP[st?.color] || 'bg-gray-100 text-gray-700'}`}>
+                          {st?.label || c.status.replace(/_/g, ' ')}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <button onClick={() => navigate(`/claims/${c._id}`)}

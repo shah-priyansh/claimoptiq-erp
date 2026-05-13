@@ -4,11 +4,12 @@ const Role = require('./models/Role');
 const Hospital = require('./models/Hospital');
 const InsuranceCompany = require('./models/InsuranceCompany');
 const TPA = require('./models/TPA');
+const ClaimStatus = require('./models/ClaimStatus');
 
 const connectDB = require('./config/db');
 
 // Default module permissions for each role
-const allModules = ['dashboard', 'claims', 'hospitals', 'insurance', 'tpa', 'users', 'roles', 'reports'];
+const allModules = ['dashboard', 'claims', 'hospitals', 'insurance', 'tpa', 'users', 'roles', 'reports', 'claim_statuses'];
 
 const buildPermissions = (config) => {
   return allModules.map(mod => ({
@@ -223,6 +224,20 @@ const seedData = async () => {
     );
   }
   console.log(`${hospitals.length} Hospitals seeded`);
+
+  // Seed default Claim Statuses
+  const defaultStatuses = [
+    { slug: 'admitted',      label: 'Admitted',      color: 'blue',   order: 1, isSystem: true },
+    { slug: 'discharged',    label: 'Discharged',    color: 'yellow', order: 2, isSystem: true },
+    { slug: 'file_received', label: 'File Received', color: 'purple', order: 3, isSystem: true },
+    { slug: 'submitted',     label: 'Submitted',     color: 'orange', order: 4, isSystem: true },
+    { slug: 'settled',       label: 'Settled',       color: 'green',  order: 5, isSystem: true },
+    { slug: 'rejected',      label: 'Rejected',      color: 'red',    order: 6, isSystem: true },
+  ];
+  for (const s of defaultStatuses) {
+    await ClaimStatus.findOneAndUpdate({ slug: s.slug }, s, { upsert: true });
+  }
+  console.log(`${defaultStatuses.length} Claim Statuses seeded`);
 
   console.log('Seed completed!');
   process.exit(0);

@@ -63,6 +63,12 @@ export const deleteDocumentAPI = (claimId, docId) => API.delete(`/claims/${claim
 // Dashboard
 export const getDashboardAPI = () => API.get('/claims/dashboard');
 
+// Claim Status Master
+export const getClaimStatusesAPI = () => API.get('/claim-statuses');
+export const createClaimStatusAPI = (data) => API.post('/claim-statuses', data);
+export const updateClaimStatusAPI = (id, data) => API.put(`/claim-statuses/${id}`, data);
+export const deleteClaimStatusAPI = (id) => API.delete(`/claim-statuses/${id}`);
+
 // Roles
 export const getRolesAPI = () => API.get('/roles');
 export const getRoleAPI = (id) => API.get(`/roles/${id}`);

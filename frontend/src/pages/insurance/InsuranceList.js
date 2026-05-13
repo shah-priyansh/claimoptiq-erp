@@ -55,7 +55,7 @@ const InsuranceList = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-1">Insurance Companies</h1>
       <p className="text-sm text-gray-500 mb-6">Manage insurance company list for claim dropdowns</p>
 

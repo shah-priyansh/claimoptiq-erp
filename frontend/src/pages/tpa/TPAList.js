@@ -55,7 +55,7 @@ const TPAList = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-1">TPA (Third Party Administrators)</h1>
       <p className="text-sm text-gray-500 mb-6">Manage TPA list for claim dropdowns</p>
 

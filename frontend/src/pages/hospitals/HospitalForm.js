@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { createHospitalAPI, updateHospitalAPI, getHospitalAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi';
+import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
 
 const emptyService = {
   serviceName: '',
@@ -28,6 +29,7 @@ const HospitalForm = () => {
     city: '', state: '', pincode: '', referenceBy: '',
     billingServices: [],
   });
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -41,6 +43,7 @@ const HospitalForm = () => {
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+    setErrors(prev => ({ ...prev, [e.target.name]: '' }));
   };
 
   const handleServiceChange = (idx, field, value) => {
@@ -58,8 +61,19 @@ const HospitalForm = () => {
     setForm({ ...form, billingServices: services });
   };
 
+  const validate = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = 'Hospital name is required';
+    if (form.email && !isValidEmail(form.email)) e.email = 'Enter a valid email address';
+    if (form.phone && !isValidPhone(form.phone)) e.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
+    if (form.pincode && !isValidPincode(form.pincode)) e.pincode = 'Enter a valid 6-digit Indian pincode';
+    return e;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const e_ = validate();
+    if (Object.keys(e_).length) { setErrors(e_); return; }
     setLoading(true);
     try {
       if (isEdit) {
@@ -78,7 +92,7 @@ const HospitalForm = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-6">
         {isEdit ? 'Edit Hospital' : 'Add New Hospital'}
       </h1>
@@ -99,14 +113,19 @@ const HospitalForm = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-              <input name="phone" value={form.phone} onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Phone <span className="text-gray-400 font-normal">(10 digits)</span></label>
+              <input name="phone" value={form.phone}
+                onChange={(e) => { setErrors(p => ({...p, phone:''})); setForm(f => ({...f, phone: onPhoneInput(e.target.value)})); }}
+                inputMode="numeric" maxLength={10}
+                className={inputCls(!!errors.phone)} placeholder="e.g. 9876543210" />
+              {form.phone && <p className="text-xs text-gray-400 mt-1">{form.phone.length}/10 digits</p>}
+              {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
               <input name="email" type="email" value={form.email} onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                className={inputCls(!!errors.email)} placeholder="hospital@example.com" />
+              {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Reference By</label>
@@ -129,9 +148,12 @@ const HospitalForm = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
-              <input name="pincode" value={form.pincode} onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Pincode <span className="text-gray-400 font-normal">(6 digits)</span></label>
+              <input name="pincode" value={form.pincode}
+                onChange={(e) => { setErrors(p=>({...p,pincode:''})); setForm(f=>({...f,pincode:e.target.value.replace(/\D/g,'').slice(0,6)})); }}
+                inputMode="numeric" maxLength={6}
+                className={inputCls(!!errors.pincode)} placeholder="e.g. 395001" />
+              {errors.pincode && <p className="text-xs text-red-500 mt-1">{errors.pincode}</p>}
             </div>
           </div>
         </div>

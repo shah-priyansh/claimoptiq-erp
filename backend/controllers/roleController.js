@@ -13,6 +13,7 @@ exports.getModules = async (req, res) => {
       { key: 'users', label: 'User Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'roles', label: 'Role Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'reports', label: 'Reports', actions: ['view', 'export'] },
+      { key: 'claim_statuses', label: 'Claim Status Master', actions: ['view', 'create', 'edit', 'delete'] },
     ];
     res.json(modules);
   } catch (error) {

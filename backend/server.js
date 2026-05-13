@@ -32,6 +32,7 @@ app.use('/api/insurance', require('./routes/insuranceRoutes'));
 app.use('/api/tpa', require('./routes/tpaRoutes'));
 app.use('/api/claims', require('./routes/claimRoutes'));
 app.use('/api/roles', require('./routes/roleRoutes'));
+app.use('/api/claim-statuses', require('./routes/claimStatusRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {
