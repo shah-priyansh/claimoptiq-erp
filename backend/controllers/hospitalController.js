@@ -1,7 +1,20 @@
 const Hospital = require('../models/Hospital');
 
+const isValidPhone = (v) => /^[6-9]\d{9}$/.test((v || '').trim());
+const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
+const isValidPincode = (v) => /^[1-9][0-9]{5}$/.test((v || '').trim());
+
+const validateHospitalFields = (body) => {
+  if (body.phone && !isValidPhone(body.phone)) return 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
+  if (body.email && !isValidEmail(body.email)) return 'Enter a valid email address';
+  if (body.pincode && !isValidPincode(body.pincode)) return 'Enter a valid 6-digit Indian pincode';
+  return null;
+};
+
 exports.createHospital = async (req, res) => {
   try {
+    const err = validateHospitalFields(req.body);
+    if (err) return res.status(400).json({ message: err });
     const hospital = await Hospital.create(req.body);
     res.status(201).json(hospital);
   } catch (error) {
@@ -48,6 +61,8 @@ exports.getHospital = async (req, res) => {
 
 exports.updateHospital = async (req, res) => {
   try {
+    const err = validateHospitalFields(req.body);
+    if (err) return res.status(400).json({ message: err });
     const hospital = await Hospital.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true

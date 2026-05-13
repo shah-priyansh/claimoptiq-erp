@@ -3,17 +3,32 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { loginAPI } from '../../services/api';
 import { toast } from 'react-toastify';
+import { isValidIdentifier, inputCls } from '../../utils/validators';
 
 const Login = () => {
   const { user, login } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '' });
+  const [form, setForm] = useState({ identifier: '', password: '' });
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
   if (user) return <Navigate to="/dashboard" replace />;
 
+  const validate = () => {
+    const e = {};
+    if (!form.identifier.trim()) {
+      e.identifier = 'Email or mobile number is required';
+    } else if (!isValidIdentifier(form.identifier)) {
+      e.identifier = 'Enter a valid email or 10-digit Indian mobile number';
+    }
+    if (!form.password) e.password = 'Password is required';
+    return e;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const e_ = validate();
+    if (Object.keys(e_).length) { setErrors(e_); return; }
     setLoading(true);
     try {
       const { data } = await loginAPI(form);
@@ -25,6 +40,11 @@ const Login = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const set = (field, val) => {
+    setForm(f => ({ ...f, [field]: val }));
+    setErrors(e => ({ ...e, [field]: '' }));
   };
 
   return (
@@ -69,15 +89,15 @@ const Login = () => {
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Email or Mobile Number</label>
                 <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
-                  placeholder="admin@claimoptiq.com"
-                  required
+                  type="text"
+                  value={form.identifier}
+                  onChange={(e) => set('identifier', e.target.value)}
+                  className={`px-4 py-2.5 text-sm ${inputCls(!!errors.identifier)}`}
+                  placeholder="Email or 10-digit mobile"
                 />
+                {errors.identifier && <p className="text-xs text-red-500 mt-1">{errors.identifier}</p>}
               </div>
 
               <div>
@@ -85,11 +105,11 @@ const Login = () => {
                 <input
                   type="password"
                   value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
+                  onChange={(e) => set('password', e.target.value)}
+                  className={`px-4 py-2.5 text-sm ${inputCls(!!errors.password)}`}
                   placeholder="Enter your password"
-                  required
                 />
+                {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
               </div>
 
               <button

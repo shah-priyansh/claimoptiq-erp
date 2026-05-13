@@ -3,6 +3,7 @@ import { getUsersAPI, createUserAPI, updateUserAPI, getHospitalsAPI, getRolesAPI
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineX } from 'react-icons/hi';
+import { isValidEmail, isValidPhone, onPhoneInput, inputCls } from '../../utils/validators';
 
 const emptyForm = { name: '', email: '', password: '', role: '', hospital: '', phone: '' };
 
@@ -13,6 +14,7 @@ const UserList = () => {
   const [roles, setRoles] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [errors, setErrors] = useState({});
   const [editId, setEditId] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -36,8 +38,23 @@ const UserList = () => {
   const selectedRole = roles.find(r => r._id === form.role);
   const isHospitalRole = selectedRole?.slug === 'hospital';
 
+  const validateUser = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = 'Name is required';
+    if (!form.email.trim()) e.email = 'Email is required';
+    else if (!isValidEmail(form.email)) e.email = 'Enter a valid email address';
+    if (!editId && !form.password) e.password = 'Password is required';
+    if (form.password && form.password.length < 6) e.password = 'Password must be at least 6 characters';
+    if (!form.role) e.role = 'Role is required';
+    if (!form.phone.trim()) e.phone = 'Phone number is required';
+    else if (!isValidPhone(form.phone)) e.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
+    return e;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const e_ = validateUser();
+    if (Object.keys(e_).length) { setErrors(e_); return; }
     try {
       const submitData = { ...form };
       if (!submitData.hospital) delete submitData.hospital;
@@ -51,11 +68,17 @@ const UserList = () => {
       }
       setShowModal(false);
       setForm(emptyForm);
+      setErrors({});
       setEditId(null);
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to save user');
     }
+  };
+
+  const setField = (field, val) => {
+    setForm(f => ({ ...f, [field]: val }));
+    setErrors(e => ({ ...e, [field]: '' }));
   };
 
   const openEdit = (user) => {
@@ -158,45 +181,56 @@ const UserList = () => {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                <input value={form.name} onChange={(e) => setField('name', e.target.value)}
+                  className={inputCls(!!errors.name)} placeholder="Full name" />
+                {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                <input type="email" value={form.email} onChange={(e) => setField('email', e.target.value)}
+                  className={inputCls(!!errors.email)} placeholder="name@example.com" />
+                {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Password {editId ? '(leave blank to keep)' : '*'}
                 </label>
-                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  required={!editId} minLength={6}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                <input type="password" value={form.password} onChange={(e) => setField('password', e.target.value)}
+                  className={inputCls(!!errors.password)} placeholder="Min. 6 characters" />
+                {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
-                <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                <select value={form.role} onChange={(e) => setField('role', e.target.value)}
+                  className={inputCls(!!errors.role)}>
                   <option value="">Select Role</option>
                   {roles.map((r) => <option key={r._id} value={r._id}>{r.name}</option>)}
                 </select>
+                {errors.role && <p className="text-xs text-red-500 mt-1">{errors.role}</p>}
               </div>
               {isHospitalRole && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
-                  <select value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                  <select value={form.hospital} onChange={(e) => setField('hospital', e.target.value)}
+                    className={inputCls(!!errors.hospital)}>
                     <option value="">Select Hospital</option>
                     {hospitals.map((h) => <option key={h._id} value={h._id}>{h.name}</option>)}
                   </select>
+                  {errors.hospital && <p className="text-xs text-red-500 mt-1">{errors.hospital}</p>}
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone * <span className="text-gray-400 font-normal">(10 digits)</span></label>
+                <input
+                  value={form.phone}
+                  onChange={(e) => setField('phone', onPhoneInput(e.target.value))}
+                  inputMode="numeric"
+                  maxLength={10}
+                  className={inputCls(!!errors.phone)}
+                  placeholder="e.g. 9876543210"
+                />
+                <p className="text-xs text-gray-400 mt-1">{form.phone.length}/10 digits</p>
+                {errors.phone && <p className="text-xs text-red-500 mt-0.5">{errors.phone}</p>}
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="submit"

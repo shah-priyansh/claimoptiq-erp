@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createRoleAPI, updateRoleAPI, getRoleAPI, getModulesAPI } from '../../services/api';
 import { toast } from 'react-toastify';
+import { HiOutlineCog } from 'react-icons/hi';
+
+const MODULE_GROUPS = [
+  { label: null,             keys: ['dashboard', 'claims'] },
+  { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'users', 'roles', 'claim_statuses'] },
+  { label: null,             keys: ['reports'] },
+];
 
 const RoleForm = () => {
   const navigate = useNavigate();
@@ -135,7 +142,7 @@ const RoleForm = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-6">
         {isEdit ? 'Edit Role' : 'Create New Role'}
       </h1>
@@ -191,34 +198,61 @@ const RoleForm = () => {
                   <th className="text-center py-3 px-3 text-xs font-semibold text-gray-500 uppercase">All</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {modules.map((mod) => {
-                  const allChecked = mod.actions.every(a => getPermission(mod.key, a));
-                  return (
-                    <tr key={mod.key} className="hover:bg-gray-50">
-                      <td className="py-3 px-4">
-                        <span className="text-sm font-medium text-gray-800">{mod.label}</span>
-                      </td>
-                      {['view', 'create', 'edit', 'delete', 'export'].map(action => (
-                        <td key={action} className="py-3 px-3 text-center">
-                          {mod.actions.includes(action) ? (
-                            <input type="checkbox"
-                              checked={getPermission(mod.key, action)}
-                              onChange={() => togglePermission(mod.key, action)}
-                              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500 cursor-pointer" />
-                          ) : (
-                            <span className="text-gray-300">-</span>
-                          )}
+              <tbody>
+                {MODULE_GROUPS.flatMap((group) => {
+                  const groupMods = group.keys
+                    .map(k => modules.find(m => m.key === k))
+                    .filter(Boolean);
+                  if (groupMods.length === 0) return [];
+
+                  const rows = [];
+
+                  if (group.label) {
+                    rows.push(
+                      <tr key={`__group_${group.label}__`}>
+                        <td colSpan={7} className="px-4 pt-4 pb-1">
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 bg-primary-50 border border-primary-100 rounded-md px-2.5 py-1">
+                              <HiOutlineCog className="w-3.5 h-3.5 text-primary-600" />
+                              <span className="text-xs font-semibold text-primary-700 uppercase tracking-wide">{group.label}</span>
+                            </div>
+                            <div className="flex-1 h-px bg-primary-100" />
+                          </div>
                         </td>
-                      ))}
-                      <td className="py-3 px-3 text-center">
-                        <input type="checkbox"
-                          checked={allChecked}
-                          onChange={() => toggleAllForModule(mod.key)}
-                          className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500 cursor-pointer" />
-                      </td>
-                    </tr>
-                  );
+                      </tr>
+                    );
+                  }
+
+                  groupMods.forEach((mod) => {
+                    const allChecked = mod.actions.every(a => getPermission(mod.key, a));
+                    rows.push(
+                      <tr key={mod.key} className="hover:bg-gray-50 border-b border-gray-100">
+                        <td className={`py-3 px-4 ${group.label ? 'pl-8' : ''}`}>
+                          <span className="text-sm font-medium text-gray-800">{mod.label}</span>
+                        </td>
+                        {['view', 'create', 'edit', 'delete', 'export'].map(action => (
+                          <td key={action} className="py-3 px-3 text-center">
+                            {mod.actions.includes(action) ? (
+                              <input type="checkbox"
+                                checked={getPermission(mod.key, action)}
+                                onChange={() => togglePermission(mod.key, action)}
+                                className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500 cursor-pointer" />
+                            ) : (
+                              <span className="text-gray-300">-</span>
+                            )}
+                          </td>
+                        ))}
+                        <td className="py-3 px-3 text-center">
+                          <input type="checkbox"
+                            checked={allChecked}
+                            onChange={() => toggleAllForModule(mod.key)}
+                            className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500 cursor-pointer" />
+                        </td>
+                      </tr>
+                    );
+                  });
+
+                  return rows;
                 })}
               </tbody>
             </table>

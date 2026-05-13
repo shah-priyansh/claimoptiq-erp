@@ -2,14 +2,22 @@ const User = require('../models/User');
 const Role = require('../models/Role');
 const generateToken = require('../utils/generateToken');
 
+const isValidPhone = (v) => /^[6-9]\d{9}$/.test((v || '').trim());
+const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
+
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Please provide email and password' });
+    const { identifier, password } = req.body;
+    if (!identifier || !password) {
+      return res.status(400).json({ message: 'Please provide email/mobile and password' });
     }
 
-    const user = await User.findOne({ email })
+    const isEmail = identifier.includes('@');
+    const query = isEmail
+      ? { email: identifier.toLowerCase().trim() }
+      : { phone: identifier.trim() };
+
+    const user = await User.findOne(query)
       .populate('role')
       .populate('hospital', 'name');
 
@@ -57,6 +65,16 @@ exports.getMe = async (req, res) => {
 exports.createUser = async (req, res) => {
   try {
     const { name, email, password, role, hospital, phone } = req.body;
+
+    if (!phone || !phone.trim()) {
+      return res.status(400).json({ message: 'Phone number is required' });
+    }
+    if (!isValidPhone(phone)) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit Indian mobile number (starts with 6-9)' });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address' });
+    }
 
     const existing = await User.findOne({ email });
     if (existing) {

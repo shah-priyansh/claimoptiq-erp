@@ -21,11 +21,7 @@ const claimSchema = new mongoose.Schema({
   claimGenerateDate: { type: Date, default: Date.now },
 
   // Status tracking
-  status: {
-    type: String,
-    enum: ['admitted', 'discharged', 'file_received', 'submitted', 'settled', 'rejected'],
-    default: 'admitted'
-  },
+  status: { type: String, default: 'admitted' },
 
   // Patient Admit
   hospital: { type: mongoose.Schema.Types.ObjectId, ref: 'Hospital', required: true },

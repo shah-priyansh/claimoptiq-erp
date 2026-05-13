@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true, minlength: 6 },
   role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role', required: true },
   hospital: { type: mongoose.Schema.Types.ObjectId, ref: 'Hospital', default: null },
-  phone: { type: String, default: '' },
+  phone: { type: String, required: true, trim: true },
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
