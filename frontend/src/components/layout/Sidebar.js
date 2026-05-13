@@ -21,7 +21,8 @@ const adminItems = [
   { to: '/tpa',            label: 'TPA',                 icon: HiOutlineClipboardList,  module: 'tpa' },
   { to: '/users',          label: 'Users',               icon: HiOutlineUserGroup,      module: 'users' },
   { to: '/roles',          label: 'Roles & Permissions', icon: HiOutlineKey,            module: 'roles' },
-  { to: '/claim-statuses', label: 'Claim Status Master', icon: HiOutlineTag,            module: 'claim_statuses' },
+  { to: '/claim-statuses',       label: 'Claim Status Master',    icon: HiOutlineTag,            module: 'claim_statuses' },
+  { to: '/claim-document-types', label: 'Document Types',         icon: HiOutlineDocumentText,   module: 'claim_document_types' },
 ];
 
 const Sidebar = ({ isOpen, onClose }) => {

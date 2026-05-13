@@ -14,6 +14,7 @@ exports.getModules = async (req, res) => {
       { key: 'roles', label: 'Role Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'reports', label: 'Reports', actions: ['view', 'export'] },
       { key: 'claim_statuses', label: 'Claim Status Master', actions: ['view', 'create', 'edit', 'delete'] },
+      { key: 'claim_document_types', label: 'Claim Document Types', actions: ['view', 'create', 'edit', 'delete'] },
     ];
     res.json(modules);
   } catch (error) {

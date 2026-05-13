@@ -69,6 +69,12 @@ export const createClaimStatusAPI = (data) => API.post('/claim-statuses', data);
 export const updateClaimStatusAPI = (id, data) => API.put(`/claim-statuses/${id}`, data);
 export const deleteClaimStatusAPI = (id) => API.delete(`/claim-statuses/${id}`);
 
+// Claim Document Type Master
+export const getClaimDocumentTypesAPI = () => API.get('/claim-document-types');
+export const createClaimDocumentTypeAPI = (data) => API.post('/claim-document-types', data);
+export const updateClaimDocumentTypeAPI = (id, data) => API.put(`/claim-document-types/${id}`, data);
+export const deleteClaimDocumentTypeAPI = (id) => API.delete(`/claim-document-types/${id}`);
+
 // Roles
 export const getRolesAPI = () => API.get('/roles');
 export const getRoleAPI = (id) => API.get(`/roles/${id}`);
