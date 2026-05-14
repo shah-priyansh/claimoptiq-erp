@@ -101,14 +101,12 @@ const defaultRoles = [
 const seedData = async () => {
   await connectDB();
 
-  // 1. Seed Roles
+  // 1. Seed Roles — clear all existing first, then re-seed fresh
+  await Role.deleteMany({});
+  console.log('Existing roles cleared');
   const roleMap = {};
   for (const roleDef of defaultRoles) {
-    const role = await Role.findOneAndUpdate(
-      { slug: roleDef.slug },
-      roleDef,
-      { upsert: true, returnDocument: 'after' }
-    );
+    const role = await Role.create(roleDef);
     roleMap[roleDef.slug] = role._id;
   }
   console.log(`${defaultRoles.length} Roles seeded`);
