@@ -9,6 +9,12 @@ const billingServiceSchema = new mongoose.Schema({
   },
   fixedAmount: { type: Number, default: 0 },
   claimLimit: { type: Number, default: 0 },
+  overLimitBehavior: {
+    type: String,
+    enum: ['no_charge', 'per_claim', 'stop'],
+    default: 'no_charge'
+  },
+  overLimitPerClaimAmount: { type: Number, default: 0 },
   slabRangeStart: { type: Number, default: 0 },
   slabRangeEnd: { type: Number, default: 50000 },
   slabBasePrice: { type: Number, default: 2000 },
