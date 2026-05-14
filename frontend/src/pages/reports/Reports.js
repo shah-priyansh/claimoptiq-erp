@@ -1,17 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { getClaimsAPI, getHospitalsAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
 
 const Reports = () => {
+  const { user } = useAuth();
+  const isHospitalUser = !!user?.hospital;
   const [hospitals, setHospitals] = useState([]);
   const [filters, setFilters] = useState({ hospital: '', month: '', status: '' });
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
-  }, []);
+    if (!isHospitalUser) {
+      getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
+    }
+  }, [isHospitalUser]);
 
   const generateReport = async () => {
     setLoading(true);
@@ -68,12 +73,14 @@ const Reports = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <select value={filters.hospital} onChange={(e) => setFilters({ ...filters, hospital: e.target.value })}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-            <option value="">All Hospitals</option>
-            {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-          </select>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+          {!isHospitalUser && (
+            <select value={filters.hospital} onChange={(e) => setFilters({ ...filters, hospital: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+              <option value="">All Hospitals</option>
+              {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+            </select>
+          )}
           <input type="month" value={filters.month}
             onChange={(e) => setFilters({ ...filters, month: e.target.value })}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
@@ -127,21 +134,21 @@ const Reports = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['SR', 'Patient', 'Hospital', 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', 'File Price'].map(h => (
+                {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', 'File Price'].map(h => (
                   <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {claims.length === 0 ? (
-                <tr><td colSpan={11} className="py-8 text-center text-gray-400">
+                <tr><td colSpan={isHospitalUser ? 10 : 11} className="py-8 text-center text-gray-400">
                   {loading ? 'Loading...' : 'Click "Generate" to view report'}
                 </td></tr>
               ) : claims.map(c => (
                 <tr key={c._id} className="hover:bg-gray-50 text-sm">
                   <td className="py-2 px-3 text-gray-500">{c.srNo}</td>
                   <td className="py-2 px-3 font-medium text-gray-800 whitespace-nowrap">{c.patientName}</td>
-                  <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{c.hospital?.name || '-'}</td>
+                  {!isHospitalUser && <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{c.hospital?.name || '-'}</td>}
                   <td className="py-2 px-3 capitalize">{c.claimType}</td>
                   <td className="py-2 px-3">{formatAmount(c.hospitalFinalBill)}</td>
                   <td className="py-2 px-3">{formatAmount(c.finalApprovalAmount)}</td>

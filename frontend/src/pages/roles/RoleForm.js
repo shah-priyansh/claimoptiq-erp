@@ -6,7 +6,8 @@ import { HiOutlineCog } from 'react-icons/hi';
 
 const MODULE_GROUPS = [
   { label: null,             keys: ['dashboard', 'claims'] },
-  { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'users', 'roles', 'claim_statuses'] },
+  { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'users', 'roles', 'claim_statuses', 'claim_document_types'] },
+  { label: 'Documents',      keys: ['document_submissions'] },
   { label: null,             keys: ['reports'] },
 ];
 
@@ -24,36 +25,36 @@ const RoleForm = () => {
   const [isSystem, setIsSystem] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Fetch available modules from backend
+  // Load modules + role data together so we can merge missing modules
   useEffect(() => {
-    getModulesAPI().then(({ data }) => {
-      setModules(data);
-      // Initialize permissions if creating new role
-      if (!isEdit) {
+    if (isEdit) {
+      Promise.all([getRoleAPI(id), getModulesAPI()])
+        .then(([{ data: role }, { data: allModules }]) => {
+          setModules(allModules);
+          const existingMap = Object.fromEntries(
+            (role.modulePermissions || []).map(m => [m.module, m])
+          );
+          // Ensure every known module has an entry (fills in newly added modules)
+          const merged = allModules.map(m =>
+            existingMap[m.key] || {
+              module: m.key,
+              permissions: { view: false, create: false, edit: false, delete: false, export: false },
+            }
+          );
+          setForm({ name: role.name, description: role.description || '', modulePermissions: merged });
+          setIsSystem(role.isSystem);
+        })
+        .catch(() => { toast.error('Role not found'); navigate('/roles'); });
+    } else {
+      getModulesAPI().then(({ data }) => {
+        setModules(data);
         setForm(prev => ({
           ...prev,
           modulePermissions: data.map(m => ({
             module: m.key,
-            permissions: { view: false, create: false, edit: false, delete: false, export: false }
-          }))
+            permissions: { view: false, create: false, edit: false, delete: false, export: false },
+          })),
         }));
-      }
-    });
-  }, [isEdit]);
-
-  // Fetch existing role for edit
-  useEffect(() => {
-    if (isEdit) {
-      getRoleAPI(id).then(({ data }) => {
-        setForm({
-          name: data.name,
-          description: data.description || '',
-          modulePermissions: data.modulePermissions || [],
-        });
-        setIsSystem(data.isSystem);
-      }).catch(() => {
-        toast.error('Role not found');
-        navigate('/roles');
       });
     }
   }, [id, isEdit, navigate]);

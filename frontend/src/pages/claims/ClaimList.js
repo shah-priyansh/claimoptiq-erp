@@ -9,7 +9,8 @@ import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 
 const ClaimList = () => {
   const navigate = useNavigate();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const isHospitalUser = !!user?.hospital;
   const [claims, setClaims] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [claimStatuses, setClaimStatuses] = useState([]);
@@ -151,18 +152,20 @@ const ClaimList = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          <div className="relative sm:col-span-2 lg:col-span-2">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
+          <div className={`relative sm:col-span-2 ${isHospitalUser ? 'lg:col-span-2' : 'lg:col-span-2'}`}>
             <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input placeholder="Search patient, policy, CCN..."
               value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
               className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           </div>
-          <select value={filters.hospital} onChange={(e) => setFilters({ ...filters, hospital: e.target.value, page: 1 })}
-            className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-            <option value="">All Hospitals</option>
-            {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-          </select>
+          {!isHospitalUser && (
+            <select value={filters.hospital} onChange={(e) => setFilters({ ...filters, hospital: e.target.value, page: 1 })}
+              className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+              <option value="">All Hospitals</option>
+              {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+            </select>
+          )}
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
             className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
             <option value="">All Status</option>
@@ -202,8 +205,7 @@ const ClaimList = () => {
                     <StatusBadge c={c} />
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
-                    <span className="font-medium text-gray-600">{c.hospital?.name || '-'}</span>
-                    <span>·</span>
+                    {!isHospitalUser && <><span className="font-medium text-gray-600">{c.hospital?.name || '-'}</span><span>·</span></>}
                     <span className="capitalize">{c.claimType}</span>
                     <span>·</span>
                     <span>{formatDate(c.dateOfAdmit)}</span>
@@ -227,7 +229,7 @@ const ClaimList = () => {
               <tr>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">SR</th>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Patient</th>
-                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Hospital</th>
+                {!isHospitalUser && <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Hospital</th>}
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">DOA</th>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Bill</th>
@@ -237,9 +239,9 @@ const ClaimList = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={8} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={isHospitalUser ? 7 : 8} className="py-8 text-center text-gray-400">Loading...</td></tr>
               ) : claims.length === 0 ? (
-                <tr><td colSpan={8} className="py-8 text-center text-gray-400">No claims found</td></tr>
+                <tr><td colSpan={isHospitalUser ? 7 : 8} className="py-8 text-center text-gray-400">No claims found</td></tr>
               ) : claims.map((c) => (
                 <tr key={c._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/claims/${c._id}`)}>
                   <td className="py-3 px-3 text-sm text-gray-500">{c.srNo}</td>
@@ -247,7 +249,7 @@ const ClaimList = () => {
                     <p className="text-sm font-medium text-gray-800">{c.patientName}</p>
                     <p className="text-xs text-gray-400">{c.policyNo || '-'}</p>
                   </td>
-                  <td className="py-3 px-3 text-sm text-gray-600">{c.hospital?.name || '-'}</td>
+                  {!isHospitalUser && <td className="py-3 px-3 text-sm text-gray-600">{c.hospital?.name || '-'}</td>}
                   <td className="py-3 px-3">
                     <span className="text-xs font-medium capitalize">{c.claimType}</span>
                   </td>

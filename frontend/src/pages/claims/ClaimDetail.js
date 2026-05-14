@@ -171,7 +171,7 @@ const ClaimDetail = () => {
   const formatAmount = (a) => a ? `Rs ${Number(a).toLocaleString('en-IN')}` : 'Rs 0';
   const currentStepIdx = statusSteps.findIndex(s => s.key === claim.status);
   const isEditable = can('claims', 'edit');
-  const canUpload = can('claims', 'view');
+  const canUpload = can('claims', 'edit');
 
   const currentStatusObj = claimStatuses.find(s => s.slug === claim.status);
   const statusBadgeCls = STATUS_COLOR_MAP[currentStatusObj?.color] || 'bg-blue-100 text-blue-700';
@@ -388,7 +388,7 @@ const ClaimDetail = () => {
       {activeTab === 'discharge' && (
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">Discharge Details</h3>
-          {isEditable && (
+          {isEditable ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[
                 { label: 'Date of Admit', name: 'dateOfAdmit', type: 'date' },
@@ -407,9 +407,26 @@ const ClaimDetail = () => {
                 </div>
               ))}
             </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                ['Date of Admit', formatDate(claim.dateOfAdmit)],
+                ['Date of Discharge', formatDate(claim.dateOfDischarge)],
+                ['Final Approval Date', formatDate(claim.finalApprovalDate)],
+                ['Hospital Final Bill', formatAmount(claim.hospitalFinalBill)],
+                ['MOU Discount', formatAmount(claim.mouDiscount)],
+                ['Deduction', formatAmount(claim.deduction)],
+                ['Final Approval Amount', formatAmount(claim.finalApprovalAmount)],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-gray-50 rounded-lg px-4 py-3">
+                  <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+                  <p className="text-sm font-semibold text-gray-800">{value}</p>
+                </div>
+              ))}
+            </div>
           )}
           {canUpload && (
-            <div className={isEditable ? 'mt-4' : ''}>
+            <div className="mt-4">
               <label className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium cursor-pointer w-fit">
                 <HiOutlineUpload className="w-4 h-4" /> Upload Discharge Docs
                 <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden"
@@ -429,7 +446,7 @@ const ClaimDetail = () => {
       {activeTab === 'file_submit' && (
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">File Receive & Submit</h3>
-          {isEditable && (
+          {isEditable ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">File Received Date</label>
@@ -473,9 +490,25 @@ const ClaimDetail = () => {
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               </div>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                ['File Received Date', formatDate(claim.fileReceivedDate)],
+                ['Submit Mode', claim.submitMode || '-'],
+                ['Online Submit Date', formatDate(claim.onlineSubmitDate)],
+                ['Courier Submit Date', formatDate(claim.courierSubmitDate)],
+                ['Courier Company', claim.courierCompanyName || '-'],
+                ['POD / Docket Number', claim.podNumber || '-'],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-gray-50 rounded-lg px-4 py-3">
+                  <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+                  <p className="text-sm font-semibold text-gray-800">{value}</p>
+                </div>
+              ))}
+            </div>
           )}
           {canUpload && (
-            <div className={isEditable ? 'mt-4' : ''}>
+            <div className="mt-4">
               <label className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium cursor-pointer w-fit">
                 <HiOutlineUpload className="w-4 h-4" /> Upload POD / Bill
                 <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden"
@@ -495,7 +528,7 @@ const ClaimDetail = () => {
       {activeTab === 'settlement' && (
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">Payment Settlement</h3>
-          {isEditable && (
+          {isEditable ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[
                 { label: 'Settlement Amount (Rs)', name: 'settlementAmount', type: 'number' },
@@ -527,9 +560,29 @@ const ClaimDetail = () => {
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               </div>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                ['Settlement Amount', formatAmount(claim.settlementAmount)],
+                ['Settlement Deduction', formatAmount(claim.settlementAmountDeduction)],
+                ['MOU Discount on Settlement', formatAmount(claim.mouDiscountOnSettlement)],
+                ['TDS', formatAmount(claim.tds)],
+                ['Bank Transfer Amount', formatAmount(claim.bankTransferAmount)],
+                ['Settlement Date', formatDate(claim.settlementDate)],
+                ['NEFT Number', claim.neftNo || '-'],
+                ['File Price', formatAmount(claim.filePrice)],
+                ['Remarks', claim.remarks || '-'],
+                ['Rejected Reason', claim.rejectedReason || '-'],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-gray-50 rounded-lg px-4 py-3">
+                  <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+                  <p className="text-sm font-semibold text-gray-800">{value}</p>
+                </div>
+              ))}
+            </div>
           )}
           {canUpload && (
-            <div className={isEditable ? 'mt-4' : ''}>
+            <div className="mt-4">
               <label className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium cursor-pointer w-fit">
                 <HiOutlineUpload className="w-4 h-4" /> Upload Settlement Proof
                 <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden"
@@ -550,11 +603,13 @@ const ClaimDetail = () => {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-800">Documents</h3>
-            <label className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium cursor-pointer">
-              <HiOutlineUpload className="w-4 h-4" /> Upload
-              <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden"
-                onChange={(e) => handleFileUpload(e, 'other')} />
-            </label>
+            {isEditable && (
+              <label className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium cursor-pointer">
+                <HiOutlineUpload className="w-4 h-4" /> Upload
+                <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                  onChange={(e) => handleFileUpload(e, 'other')} />
+              </label>
+            )}
           </div>
           {(!claim.documents || claim.documents.length === 0) ? (
             <p className="text-sm text-gray-400 text-center py-8">No documents uploaded yet</p>
