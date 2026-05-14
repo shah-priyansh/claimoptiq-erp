@@ -5,7 +5,7 @@ import { toast } from 'react-toastify';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import {
   HiOutlineCamera, HiOutlineFolderOpen, HiOutlineDocumentText,
-  HiOutlineX, HiOutlineCheckCircle, HiOutlinePhotograph,
+  HiOutlineX, HiOutlineCheckCircle,
   HiOutlineRefresh, HiOutlinePlus, HiOutlineCloudUpload,
   HiOutlineInbox, HiOutlineDownload, HiOutlineTrash, HiOutlineEye,
 } from 'react-icons/hi';
