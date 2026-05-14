@@ -13,6 +13,8 @@ import {
   HiOutlineTag,
   HiOutlineCog,
   HiOutlineChevronDown,
+  HiOutlineInbox,
+  HiOutlineCloudUpload,
 } from 'react-icons/hi';
 
 const adminItems = [
@@ -26,7 +28,7 @@ const adminItems = [
 ];
 
 const Sidebar = ({ isOpen, onClose }) => {
-  const { canViewModule } = useAuth();
+  const { canViewModule, user } = useAuth();
   const location = useLocation();
 
   const isAdminRoute = adminItems.some(item => location.pathname.startsWith(item.to));
@@ -86,6 +88,20 @@ const Sidebar = ({ isOpen, onClose }) => {
             <NavLink to="/claims" className={linkClass} onClick={onClose}>
               <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
               Claims
+            </NavLink>
+          )}
+
+          {/* Documents: Upload for hospital staff, Inbox for FCC staff */}
+          {canViewModule('document_submissions') && user?.hospital && (
+            <NavLink to="/documents/upload" className={linkClass} onClick={onClose}>
+              <HiOutlineCloudUpload className="w-5 h-5 flex-shrink-0" />
+              Upload Document
+            </NavLink>
+          )}
+          {canViewModule('document_submissions') && !user?.hospital && (
+            <NavLink to="/documents/inbox" className={linkClass} onClick={onClose}>
+              <HiOutlineInbox className="w-5 h-5 flex-shrink-0" />
+              Document Inbox
             </NavLink>
           )}
 

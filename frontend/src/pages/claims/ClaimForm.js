@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { createClaimAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI } from '../../services/api';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { createClaimAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, updateSubmissionAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { isValidPhone, onPhoneInput, inputCls } from '../../utils/validators';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import { HiOutlineDocumentText, HiOutlineX } from 'react-icons/hi';
 
 const claimTypeCls = (active) =>
   `flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all ${
@@ -14,6 +16,13 @@ const claimTypeCls = (active) =>
 
 const ClaimForm = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const fromSubmissionId = searchParams.get('submissionId') || '';
+  const fromPatientName  = searchParams.get('patientName')  || '';
+
+  const isHospitalUser = !!user?.hospital;
+
   const [hospitals, setHospitals] = useState([]);
   const [insurances, setInsurances] = useState([]);
   const [tpas, setTPAs] = useState([]);
@@ -21,8 +30,8 @@ const ClaimForm = () => {
   const [mobileError, setMobileError] = useState('');
 
   const [form, setForm] = useState({
-    hospital: '', month: new Date().toISOString().slice(0, 7),
-    patientName: '', patientMobile: '', doctorName: '',
+    hospital: user?.hospital?._id || '', month: new Date().toISOString().slice(0, 7),
+    patientName: fromPatientName, patientMobile: '', doctorName: '',
     claimType: 'cashless',
     insuranceCompany: '', tpa: '',
     policyNo: '', clientId: '', ccnNo: '',
@@ -65,6 +74,16 @@ const ClaimForm = () => {
       if (!submitData.tpa) delete submitData.tpa;
       if (!submitData.dateOfDischarge) delete submitData.dateOfDischarge;
       const { data } = await createClaimAPI(submitData);
+
+      // Link the document submission if this claim was created from the inbox
+      if (fromSubmissionId) {
+        try {
+          await updateSubmissionAPI(fromSubmissionId, { status: 'claimed', claim: data._id });
+        } catch {
+          // non-critical — claim was created successfully regardless
+        }
+      }
+
       toast.success('Claim created successfully');
       navigate(`/claims/${data._id}`);
     } catch (error) {
@@ -82,23 +101,39 @@ const ClaimForm = () => {
     <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-6">New Claim — Patient Admit</h1>
 
+      {fromSubmissionId && (
+        <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-5">
+          <HiOutlineDocumentText className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-blue-800">Creating claim from document submission</p>
+            <p className="text-xs text-blue-600 mt-0.5">Patient name is pre-filled. The submission will be marked as <strong>Claimed</strong> automatically on submit.</p>
+          </div>
+          <button type="button" onClick={() => navigate('/documents/inbox')}
+            className="text-blue-400 hover:text-blue-600 flex-shrink-0 p-0.5">
+            <HiOutlineX className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit}>
         {/* Patient & Admission */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
           <h2 className="text-base font-semibold text-gray-800 mb-4">Patient & Admission Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
-              <SearchableSelect
-                options={hospitalOptions}
-                value={form.hospital}
-                onChange={val => set('hospital', val)}
-                placeholder="Select Hospital"
-                searchPlaceholder="Search hospitals..."
-                required
-              />
-            </div>
+            {!isHospitalUser && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
+                <SearchableSelect
+                  options={hospitalOptions}
+                  value={form.hospital}
+                  onChange={val => set('hospital', val)}
+                  placeholder="Select Hospital"
+                  searchPlaceholder="Search hospitals..."
+                  required
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Month *</label>

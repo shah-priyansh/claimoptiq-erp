@@ -77,30 +77,30 @@ const Dashboard = () => {
         />
       </div>
 
-      {!stats?.isHospitalUser && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 ${!stats?.isHospitalUser ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+        {!stats?.isHospitalUser && (
           <StatCard
             title="Total Hospitals"
             value={stats?.hospitalCount || 0}
             icon={HiOutlineOfficeBuilding}
             color="bg-indigo-100 text-indigo-600"
           />
-          <StatCard
-            title="Monthly Settlements"
-            value={stats?.monthlyStats?.count || 0}
-            icon={HiOutlineCurrencyRupee}
-            color="bg-teal-100 text-teal-600"
-            subtitle={`Total: Rs ${(stats?.monthlyStats?.totalSettlement || 0).toLocaleString('en-IN')}`}
-          />
-          <StatCard
-            title="Monthly Revenue"
-            value={`Rs ${(stats?.monthlyStats?.totalFilePrice || 0).toLocaleString('en-IN')}`}
-            icon={HiOutlineCurrencyRupee}
-            color="bg-green-100 text-green-600"
-            subtitle="From file charges"
-          />
-        </div>
-      )}
+        )}
+        <StatCard
+          title="Monthly Settlements"
+          value={stats?.monthlyStats?.count || 0}
+          icon={HiOutlineCurrencyRupee}
+          color="bg-teal-100 text-teal-600"
+          subtitle={`Total: Rs ${(stats?.monthlyStats?.totalSettlement || 0).toLocaleString('en-IN')}`}
+        />
+        <StatCard
+          title="Monthly Revenue"
+          value={`Rs ${(stats?.monthlyStats?.totalFilePrice || 0).toLocaleString('en-IN')}`}
+          icon={HiOutlineCurrencyRupee}
+          color="bg-green-100 text-green-600"
+          subtitle={stats?.isHospitalUser ? 'Your hospital this month' : 'From file charges'}
+        />
+      </div>
 
       {/* Status Breakdown */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
