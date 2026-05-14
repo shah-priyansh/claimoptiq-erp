@@ -117,16 +117,16 @@ const seedData = async () => {
     await User.create({
       name: 'Super Admin',
       email: 'admin@claimoptiq.com',
-      password: 'Admin@123',
+      password: 'Test@123',
       role: roleMap.super_admin,
       phone: '9999999999'
     });
-    console.log('Super Admin created: admin@claimoptiq.com / Admin@123');
+    console.log('Super Admin created: admin@claimoptiq.com / Test@123');
   } else {
-    // Migrate existing user to new role reference
     existingAdmin.role = roleMap.super_admin;
+    existingAdmin.password = 'Test@123';
     await existingAdmin.save();
-    console.log('Super Admin role updated');
+    console.log('Super Admin updated: password reset to Test@123');
   }
 
   // 2b. FCC Staff user (no hospital linkage)
@@ -135,15 +135,16 @@ const seedData = async () => {
     await User.create({
       name: 'FCC Staff',
       email: 'fccstaff@claimoptiq.com',
-      password: 'FCC@12345',
+      password: 'Test@123',
       role: roleMap.fcc_staff,
       phone: '7777777701'
     });
-    console.log('FCC Staff created: fccstaff@claimoptiq.com / FCC@12345');
+    console.log('FCC Staff created: fccstaff@claimoptiq.com / Test@123');
   } else {
     existingFCCStaff.role = roleMap.fcc_staff;
+    existingFCCStaff.password = 'Test@123';
     await existingFCCStaff.save();
-    console.log('FCC Staff role updated');
+    console.log('FCC Staff updated: password reset to Test@123');
   }
 
   // 3. Seed Insurance Companies
@@ -236,7 +237,7 @@ const seedData = async () => {
     await User.create({
       name: 'Hospital Admin',
       email: 'hospitaladmin@claimoptiq.com',
-      password: 'Hospital@123',
+      password: 'Test@123',
       role: roleMap.hospital_admin,
       hospital: demoHospitalId,
       phone: '7777777702'
@@ -255,7 +256,7 @@ const seedData = async () => {
     await User.create({
       name: 'Hospital Staff',
       email: 'hospitalstaff@claimoptiq.com',
-      password: 'Staff@12345',
+      password: 'Test@123',
       role: roleMap.hospital_staff,
       hospital: demoHospitalId,
       phone: '7777777703'
@@ -321,5 +322,5 @@ const seedData = async () => {
 
 seedData().catch(err => {
   console.error(err);
-  process.exit(1);
+  process.exit(1);    
 });
