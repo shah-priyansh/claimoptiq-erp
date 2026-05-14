@@ -12,6 +12,8 @@ const emptyService = {
   billingType: 'fixed_monthly',
   fixedAmount: 0,
   claimLimit: 0,
+  overLimitBehavior: 'no_charge',
+  overLimitPerClaimAmount: 0,
   slabRangeStart: 0,
   slabRangeEnd: 50000,
   slabBasePrice: 2000,
@@ -335,9 +337,33 @@ const HospitalForm = () => {
 
                 {svc.billingType === 'fixed_monthly' && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Claim Limit</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Claim Limit <span className="text-gray-400 font-normal">(0 = unlimited)</span>
+                    </label>
                     <input type="number" value={svc.claimLimit}
                       onChange={(e) => handleServiceChange(idx, 'claimLimit', Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  </div>
+                )}
+
+                {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">When Limit is Exceeded</label>
+                    <select value={svc.overLimitBehavior}
+                      onChange={(e) => handleServiceChange(idx, 'overLimitBehavior', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                      <option value="no_charge">Continue — No Extra Charge</option>
+                      <option value="per_claim">Charge Per Extra Claim</option>
+                      <option value="stop">Stop — Do Not Accept New Claims</option>
+                    </select>
+                  </div>
+                )}
+
+                {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && svc.overLimitBehavior === 'per_claim' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Extra Claim Charge (Rs)</label>
+                    <input type="number" value={svc.overLimitPerClaimAmount}
+                      onChange={(e) => handleServiceChange(idx, 'overLimitPerClaimAmount', Number(e.target.value))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                   </div>
                 )}
