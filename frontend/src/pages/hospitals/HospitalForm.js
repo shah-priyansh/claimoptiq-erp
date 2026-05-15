@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI } from '../../services/api';
+import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI, getBillingServiceNamesAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserCircle } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
@@ -39,11 +39,13 @@ const HospitalForm = () => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [insurers, setInsurers] = useState([]);
+  const [serviceNames, setServiceNames] = useState([]);
   const [insurerSearch, setInsurerSearch] = useState('');
   const [insurerDropdownOpen, setInsurerDropdownOpen] = useState(null);
 
   useEffect(() => {
     getInsuranceAPI().then(({ data }) => setInsurers((data || []).filter(i => i.isActive !== false))).catch(() => {});
+    getBillingServiceNamesAPI().then(({ data }) => setServiceNames(data || [])).catch(() => {});
     if (isEdit) {
       getHospitalAPI(id).then(({ data }) => setForm(data)).catch(() => {
         toast.error('Hospital not found');
@@ -351,9 +353,13 @@ const HospitalForm = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Service Name</label>
-                    <input value={svc.serviceName} onChange={(e) => handleServiceChange(idx, 'serviceName', e.target.value)}
-                      placeholder="e.g. TPA Desk Services"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    <select value={svc.serviceName} onChange={(e) => handleServiceChange(idx, 'serviceName', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                      <option value="">— Select service name —</option>
+                      {serviceNames.map(s => (
+                        <option key={s._id} value={s.name}>{s.name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Billing Type</label>

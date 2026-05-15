@@ -11,6 +11,7 @@ exports.getModules = async (req, res) => {
       { key: 'hospitals', label: 'Hospitals', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'insurance', label: 'Insurance Companies', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'tpa', label: 'TPA', actions: ['view', 'create', 'edit', 'delete'] },
+      { key: 'billing_service_names', label: 'Billing Service Names', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'users', label: 'User Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'roles', label: 'Role Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'reports', label: 'Reports', actions: ['view', 'export'] },
