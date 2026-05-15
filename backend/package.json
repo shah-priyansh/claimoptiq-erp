@@ -21,7 +21,8 @@
     "express-validator": "^7.3.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
-    "prisma": "^7.8.0"
+    "prisma": "^7.8.0",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
