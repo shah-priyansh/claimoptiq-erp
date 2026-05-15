@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { HiOutlineMenu, HiOutlineLogout, HiOutlineUser } from 'react-icons/hi';
+import NotificationBell from './NotificationBell';
 
 const Header = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
@@ -26,6 +27,7 @@ const Header = ({ onMenuClick }) => {
         </div>
 
         <div className="flex items-center gap-4">
+          <NotificationBell />
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 bg-primary-100 rounded-full flex items-center justify-center">
               <HiOutlineUser className="w-5 h-5 text-primary-600" />
