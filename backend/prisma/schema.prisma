@@ -73,6 +73,7 @@ model HospitalBillingService {
   slabIncrementRange      Float    @default(50000) @map("slab_increment_range")
   slabIncrementPrice      Float    @default(500) @map("slab_increment_price")
   calculationBasis        String   @default("none") @map("calculation_basis")
+  percentageRate          Float    @default(0) @map("percentage_rate")
   isActive                Boolean  @default(true) @map("is_active")
   hospital                Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
 

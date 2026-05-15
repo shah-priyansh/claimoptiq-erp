@@ -20,6 +20,7 @@ const emptyService = {
   slabIncrementRange: 50000,
   slabIncrementPrice: 500,
   calculationBasis: 'none',
+  percentageRate: 0,
   isActive: true,
 };
 
@@ -323,6 +324,7 @@ const HospitalForm = () => {
                     <option value="fixed_monthly">Fixed Monthly</option>
                     <option value="per_claim_slab">Per Claim Slab</option>
                     <option value="fixed_onetime">Fixed One-Time</option>
+                    <option value="percentage">Percentage</option>
                   </select>
                 </div>
 
@@ -366,6 +368,27 @@ const HospitalForm = () => {
                       onChange={(e) => handleServiceChange(idx, 'overLimitPerClaimAmount', Number(e.target.value))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                   </div>
+                )}
+
+                {svc.billingType === 'percentage' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Calculation Basis</label>
+                      <select value={svc.calculationBasis}
+                        onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <option value="hospital_final_bill">Hospital Final Bill</option>
+                        <option value="final_approval">Final Approval Amount</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Percentage Rate (%)</label>
+                      <input type="number" step="0.01" min="0" max="100" value={svc.percentageRate}
+                        onChange={(e) => handleServiceChange(idx, 'percentageRate', Number(e.target.value))}
+                        placeholder="e.g. 2.5"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    </div>
+                  </>
                 )}
 
                 {svc.billingType === 'per_claim_slab' && (
