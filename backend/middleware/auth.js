@@ -1,7 +1,18 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 
-// Protect route - verify JWT and attach user + populated role
+const hasPermission = (role, moduleName, action) => {
+  const mod = (role.modulePermissions || []).find((m) => m.module === moduleName);
+  if (!mod) return false;
+  return mod[action] === true;
+};
+
+const getAllowedModules = (role) => {
+  return (role.modulePermissions || [])
+    .filter((m) => m.view)
+    .map((m) => m.module);
+};
+
 const protect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -11,10 +22,14 @@ const protect = async (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id)
-      .select('-password')
-      .populate('role')
-      .populate('hospital', 'name');
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      include: {
+        role: { include: { modulePermissions: true } },
+        hospital: { select: { id: true, name: true } },
+      },
+    });
 
     if (!user || !user.isActive) {
       return res.status(401).json({ message: 'Not authorized, user not found or inactive' });
@@ -24,6 +39,9 @@ const protect = async (req, res, next) => {
       return res.status(403).json({ message: 'Your role has been deactivated. Contact admin.' });
     }
 
+    user._id = user.id;
+    if (user.hospital) user.hospital._id = user.hospital.id;
+
     req.user = user;
     next();
   } catch (error) {
@@ -31,46 +49,31 @@ const protect = async (req, res, next) => {
   }
 };
 
-// Dynamic permission check: checkPermission('claims', 'create')
-// Checks if the user's role has the specified permission on the module
 const checkPermission = (moduleName, action) => {
   return (req, res, next) => {
     const role = req.user.role;
-
-    // System super_admin role always has full access
-    if (role.slug === 'super_admin') {
-      return next();
-    }
-
-    if (!role.hasPermission(moduleName, action)) {
+    if (role.slug === 'super_admin') return next();
+    if (!hasPermission(role, moduleName, action)) {
       return res.status(403).json({
-        message: `You don't have permission to ${action} ${moduleName}`
+        message: `You don't have permission to ${action} ${moduleName}`,
       });
     }
     next();
   };
 };
 
-// Check if user has ANY of the listed permissions (OR logic)
-// e.g. checkAnyPermission([['claims','view'], ['claims','create']])
 const checkAnyPermission = (permissionPairs) => {
   return (req, res, next) => {
     const role = req.user.role;
-
-    if (role.slug === 'super_admin') {
-      return next();
-    }
-
-    const hasAny = permissionPairs.some(([mod, action]) => role.hasPermission(mod, action));
-    if (!hasAny) {
-      return res.status(403).json({ message: 'You don\'t have permission for this action' });
+    if (role.slug === 'super_admin') return next();
+    const anyMatch = permissionPairs.some(([mod, action]) => hasPermission(role, mod, action));
+    if (!anyMatch) {
+      return res.status(403).json({ message: "You don't have permission for this action" });
     }
     next();
   };
 };
 
-// ---- LEGACY SUPPORT (kept for backward compat during transition) ----
-// authorize('super_admin', 'admin') → checks if role slug matches
 const authorize = (...roleSlugs) => {
   return (req, res, next) => {
     if (!roleSlugs.includes(req.user.role.slug)) {
