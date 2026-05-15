@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getDashboardAPI } from '../../services/api';
-import { AuthContext } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   HiOutlineDocumentText,
   HiOutlineClock,
@@ -28,7 +28,7 @@ const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
 const HIDE_REVENUE_SLUGS = ['fcc_staff', 'hospital_staff'];
 
 const Dashboard = () => {
-  const { roleSlug } = useContext(AuthContext);
+  const { roleSlug } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const showRevenue = !HIDE_REVENUE_SLUGS.includes(roleSlug);
