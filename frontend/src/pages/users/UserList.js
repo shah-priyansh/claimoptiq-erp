@@ -35,7 +35,7 @@ const UserList = () => {
   useEffect(() => { fetchData(); }, []);
 
   const selectedRole = roles.find(r => r._id === form.role);
-  const isHospitalRole = selectedRole?.slug === 'hospital';
+  const isHospitalRole = ['hospital_admin', 'hospital_staff'].includes(selectedRole?.slug);
 
   const validateUser = () => {
     const e = {};
