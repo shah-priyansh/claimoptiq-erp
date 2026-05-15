@@ -1,10 +1,18 @@
-const DocumentSubmission = require('../models/DocumentSubmission');
+const prisma = require('../config/prisma');
 const path = require('path');
 const fs = require('fs');
+const { toResponse } = require('../utils/toResponse');
 
 const getUserHospitalId = (user) => {
   if (!user.hospital) return null;
-  return user.hospital._id ? user.hospital._id.toString() : user.hospital.toString();
+  return user.hospital.id || user.hospital;
+};
+
+const submissionInclude = {
+  hospital: { select: { id: true, name: true } },
+  documentType: { select: { id: true, name: true } },
+  uploadedBy: { select: { id: true, name: true } },
+  claim: { select: { id: true, srNo: true, patientName: true } },
 };
 
 exports.create = async (req, res) => {
@@ -18,27 +26,22 @@ exports.create = async (req, res) => {
     const hospitalId = getUserHospitalId(req.user) || req.body.hospitalId;
     if (!hospitalId) return res.status(400).json({ message: 'Hospital is required' });
 
-    const submission = await DocumentSubmission.create({
-      hospital:     hospitalId,
-      patientName:  patientName.trim(),
-      documentType: documentTypeId,
-      notes:        (notes || '').trim(),
-      uploadedBy:   req.user._id,
-      file: {
-        fileName:     req.file.filename,
+    const submission = await prisma.documentSubmission.create({
+      data: {
+        hospitalId,
+        patientName: patientName.trim(),
+        documentTypeId,
+        notes: (notes || '').trim(),
+        uploadedById: req.user.id,
+        fileName: req.file.filename,
         originalName: req.file.originalname,
-        filePath:     req.file.path,
-        fileType:     req.file.mimetype,
-        fileSize:     req.file.size,
+        filePath: req.file.path,
+        fileType: req.file.mimetype,
+        fileSize: req.file.size,
       },
+      include: submissionInclude,
     });
-
-    const populated = await DocumentSubmission.findById(submission._id)
-      .populate('hospital', 'name')
-      .populate('documentType', 'name')
-      .populate('uploadedBy', 'name');
-
-    res.status(201).json(populated);
+    res.status(201).json(toResponse(submission));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -47,33 +50,36 @@ exports.create = async (req, res) => {
 exports.getAll = async (req, res) => {
   try {
     const { status, documentType, hospital, search, page = 1, limit = 50 } = req.query;
-    const filter = {};
+    const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
     if (userHospitalId) {
-      filter.hospital = userHospitalId;
+      where.hospitalId = userHospitalId;
     } else if (hospital) {
-      filter.hospital = hospital;
+      where.hospitalId = hospital;
     }
 
-    if (status) filter.status = status;
-    if (documentType) filter.documentType = documentType;
-    if (search) filter.patientName = { $regex: search, $options: 'i' };
+    if (status) where.status = status;
+    if (documentType) where.documentTypeId = documentType;
+    if (search) where.patientName = { contains: search, mode: 'insensitive' };
 
     const skip = (Number(page) - 1) * Number(limit);
     const [submissions, total] = await Promise.all([
-      DocumentSubmission.find(filter)
-        .sort('-createdAt')
-        .skip(skip)
-        .limit(Number(limit))
-        .populate('hospital', 'name')
-        .populate('documentType', 'name')
-        .populate('uploadedBy', 'name')
-        .populate('claim', 'srNo patientName'),
-      DocumentSubmission.countDocuments(filter),
+      prisma.documentSubmission.findMany({
+        where,
+        include: submissionInclude,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: Number(limit),
+      }),
+      prisma.documentSubmission.count({ where }),
     ]);
 
-    res.json({ submissions, total, pages: Math.ceil(total / Number(limit)) });
+    res.json({
+      submissions: toResponse(submissions),
+      total,
+      pages: Math.ceil(total / Number(limit)),
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -81,21 +87,21 @@ exports.getAll = async (req, res) => {
 
 exports.download = async (req, res) => {
   try {
-    const submission = await DocumentSubmission.findById(req.params.id);
+    const submission = await prisma.documentSubmission.findUnique({ where: { id: req.params.id } });
     if (!submission) return res.status(404).json({ message: 'Submission not found' });
 
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && submission.hospital.toString() !== userHospitalId) {
+    if (userHospitalId && submission.hospitalId !== userHospitalId) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const filePath = path.resolve(submission.file.filePath);
+    const filePath = path.resolve(submission.filePath);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ message: 'File not found on disk' });
     }
 
-    res.setHeader('Content-Disposition', `attachment; filename="${submission.file.originalName}"`);
-    res.setHeader('Content-Type', submission.file.fileType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${submission.originalName}"`);
+    res.setHeader('Content-Type', submission.fileType || 'application/octet-stream');
     fs.createReadStream(filePath).pipe(res);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -104,23 +110,20 @@ exports.download = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const submission = await DocumentSubmission.findById(req.params.id);
+    const submission = await prisma.documentSubmission.findUnique({ where: { id: req.params.id } });
     if (!submission) return res.status(404).json({ message: 'Submission not found' });
 
-    const { status, claim, notes } = req.body;
-    if (status !== undefined) submission.status = status;
-    if (claim !== undefined) submission.claim = claim || null;
-    if (notes !== undefined) submission.notes = notes;
+    const updateData = {};
+    if (req.body.status !== undefined) updateData.status = req.body.status;
+    if (req.body.claim !== undefined) updateData.claimId = req.body.claim || null;
+    if (req.body.notes !== undefined) updateData.notes = req.body.notes;
 
-    await submission.save();
-
-    const populated = await DocumentSubmission.findById(submission._id)
-      .populate('hospital', 'name')
-      .populate('documentType', 'name')
-      .populate('uploadedBy', 'name')
-      .populate('claim', 'srNo patientName');
-
-    res.json(populated);
+    const updated = await prisma.documentSubmission.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: submissionInclude,
+    });
+    res.json(toResponse(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -128,19 +131,16 @@ exports.update = async (req, res) => {
 
 exports.remove = async (req, res) => {
   try {
-    const submission = await DocumentSubmission.findById(req.params.id);
+    const submission = await prisma.documentSubmission.findUnique({ where: { id: req.params.id } });
     if (!submission) return res.status(404).json({ message: 'Submission not found' });
 
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && submission.hospital.toString() !== userHospitalId) {
+    if (userHospitalId && submission.hospitalId !== userHospitalId) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    if (fs.existsSync(submission.file.filePath)) {
-      fs.unlinkSync(submission.file.filePath);
-    }
-
-    await submission.deleteOne();
+    if (fs.existsSync(submission.filePath)) fs.unlinkSync(submission.filePath);
+    await prisma.documentSubmission.delete({ where: { id: req.params.id } });
     res.json({ message: 'Submission deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
