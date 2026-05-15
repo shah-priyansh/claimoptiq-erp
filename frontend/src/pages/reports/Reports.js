@@ -3,6 +3,7 @@ import { getClaimsAPI, getHospitalsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
+import { formatCurrency } from '../../utils/format';
 
 const Reports = () => {
   const { user } = useAuth();
@@ -59,7 +60,7 @@ const Reports = () => {
     URL.revokeObjectURL(url);
   };
 
-  const formatAmount = (a) => a ? `Rs ${Number(a).toLocaleString('en-IN')}` : '-';
+  const formatAmount = (a) => a ? formatCurrency(a) : '-';
 
   // Summary stats
   const totalBill = claims.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getDashboardAPI } from '../../services/api';
+import { formatCurrencyCompact } from '../../utils/format';
 import { useAuth } from '../../context/AuthContext';
 import {
   HiOutlineDocumentText,
@@ -102,7 +103,7 @@ const Dashboard = () => {
             />
             <StatCard
               title="Approved Amount"
-              value={`Rs ${(stats?.monthlyStats?.totalApprovalAmount || 0).toLocaleString('en-IN')}`}
+              value={formatCurrencyCompact(stats?.monthlyStats?.totalApprovalAmount || 0)}
               icon={HiOutlineCurrencyRupee}
               color="bg-green-100 text-green-600"
               subtitle="Your hospital this month"
@@ -121,11 +122,11 @@ const Dashboard = () => {
               value={stats?.monthlyStats?.count || 0}
               icon={HiOutlineCurrencyRupee}
               color="bg-teal-100 text-teal-600"
-              subtitle={`Total: Rs ${(stats?.monthlyStats?.totalSettlement || 0).toLocaleString('en-IN')}`}
+              subtitle={`Total: ${formatCurrencyCompact(stats?.monthlyStats?.totalSettlement || 0)}`}
             />
             <StatCard
               title="Monthly Revenue"
-              value={`Rs ${(stats?.monthlyStats?.totalFilePrice || 0).toLocaleString('en-IN')}`}
+              value={formatCurrencyCompact(stats?.monthlyStats?.totalFilePrice || 0)}
               icon={HiOutlineCurrencyRupee}
               color="bg-green-100 text-green-600"
               subtitle="From file charges"
