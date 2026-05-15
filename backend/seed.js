@@ -38,13 +38,17 @@ const defaultRoles = [
     }),
   },
   {
-    // FCC internal staff — manages document inbox, no claims or administration access
+    // FCC internal staff — full claims management + document inbox, no administration
     name: 'FCC Staff', slug: 'fcc_staff',
-    description: 'FCC staff — document inbox only. No claims, reports, or administration.',
+    description: 'FCC staff — full claims and document inbox access. No administration.',
     isSystem: true,
     permissions: buildPermissions({
       dashboard:            { view: true },
+      claims:               { view: true, create: true, edit: true, delete: true, export: true },
       hospitals:            { view: true },
+      insurance:            { view: true },
+      tpa:                  { view: true },
+      reports:              { view: true },
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
       document_submissions: { view: true, create: true, edit: true, delete: true },
