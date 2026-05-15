@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
+import { formatCurrency } from '../../utils/format';
 
 const ClaimList = () => {
   const navigate = useNavigate();
@@ -42,7 +43,7 @@ const ClaimList = () => {
   }, [filters]);
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '-';
-  const formatAmount = (a) => a ? `Rs ${Number(a).toLocaleString('en-IN')}` : '-';
+  const formatAmount = (a) => a ? formatCurrency(a) : '-';
 
   const handleStatusChange = async (claimId, newStatus) => {
     setUpdatingId(claimId);

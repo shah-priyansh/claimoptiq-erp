@@ -9,6 +9,8 @@ import {
   HiOutlineCheckCircle, HiOutlineDocumentText, HiChevronDown, HiCheck,
 } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
+import { formatCurrency } from '../../utils/format';
+import AmountInput from '../../components/AmountInput';
 
 const statusSteps = [
   { key: 'admitted',      label: 'Admitted' },
@@ -168,7 +170,7 @@ const ClaimDetail = () => {
   if (!claim) return null;
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '-';
-  const formatAmount = (a) => a ? `Rs ${Number(a).toLocaleString('en-IN')}` : 'Rs 0';
+  const formatAmount = (a) => formatCurrency(Number(a) || 0);
   const currentStepIdx = statusSteps.findIndex(s => s.key === claim.status);
   const isEditable = can('claims', 'edit');
   const canUpload = can('claims', 'edit');
@@ -401,9 +403,17 @@ const ClaimDetail = () => {
               ].map(f => (
                 <div key={f.name}>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                  <input type={f.type} value={dischargeForm[f.name] || ''}
-                    onChange={(e) => setDischargeForm({ ...dischargeForm, [f.name]: f.type === 'number' ? Number(e.target.value) : e.target.value })}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  {f.type === 'number' ? (
+                    <AmountInput
+                      value={dischargeForm[f.name] || 0}
+                      onChange={(v) => setDischargeForm({ ...dischargeForm, [f.name]: v })}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    />
+                  ) : (
+                    <input type={f.type} value={dischargeForm[f.name] || ''}
+                      onChange={(e) => setDischargeForm({ ...dischargeForm, [f.name]: e.target.value })}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  )}
                 </div>
               ))}
             </div>
@@ -542,9 +552,17 @@ const ClaimDetail = () => {
               ].map(f => (
                 <div key={f.name}>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                  <input type={f.type} value={settlementForm[f.name] || ''}
-                    onChange={(e) => setSettlementForm({ ...settlementForm, [f.name]: f.type === 'number' ? Number(e.target.value) : e.target.value })}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  {f.type === 'number' ? (
+                    <AmountInput
+                      value={settlementForm[f.name] || 0}
+                      onChange={(v) => setSettlementForm({ ...settlementForm, [f.name]: v })}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    />
+                  ) : (
+                    <input type={f.type} value={settlementForm[f.name] || ''}
+                      onChange={(e) => setSettlementForm({ ...settlementForm, [f.name]: e.target.value })}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  )}
                 </div>
               ))}
               <div className="md:col-span-2">

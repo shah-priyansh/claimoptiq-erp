@@ -4,6 +4,8 @@ import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI }
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserCircle } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
+import { formatINR } from '../../utils/format';
+import AmountInput from '../../components/AmountInput';
 
 const emptyDoctor = { name: '', specialization: '', phone: '', email: '' };
 const emptySlab = { rangeStart: 0, rangeEnd: 0, price: 0 };
@@ -367,8 +369,8 @@ const HospitalForm = () => {
                   {svc.billingType === 'fixed_monthly' && (
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Fixed Amount (Rs)</label>
-                      <input type="number" value={svc.fixedAmount}
-                        onChange={(e) => handleServiceChange(idx, 'fixedAmount', Number(e.target.value))}
+                      <AmountInput value={svc.fixedAmount}
+                        onChange={(v) => handleServiceChange(idx, 'fixedAmount', v)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                     </div>
                   )}
@@ -385,8 +387,8 @@ const HospitalForm = () => {
                           <label className="block text-xs font-medium text-gray-600 mb-1">
                             {isInsWise ? 'Per Claim (Rs)' : 'Fixed Amount (Rs)'}
                           </label>
-                          <input type="number" value={svc.fixedAmount}
-                            onChange={(e) => handleServiceChange(idx, 'fixedAmount', Number(e.target.value))}
+                          <AmountInput value={svc.fixedAmount}
+                            onChange={(v) => handleServiceChange(idx, 'fixedAmount', v)}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                         </div>
                         <div className="flex items-center gap-2 pt-5">
@@ -465,10 +467,10 @@ const HospitalForm = () => {
                             {selectedIds.length > 0 && (
                               <div className="mt-2 bg-primary-50 border border-primary-100 rounded-lg px-4 py-2.5 flex items-center justify-between">
                                 <span className="text-xs text-gray-600">
-                                  {selectedIds.length} insurer{selectedIds.length > 1 ? 's' : ''} &times; Rs {(svc.fixedAmount || 0).toLocaleString('en-IN')} per claim
+                                  {selectedIds.length} insurer{selectedIds.length > 1 ? 's' : ''} &times; Rs {formatINR(svc.fixedAmount || 0)} per claim
                                 </span>
                                 <span className="text-sm font-semibold text-primary-700">
-                                  Total: Rs {(selectedIds.length * (svc.fixedAmount || 0)).toLocaleString('en-IN')}
+                                  Total: Rs {formatINR(selectedIds.length * (svc.fixedAmount || 0))}
                                 </span>
                               </div>
                             )}
@@ -483,8 +485,8 @@ const HospitalForm = () => {
                       <label className="block text-xs font-medium text-gray-600 mb-1">
                         Claim Limit <span className="text-gray-400 font-normal">(0 = unlimited)</span>
                       </label>
-                      <input type="number" value={svc.claimLimit}
-                        onChange={(e) => handleServiceChange(idx, 'claimLimit', Number(e.target.value))}
+                      <AmountInput value={svc.claimLimit}
+                        onChange={(v) => handleServiceChange(idx, 'claimLimit', v)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                     </div>
                   )}
@@ -506,8 +508,8 @@ const HospitalForm = () => {
                     <>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Per Claim (Rs)</label>
-                        <input type="number" value={svc.overLimitPerClaimAmount}
-                          onChange={(e) => handleServiceChange(idx, 'overLimitPerClaimAmount', Number(e.target.value))}
+                        <AmountInput value={svc.overLimitPerClaimAmount}
+                          onChange={(v) => handleServiceChange(idx, 'overLimitPerClaimAmount', v)}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                       </div>
                       <div className="md:col-span-2 flex items-center gap-2 pt-5">
@@ -579,10 +581,10 @@ const HospitalForm = () => {
                             {selectedIds.length > 0 && (
                               <div className="mt-2 bg-primary-50 border border-primary-100 rounded-lg px-4 py-2.5 flex items-center justify-between">
                                 <span className="text-xs text-gray-600">
-                                  {selectedIds.length} insurer{selectedIds.length > 1 ? 's' : ''} &times; Rs {(svc.overLimitPerClaimAmount || 0).toLocaleString('en-IN')} per claim
+                                  {selectedIds.length} insurer{selectedIds.length > 1 ? 's' : ''} &times; Rs {formatINR(svc.overLimitPerClaimAmount || 0)} per claim
                                 </span>
                                 <span className="text-sm font-semibold text-primary-700">
-                                  Total: Rs {(selectedIds.length * (svc.overLimitPerClaimAmount || 0)).toLocaleString('en-IN')}
+                                  Total: Rs {formatINR(selectedIds.length * (svc.overLimitPerClaimAmount || 0))}
                                 </span>
                               </div>
                             )}
@@ -652,25 +654,22 @@ const HospitalForm = () => {
                         </div>
                         {svcSlabs.map((slab, slabIdx) => (
                           <div key={slabIdx} className="grid grid-cols-[1fr_1fr_1fr_2rem] gap-2 items-center">
-                            <input
-                              type="number"
+                            <AmountInput
                               value={slab.rangeStart}
-                              onChange={(e) => handleSlabChange(idx, slabIdx, 'rangeStart', Number(e.target.value))}
+                              onChange={(v) => handleSlabChange(idx, slabIdx, 'rangeStart', v)}
                               placeholder="0"
                               className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                             />
-                            <input
-                              type="number"
+                            <AmountInput
                               value={slab.rangeEnd}
-                              onChange={(e) => handleSlabChange(idx, slabIdx, 'rangeEnd', Number(e.target.value))}
-                              placeholder="50000"
+                              onChange={(v) => handleSlabChange(idx, slabIdx, 'rangeEnd', v)}
+                              placeholder="50,000"
                               className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                             />
-                            <input
-                              type="number"
+                            <AmountInput
                               value={slab.price}
-                              onChange={(e) => handleSlabChange(idx, slabIdx, 'price', Number(e.target.value))}
-                              placeholder="2000"
+                              onChange={(v) => handleSlabChange(idx, slabIdx, 'price', v)}
+                              placeholder="2,000"
                               className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                             />
                             <button type="button" onClick={() => removeSlab(idx, slabIdx)}
