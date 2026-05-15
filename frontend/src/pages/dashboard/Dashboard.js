@@ -5,6 +5,7 @@ import {
   HiOutlineDocumentText,
   HiOutlineClock,
   HiOutlineCheckCircle,
+  HiOutlineBadgeCheck,
   HiOutlineOfficeBuilding,
   HiOutlineXCircle,
   HiOutlineCurrencyRupee
@@ -56,7 +57,7 @@ const Dashboard = () => {
         <p className="text-sm text-gray-500 mt-1">Overview of your claim operations</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <StatCard
           title="Total Claims"
           value={stats?.total || 0}
@@ -68,6 +69,12 @@ const Dashboard = () => {
           value={stats?.inProcess || 0}
           icon={HiOutlineClock}
           color="bg-amber-100 text-amber-600"
+        />
+        <StatCard
+          title="Approved"
+          value={stats?.approved || 0}
+          icon={HiOutlineBadgeCheck}
+          color="bg-blue-100 text-blue-600"
         />
         <StatCard
           title="Settled"

@@ -261,7 +261,7 @@ exports.getDashboardStats = async (req, res) => {
     const userHospitalId = getUserHospitalId(req.user);
     const baseWhere = userHospitalId ? { hospitalId: userHospitalId } : {};
 
-    const [total, admitted, discharged, fileReceived, submitted, settled, rejected] = await Promise.all([
+    const [total, admitted, discharged, fileReceived, submitted, settled, rejected, approved] = await Promise.all([
       prisma.claim.count({ where: baseWhere }),
       prisma.claim.count({ where: { ...baseWhere, status: 'admitted' } }),
       prisma.claim.count({ where: { ...baseWhere, status: 'discharged' } }),
@@ -269,6 +269,7 @@ exports.getDashboardStats = async (req, res) => {
       prisma.claim.count({ where: { ...baseWhere, status: 'submitted' } }),
       prisma.claim.count({ where: { ...baseWhere, status: 'settled' } }),
       prisma.claim.count({ where: { ...baseWhere, status: 'rejected' } }),
+      prisma.claim.count({ where: { ...baseWhere, finalApprovalAmount: { gt: 0 } } }),
     ]);
 
     const now = new Date();
@@ -300,6 +301,7 @@ exports.getDashboardStats = async (req, res) => {
       fileReceived,
       submitted,
       hospitalCount,
+      approved,
       isHospitalUser: !!userHospitalId,
       monthlyStats: {
         totalSettlement: monthlyAgg._sum.bankTransferAmount || 0,
