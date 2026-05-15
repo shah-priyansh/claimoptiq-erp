@@ -3,14 +3,10 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
-const connectDB = require('./config/db');
-
-// Connect to database
-connectDB();
+const prisma = require('./config/prisma');
 
 const app = express();
 
-// Middleware
 app.use(cors({
   origin: [
     'http://localhost:3000',
@@ -22,10 +18,8 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static files for uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/hospitals', require('./routes/hospitalRoutes'));
 app.use('/api/insurance', require('./routes/insuranceRoutes'));
@@ -36,18 +30,26 @@ app.use('/api/claim-statuses', require('./routes/claimStatusRoutes'));
 app.use('/api/claim-document-types', require('./routes/claimDocumentTypeRoutes'));
 app.use('/api/document-submissions', require('./routes/documentSubmissionRoutes'));
 
-// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'ClaimOptiq API is running' });
 });
 
-// Error handling
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ message: 'Something went wrong', error: err.message });
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`ClaimOptiq Server running on port ${PORT}`);
+const PORT = process.env.PORT || 5001;
+
+async function main() {
+  await prisma.$connect();
+  console.log('PostgreSQL connected via Prisma');
+  app.listen(PORT, () => {
+    console.log(`ClaimOptiq Server running on port ${PORT}`);
+  });
+}
+
+main().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
