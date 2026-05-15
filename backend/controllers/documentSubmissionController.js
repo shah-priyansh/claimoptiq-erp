@@ -2,6 +2,7 @@ const prisma = require('../config/prisma');
 const path = require('path');
 const fs = require('fs');
 const { toResponse } = require('../utils/toResponse');
+const { notifyRoles, notifyUser } = require('../utils/createNotifications');
 
 const getUserHospitalId = (user) => {
   if (!user.hospital) return null;
@@ -41,6 +42,16 @@ exports.create = async (req, res) => {
       },
       include: submissionInclude,
     });
+    // Notify super_admin and fcc_staff about the new upload
+    const hospitalName = submission.hospital?.name || 'Unknown Hospital';
+    const uploaderName = submission.uploadedBy?.name || req.user.name;
+    notifyRoles(
+      ['super_admin', 'fcc_staff'],
+      `${uploaderName} from ${hospitalName} uploaded a document: "${submission.originalName}" (Patient: ${submission.patientName})`,
+      'document_uploaded',
+      submission.id,
+    ).catch(() => {});
+
     res.status(201).json(toResponse(submission));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -110,7 +121,10 @@ exports.download = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const submission = await prisma.documentSubmission.findUnique({ where: { id: req.params.id } });
+    const submission = await prisma.documentSubmission.findUnique({
+      where: { id: req.params.id },
+      include: submissionInclude,
+    });
     if (!submission) return res.status(404).json({ message: 'Submission not found' });
 
     const updateData = {};
@@ -123,6 +137,19 @@ exports.update = async (req, res) => {
       data: updateData,
       include: submissionInclude,
     });
+
+    // Notify the uploader when status changes
+    if (req.body.status !== undefined && req.body.status !== submission.status && submission.uploadedById) {
+      const changerName = req.user.name;
+      const statusLabel = req.body.status.replace(/_/g, ' ');
+      notifyUser(
+        submission.uploadedById,
+        `"${submission.originalName}" (Patient: ${submission.patientName}) status changed to "${statusLabel}" by ${changerName}`,
+        'document_status_changed',
+        submission.id,
+      ).catch(() => {});
+    }
+
     res.json(toResponse(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

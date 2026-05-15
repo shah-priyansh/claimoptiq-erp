@@ -90,4 +90,8 @@ export const updateRoleAPI = (id, data) => API.put(`/roles/${id}`, data);
 export const deleteRoleAPI = (id) => API.delete(`/roles/${id}`);
 export const getModulesAPI = () => API.get('/roles/modules');
 
+export const getNotificationsAPI = () => API.get('/notifications');
+export const markNotificationReadAPI = (id) => API.patch(`/notifications/${id}/read`);
+export const markAllNotificationsReadAPI = () => API.patch('/notifications/read-all');
+
 export default API;

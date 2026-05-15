@@ -107,6 +107,7 @@ model User {
   claimsCreated       Claim[]              @relation("ClaimCreatedBy")
   claimsUpdated       Claim[]              @relation("ClaimUpdatedBy")
   documentSubmissions DocumentSubmission[] @relation("SubmissionUploadedBy")
+  notifications       Notification[]
 
   @@map("users")
 }
@@ -254,4 +255,17 @@ model DocumentSubmission {
   uploadedBy     User?             @relation("SubmissionUploadedBy", fields: [uploadedById], references: [id])
 
   @@map("document_submissions")
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  message     String
+  type        String
+  referenceId String?  @map("reference_id")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
 }
