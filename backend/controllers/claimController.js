@@ -281,7 +281,7 @@ exports.getDashboardStats = async (req, res) => {
         status: 'settled',
         settlementDate: { gte: monthStart, lte: monthEnd },
       },
-      _sum: { bankTransferAmount: true, filePrice: true },
+      _sum: { bankTransferAmount: true, filePrice: true, finalApprovalAmount: true },
       _count: { id: true },
     });
 
@@ -304,6 +304,7 @@ exports.getDashboardStats = async (req, res) => {
       monthlyStats: {
         totalSettlement: monthlyAgg._sum.bankTransferAmount || 0,
         totalFilePrice: monthlyAgg._sum.filePrice || 0,
+        totalApprovalAmount: monthlyAgg._sum.finalApprovalAmount || 0,
         count: monthlyAgg._count.id || 0,
       },
     });
