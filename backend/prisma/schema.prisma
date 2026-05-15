@@ -59,25 +59,40 @@ model Hospital {
 }
 
 model HospitalBillingService {
-  id                      String   @id @default(uuid())
-  hospitalId              String   @map("hospital_id")
-  serviceName             String   @map("service_name")
-  billingType             String   @map("billing_type")
-  fixedAmount             Float    @default(0) @map("fixed_amount")
-  claimLimit              Int      @default(0) @map("claim_limit")
-  overLimitBehavior       String   @default("no_charge") @map("over_limit_behavior")
-  overLimitPerClaimAmount Float    @default(0) @map("over_limit_per_claim_amount")
-  slabRangeStart          Float    @default(0) @map("slab_range_start")
-  slabRangeEnd            Float    @default(50000) @map("slab_range_end")
-  slabBasePrice           Float    @default(2000) @map("slab_base_price")
-  slabIncrementRange      Float    @default(50000) @map("slab_increment_range")
-  slabIncrementPrice      Float    @default(500) @map("slab_increment_price")
-  calculationBasis        String   @default("none") @map("calculation_basis")
-  percentageRate          Float    @default(0) @map("percentage_rate")
-  isActive                Boolean  @default(true) @map("is_active")
-  hospital                Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  id                      String                       @id @default(uuid())
+  hospitalId              String                       @map("hospital_id")
+  serviceName             String                       @map("service_name")
+  billingType             String                       @map("billing_type")
+  fixedAmount             Float                        @default(0) @map("fixed_amount")
+  claimLimit              Int                          @default(0) @map("claim_limit")
+  overLimitBehavior       String                       @default("per_claim") @map("over_limit_behavior")
+  overLimitPerClaimAmount Float                        @default(0) @map("over_limit_per_claim_amount")
+  overLimitInsuranceWise  Boolean                      @default(false) @map("over_limit_insurance_wise")
+  overLimitInsurerIds     Json                         @default("[]") @map("over_limit_insurer_ids")
+  slabRangeStart          Float                        @default(0) @map("slab_range_start")
+  slabRangeEnd            Float                        @default(50000) @map("slab_range_end")
+  slabBasePrice           Float                        @default(2000) @map("slab_base_price")
+  slabIncrementRange      Float                        @default(50000) @map("slab_increment_range")
+  slabIncrementPrice      Float                        @default(500) @map("slab_increment_price")
+  calculationBasis        String                       @default("none") @map("calculation_basis")
+  percentageRate          Float                        @default(0) @map("percentage_rate")
+  isActive                Boolean                      @default(true) @map("is_active")
+  hospital                Hospital                     @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  slabs                   HospitalBillingServiceSlab[]
 
   @@map("hospital_billing_services")
+}
+
+model HospitalBillingServiceSlab {
+  id               String                 @id @default(uuid())
+  billingServiceId String                 @map("billing_service_id")
+  rangeStart       Float                  @default(0) @map("range_start")
+  rangeEnd         Float                  @default(0) @map("range_end")
+  price            Float                  @default(0)
+  order            Int                    @default(0)
+  billingService   HospitalBillingService @relation(fields: [billingServiceId], references: [id], onDelete: Cascade)
+
+  @@map("hospital_billing_service_slabs")
 }
 
 model HospitalDoctor {
