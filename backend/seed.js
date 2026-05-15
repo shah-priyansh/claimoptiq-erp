@@ -152,18 +152,38 @@ async function main() {
   await prisma.claimDocumentType.createMany({ data: claimDocumentTypes });
   console.log(`  ✓ ${claimDocumentTypes.length} claim document types`);
 
-  await prisma.user.deleteMany({ where: { email: 'admin@claimoptiq.com' } });
-  const superAdminRole = await prisma.role.findUnique({ where: { slug: 'super_admin' } });
-  await prisma.user.create({
-    data: {
-      name: 'Super Admin',
-      email: 'admin@claimoptiq.com',
-      password: await bcrypt.hash('Test@123', 12),
-      roleId: superAdminRole.id,
-      phone: '9000000000',
-    },
+  // Demo hospital for hospital-role users
+  await prisma.hospital.deleteMany({ where: { name: 'Demo Hospital' } });
+  const demoHospital = await prisma.hospital.create({
+    data: { name: 'Demo Hospital', address: 'Demo City', phone: '9000000001' },
   });
-  console.log('  ✓ Super admin user (admin@claimoptiq.com / Test@123)');
+
+  const password = await bcrypt.hash('Test@123', 12);
+  const roles = await prisma.role.findMany({ select: { id: true, slug: true } });
+  const roleMap = Object.fromEntries(roles.map(r => [r.slug, r.id]));
+
+  const seedUsers = [
+    { name: 'Super Admin',    email: 'admin@claimoptiq.com',        roleSlug: 'super_admin',   hospitalId: null },
+    { name: 'FCC Staff',      email: 'fccstaff@claimoptiq.com',     roleSlug: 'fcc_staff',     hospitalId: null },
+    { name: 'Hospital Admin', email: 'hospitaladmin@claimoptiq.com', roleSlug: 'hospital_admin', hospitalId: demoHospital.id },
+    { name: 'Hospital Staff', email: 'hospitalstaff@claimoptiq.com', roleSlug: 'hospital_staff', hospitalId: demoHospital.id },
+  ];
+
+  await prisma.user.deleteMany({ where: { email: { in: seedUsers.map(u => u.email) } } });
+  for (const u of seedUsers) {
+    await prisma.user.create({
+      data: {
+        name: u.name,
+        email: u.email,
+        password,
+        roleId: roleMap[u.roleSlug],
+        hospitalId: u.hospitalId,
+        phone: '9000000000',
+      },
+    });
+  }
+  console.log('  ✓ 4 users (all password: Test@123)');
+  seedUsers.forEach(u => console.log(`      ${u.email} — ${u.roleSlug}`));
 
   console.log('\n✅ Seed complete!');
 }
