@@ -119,6 +119,7 @@ async function main() {
   console.log('Seeding PostgreSQL database...');
 
   console.log('Seeding roles...');
+  await prisma.user.deleteMany();
   await prisma.roleModulePermission.deleteMany();
   await prisma.role.deleteMany();
   for (const r of defaultRoles) {
