@@ -1,257 +1,298 @@
-const Claim = require('../models/Claim');
+const prisma = require('../config/prisma');
 const path = require('path');
 const fs = require('fs');
+const { toResponse } = require('../utils/toResponse');
 
-// Helper: get hospital ID if user is linked to a hospital
 const getUserHospitalId = (user) => {
   if (!user.hospital) return null;
-  return user.hospital._id ? user.hospital._id.toString() : user.hospital.toString();
+  return user.hospital.id || user.hospital;
 };
 
-// Create new claim (Patient Admit)
+const claimInclude = {
+  hospital: { select: { id: true, name: true } },
+  insuranceCompany: { select: { id: true, name: true } },
+  tpa: { select: { id: true, name: true } },
+};
+
+const claimFullInclude = {
+  ...claimInclude,
+  createdBy: { select: { id: true, name: true } },
+  updatedBy: { select: { id: true, name: true } },
+  documents: true,
+};
+
 exports.createClaim = async (req, res) => {
   try {
-    const claimData = { ...req.body, createdBy: req.user._id, updatedBy: req.user._id };
-
-    // If user is linked to a hospital, force their hospital
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId) {
-      claimData.hospital = userHospitalId;
-    }
+    const hospitalId = userHospitalId || req.body.hospital;
 
-    const claim = await Claim.create(claimData);
-    const populated = await Claim.findById(claim._id)
-      .populate('hospital', 'name')
-      .populate('insuranceCompany', 'name')
-      .populate('tpa', 'name');
+    const monthDate = new Date(req.body.month);
+    const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999);
+    const monthCount = await prisma.claim.count({
+      where: { month: { gte: monthStart, lte: monthEnd } },
+    });
 
-    res.status(201).json(populated);
+    const claim = await prisma.claim.create({
+      data: {
+        monthClaimNo: monthCount + 1,
+        status: req.body.status || 'admitted',
+        hospitalId,
+        month: new Date(req.body.month),
+        patientName: req.body.patientName,
+        patientMobile: req.body.patientMobile || '',
+        doctorName: req.body.doctorName || '',
+        claimType: req.body.claimType,
+        insuranceCompanyId: req.body.insuranceCompany || null,
+        tpaId: req.body.tpa || null,
+        policyNo: req.body.policyNo || '',
+        clientId: req.body.clientId || '',
+        ccnNo: req.body.ccnNo || '',
+        dateOfAdmit: new Date(req.body.dateOfAdmit),
+        dateOfDischarge: req.body.dateOfDischarge ? new Date(req.body.dateOfDischarge) : null,
+        hospitalFinalBill: req.body.hospitalFinalBill || 0,
+        mouDiscount: req.body.mouDiscount || 0,
+        deduction: req.body.deduction || 0,
+        finalApprovalAmount: req.body.finalApprovalAmount || 0,
+        finalApprovalDate: req.body.finalApprovalDate ? new Date(req.body.finalApprovalDate) : null,
+        fileReceivedDate: req.body.fileReceivedDate ? new Date(req.body.fileReceivedDate) : null,
+        submitMode: req.body.submitMode || '',
+        courierSubmitDate: req.body.courierSubmitDate ? new Date(req.body.courierSubmitDate) : null,
+        onlineSubmitDate: req.body.onlineSubmitDate ? new Date(req.body.onlineSubmitDate) : null,
+        courierCompanyName: req.body.courierCompanyName || '',
+        podNumber: req.body.podNumber || '',
+        settlementAmount: req.body.settlementAmount || 0,
+        settlementAmountDeduction: req.body.settlementAmountDeduction || 0,
+        mouDiscountOnSettlement: req.body.mouDiscountOnSettlement || 0,
+        tds: req.body.tds || 0,
+        bankTransferAmount: req.body.bankTransferAmount || 0,
+        settlementDate: req.body.settlementDate ? new Date(req.body.settlementDate) : null,
+        neftNo: req.body.neftNo || '',
+        filePrice: req.body.filePrice || 0,
+        remarks: req.body.remarks || '',
+        rejectedReason: req.body.rejectedReason || '',
+        createdById: req.user.id,
+        updatedById: req.user.id,
+      },
+      include: claimInclude,
+    });
+    res.status(201).json(toResponse(claim));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Get all claims with filters
 exports.getClaims = async (req, res) => {
   try {
     const { hospital, status, claimType, month, search, page = 1, limit = 20 } = req.query;
-    const filter = {};
+    const where = {};
 
-    // Hospital-linked users can only see their own hospital's claims
     const userHospitalId = getUserHospitalId(req.user);
     if (userHospitalId) {
-      filter.hospital = userHospitalId;
+      where.hospitalId = userHospitalId;
     } else if (hospital) {
-      filter.hospital = hospital;
+      where.hospitalId = hospital;
     }
 
-    if (status) filter.status = status;
-    if (claimType) filter.claimType = claimType;
+    if (status) where.status = status;
+    if (claimType) where.claimType = claimType;
     if (month) {
       const d = new Date(month);
-      filter.month = {
-        $gte: new Date(d.getFullYear(), d.getMonth(), 1),
-        $lte: new Date(d.getFullYear(), d.getMonth() + 1, 0)
+      where.month = {
+        gte: new Date(d.getFullYear(), d.getMonth(), 1),
+        lte: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999),
       };
     }
     if (search) {
-      filter.$or = [
-        { patientName: { $regex: search, $options: 'i' } },
-        { policyNo: { $regex: search, $options: 'i' } },
-        { ccnNo: { $regex: search, $options: 'i' } },
-        { clientId: { $regex: search, $options: 'i' } }
+      where.OR = [
+        { patientName: { contains: search, mode: 'insensitive' } },
+        { policyNo: { contains: search, mode: 'insensitive' } },
+        { ccnNo: { contains: search, mode: 'insensitive' } },
+        { clientId: { contains: search, mode: 'insensitive' } },
       ];
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const [claims, total] = await Promise.all([
-      Claim.find(filter)
-        .populate('hospital', 'name')
-        .populate('insuranceCompany', 'name')
-        .populate('tpa', 'name')
-        .sort('-createdAt')
-        .skip(skip)
-        .limit(parseInt(limit)),
-      Claim.countDocuments(filter)
+      prisma.claim.findMany({
+        where,
+        include: claimInclude,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.claim.count({ where }),
     ]);
 
     res.json({
-      claims,
+      claims: toResponse(claims),
       total,
       page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit))
+      pages: Math.ceil(total / parseInt(limit)),
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Get single claim
 exports.getClaim = async (req, res) => {
   try {
-    const claim = await Claim.findById(req.params.id)
-      .populate('hospital', 'name')
-      .populate('insuranceCompany', 'name')
-      .populate('tpa', 'name')
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name');
-
+    const claim = await prisma.claim.findUnique({
+      where: { id: req.params.id },
+      include: claimFullInclude,
+    });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    // Hospital-linked users can only view their own hospital's claims
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && claim.hospital._id.toString() !== userHospitalId) {
-      return res.status(403).json({ message: 'You can only view your own hospital\'s claims' });
+    if (userHospitalId && claim.hospitalId !== userHospitalId) {
+      return res.status(403).json({ message: "You can only view your own hospital's claims" });
     }
 
-    res.json(claim);
+    res.json(toResponse(claim));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Update claim (Discharge / File Receive / Settlement)
 exports.updateClaim = async (req, res) => {
   try {
-    const claim = await Claim.findById(req.params.id);
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    // Hospital-linked users can only update their own hospital's claims
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && claim.hospital.toString() !== userHospitalId) {
-      return res.status(403).json({ message: 'You can only update your own hospital\'s claims' });
+    if (userHospitalId && claim.hospitalId !== userHospitalId) {
+      return res.status(403).json({ message: "You can only update your own hospital's claims" });
     }
 
-    const updateData = { ...req.body, updatedBy: req.user._id };
-    const updated = await Claim.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-      runValidators: true
-    })
-      .populate('hospital', 'name')
-      .populate('insuranceCompany', 'name')
-      .populate('tpa', 'name');
+    const data = { updatedById: req.user.id };
+    const dateFields = ['dateOfDischarge', 'finalApprovalDate', 'fileReceivedDate', 'courierSubmitDate', 'onlineSubmitDate', 'settlementDate'];
+    const allowed = [
+      'status', 'patientName', 'patientMobile', 'doctorName', 'claimType',
+      'policyNo', 'clientId', 'ccnNo', 'hospitalFinalBill', 'mouDiscount',
+      'deduction', 'finalApprovalAmount', 'fileReceivedDate', 'submitMode',
+      'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber',
+      'settlementAmount', 'settlementAmountDeduction', 'mouDiscountOnSettlement',
+      'tds', 'bankTransferAmount', 'settlementDate', 'neftNo', 'filePrice',
+      'remarks', 'rejectedReason', 'finalApprovalDate', 'dateOfDischarge',
+    ];
 
-    res.json(updated);
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        data[key] = dateFields.includes(key)
+          ? (req.body[key] ? new Date(req.body[key]) : null)
+          : req.body[key];
+      }
+    }
+    if (req.body.insuranceCompany !== undefined) data.insuranceCompanyId = req.body.insuranceCompany || null;
+    if (req.body.tpa !== undefined) data.tpaId = req.body.tpa || null;
+    if (req.body.hospital) data.hospitalId = req.body.hospital;
+
+    const updated = await prisma.claim.update({
+      where: { id: req.params.id },
+      data,
+      include: claimInclude,
+    });
+    res.json(toResponse(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Upload documents to a claim
 exports.uploadDocuments = async (req, res) => {
   try {
-    const claim = await Claim.findById(req.params.id);
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    // Hospital-linked users can only upload to their own hospital's claims
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && claim.hospital.toString() !== userHospitalId) {
-      return res.status(403).json({ message: 'You can only upload to your own hospital\'s claims' });
+    if (userHospitalId && claim.hospitalId !== userHospitalId) {
+      return res.status(403).json({ message: "You can only upload to your own hospital's claims" });
     }
 
     const category = req.body.category || 'other';
-    const newDocs = req.files.map(file => ({
-      fileName: file.filename,
-      originalName: file.originalname,
-      filePath: file.path,
-      fileType: file.mimetype,
-      fileSize: file.size,
-      category
-    }));
+    await prisma.claimDocument.createMany({
+      data: req.files.map((file) => ({
+        claimId: req.params.id,
+        fileName: file.filename,
+        originalName: file.originalname,
+        filePath: file.path,
+        fileType: file.mimetype,
+        fileSize: file.size,
+        category,
+      })),
+    });
 
-    claim.documents.push(...newDocs);
-    claim.updatedBy = req.user._id;
-    await claim.save();
+    await prisma.claim.update({ where: { id: req.params.id }, data: { updatedById: req.user.id } });
 
-    res.json(claim);
+    const updated = await prisma.claim.findUnique({
+      where: { id: req.params.id },
+      include: claimFullInclude,
+    });
+    res.json(toResponse(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Delete a document from a claim
 exports.deleteDocument = async (req, res) => {
   try {
-    const claim = await Claim.findById(req.params.id);
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    // Hospital-linked users can only delete from their own hospital's claims
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && claim.hospital.toString() !== userHospitalId) {
-      return res.status(403).json({ message: 'You can only manage your own hospital\'s claims' });
+    if (userHospitalId && claim.hospitalId !== userHospitalId) {
+      return res.status(403).json({ message: "You can only manage your own hospital's claims" });
     }
 
-    const doc = claim.documents.id(req.params.docId);
+    const doc = await prisma.claimDocument.findFirst({
+      where: { id: req.params.docId, claimId: req.params.id },
+    });
     if (!doc) return res.status(404).json({ message: 'Document not found' });
 
-    // Delete file from disk
-    if (fs.existsSync(doc.filePath)) {
-      fs.unlinkSync(doc.filePath);
-    }
-
-    claim.documents.pull(req.params.docId);
-    await claim.save();
-
+    if (fs.existsSync(doc.filePath)) fs.unlinkSync(doc.filePath);
+    await prisma.claimDocument.delete({ where: { id: req.params.docId } });
     res.json({ message: 'Document deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Dashboard stats
 exports.getDashboardStats = async (req, res) => {
   try {
-    const filter = {};
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId) {
-      filter.hospital = userHospitalId;
-    }
+    const baseWhere = userHospitalId ? { hospitalId: userHospitalId } : {};
 
     const [total, admitted, discharged, fileReceived, submitted, settled, rejected] = await Promise.all([
-      Claim.countDocuments(filter),
-      Claim.countDocuments({ ...filter, status: 'admitted' }),
-      Claim.countDocuments({ ...filter, status: 'discharged' }),
-      Claim.countDocuments({ ...filter, status: 'file_received' }),
-      Claim.countDocuments({ ...filter, status: 'submitted' }),
-      Claim.countDocuments({ ...filter, status: 'settled' }),
-      Claim.countDocuments({ ...filter, status: 'rejected' })
+      prisma.claim.count({ where: baseWhere }),
+      prisma.claim.count({ where: { ...baseWhere, status: 'admitted' } }),
+      prisma.claim.count({ where: { ...baseWhere, status: 'discharged' } }),
+      prisma.claim.count({ where: { ...baseWhere, status: 'file_received' } }),
+      prisma.claim.count({ where: { ...baseWhere, status: 'submitted' } }),
+      prisma.claim.count({ where: { ...baseWhere, status: 'settled' } }),
+      prisma.claim.count({ where: { ...baseWhere, status: 'rejected' } }),
     ]);
 
-    const inProcess = admitted + discharged + fileReceived + submitted;
-
-    // Monthly revenue (settled claims this month)
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    const monthlySettled = await Claim.aggregate([
-      {
-        $match: {
-          ...filter,
-          status: 'settled',
-          settlementDate: { $gte: monthStart, $lte: monthEnd }
-        }
+    const monthlyAgg = await prisma.claim.aggregate({
+      where: {
+        ...baseWhere,
+        status: 'settled',
+        settlementDate: { gte: monthStart, lte: monthEnd },
       },
-      {
-        $group: {
-          _id: null,
-          totalSettlement: { $sum: '$bankTransferAmount' },
-          totalFilePrice: { $sum: '$filePrice' },
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+      _sum: { bankTransferAmount: true, filePrice: true },
+      _count: { id: true },
+    });
 
-    // Hospital count — only for non-hospital users
     let hospitalCount = 0;
     if (!userHospitalId) {
-      const Hospital = require('../models/Hospital');
-      hospitalCount = await Hospital.countDocuments({ isActive: true });
+      hospitalCount = await prisma.hospital.count({ where: { isActive: true } });
     }
 
     res.json({
       total,
-      inProcess,
+      inProcess: admitted + discharged + fileReceived + submitted,
       completed: settled,
       rejected,
       admitted,
@@ -260,7 +301,11 @@ exports.getDashboardStats = async (req, res) => {
       submitted,
       hospitalCount,
       isHospitalUser: !!userHospitalId,
-      monthlyStats: monthlySettled[0] || { totalSettlement: 0, totalFilePrice: 0, count: 0 }
+      monthlyStats: {
+        totalSettlement: monthlyAgg._sum.bankTransferAmount || 0,
+        totalFilePrice: monthlyAgg._sum.filePrice || 0,
+        count: monthlyAgg._count.id || 0,
+      },
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
