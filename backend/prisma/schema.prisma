@@ -106,8 +106,9 @@ model User {
   hospital            Hospital?            @relation(fields: [hospitalId], references: [id])
   claimsCreated       Claim[]              @relation("ClaimCreatedBy")
   claimsUpdated       Claim[]              @relation("ClaimUpdatedBy")
-  documentSubmissions DocumentSubmission[] @relation("SubmissionUploadedBy")
-  notifications       Notification[]
+  documentSubmissions        DocumentSubmission[] @relation("SubmissionUploadedBy")
+  statusChangedSubmissions   DocumentSubmission[] @relation("SubmissionStatusChangedBy")
+  notifications              Notification[]
 
   @@map("users")
 }
@@ -246,13 +247,16 @@ model DocumentSubmission {
   status         String            @default("pending")
   claimId        String?           @map("claim_id")
   notes          String            @default("")
-  uploadedById   String?           @map("uploaded_by_id")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
-  hospital       Hospital          @relation(fields: [hospitalId], references: [id])
-  documentType   ClaimDocumentType @relation(fields: [documentTypeId], references: [id])
-  claim          Claim?            @relation(fields: [claimId], references: [id])
-  uploadedBy     User?             @relation("SubmissionUploadedBy", fields: [uploadedById], references: [id])
+  uploadedById      String?           @map("uploaded_by_id")
+  statusChangedById String?           @map("status_changed_by_id")
+  statusChangedAt   DateTime?         @map("status_changed_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  hospital          Hospital          @relation(fields: [hospitalId], references: [id])
+  documentType      ClaimDocumentType @relation(fields: [documentTypeId], references: [id])
+  claim             Claim?            @relation(fields: [claimId], references: [id])
+  uploadedBy        User?             @relation("SubmissionUploadedBy", fields: [uploadedById], references: [id])
+  statusChangedBy   User?             @relation("SubmissionStatusChangedBy", fields: [statusChangedById], references: [id])
 
   @@map("document_submissions")
 }
