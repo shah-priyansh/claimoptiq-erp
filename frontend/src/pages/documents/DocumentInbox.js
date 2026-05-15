@@ -89,8 +89,8 @@ const DocumentInbox = () => {
       const { data, headers } = await downloadSubmissionAPI(s._id);
       const contentDisposition = headers['content-disposition'] || '';
       const nameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-      const filename = nameMatch?.[1] || s.file?.originalName || 'document';
-      const url = URL.createObjectURL(new Blob([data], { type: s.file?.fileType || 'application/octet-stream' }));
+      const filename = nameMatch?.[1] || s.originalName || s.fileName || 'document';
+      const url = URL.createObjectURL(new Blob([data], { type: s.fileType || 'application/octet-stream' }));
       const a = document.createElement('a');
       a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
@@ -275,12 +275,15 @@ const DocumentInbox = () => {
                           >
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div className="flex items-center gap-2 min-w-0">
-                                <FileIcon fileType={s.file?.fileType} />
+                                <FileIcon fileType={s.fileType} />
                                 <span className="text-sm font-medium text-gray-700 truncate">{s.documentType?.name || '-'}</span>
                               </div>
                               <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${dst.badge}`}>{dst.label}</span>
                             </div>
-                            <p className="text-xs text-gray-400 mb-2">{s.file?.originalName} · {formatSize(s.file?.fileSize)} · {formatDate(s.createdAt)}</p>
+                            <p className="text-xs text-gray-400 mb-1">{s.originalName || s.fileName || '-'} · {formatSize(s.fileSize)} · {formatDate(s.createdAt)}</p>
+                            {s.uploadedBy?.name && (
+                              <p className="text-xs text-primary-600 font-medium mb-2">Uploaded by {s.uploadedBy.name}</p>
+                            )}
                             {s.notes && <p className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1 mb-2">{s.notes}</p>}
                             <div className="flex flex-wrap gap-1.5">
                               <button onClick={() => handleDownload(s)}
@@ -319,6 +322,7 @@ const DocumentInbox = () => {
                             {!isHospitalUser && <th className="text-left py-2.5 px-5 text-xs font-semibold text-gray-400 uppercase">Hospital</th>}
                             <th className="text-left py-2.5 px-5 text-xs font-semibold text-gray-400 uppercase">Doc Type</th>
                             <th className="text-left py-2.5 px-5 text-xs font-semibold text-gray-400 uppercase">File</th>
+                            <th className="text-left py-2.5 px-5 text-xs font-semibold text-gray-400 uppercase">Uploaded By</th>
                             <th className="text-center py-2.5 px-5 text-xs font-semibold text-gray-400 uppercase">Status</th>
                             <th className="text-left py-2.5 px-5 text-xs font-semibold text-gray-400 uppercase">Date</th>
                             <th className="text-right py-2.5 px-5 text-xs font-semibold text-gray-400 uppercase">Actions</th>
@@ -338,11 +342,19 @@ const DocumentInbox = () => {
                                 <td className="py-3 px-5 text-sm font-medium text-gray-700">{s.documentType?.name || '-'}</td>
                                 <td className="py-3 px-5">
                                   <div className="flex items-center gap-2">
-                                    <FileIcon fileType={s.file?.fileType} />
+                                    <FileIcon fileType={s.fileType} />
                                     <div>
-                                      <p className="text-xs font-medium text-gray-700 truncate max-w-[180px]">{s.file?.originalName}</p>
-                                      <p className="text-xs text-gray-400">{formatSize(s.file?.fileSize)}</p>
+                                      <p className="text-xs font-medium text-gray-700 truncate max-w-[160px]">{s.originalName || s.fileName || '-'}</p>
+                                      <p className="text-xs text-gray-400">{formatSize(s.fileSize)}</p>
                                     </div>
+                                  </div>
+                                </td>
+                                <td className="py-3 px-5">
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-700">{s.uploadedBy?.name || '-'}</p>
+                                    {s.uploadedBy?.name && (
+                                      <p className="text-xs text-gray-400">{s.hospital?.name || ''}</p>
+                                    )}
                                   </div>
                                 </td>
                                 <td className="py-3 px-5 text-center">
