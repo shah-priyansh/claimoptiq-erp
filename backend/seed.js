@@ -38,8 +38,8 @@ const defaultRoles = [
     }),
   },
   {
-    name: 'Admin', slug: 'admin',
-    description: 'Admin with full access except role management.',
+    name: 'Admin Staff', slug: 'admin_staff',
+    description: 'Admin staff with full access except role management.',
     isSystem: true,
     permissions: buildPermissions({
       dashboard:            { view: true },
@@ -56,29 +56,31 @@ const defaultRoles = [
     }),
   },
   {
-    name: 'Staff', slug: 'staff',
-    description: 'Can manage claims and view reports.',
+    name: 'Hospital Admin', slug: 'hospital_admin',
+    description: 'Hospital admin — full control over their hospital\'s claims and documents.',
     isSystem: true,
     permissions: buildPermissions({
       dashboard:            { view: true },
-      claims:               { view: true, create: true, edit: true },
+      claims:               { view: true, create: true, edit: true, delete: true, export: true },
       hospitals:            { view: true },
       insurance:            { view: true },
       tpa:                  { view: true },
       reports:              { view: true },
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
-      document_submissions: { view: true, create: true },
+      document_submissions: { view: true, create: true, edit: true, delete: true },
     }),
   },
   {
-    name: 'Hospital', slug: 'hospital',
-    description: 'Hospital user — can only see their own hospital data.',
+    name: 'Hospital Staff', slug: 'hospital_staff',
+    description: 'Hospital staff — can view and submit claims and documents.',
     isSystem: true,
     permissions: buildPermissions({
       dashboard:            { view: true },
       claims:               { view: true, create: true },
       hospitals:            { view: true },
+      claim_statuses:       { view: true },
+      claim_document_types: { view: true },
       document_submissions: { view: true, create: true },
     }),
   },
@@ -130,7 +132,7 @@ async function main() {
       },
     });
   }
-  console.log('  ✓ 4 roles');
+  console.log(`  ✓ ${defaultRoles.length} roles`);
 
   await prisma.insuranceCompany.deleteMany();
   await prisma.insuranceCompany.createMany({
@@ -156,12 +158,12 @@ async function main() {
     data: {
       name: 'Super Admin',
       email: 'admin@claimoptiq.com',
-      password: await bcrypt.hash('Admin@123', 12),
+      password: await bcrypt.hash('Test@123', 12),
       roleId: superAdminRole.id,
       phone: '9000000000',
     },
   });
-  console.log('  ✓ Super admin user (admin@claimoptiq.com / Admin@123)');
+  console.log('  ✓ Super admin user (admin@claimoptiq.com / Test@123)');
 
   console.log('\n✅ Seed complete!');
 }
