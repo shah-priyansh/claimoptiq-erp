@@ -1,6 +1,8 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const { PrismaClient } = require('@prisma/client');
+const { PrismaPg } = require('@prisma/adapter-pg');
+const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
 const MongoRole = require('./models/Role');
@@ -13,7 +15,9 @@ const MongoClaimDocumentType = require('./models/ClaimDocumentType');
 const MongoClaim = require('./models/Claim');
 const MongoDocSub = require('./models/DocumentSubmission');
 
-const prisma = new PrismaClient();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 const idMap = {};
 
 const mapId = (collection, mongoId) => `${collection}:${mongoId?.toString()}`;
