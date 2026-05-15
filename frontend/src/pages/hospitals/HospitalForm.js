@@ -355,19 +355,83 @@ const HospitalForm = () => {
                       onChange={(e) => handleServiceChange(idx, 'overLimitBehavior', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                       <option value="no_charge">Continue — No Extra Charge</option>
-                      <option value="per_claim">Charge Per Extra Claim</option>
+                      <option value="per_claim">Fixed Fee Per Extra Claim</option>
+                      <option value="percentage">Percentage of Claim Amount</option>
+                      <option value="per_claim_slab">Per Claim Slab</option>
                       <option value="stop">Stop — Do Not Accept New Claims</option>
                     </select>
                   </div>
                 )}
 
+                {/* Over-limit: flat fee */}
                 {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && svc.overLimitBehavior === 'per_claim' && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Extra Claim Charge (Rs)</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Fixed Fee Per Extra Claim (Rs)</label>
                     <input type="number" value={svc.overLimitPerClaimAmount}
                       onChange={(e) => handleServiceChange(idx, 'overLimitPerClaimAmount', Number(e.target.value))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                   </div>
+                )}
+
+                {/* Over-limit: percentage */}
+                {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && svc.overLimitBehavior === 'percentage' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Calculation Basis</label>
+                      <select value={svc.calculationBasis}
+                        onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <option value="hospital_final_bill">Hospital Final Bill</option>
+                        <option value="final_approval">Final Approval Amount</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Percentage Rate (%)</label>
+                      <input type="number" step="0.01" min="0" max="100" value={svc.percentageRate}
+                        onChange={(e) => handleServiceChange(idx, 'percentageRate', Number(e.target.value))}
+                        placeholder="e.g. 2.5"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    </div>
+                  </>
+                )}
+
+                {/* Over-limit: per claim slab — reuses slab fields */}
+                {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && svc.overLimitBehavior === 'per_claim_slab' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Calculation Basis</label>
+                      <select value={svc.calculationBasis}
+                        onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <option value="hospital_final_bill">Hospital Final Bill</option>
+                        <option value="final_approval">Final Approval Amount</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Slab Range (0 to Rs)</label>
+                      <input type="number" value={svc.slabRangeEnd}
+                        onChange={(e) => handleServiceChange(idx, 'slabRangeEnd', Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Base Price (Rs)</label>
+                      <input type="number" value={svc.slabBasePrice}
+                        onChange={(e) => handleServiceChange(idx, 'slabBasePrice', Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Extra Per (Rs)</label>
+                      <input type="number" value={svc.slabIncrementRange}
+                        onChange={(e) => handleServiceChange(idx, 'slabIncrementRange', Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Extra Price (Rs)</label>
+                      <input type="number" value={svc.slabIncrementPrice}
+                        onChange={(e) => handleServiceChange(idx, 'slabIncrementPrice', Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    </div>
+                  </>
                 )}
 
                 {svc.billingType === 'percentage' && (
