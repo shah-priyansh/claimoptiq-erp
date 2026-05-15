@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { HiOutlineBell, HiOutlineCheck } from 'react-icons/hi';
 import { getNotificationsAPI, markNotificationReadAPI, markAllNotificationsReadAPI } from '../../services/api';
 
@@ -8,6 +9,7 @@ const TYPE_LABELS = {
 };
 
 const NotificationBell = () => {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -43,6 +45,14 @@ const NotificationBell = () => {
     await markNotificationReadAPI(id).catch(() => {});
     setNotifications((prev) => prev.map((n) => n._id === id ? { ...n, isRead: true } : n));
     setUnreadCount((c) => Math.max(0, c - 1));
+  };
+
+  const handleClick = async (n) => {
+    if (!n.isRead) await handleMarkRead(n._id);
+    if (n.referenceId) {
+      setOpen(false);
+      navigate(`/documents/inbox?submissionId=${n.referenceId}`);
+    }
   };
 
   const handleMarkAllRead = async () => {
@@ -100,7 +110,7 @@ const NotificationBell = () => {
                 <div
                   key={n._id}
                   className={`px-4 py-3 flex gap-3 items-start cursor-pointer hover:bg-gray-50 transition-colors ${!n.isRead ? 'bg-primary-50' : ''}`}
-                  onClick={() => !n.isRead && handleMarkRead(n._id)}
+                  onClick={() => handleClick(n)}
                 >
                   <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${!n.isRead ? 'bg-primary-500' : 'bg-transparent'}`} />
                   <div className="flex-1 min-w-0">

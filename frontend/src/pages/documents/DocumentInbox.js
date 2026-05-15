@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   getSubmissionsAPI, updateSubmissionAPI, deleteSubmissionAPI,
   downloadSubmissionAPI, getClaimDocumentTypesAPI, getHospitalsAPI,
@@ -32,6 +32,9 @@ const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'nu
 
 const DocumentInbox = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const highlightId = searchParams.get('submissionId');
+  const highlightRef = useRef(null);
   const { can, user } = useAuth();
   const [submissions, setSubmissions] = useState([]);
   const [hospitals, setHospitals] = useState([]);
@@ -53,15 +56,26 @@ const DocumentInbox = () => {
         const list = data.submissions || data;
         setSubmissions(list);
         setTotal(data.total || list.length);
-        // auto-open first patient
-        const first = list[0]?.patientName || null;
-        setOpenPatient(prev => prev || first);
+        if (highlightId) {
+          const target = list.find(s => s._id === highlightId);
+          if (target) setOpenPatient(target.patientName);
+        } else {
+          const first = list[0]?.patientName || null;
+          setOpenPatient(prev => prev || first);
+        }
       })
       .catch(() => toast.error('Failed to load submissions'))
       .finally(() => setLoading(false));
-  }, [filters]);
+  }, [filters, highlightId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Scroll highlighted row into view after render
+  useEffect(() => {
+    if (highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
 
   useEffect(() => {
     if (!isHospitalUser) {
@@ -254,7 +268,11 @@ const DocumentInbox = () => {
                         const dst = STATUS_STYLES[s.status] || STATUS_STYLES.pending;
                         const busy = actionId === s._id;
                         return (
-                          <div key={s._id} className="p-4">
+                          <div
+                            key={s._id}
+                            ref={s._id === highlightId ? highlightRef : null}
+                            className={`p-4 ${s._id === highlightId ? 'bg-primary-50 border-l-4 border-primary-400' : ''}`}
+                          >
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div className="flex items-center gap-2 min-w-0">
                                 <FileIcon fileType={s.file?.fileType} />
@@ -311,7 +329,11 @@ const DocumentInbox = () => {
                             const dst = STATUS_STYLES[s.status] || STATUS_STYLES.pending;
                             const busy = actionId === s._id;
                             return (
-                              <tr key={s._id} className="hover:bg-gray-50/60 transition-colors">
+                              <tr
+                                key={s._id}
+                                ref={s._id === highlightId ? highlightRef : null}
+                                className={`hover:bg-gray-50/60 transition-colors ${s._id === highlightId ? 'bg-primary-50 ring-1 ring-primary-300 ring-inset' : ''}`}
+                              >
                                 {!isHospitalUser && <td className="py-3 px-5 text-sm text-gray-500">{s.hospital?.name || '-'}</td>}
                                 <td className="py-3 px-5 text-sm font-medium text-gray-700">{s.documentType?.name || '-'}</td>
                                 <td className="py-3 px-5">
