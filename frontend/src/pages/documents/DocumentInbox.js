@@ -278,7 +278,12 @@ const DocumentInbox = () => {
                                 <FileIcon fileType={s.fileType} />
                                 <span className="text-sm font-medium text-gray-700 truncate">{s.documentType?.name || '-'}</span>
                               </div>
-                              <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${dst.badge}`}>{dst.label}</span>
+                              <div className="text-right">
+                                <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${dst.badge}`}>{dst.label}</span>
+                                {s.statusChangedBy?.name && (
+                                  <p className="text-xs text-gray-400 mt-0.5">by {s.statusChangedBy.name}</p>
+                                )}
+                              </div>
                             </div>
                             <p className="text-xs text-gray-400 mb-1">{s.originalName || s.fileName || '-'} · {formatSize(s.fileSize)} · {formatDate(s.createdAt)}</p>
                             {s.uploadedBy?.name && (
@@ -359,6 +364,9 @@ const DocumentInbox = () => {
                                 </td>
                                 <td className="py-3 px-5 text-center">
                                   <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${dst.badge}`}>{dst.label}</span>
+                                  {s.statusChangedBy?.name && (
+                                    <p className="text-xs text-gray-400 mt-1">by {s.statusChangedBy.name}</p>
+                                  )}
                                 </td>
                                 <td className="py-3 px-5 text-sm text-gray-500 whitespace-nowrap">{formatDate(s.createdAt)}</td>
                                 <td className="py-3 px-5">

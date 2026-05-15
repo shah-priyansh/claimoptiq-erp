@@ -13,6 +13,7 @@ const submissionInclude = {
   hospital: { select: { id: true, name: true } },
   documentType: { select: { id: true, name: true } },
   uploadedBy: { select: { id: true, name: true } },
+  statusChangedBy: { select: { id: true, name: true } },
   claim: { select: { id: true, srNo: true, patientName: true } },
 };
 
@@ -128,7 +129,13 @@ exports.update = async (req, res) => {
     if (!submission) return res.status(404).json({ message: 'Submission not found' });
 
     const updateData = {};
-    if (req.body.status !== undefined) updateData.status = req.body.status;
+    if (req.body.status !== undefined) {
+      updateData.status = req.body.status;
+      if (req.body.status !== submission.status) {
+        updateData.statusChangedById = req.user.id;
+        updateData.statusChangedAt = new Date();
+      }
+    }
     if (req.body.claim !== undefined) updateData.claimId = req.body.claim || null;
     if (req.body.notes !== undefined) updateData.notes = req.body.notes;
 
