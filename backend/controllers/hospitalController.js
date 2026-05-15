@@ -6,7 +6,7 @@ const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
 const isValidPincode = (v) => /^[1-9][0-9]{5}$/.test((v || '').trim());
 
 const hospitalInclude = {
-  billingServices: true,
+  billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
   doctors: true,
 };
 
@@ -44,15 +44,21 @@ const buildBillingServices = (services) =>
     billingType: s.billingType,
     fixedAmount: s.fixedAmount || 0,
     claimLimit: s.claimLimit || 0,
-    overLimitBehavior: s.overLimitBehavior || 'no_charge',
+    overLimitBehavior: s.overLimitBehavior || 'per_claim',
     overLimitPerClaimAmount: s.overLimitPerClaimAmount || 0,
-    slabRangeStart: s.slabRangeStart || 0,
-    slabRangeEnd: s.slabRangeEnd || 50000,
-    slabBasePrice: s.slabBasePrice || 2000,
-    slabIncrementRange: s.slabIncrementRange || 50000,
-    slabIncrementPrice: s.slabIncrementPrice || 500,
+    overLimitInsuranceWise: Boolean(s.overLimitInsuranceWise),
+    overLimitInsurerIds: Array.isArray(s.overLimitInsurerIds) ? s.overLimitInsurerIds : [],
     calculationBasis: s.calculationBasis || 'none',
+    percentageRate: s.percentageRate || 0,
     isActive: s.isActive !== undefined ? s.isActive : true,
+    slabs: {
+      create: (s.slabs || []).map((slab, i) => ({
+        rangeStart: slab.rangeStart || 0,
+        rangeEnd: slab.rangeEnd || 0,
+        price: slab.price || 0,
+        order: i,
+      })),
+    },
   }));
 
 const buildDoctors = (doctors) =>
