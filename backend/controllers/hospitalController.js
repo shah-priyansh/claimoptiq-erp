@@ -1,8 +1,14 @@
-const Hospital = require('../models/Hospital');
+const prisma = require('../config/prisma');
+const { toResponse } = require('../utils/toResponse');
 
 const isValidPhone = (v) => /^[6-9]\d{9}$/.test((v || '').trim());
 const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
 const isValidPincode = (v) => /^[1-9][0-9]{5}$/.test((v || '').trim());
+
+const hospitalInclude = {
+  billingServices: true,
+  doctors: true,
+};
 
 const validateHospitalFields = (body) => {
   if (body.phone && !isValidPhone(body.phone)) return 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
@@ -19,12 +25,58 @@ const validateHospitalFields = (body) => {
   return null;
 };
 
+const buildHospitalData = (body) => ({
+  name: body.name,
+  contact: body.contact || '',
+  email: body.email || '',
+  phone: body.phone || '',
+  address: body.address || '',
+  city: body.city || '',
+  state: body.state || '',
+  pincode: body.pincode || '',
+  referenceBy: body.referenceBy || '',
+  isActive: body.isActive !== undefined ? body.isActive : true,
+});
+
+const buildBillingServices = (services) =>
+  (services || []).map((s) => ({
+    serviceName: s.serviceName,
+    billingType: s.billingType,
+    fixedAmount: s.fixedAmount || 0,
+    claimLimit: s.claimLimit || 0,
+    overLimitBehavior: s.overLimitBehavior || 'no_charge',
+    overLimitPerClaimAmount: s.overLimitPerClaimAmount || 0,
+    slabRangeStart: s.slabRangeStart || 0,
+    slabRangeEnd: s.slabRangeEnd || 50000,
+    slabBasePrice: s.slabBasePrice || 2000,
+    slabIncrementRange: s.slabIncrementRange || 50000,
+    slabIncrementPrice: s.slabIncrementPrice || 500,
+    calculationBasis: s.calculationBasis || 'none',
+    isActive: s.isActive !== undefined ? s.isActive : true,
+  }));
+
+const buildDoctors = (doctors) =>
+  (doctors || []).map((d) => ({
+    name: d.name.trim(),
+    specialization: d.specialization || '',
+    phone: d.phone || '',
+    email: d.email || '',
+  }));
+
 exports.createHospital = async (req, res) => {
   try {
     const err = validateHospitalFields(req.body);
     if (err) return res.status(400).json({ message: err });
-    const hospital = await Hospital.create(req.body);
-    res.status(201).json(hospital);
+
+    const hospital = await prisma.hospital.create({
+      data: {
+        ...buildHospitalData(req.body),
+        billingServices: { create: buildBillingServices(req.body.billingServices) },
+        doctors: { create: buildDoctors(req.body.doctors) },
+      },
+      include: hospitalInclude,
+    });
+    res.status(201).json(toResponse(hospital));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -33,17 +85,20 @@ exports.createHospital = async (req, res) => {
 exports.getHospitals = async (req, res) => {
   try {
     const { search, active } = req.query;
-    const filter = {};
-    if (active !== undefined) filter.isActive = active === 'true';
-    if (search) filter.name = { $regex: search, $options: 'i' };
+    const where = {};
 
-    // Hospital-linked users can only see their own hospital
+    if (active !== undefined) where.isActive = active === 'true';
+    if (search) where.name = { contains: search, mode: 'insensitive' };
     if (req.user.hospital) {
-      filter._id = req.user.hospital._id || req.user.hospital;
+      where.id = req.user.hospital.id || req.user.hospital;
     }
 
-    const hospitals = await Hospital.find(filter).sort('name');
-    res.json(hospitals);
+    const hospitals = await prisma.hospital.findMany({
+      where,
+      include: hospitalInclude,
+      orderBy: { name: 'asc' },
+    });
+    res.json(toResponse(hospitals));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -51,17 +106,19 @@ exports.getHospitals = async (req, res) => {
 
 exports.getHospital = async (req, res) => {
   try {
-    // Hospital-linked users can only view their own hospital
     if (req.user.hospital) {
-      const userHospitalId = (req.user.hospital._id || req.user.hospital).toString();
+      const userHospitalId = req.user.hospital.id || req.user.hospital;
       if (req.params.id !== userHospitalId) {
         return res.status(403).json({ message: 'You can only view your own hospital' });
       }
     }
 
-    const hospital = await Hospital.findById(req.params.id);
+    const hospital = await prisma.hospital.findUnique({
+      where: { id: req.params.id },
+      include: hospitalInclude,
+    });
     if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
-    res.json(hospital);
+    res.json(toResponse(hospital));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -71,12 +128,23 @@ exports.updateHospital = async (req, res) => {
   try {
     const err = validateHospitalFields(req.body);
     if (err) return res.status(400).json({ message: err });
-    const hospital = await Hospital.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true
+
+    const existing = await prisma.hospital.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ message: 'Hospital not found' });
+
+    await prisma.hospitalBillingService.deleteMany({ where: { hospitalId: req.params.id } });
+    await prisma.hospitalDoctor.deleteMany({ where: { hospitalId: req.params.id } });
+
+    const hospital = await prisma.hospital.update({
+      where: { id: req.params.id },
+      data: {
+        ...buildHospitalData(req.body),
+        billingServices: { create: buildBillingServices(req.body.billingServices) },
+        doctors: { create: buildDoctors(req.body.doctors) },
+      },
+      include: hospitalInclude,
     });
-    if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
-    res.json(hospital);
+    res.json(toResponse(hospital));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -84,11 +152,10 @@ exports.updateHospital = async (req, res) => {
 
 exports.deleteHospital = async (req, res) => {
   try {
-    const hospital = await Hospital.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    );
+    const hospital = await prisma.hospital.update({
+      where: { id: req.params.id },
+      data: { isActive: false },
+    });
     if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
     res.json({ message: 'Hospital deactivated' });
   } catch (error) {
