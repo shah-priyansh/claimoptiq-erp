@@ -1,7 +1,8 @@
-const Role = require('../models/Role');
+const prisma = require('../config/prisma');
+const { formatRole, parseModulePermissions } = require('../utils/toResponse');
 
-// Get all available modules with their possible actions
-// This drives the UI checkboxes — add new modules here when needed
+const roleInclude = { modulePermissions: true };
+
 exports.getModules = async (req, res) => {
   try {
     const modules = [
@@ -25,8 +26,12 @@ exports.getModules = async (req, res) => {
 
 exports.getRoles = async (req, res) => {
   try {
-    const roles = await Role.find({ isActive: true }).sort('name');
-    res.json(roles);
+    const roles = await prisma.role.findMany({
+      where: { isActive: true },
+      include: roleInclude,
+      orderBy: { name: 'asc' },
+    });
+    res.json(roles.map(formatRole));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -34,9 +39,12 @@ exports.getRoles = async (req, res) => {
 
 exports.getRole = async (req, res) => {
   try {
-    const role = await Role.findById(req.params.id);
+    const role = await prisma.role.findUnique({
+      where: { id: req.params.id },
+      include: roleInclude,
+    });
     if (!role) return res.status(404).json({ message: 'Role not found' });
-    res.json(role);
+    res.json(formatRole(role));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -47,19 +55,24 @@ exports.createRole = async (req, res) => {
     const { name, description, modulePermissions } = req.body;
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 
-    const existing = await Role.findOne({ slug });
+    const existing = await prisma.role.findUnique({ where: { slug } });
     if (existing) {
       return res.status(400).json({ message: 'A role with this name already exists' });
     }
 
-    const role = await Role.create({
-      name,
-      slug,
-      description,
-      modulePermissions: modulePermissions || [],
-      isSystem: false,
+    const role = await prisma.role.create({
+      data: {
+        name,
+        slug,
+        description: description || '',
+        isSystem: false,
+        modulePermissions: {
+          create: parseModulePermissions(modulePermissions),
+        },
+      },
+      include: roleInclude,
     });
-    res.status(201).json(role);
+    res.status(201).json(formatRole(role));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -67,20 +80,34 @@ exports.createRole = async (req, res) => {
 
 exports.updateRole = async (req, res) => {
   try {
-    const role = await Role.findById(req.params.id);
+    const role = await prisma.role.findUnique({
+      where: { id: req.params.id },
+      include: roleInclude,
+    });
     if (!role) return res.status(404).json({ message: 'Role not found' });
 
-    // Cannot change slug of system roles
     const { name, description, modulePermissions } = req.body;
-    if (name && !role.isSystem) {
-      role.name = name;
-      role.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-    }
-    if (description !== undefined) role.description = description;
-    if (modulePermissions) role.modulePermissions = modulePermissions;
+    const updateData = {};
 
-    await role.save();
-    res.json(role);
+    if (name && !role.isSystem) {
+      updateData.name = name;
+      updateData.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    }
+    if (description !== undefined) updateData.description = description;
+
+    if (modulePermissions) {
+      await prisma.roleModulePermission.deleteMany({ where: { roleId: role.id } });
+      updateData.modulePermissions = {
+        create: parseModulePermissions(modulePermissions),
+      };
+    }
+
+    const updated = await prisma.role.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: roleInclude,
+    });
+    res.json(formatRole(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -88,23 +115,20 @@ exports.updateRole = async (req, res) => {
 
 exports.deleteRole = async (req, res) => {
   try {
-    const role = await Role.findById(req.params.id);
+    const role = await prisma.role.findUnique({ where: { id: req.params.id } });
     if (!role) return res.status(404).json({ message: 'Role not found' });
     if (role.isSystem) {
       return res.status(400).json({ message: 'System roles cannot be deleted' });
     }
 
-    // Check if any user is using this role
-    const User = require('../models/User');
-    const usersWithRole = await User.countDocuments({ role: role._id });
+    const usersWithRole = await prisma.user.count({ where: { roleId: role.id } });
     if (usersWithRole > 0) {
       return res.status(400).json({
-        message: `Cannot delete: ${usersWithRole} user(s) are assigned this role. Reassign them first.`
+        message: `Cannot delete: ${usersWithRole} user(s) are assigned this role. Reassign them first.`,
       });
     }
 
-    role.isActive = false;
-    await role.save();
+    await prisma.role.update({ where: { id: req.params.id }, data: { isActive: false } });
     res.json({ message: 'Role deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
