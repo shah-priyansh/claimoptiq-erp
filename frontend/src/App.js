@@ -20,6 +20,7 @@ import RoleList from './pages/roles/RoleList';
 import RoleForm from './pages/roles/RoleForm';
 import ClaimStatusMaster from './pages/claimstatus/ClaimStatusMaster';
 import ClaimDocumentTypeMaster from './pages/claimdocumenttypes/ClaimDocumentTypeMaster';
+import BillingServiceNameList from './pages/billingservicenames/BillingServiceNameList';
 import DocumentUpload from './pages/documents/DocumentUpload';
 import DocumentInbox from './pages/documents/DocumentInbox';
 
@@ -47,6 +48,7 @@ function App() {
             <Route path="/reports" element={<Reports />} />
             <Route path="/claim-statuses" element={<ClaimStatusMaster />} />
             <Route path="/claim-document-types" element={<ClaimDocumentTypeMaster />} />
+            <Route path="/billing-service-names" element={<BillingServiceNameList />} />
             <Route path="/documents/upload" element={<DocumentUpload />} />
             <Route path="/documents/inbox" element={<DocumentInbox />} />
           </Route>

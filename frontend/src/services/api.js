@@ -50,6 +50,12 @@ export const createTPAAPI = (data) => API.post('/tpa', data);
 export const updateTPAAPI = (id, data) => API.put(`/tpa/${id}`, data);
 export const deleteTPAAPI = (id) => API.delete(`/tpa/${id}`);
 
+// Billing Service Names
+export const getBillingServiceNamesAPI = () => API.get('/billing-service-names');
+export const createBillingServiceNameAPI = (data) => API.post('/billing-service-names', data);
+export const updateBillingServiceNameAPI = (id, data) => API.put(`/billing-service-names/${id}`, data);
+export const deleteBillingServiceNameAPI = (id) => API.delete(`/billing-service-names/${id}`);
+
 // Claims
 export const getClaimsAPI = (params) => API.get('/claims', { params });
 export const getClaimAPI = (id) => API.get(`/claims/${id}`);
