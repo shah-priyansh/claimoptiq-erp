@@ -1,9 +1,26 @@
-const User = require('../models/User');
-const Role = require('../models/Role');
+const bcrypt = require('bcryptjs');
+const prisma = require('../config/prisma');
 const generateToken = require('../utils/generateToken');
+const { formatRole, toResponse } = require('../utils/toResponse');
 
 const isValidPhone = (v) => /^[6-9]\d{9}$/.test((v || '').trim());
 const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
+
+const userInclude = {
+  role: { include: { modulePermissions: true } },
+  hospital: { select: { id: true, name: true } },
+};
+
+const formatUser = (user) => {
+  if (!user) return null;
+  const { password, ...rest } = user;
+  return {
+    ...rest,
+    _id: rest.id,
+    role: formatRole(rest.role),
+    hospital: rest.hospital ? { ...rest.hospital, _id: rest.hospital.id } : null,
+  };
+};
 
 exports.login = async (req, res) => {
   try {
@@ -13,19 +30,18 @@ exports.login = async (req, res) => {
     }
 
     const isEmail = identifier.includes('@');
-    const query = isEmail
-      ? { email: identifier.toLowerCase().trim() }
-      : { phone: identifier.trim() };
-
-    const user = await User.findOne(query)
-      .populate('role')
-      .populate('hospital', 'name');
+    const user = await prisma.user.findFirst({
+      where: isEmail
+        ? { email: identifier.toLowerCase().trim() }
+        : { phone: identifier.trim() },
+      include: userInclude,
+    });
 
     if (!user || !user.isActive) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const isMatch = await user.comparePassword(password);
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -34,18 +50,8 @@ exports.login = async (req, res) => {
       return res.status(403).json({ message: 'Your role has been deactivated. Contact admin.' });
     }
 
-    const token = generateToken(user._id);
-    res.json({
-      token,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role, // full role object with permissions
-        hospital: user.hospital,
-        phone: user.phone
-      }
-    });
+    const token = generateToken(user.id);
+    res.json({ token, user: formatUser(user) });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -53,10 +59,11 @@ exports.login = async (req, res) => {
 
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id)
-      .populate('role')
-      .populate('hospital', 'name');
-    res.json(user);
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: userInclude,
+    });
+    res.json(formatUser(user));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -76,20 +83,30 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ message: 'Enter a valid email address' });
     }
 
-    const existing = await User.findOne({ email });
+    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
     if (existing) {
       return res.status(400).json({ message: 'User with this email already exists' });
     }
 
-    // Validate role exists
-    const roleDoc = await Role.findById(role);
+    const roleDoc = await prisma.role.findUnique({ where: { id: role } });
     if (!roleDoc) {
       return res.status(400).json({ message: 'Invalid role selected' });
     }
 
-    const user = await User.create({ name, email, password, role, hospital, phone });
-    const populated = await User.findById(user._id).populate('role').populate('hospital', 'name');
-    res.status(201).json(populated);
+    const hashed = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email: email.toLowerCase().trim(),
+        password: hashed,
+        roleId: role,
+        hospitalId: hospital || null,
+        phone,
+      },
+      include: userInclude,
+    });
+
+    res.status(201).json(formatUser(user));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -97,11 +114,11 @@ exports.createUser = async (req, res) => {
 
 exports.getUsers = async (req, res) => {
   try {
-    const users = await User.find()
-      .populate('role')
-      .populate('hospital', 'name')
-      .sort('-createdAt');
-    res.json(users);
+    const users = await prisma.user.findMany({
+      include: userInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(users.map(formatUser));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -110,24 +127,31 @@ exports.getUsers = async (req, res) => {
 exports.updateUser = async (req, res) => {
   try {
     const { name, email, role, hospital, phone, isActive, password } = req.body;
-    const user = await User.findById(req.params.id);
+
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (name) user.name = name;
-    if (email) user.email = email;
     if (role) {
-      const roleDoc = await Role.findById(role);
+      const roleDoc = await prisma.role.findUnique({ where: { id: role } });
       if (!roleDoc) return res.status(400).json({ message: 'Invalid role selected' });
-      user.role = role;
     }
-    if (hospital !== undefined) user.hospital = hospital || null;
-    if (phone !== undefined) user.phone = phone;
-    if (isActive !== undefined) user.isActive = isActive;
-    if (password) user.password = password;
 
-    await user.save();
-    const populated = await User.findById(user._id).populate('role').populate('hospital', 'name');
-    res.json(populated);
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email.toLowerCase().trim();
+    if (role) updateData.roleId = role;
+    if (hospital !== undefined) updateData.hospitalId = hospital || null;
+    if (phone !== undefined) updateData.phone = phone;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (password) updateData.password = await bcrypt.hash(password, 12);
+
+    const updated = await prisma.user.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: userInclude,
+    });
+
+    res.json(formatUser(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
