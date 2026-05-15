@@ -348,9 +348,9 @@ const HospitalForm = () => {
                   </div>
                 )}
 
-                {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && (
+                {svc.billingType === 'fixed_monthly' && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">When Limit is Exceeded</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">When Claim Limit is Exceeded</label>
                     <select value={svc.overLimitBehavior}
                       onChange={(e) => handleServiceChange(idx, 'overLimitBehavior', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
@@ -364,7 +364,7 @@ const HospitalForm = () => {
                 )}
 
                 {/* Over-limit: flat fee */}
-                {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && svc.overLimitBehavior === 'per_claim' && (
+                {svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'per_claim' && (
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Fixed Fee Per Extra Claim (Rs)</label>
                     <input type="number" value={svc.overLimitPerClaimAmount}
@@ -374,7 +374,7 @@ const HospitalForm = () => {
                 )}
 
                 {/* Over-limit: percentage */}
-                {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && svc.overLimitBehavior === 'percentage' && (
+                {svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'percentage' && (
                   <>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Calculation Basis</label>
@@ -396,7 +396,7 @@ const HospitalForm = () => {
                 )}
 
                 {/* Over-limit: per claim slab — reuses slab fields */}
-                {svc.billingType === 'fixed_monthly' && svc.claimLimit > 0 && svc.overLimitBehavior === 'per_claim_slab' && (
+                {svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'per_claim_slab' && (
                   <>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Calculation Basis</label>
