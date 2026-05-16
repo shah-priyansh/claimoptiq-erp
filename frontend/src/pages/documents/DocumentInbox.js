@@ -245,15 +245,6 @@ const DocumentInbox = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                    {can('claims', 'create') && hasPendingClaim && (
-                      <button
-                        type="button"
-                        onClick={e => { e.stopPropagation(); handleCreateClaim(docs.find(d => d.status !== 'claimed' && !d.claim)); }}
-                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
-                      >
-                        <HiOutlinePlus className="w-3.5 h-3.5" /> Claim
-                      </button>
-                    )}
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${st.badge}`}>{st.label}</span>
                     <HiChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
                   </div>
