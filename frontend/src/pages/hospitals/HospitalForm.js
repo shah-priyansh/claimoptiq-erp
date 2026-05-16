@@ -21,6 +21,10 @@ const emptyService = {
   overLimitInsurerIds: [],
   calculationBasis: 'none',
   percentageRate: 0,
+  slabMode: 'slab_wise',
+  slabRangeStart: 0,
+  slabIncrementRange: 0,
+  slabIncrementPrice: 0,
   slabs: [],
   isActive: true,
 };
@@ -98,6 +102,17 @@ const HospitalForm = () => {
     const services = [...form.billingServices];
     const current = services[svcIdx].overLimitInsurerIds || [];
     const updated = current.includes(insurerId) ? current.filter(id => id !== insurerId) : [...current, insurerId];
+    services[svcIdx] = { ...services[svcIdx], overLimitInsurerIds: updated };
+    setForm({ ...form, billingServices: services });
+  };
+
+  const selectAllInsurers = (svcIdx, ids) => {
+    const services = [...form.billingServices];
+    const current = services[svcIdx].overLimitInsurerIds || [];
+    const allSelected = ids.every(id => current.includes(id));
+    const updated = allSelected
+      ? current.filter(id => !ids.includes(id))
+      : [...new Set([...current, ...ids])];
     services[svcIdx] = { ...services[svcIdx], overLimitInsurerIds: updated };
     setForm({ ...form, billingServices: services });
   };
@@ -324,16 +339,23 @@ const HospitalForm = () => {
 
         {/* Billing Services */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">Billing Services</h2>
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Billing Services</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Configure pricing and billing rules for this hospital</p>
+            </div>
             <button type="button" onClick={addService}
-              className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 font-medium">
+              className="flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium border border-primary-200 hover:bg-primary-50 px-3 py-1.5 rounded-lg transition-colors">
               <HiOutlinePlus className="w-4 h-4" /> Add Service
             </button>
           </div>
 
           {form.billingServices.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-4">No billing services configured. Click "Add Service" to add one.</p>
+            <div className="border-2 border-dashed border-gray-200 rounded-xl py-10 text-center">
+              <p className="text-sm text-gray-400">No billing services configured.</p>
+              <button type="button" onClick={addService}
+                className="mt-2 text-sm text-primary-600 hover:text-primary-700 font-medium">+ Add first service</button>
+            </div>
           )}
 
           {form.billingServices.map((svc, idx) => {
@@ -341,30 +363,48 @@ const HospitalForm = () => {
               (svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'per_claim_slab');
             const svcSlabs = svc.slabs || [];
             return (
-              <div key={idx} className="border border-gray-200 rounded-lg p-4 mb-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">Service #{idx + 1}</h3>
+              <div key={idx} className="border border-gray-200 rounded-xl shadow-sm mb-4">
+                {/* Card header */}
+                <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200 rounded-t-xl">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-6 h-6 rounded-full bg-primary-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                      {idx + 1}
+                    </span>
+                    <span className="text-sm font-semibold text-gray-800 truncate">
+                      {svc.serviceName || `Service #${idx + 1}`}
+                    </span>
+                    <span className="text-xs bg-white border border-gray-200 text-gray-500 px-2 py-0.5 rounded-full flex-shrink-0">
+                      {svc.billingType === 'fixed_monthly' ? 'Fixed Monthly' :
+                       svc.billingType === 'per_claim_slab' ? 'Per Claim Slab' :
+                       svc.billingType === 'fixed_onetime' ? 'Fixed One-Time' : 'Percentage'}
+                    </span>
+                  </div>
                   <button type="button" onClick={() => removeService(idx)}
-                    className="text-red-500 hover:text-red-700">
+                    className="ml-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0">
                     <HiOutlineTrash className="w-4 h-4" />
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Service Name</label>
+                <div className="px-4 py-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+
+                  {/* Service Name — spans 2 cols */}
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Service Name</label>
                     <select value={svc.serviceName} onChange={(e) => handleServiceChange(idx, 'serviceName', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                      <option value="">— Select service name —</option>
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
+                      <option value="">— Select —</option>
                       {serviceNames.map(s => (
                         <option key={s._id} value={s.name}>{s.name}</option>
                       ))}
                     </select>
                   </div>
+
+                  {/* Billing Type */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Billing Type</label>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Billing Type</label>
                     <select value={svc.billingType} onChange={(e) => handleServiceChange(idx, 'billingType', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
                       <option value="fixed_monthly">Fixed Monthly</option>
                       <option value="per_claim_slab">Per Claim Slab</option>
                       <option value="fixed_onetime">Fixed One-Time</option>
@@ -372,262 +412,263 @@ const HospitalForm = () => {
                     </select>
                   </div>
 
+                  {/* Fixed Monthly: Fixed Amount (col 4) */}
                   {svc.billingType === 'fixed_monthly' && (
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Fixed Amount (Rs)</label>
-                      <AmountInput value={svc.fixedAmount}
-                        onChange={(v) => handleServiceChange(idx, 'fixedAmount', v)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Fixed Amount (Rs)</label>
+                      <AmountInput value={svc.fixedAmount} onChange={(v) => handleServiceChange(idx, 'fixedAmount', v)}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                     </div>
                   )}
 
+                  {/* Fixed Monthly: Row 2 — Claim Limit | When Exceeded | Per Claim + Ins Wise OR % fields */}
+                  {svc.billingType === 'fixed_monthly' && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Claim Limit <span className="text-gray-400">(0 = ∞)</span></label>
+                        <AmountInput value={svc.claimLimit} onChange={(v) => handleServiceChange(idx, 'claimLimit', v)}
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">When Exceeded</label>
+                        <select value={svc.overLimitBehavior} onChange={(e) => handleServiceChange(idx, 'overLimitBehavior', e.target.value)}
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
+                          <option value="per_claim">Fixed One-Time</option>
+                          <option value="percentage">Percentage</option>
+                          <option value="per_claim_slab">Per Claim Slab</option>
+                        </select>
+                      </div>
+
+                      {svc.overLimitBehavior === 'per_claim' && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Per Claim (Rs)</label>
+                            <AmountInput value={svc.overLimitPerClaimAmount} onChange={(v) => handleServiceChange(idx, 'overLimitPerClaimAmount', v)}
+                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          </div>
+                          <div className="flex items-center gap-2 pt-5">
+                            <input type="checkbox" id={`ins-wise-${idx}`}
+                              checked={Boolean(svc.overLimitInsuranceWise)}
+                              onChange={(e) => handleServiceChange(idx, 'overLimitInsuranceWise', e.target.checked)}
+                              className="w-4 h-4 rounded text-primary-600 border-gray-300 focus:ring-primary-500 cursor-pointer" />
+                            <label htmlFor={`ins-wise-${idx}`} className="text-xs font-medium text-gray-600 cursor-pointer select-none">Insurance Wise</label>
+                          </div>
+                        </>
+                      )}
+
+                      {svc.overLimitBehavior === 'percentage' && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Calc Basis</label>
+                            <select value={svc.calculationBasis} onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
+                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
+                              <option value="hospital_final_bill">Hospital Final Bill</option>
+                              <option value="final_approval">Final Approval Amount</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Rate (%)</label>
+                            <input type="number" step="0.01" min="0" max="100" value={svc.percentageRate}
+                              onChange={(e) => handleServiceChange(idx, 'percentageRate', Number(e.target.value))}
+                              placeholder="e.g. 2.5"
+                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {/* Fixed Monthly + per_claim + Insurance Wise: horizontal panel */}
+                  {svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'per_claim' && svc.overLimitInsuranceWise && (() => {
+                    const selectedIds = svc.overLimitInsurerIds || [];
+                    const olKey = `ol-${idx}`;
+                    const filtered = insurers.filter(i =>
+                      (i.name || '').toLowerCase().includes((insurerDropdownOpen === olKey ? insurerSearch : '').toLowerCase())
+                    );
+                    const filteredIds = filtered.map(i => i.id || i._id);
+                    const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+                    return (
+                      <div className="col-span-2 md:col-span-4">
+                        <div className="bg-primary-50/60 border border-primary-100 rounded-xl p-3">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="text-xs font-medium text-primary-700 flex-shrink-0">Insurance Companies</span>
+                            {selectedIds.length > 0 && (
+                              <span className="text-xs bg-primary-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">{selectedIds.length} selected</span>
+                            )}
+                            {selectedIds.map(id => {
+                              const ins = insurers.find(i => (i.id || i._id) === id);
+                              return (
+                                <span key={id} className="inline-flex items-center gap-1 bg-white border border-primary-200 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                                  {ins?.name || id}
+                                  <button type="button" onClick={() => toggleInsurer(idx, id)} className="ml-0.5 text-primary-400 hover:text-primary-700 leading-none">&times;</button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <div className="relative flex-1">
+                              <input type="text" placeholder="Search insurance company..."
+                                value={insurerDropdownOpen === olKey ? insurerSearch : ''}
+                                onFocus={() => { setInsurerDropdownOpen(olKey); setInsurerSearch(''); }}
+                                onChange={(e) => setInsurerSearch(e.target.value)}
+                                onBlur={() => setTimeout(() => setInsurerDropdownOpen(null), 150)}
+                                className="w-full px-3 py-1.5 bg-white border border-primary-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 placeholder-gray-400" />
+                              {insurerDropdownOpen === olKey && (
+                                <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                  {filtered.length === 0 ? <p className="text-xs text-gray-400 px-4 py-3">No results</p> : (
+                                    <>
+                                      <button type="button" onMouseDown={(e) => { e.preventDefault(); selectAllInsurers(idx, filteredIds); }}
+                                        className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 border-b border-gray-100 bg-gray-50 hover:bg-primary-50 text-primary-700 font-semibold transition-colors">
+                                        <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${allSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{allSelected && '✓'}</span>
+                                        {allSelected ? 'Deselect All' : 'Select All'}
+                                      </button>
+                                      {filtered.map(ins => {
+                                        const insId = ins.id || ins._id;
+                                        const isSelected = selectedIds.includes(insId);
+                                        return (
+                                          <button key={insId} type="button" onMouseDown={(e) => { e.preventDefault(); toggleInsurer(idx, insId); }}
+                                            className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 transition-colors ${isSelected ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}>
+                                            <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${isSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{isSelected && '✓'}</span>
+                                            {ins.name}
+                                          </button>
+                                        );
+                                      })}
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            {selectedIds.length > 0 && (
+                              <div className="bg-white border border-primary-200 rounded-lg px-3 py-1.5 flex items-center gap-3 whitespace-nowrap flex-shrink-0">
+                                <span className="text-xs text-gray-500">{selectedIds.length} × Rs {formatINR(svc.overLimitPerClaimAmount || 0)}</span>
+                                <span className="text-sm font-bold text-primary-700">Rs {formatINR(selectedIds.length * (svc.overLimitPerClaimAmount || 0))}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Fixed One-Time */}
                   {svc.billingType === 'fixed_onetime' && (() => {
                     const selectedIds = svc.overLimitInsurerIds || [];
                     const isInsWise = Boolean(svc.overLimitInsuranceWise);
                     const filtered = insurers.filter(i =>
                       (i.name || '').toLowerCase().includes((insurerDropdownOpen === idx ? insurerSearch : '').toLowerCase())
                     );
+                    const filteredIds = filtered.map(i => i.id || i._id);
+                    const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
                     return (
                       <>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            {isInsWise ? 'Per Claim (Rs)' : 'Fixed Amount (Rs)'}
-                          </label>
-                          <AmountInput value={svc.fixedAmount}
-                            onChange={(v) => handleServiceChange(idx, 'fixedAmount', v)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          <label className="block text-xs font-medium text-gray-500 mb-1">{isInsWise ? 'Per Claim (Rs)' : 'Fixed Amount (Rs)'}</label>
+                          <AmountInput value={svc.fixedAmount} onChange={(v) => handleServiceChange(idx, 'fixedAmount', v)}
+                            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                         </div>
                         <div className="flex items-center gap-2 pt-5">
-                          <input
-                            type="checkbox"
-                            id={`ins-wise-bt-${idx}`}
-                            checked={isInsWise}
+                          <input type="checkbox" id={`ins-wise-bt-${idx}`} checked={isInsWise}
                             onChange={(e) => {
                               const services = [...form.billingServices];
-                              services[idx] = {
-                                ...services[idx],
-                                overLimitInsuranceWise: e.target.checked,
-                                overLimitInsurerIds: e.target.checked ? (services[idx].overLimitInsurerIds || []) : [],
-                              };
+                              services[idx] = { ...services[idx], overLimitInsuranceWise: e.target.checked, overLimitInsurerIds: e.target.checked ? (services[idx].overLimitInsurerIds || []) : [] };
                               setForm(f => ({ ...f, billingServices: services }));
                             }}
-                            className="w-4 h-4 rounded text-primary-600 border-gray-300 focus:ring-primary-500 cursor-pointer"
-                          />
-                          <label htmlFor={`ins-wise-bt-${idx}`} className="text-xs font-medium text-gray-600 cursor-pointer select-none">
-                            Insurance Wise
-                          </label>
+                            className="w-4 h-4 rounded text-primary-600 border-gray-300 focus:ring-primary-500 cursor-pointer" />
+                          <label htmlFor={`ins-wise-bt-${idx}`} className="text-xs font-medium text-gray-600 cursor-pointer select-none">Insurance Wise</label>
                         </div>
 
                         {isInsWise && (
-                          <div className="md:col-span-3">
-                            {/* Selected chips */}
-                            {selectedIds.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mb-2">
+                          <div className="col-span-2 md:col-span-4">
+                            <div className="bg-primary-50/60 border border-primary-100 rounded-xl p-3">
+                              <div className="flex items-center gap-3 flex-wrap mb-2">
+                                <span className="text-xs font-medium text-primary-700 flex-shrink-0">Insurance Companies</span>
+                                {selectedIds.length > 0 && (
+                                  <span className="text-xs bg-primary-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">{selectedIds.length} selected</span>
+                                )}
                                 {selectedIds.map(id => {
                                   const ins = insurers.find(i => (i.id || i._id) === id);
                                   return (
-                                    <span key={id} className="inline-flex items-center gap-1 bg-primary-100 text-primary-700 text-xs font-medium px-2.5 py-1 rounded-full">
+                                    <span key={id} className="inline-flex items-center gap-1 bg-white border border-primary-200 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
                                       {ins?.name || id}
-                                      <button type="button" onClick={() => toggleInsurer(idx, id)}
-                                        className="ml-0.5 hover:text-primary-900 leading-none">&times;</button>
+                                      <button type="button" onClick={() => toggleInsurer(idx, id)} className="ml-0.5 text-primary-400 hover:text-primary-700 leading-none">&times;</button>
                                     </span>
                                   );
                                 })}
                               </div>
-                            )}
-
-                            {/* Searchable dropdown */}
-                            <div className="relative">
-                              <input
-                                type="text"
-                                placeholder="Search and select insurance company..."
-                                value={insurerDropdownOpen === idx ? insurerSearch : ''}
-                                onFocus={() => { setInsurerDropdownOpen(idx); setInsurerSearch(''); }}
-                                onChange={(e) => setInsurerSearch(e.target.value)}
-                                onBlur={() => setTimeout(() => setInsurerDropdownOpen(null), 150)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                              />
-                              {insurerDropdownOpen === idx && (
-                                <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                                  {filtered.length === 0 ? (
-                                    <p className="text-xs text-gray-400 px-3 py-3">No results</p>
-                                  ) : filtered.map(ins => {
-                                    const insId = ins.id || ins._id;
-                                    const isSelected = selectedIds.includes(insId);
-                                    return (
-                                      <button key={insId} type="button"
-                                        onMouseDown={(e) => { e.preventDefault(); toggleInsurer(idx, insId); }}
-                                        className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 ${isSelected ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>
-                                        <span className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center text-xs ${isSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300'}`}>
-                                          {isSelected && '✓'}
-                                        </span>
-                                        {ins.name}
-                                      </button>
-                                    );
-                                  })}
+                              <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                  <input type="text" placeholder="Search insurance company..."
+                                    value={insurerDropdownOpen === idx ? insurerSearch : ''}
+                                    onFocus={() => { setInsurerDropdownOpen(idx); setInsurerSearch(''); }}
+                                    onChange={(e) => setInsurerSearch(e.target.value)}
+                                    onBlur={() => setTimeout(() => setInsurerDropdownOpen(null), 150)}
+                                    className="w-full px-3 py-1.5 bg-white border border-primary-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 placeholder-gray-400" />
+                                  {insurerDropdownOpen === idx && (
+                                    <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                      {filtered.length === 0 ? <p className="text-xs text-gray-400 px-4 py-3">No results</p> : (
+                                        <>
+                                          <button type="button" onMouseDown={(e) => { e.preventDefault(); selectAllInsurers(idx, filteredIds); }}
+                                            className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 border-b border-gray-100 bg-gray-50 hover:bg-primary-50 text-primary-700 font-semibold transition-colors">
+                                            <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${allSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{allSelected && '✓'}</span>
+                                            {allSelected ? 'Deselect All' : 'Select All'}
+                                          </button>
+                                          {filtered.map(ins => {
+                                            const insId = ins.id || ins._id;
+                                            const isSelected = selectedIds.includes(insId);
+                                            return (
+                                              <button key={insId} type="button" onMouseDown={(e) => { e.preventDefault(); toggleInsurer(idx, insId); }}
+                                                className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 transition-colors ${isSelected ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}>
+                                                <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${isSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{isSelected && '✓'}</span>
+                                                {ins.name}
+                                              </button>
+                                            );
+                                          })}
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-
-                            {/* Total bar */}
-                            {selectedIds.length > 0 && (
-                              <div className="mt-2 bg-primary-50 border border-primary-100 rounded-lg px-4 py-2.5 flex items-center justify-between">
-                                <span className="text-xs text-gray-600">
-                                  {selectedIds.length} insurer{selectedIds.length > 1 ? 's' : ''} &times; Rs {formatINR(svc.fixedAmount || 0)} per claim
-                                </span>
-                                <span className="text-sm font-semibold text-primary-700">
-                                  Total: Rs {formatINR(selectedIds.length * (svc.fixedAmount || 0))}
-                                </span>
+                                {selectedIds.length > 0 && (
+                                  <div className="bg-white border border-primary-200 rounded-lg px-3 py-1.5 flex items-center gap-3 whitespace-nowrap flex-shrink-0">
+                                    <span className="text-xs text-gray-500">{selectedIds.length} × Rs {formatINR(svc.fixedAmount || 0)}</span>
+                                    <span className="text-sm font-bold text-primary-700">Rs {formatINR(selectedIds.length * (svc.fixedAmount || 0))}</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
+                            </div>
                           </div>
                         )}
                       </>
                     );
                   })()}
 
-                  {svc.billingType === 'fixed_monthly' && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Claim Limit <span className="text-gray-400 font-normal">(0 = unlimited)</span>
-                      </label>
-                      <AmountInput value={svc.claimLimit}
-                        onChange={(v) => handleServiceChange(idx, 'claimLimit', v)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-                    </div>
-                  )}
-
-                  {svc.billingType === 'fixed_monthly' && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">When Claim Limit is Exceeded</label>
-                      <select value={svc.overLimitBehavior}
-                        onChange={(e) => handleServiceChange(idx, 'overLimitBehavior', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                        <option value="per_claim">Fixed One-Time</option>
-                        <option value="percentage">Percentage</option>
-                        <option value="per_claim_slab">Per Claim Slab</option>
-                      </select>
-                    </div>
-                  )}
-
-                  {svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'per_claim' && (
+                  {/* Percentage standalone */}
+                  {svc.billingType === 'percentage' && (
                     <>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Per Claim (Rs)</label>
-                        <AmountInput value={svc.overLimitPerClaimAmount}
-                          onChange={(v) => handleServiceChange(idx, 'overLimitPerClaimAmount', v)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-                      </div>
-                      <div className="md:col-span-2 flex items-center gap-2 pt-5">
-                        <input
-                          type="checkbox"
-                          id={`ins-wise-${idx}`}
-                          checked={Boolean(svc.overLimitInsuranceWise)}
-                          onChange={(e) => handleServiceChange(idx, 'overLimitInsuranceWise', e.target.checked)}
-                          className="w-4 h-4 rounded text-primary-600 border-gray-300 focus:ring-primary-500 cursor-pointer"
-                        />
-                        <label htmlFor={`ins-wise-${idx}`} className="text-xs font-medium text-gray-600 cursor-pointer select-none">
-                          Insurance Wise
-                        </label>
-                      </div>
-
-                      {svc.overLimitInsuranceWise && (() => {
-                        const selectedIds = svc.overLimitInsurerIds || [];
-                        const olKey = `ol-${idx}`;
-                        const filtered = insurers.filter(i =>
-                          (i.name || '').toLowerCase().includes((insurerDropdownOpen === olKey ? insurerSearch : '').toLowerCase())
-                        );
-                        return (
-                          <div className="md:col-span-3">
-                            {selectedIds.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mb-2">
-                                {selectedIds.map(id => {
-                                  const ins = insurers.find(i => (i.id || i._id) === id);
-                                  return (
-                                    <span key={id} className="inline-flex items-center gap-1 bg-primary-100 text-primary-700 text-xs font-medium px-2.5 py-1 rounded-full">
-                                      {ins?.name || id}
-                                      <button type="button" onClick={() => toggleInsurer(idx, id)}
-                                        className="ml-0.5 hover:text-primary-900 leading-none">&times;</button>
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            )}
-                            <div className="relative">
-                              <input
-                                type="text"
-                                placeholder="Search and select insurance company..."
-                                value={insurerDropdownOpen === olKey ? insurerSearch : ''}
-                                onFocus={() => { setInsurerDropdownOpen(olKey); setInsurerSearch(''); }}
-                                onChange={(e) => setInsurerSearch(e.target.value)}
-                                onBlur={() => setTimeout(() => setInsurerDropdownOpen(null), 150)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                              />
-                              {insurerDropdownOpen === olKey && (
-                                <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                                  {filtered.length === 0 ? (
-                                    <p className="text-xs text-gray-400 px-3 py-3">No results</p>
-                                  ) : filtered.map(ins => {
-                                    const insId = ins.id || ins._id;
-                                    const isSelected = selectedIds.includes(insId);
-                                    return (
-                                      <button key={insId} type="button"
-                                        onMouseDown={(e) => { e.preventDefault(); toggleInsurer(idx, insId); }}
-                                        className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 ${isSelected ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>
-                                        <span className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center text-xs ${isSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300'}`}>
-                                          {isSelected && '✓'}
-                                        </span>
-                                        {ins.name}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                            {selectedIds.length > 0 && (
-                              <div className="mt-2 bg-primary-50 border border-primary-100 rounded-lg px-4 py-2.5 flex items-center justify-between">
-                                <span className="text-xs text-gray-600">
-                                  {selectedIds.length} insurer{selectedIds.length > 1 ? 's' : ''} &times; Rs {formatINR(svc.overLimitPerClaimAmount || 0)} per claim
-                                </span>
-                                <span className="text-sm font-semibold text-primary-700">
-                                  Total: Rs {formatINR(selectedIds.length * (svc.overLimitPerClaimAmount || 0))}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </>
-                  )}
-
-                  {(svc.billingType === 'percentage' ||
-                    (svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'percentage')) && (
-                    <>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Calculation Basis</label>
-                        <select value={svc.calculationBasis}
-                          onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Calc Basis</label>
+                        <select value={svc.calculationBasis} onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
                           <option value="hospital_final_bill">Hospital Final Bill</option>
                           <option value="final_approval">Final Approval Amount</option>
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Percentage Rate (%)</label>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Rate (%)</label>
                         <input type="number" step="0.01" min="0" max="100" value={svc.percentageRate}
                           onChange={(e) => handleServiceChange(idx, 'percentageRate', Number(e.target.value))}
                           placeholder="e.g. 2.5"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                       </div>
                     </>
                   )}
 
+                  {/* Slab: Calculation Basis */}
                   {showSlabs && (
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Calculation Basis</label>
-                      <select value={svc.calculationBasis}
-                        onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Calc Basis</label>
+                      <select value={svc.calculationBasis} onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
                         <option value="hospital_final_bill">Hospital Final Bill</option>
                         <option value="final_approval">Final Approval Amount</option>
                       </select>
@@ -635,59 +676,116 @@ const HospitalForm = () => {
                   )}
                 </div>
 
-                {/* Slab tiers — dynamic multi-row table */}
+                {/* Slab section — Slab Wise or Incremental */}
                 {showSlabs && (
-                  <div className="mt-4 border-t border-gray-100 pt-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Slab Tiers</span>
-                      <button type="button" onClick={() => addSlab(idx)}
-                        className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 font-medium border border-primary-200 hover:bg-primary-50 px-2.5 py-1 rounded-lg transition-colors">
-                        <HiOutlinePlus className="w-3 h-3" /> Add Tier
-                      </button>
-                    </div>
-
-                    {svcSlabs.length === 0 ? (
-                      <p className="text-xs text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
-                        No slab tiers defined. Click "+ Add Tier" to add one.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-[1fr_1fr_1fr_2rem] gap-2 px-1">
-                          <span className="text-xs font-medium text-gray-500">From (Rs)</span>
-                          <span className="text-xs font-medium text-gray-500">To (Rs)</span>
-                          <span className="text-xs font-medium text-gray-500">Price (Rs)</span>
-                          <span></span>
-                        </div>
-                        {svcSlabs.map((slab, slabIdx) => (
-                          <div key={slabIdx} className="grid grid-cols-[1fr_1fr_1fr_2rem] gap-2 items-center">
-                            <AmountInput
-                              value={slab.rangeStart}
-                              onChange={(v) => handleSlabChange(idx, slabIdx, 'rangeStart', v)}
-                              placeholder="0"
-                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                            />
-                            <AmountInput
-                              value={slab.rangeEnd}
-                              onChange={(v) => handleSlabChange(idx, slabIdx, 'rangeEnd', v)}
-                              placeholder="50,000"
-                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                            />
-                            <AmountInput
-                              value={slab.price}
-                              onChange={(v) => handleSlabChange(idx, slabIdx, 'price', v)}
-                              placeholder="2,000"
-                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                            />
-                            <button type="button" onClick={() => removeSlab(idx, slabIdx)}
-                              className="flex items-center justify-center p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                              <HiOutlineTrash className="w-3.5 h-3.5" />
-                            </button>
+                  <div className="mt-3 bg-gray-50/70 border border-gray-200 rounded-xl p-3">
+                    {/* Mode toggle */}
+                    {(() => {
+                      const slabMode = svc.slabMode || 'slab_wise';
+                      const showSlabTable = slabMode === 'slab_wise' || slabMode === 'both';
+                      const showIncremental = slabMode === 'incremental' || slabMode === 'both';
+                      return (
+                        <>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Slab Configuration</span>
+                            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+                              {[
+                                { value: 'slab_wise', label: 'Slab Wise' },
+                                { value: 'incremental', label: 'Incremental' },
+                                { value: 'both', label: 'Both' },
+                              ].map((opt, i) => (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  onClick={() => handleServiceChange(idx, 'slabMode', opt.value)}
+                                  className={`px-3 py-1.5 transition-colors ${i > 0 ? 'border-l border-gray-200' : ''} ${
+                                    slabMode === opt.value
+                                      ? 'bg-primary-600 text-white'
+                                      : 'bg-white text-gray-600 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
+
+                          {showSlabTable && (
+                            <div className={showIncremental ? 'mb-4' : ''}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-gray-500 font-medium">Slab Tiers</span>
+                                <button type="button" onClick={() => addSlab(idx)}
+                                  className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 font-medium border border-primary-200 hover:bg-primary-50 px-2.5 py-1 rounded-lg transition-colors">
+                                  <HiOutlinePlus className="w-3 h-3" /> Add Tier
+                                </button>
+                              </div>
+                              {svcSlabs.length === 0 ? (
+                                <p className="text-xs text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
+                                  No slab tiers defined. Click "+ Add Tier" to add one.
+                                </p>
+                              ) : (
+                                <div className="space-y-2">
+                                  <div className="grid grid-cols-[1fr_1fr_1fr_2rem] gap-2 px-1">
+                                    <span className="text-xs font-medium text-gray-500">From (Rs)</span>
+                                    <span className="text-xs font-medium text-gray-500">To (Rs)</span>
+                                    <span className="text-xs font-medium text-gray-500">Price (Rs)</span>
+                                    <span></span>
+                                  </div>
+                                  {svcSlabs.map((slab, slabIdx) => (
+                                    <div key={slabIdx} className="grid grid-cols-[1fr_1fr_1fr_2rem] gap-2 items-center">
+                                      <AmountInput value={slab.rangeStart} onChange={(v) => handleSlabChange(idx, slabIdx, 'rangeStart', v)} placeholder="0"
+                                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                                      <AmountInput value={slab.rangeEnd} onChange={(v) => handleSlabChange(idx, slabIdx, 'rangeEnd', v)} placeholder="50,000"
+                                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                                      <AmountInput value={slab.price} onChange={(v) => handleSlabChange(idx, slabIdx, 'price', v)} placeholder="2,000"
+                                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                                      <button type="button" onClick={() => removeSlab(idx, slabIdx)}
+                                        className="flex items-center justify-center p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                                        <HiOutlineTrash className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {showIncremental && (
+                            <div>
+                              {showSlabTable && <div className="border-t border-gray-100 pt-4 mb-2"><span className="text-xs text-gray-500 font-medium">Incremental Rule</span></div>}
+                              <p className="text-xs text-gray-400 mb-2">e.g. Starting from Rs 0 → every Rs 50,000 → charge Rs 500</p>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">Starting From (Rs)</label>
+                                  <AmountInput value={svc.slabRangeStart || 0} onChange={(v) => handleServiceChange(idx, 'slabRangeStart', v)} placeholder="0"
+                                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">Every (Rs)</label>
+                                  <AmountInput value={svc.slabIncrementRange || 0} onChange={(v) => handleServiceChange(idx, 'slabIncrementRange', v)} placeholder="50,000"
+                                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">Charge (Rs)</label>
+                                  <AmountInput value={svc.slabIncrementPrice || 0} onChange={(v) => handleServiceChange(idx, 'slabIncrementPrice', v)} placeholder="500"
+                                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                                </div>
+                              </div>
+                              {(svc.slabIncrementRange > 0 && svc.slabIncrementPrice > 0) && (
+                                <div className="mt-2 bg-primary-50 border border-primary-100 rounded-lg px-4 py-2.5">
+                                  <p className="text-xs text-gray-600">
+                                    For every <span className="font-semibold text-primary-700">Rs {formatINR(svc.slabIncrementRange)}</span> above <span className="font-semibold text-primary-700">Rs {formatINR(svc.slabRangeStart || 0)}</span>, charge <span className="font-semibold text-primary-700">Rs {formatINR(svc.slabIncrementPrice)}</span>
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
+                </div>
               </div>
             );
           })}
