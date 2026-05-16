@@ -50,6 +50,10 @@ const buildBillingServices = (services) =>
     overLimitInsurerIds: Array.isArray(s.overLimitInsurerIds) ? s.overLimitInsurerIds : [],
     calculationBasis: s.calculationBasis || 'none',
     percentageRate: s.percentageRate || 0,
+    slabMode: s.slabMode || 'slab_wise',
+    slabRangeStart: s.slabRangeStart || 0,
+    slabIncrementRange: s.slabIncrementRange || 0,
+    slabIncrementPrice: s.slabIncrementPrice || 0,
     isActive: s.isActive !== undefined ? s.isActive : true,
     slabs: {
       create: (s.slabs || []).map((slab, i) => ({

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { createClaimAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, updateSubmissionAPI } from '../../services/api';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { createClaimAPI, updateClaimAPI, getClaimAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, updateSubmissionAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { isValidPhone, onPhoneInput, inputCls } from '../../utils/validators';
@@ -16,6 +16,8 @@ const claimTypeCls = (active) =>
 
 const ClaimForm = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const isEdit = Boolean(id);
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const fromSubmissionId = searchParams.get('submissionId') || '';
@@ -49,7 +51,29 @@ const ClaimForm = () => {
       setInsurances(i.data);
       setTPAs(t.data);
     });
-  }, []);
+    if (isEdit) {
+      getClaimAPI(id).then(({ data }) => {
+        setForm({
+          hospital: data.hospital?._id || data.hospital || '',
+          month: data.month ? new Date(data.month).toISOString().slice(0, 7) : '',
+          patientName: data.patientName || '',
+          patientMobile: data.patientMobile || '',
+          doctorName: data.doctorName || '',
+          claimType: data.claimType || 'cashless',
+          insuranceCompany: data.insuranceCompany?._id || data.insuranceCompany || '',
+          tpa: data.tpa?._id || data.tpa || '',
+          policyNo: data.policyNo || '',
+          clientId: data.clientId || '',
+          ccnNo: data.ccnNo || '',
+          dateOfAdmit: data.dateOfAdmit ? new Date(data.dateOfAdmit).toISOString().slice(0, 10) : '',
+          dateOfDischarge: data.dateOfDischarge ? new Date(data.dateOfDischarge).toISOString().slice(0, 10) : '',
+        });
+      }).catch(() => {
+        toast.error('Claim not found');
+        navigate('/claims');
+      });
+    }
+  }, [id, isEdit, navigate]);
 
   const set = (field, val) => setForm(f => ({ ...f, [field]: val }));
 
@@ -73,21 +97,25 @@ const ClaimForm = () => {
       submitData.month = new Date(form.month + '-01');
       if (!submitData.tpa) delete submitData.tpa;
       if (!submitData.dateOfDischarge) delete submitData.dateOfDischarge;
-      const { data } = await createClaimAPI(submitData);
 
-      // Link the document submission if this claim was created from the inbox
-      if (fromSubmissionId) {
-        try {
-          await updateSubmissionAPI(fromSubmissionId, { status: 'claimed', claim: data._id });
-        } catch {
-          // non-critical — claim was created successfully regardless
+      if (isEdit) {
+        await updateClaimAPI(id, submitData);
+        toast.success('Claim updated successfully');
+        navigate(`/claims/${id}`);
+      } else {
+        const { data } = await createClaimAPI(submitData);
+        if (fromSubmissionId) {
+          try {
+            await updateSubmissionAPI(fromSubmissionId, { status: 'claimed', claim: data._id });
+          } catch {
+            // non-critical
+          }
         }
+        toast.success('Claim created successfully');
+        navigate(`/claims/${data._id}`);
       }
-
-      toast.success('Claim created successfully');
-      navigate(`/claims/${data._id}`);
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to create claim');
+      toast.error(error.response?.data?.message || (isEdit ? 'Failed to update claim' : 'Failed to create claim'));
     } finally {
       setLoading(false);
     }
@@ -99,7 +127,7 @@ const ClaimForm = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">New Claim — Patient Admit</h1>
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">{isEdit ? 'Edit Claim' : 'New Claim — Patient Admit'}</h1>
 
       {fromSubmissionId && (
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-5">
@@ -251,7 +279,7 @@ const ClaimForm = () => {
         <div className="flex items-center gap-3">
           <button type="submit" disabled={loading}
             className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-3 rounded-lg text-sm font-medium disabled:opacity-50">
-            {loading ? 'Creating...' : 'Create Claim'}
+            {loading ? (isEdit ? 'Saving...' : 'Creating...') : (isEdit ? 'Save Changes' : 'Create Claim')}
           </button>
           <button type="button" onClick={() => navigate('/claims')}
             className="bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-lg text-sm font-medium hover:bg-gray-50">

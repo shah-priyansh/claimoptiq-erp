@@ -41,6 +41,7 @@ function App() {
             <Route path="/users" element={<UserList />} />
             <Route path="/claims" element={<ClaimList />} />
             <Route path="/claims/new" element={<ClaimForm />} />
+            <Route path="/claims/:id/edit" element={<ClaimForm />} />
             <Route path="/claims/:id" element={<ClaimDetail />} />
             <Route path="/roles" element={<RoleList />} />
             <Route path="/roles/new" element={<RoleForm />} />

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency } from '../../utils/format';
 
@@ -203,7 +203,15 @@ const ClaimList = () => {
                       <p className="font-semibold text-gray-800 truncate">{c.patientName}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{c.policyNo || 'No policy number'}</p>
                     </div>
-                    <StatusBadge c={c} />
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <StatusBadge c={c} />
+                      {can('claims', 'edit') && (
+                        <button onClick={(e) => { e.stopPropagation(); navigate(`/claims/${c._id}/edit`); }}
+                          className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
+                          <HiOutlinePencil className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
                     {!isHospitalUser && <><span className="font-medium text-gray-600">{c.hospital?.name || '-'}</span><span>·</span></>}
@@ -258,10 +266,18 @@ const ClaimList = () => {
                   <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
                   <td className="py-3 px-3"><StatusBadge c={c} /></td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => navigate(`/claims/${c._id}`)}
-                      className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg">
-                      <HiOutlineEye className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      {can('claims', 'edit') && (
+                        <button onClick={() => navigate(`/claims/${c._id}/edit`)}
+                          className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
+                          <HiOutlinePencil className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button onClick={() => navigate(`/claims/${c._id}`)}
+                        className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
+                        <HiOutlineEye className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
