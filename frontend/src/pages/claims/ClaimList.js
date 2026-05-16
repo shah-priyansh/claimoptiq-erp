@@ -7,6 +7,7 @@ import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency } from '../../utils/format';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const ClaimList = () => {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ const ClaimList = () => {
   const [claims, setClaims] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [claimStatuses, setClaimStatuses] = useState([]);
+  const [filtersLoading, setFiltersLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -24,8 +26,13 @@ const ClaimList = () => {
   });
 
   useEffect(() => {
-    getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
-    getClaimStatusesAPI().then(({ data }) => setClaimStatuses(data.filter(s => s.isActive))).catch(() => {});
+    Promise.all([
+      getHospitalsAPI({ active: 'true' }),
+      getClaimStatusesAPI(),
+    ]).then(([h, s]) => {
+      setHospitals(h.data);
+      setClaimStatuses(s.data.filter(s => s.isActive));
+    }).catch(() => {}).finally(() => setFiltersLoading(false));
   }, []);
 
   useEffect(() => {
@@ -152,35 +159,46 @@ const ClaimList = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
-          <div className={`relative sm:col-span-2 ${isHospitalUser ? 'lg:col-span-2' : 'lg:col-span-2'}`}>
-            <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+      <div className="bg-white rounded-xl border border-gray-200 p-3 mb-4">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
+          <div className="relative sm:col-span-2 lg:col-span-2">
+            <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
             <input placeholder="Search patient, policy, CCN..."
               value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
               className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           </div>
           {!isHospitalUser && (
-            <select value={filters.hospital} onChange={(e) => setFilters({ ...filters, hospital: e.target.value, page: 1 })}
-              className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">All Hospitals</option>
-              {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-            </select>
+            <SearchableSelect
+              options={hospitals.map(h => ({ value: h._id, label: h.name }))}
+              value={filters.hospital}
+              onChange={val => setFilters({ ...filters, hospital: val, page: 1 })}
+              placeholder="All Hospitals"
+              searchPlaceholder="Search hospitals..."
+              isLoading={filtersLoading}
+              allowClear
+            />
           )}
-          <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
-            className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-            <option value="">All Status</option>
-            {claimStatuses.map(s => (
-              <option key={s._id} value={s.slug}>{s.label}</option>
-            ))}
-          </select>
-          <select value={filters.claimType} onChange={(e) => setFilters({ ...filters, claimType: e.target.value, page: 1 })}
-            className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-            <option value="">All Types</option>
-            <option value="cashless">Cashless</option>
-            <option value="reimbursement">Reimbursement</option>
-            <option value="grievance">Grievance</option>
-          </select>
+          <SearchableSelect
+            options={claimStatuses.map(s => ({ value: s.slug, label: s.label }))}
+            value={filters.status}
+            onChange={val => setFilters({ ...filters, status: val, page: 1 })}
+            placeholder="All Status"
+            searchPlaceholder="Search status..."
+            isLoading={filtersLoading}
+            allowClear
+          />
+          <SearchableSelect
+            options={[
+              { value: 'cashless', label: 'Cashless' },
+              { value: 'reimbursement', label: 'Reimbursement' },
+              { value: 'grievance', label: 'Grievance' },
+            ]}
+            value={filters.claimType}
+            onChange={val => setFilters({ ...filters, claimType: val, page: 1 })}
+            placeholder="All Types"
+            searchPlaceholder="Search type..."
+            allowClear
+          />
         </div>
       </div>
 

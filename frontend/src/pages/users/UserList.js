@@ -249,8 +249,9 @@ const UserList = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
                 <select value={form.role} onChange={(e) => setField('role', e.target.value)}
+                  disabled={loading}
                   className={inputCls(!!errors.role)}>
-                  <option value="">Select Role</option>
+                  <option value="">{loading ? 'Loading...' : 'Select Role'}</option>
                   {roles.map((r) => <option key={r._id} value={r._id}>{r.name}</option>)}
                 </select>
                 {errors.role && <p className="text-xs text-red-500 mt-1">{errors.role}</p>}
@@ -259,8 +260,9 @@ const UserList = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
                   <select value={form.hospital} onChange={(e) => setField('hospital', e.target.value)}
+                    disabled={loading}
                     className={inputCls(!!errors.hospital)}>
-                    <option value="">Select Hospital</option>
+                    <option value="">{loading ? 'Loading...' : 'Select Hospital'}</option>
                     {hospitals.map((h) => <option key={h._id} value={h._id}>{h.name}</option>)}
                   </select>
                   {errors.hospital && <p className="text-xs text-red-500 mt-1">{errors.hospital}</p>}

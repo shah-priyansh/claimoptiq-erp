@@ -10,6 +10,7 @@ const SearchableSelect = ({
   searchPlaceholder = 'Search...',
   required = false,
   disabled = false,
+  isLoading = false,
   allowClear = false,
   noneLabel = null,
 }) => {
@@ -73,27 +74,36 @@ const SearchableSelect = ({
         ref={triggerRef}
         type="button"
         onClick={open}
-        disabled={disabled}
+        disabled={disabled || isLoading}
         className={`w-full flex items-center gap-2 px-3 py-2.5 border rounded-lg text-sm bg-white text-left transition-all focus:outline-none ${
           isOpen
             ? 'border-primary-500 ring-2 ring-primary-100'
             : 'border-gray-300 hover:border-gray-400'
-        } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+        } ${disabled || isLoading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
       >
-        <span className={`flex-1 truncate ${selected ? 'text-gray-800' : 'text-gray-400'}`}>
-          {selected ? selected.label : placeholder}
-        </span>
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          {allowClear && selected && (
-            <span
-              onClick={e => { e.stopPropagation(); onChange(''); }}
-              className="p-0.5 rounded text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors"
-            >
-              <HiX className="w-3.5 h-3.5" />
+        {isLoading ? (
+          <>
+            <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin flex-shrink-0" />
+            <span className="flex-1 truncate text-gray-400">Loading...</span>
+          </>
+        ) : (
+          <>
+            <span className={`flex-1 truncate ${selected ? 'text-gray-800' : 'text-gray-400'}`}>
+              {selected ? selected.label : placeholder}
             </span>
-          )}
-          <HiChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-        </div>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              {allowClear && selected && (
+                <span
+                  onClick={e => { e.stopPropagation(); onChange(''); }}
+                  className="p-0.5 rounded text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors"
+                >
+                  <HiX className="w-3.5 h-3.5" />
+                </span>
+              )}
+              <HiChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </div>
+          </>
+        )}
       </button>
 
       {isOpen && ReactDOM.createPortal(

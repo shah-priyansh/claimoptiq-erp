@@ -29,6 +29,7 @@ const ClaimForm = () => {
   const [insurances, setInsurances] = useState([]);
   const [tpas, setTPAs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
   const [mobileError, setMobileError] = useState('');
 
   const [form, setForm] = useState({
@@ -50,7 +51,7 @@ const ClaimForm = () => {
       setHospitals(h.data);
       setInsurances(i.data);
       setTPAs(t.data);
-    });
+    }).finally(() => setDataLoading(false));
     if (isEdit) {
       getClaimAPI(id).then(({ data }) => {
         setForm({
@@ -158,6 +159,7 @@ const ClaimForm = () => {
                   onChange={val => set('hospital', val)}
                   placeholder="Select Hospital"
                   searchPlaceholder="Search hospitals..."
+                  isLoading={dataLoading}
                   required
                 />
               </div>
@@ -221,6 +223,7 @@ const ClaimForm = () => {
                 onChange={val => set('insuranceCompany', val)}
                 placeholder="Select Insurance"
                 searchPlaceholder="Search insurance companies..."
+                isLoading={dataLoading}
                 required
               />
             </div>
@@ -233,6 +236,7 @@ const ClaimForm = () => {
                 onChange={val => set('tpa', val)}
                 placeholder="None / Direct"
                 searchPlaceholder="Search TPA..."
+                isLoading={dataLoading}
                 noneLabel="None / Direct"
                 allowClear
               />

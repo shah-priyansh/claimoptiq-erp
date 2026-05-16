@@ -44,12 +44,18 @@ const HospitalForm = () => {
   const [loading, setLoading] = useState(false);
   const [insurers, setInsurers] = useState([]);
   const [serviceNames, setServiceNames] = useState([]);
+  const [dropdownDataLoading, setDropdownDataLoading] = useState(true);
   const [insurerSearch, setInsurerSearch] = useState('');
   const [insurerDropdownOpen, setInsurerDropdownOpen] = useState(null);
 
   useEffect(() => {
-    getInsuranceAPI().then(({ data }) => setInsurers((data || []).filter(i => i.isActive !== false))).catch(() => {});
-    getBillingServiceNamesAPI().then(({ data }) => setServiceNames(data || [])).catch(() => {});
+    Promise.all([
+      getInsuranceAPI(),
+      getBillingServiceNamesAPI(),
+    ]).then(([ins, svc]) => {
+      setInsurers((ins.data || []).filter(i => i.isActive !== false));
+      setServiceNames(svc.data || []);
+    }).catch(() => {}).finally(() => setDropdownDataLoading(false));
     if (isEdit) {
       getHospitalAPI(id).then(({ data }) => setForm(data)).catch(() => {
         toast.error('Hospital not found');
@@ -392,8 +398,9 @@ const HospitalForm = () => {
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-500 mb-1">Service Name</label>
                     <select value={svc.serviceName} onChange={(e) => handleServiceChange(idx, 'serviceName', e.target.value)}
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
-                      <option value="">— Select —</option>
+                      disabled={dropdownDataLoading}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white disabled:opacity-60">
+                      <option value="">{dropdownDataLoading ? 'Loading...' : '— Select —'}</option>
                       {serviceNames.map(s => (
                         <option key={s._id} value={s.name}>{s.name}</option>
                       ))}

@@ -142,7 +142,7 @@ const FilePill = ({ file, preview, onRemove }) => (
 );
 
 // ─── Document Group Card ───────────────────────────────────────────────────────
-const DocGroup = ({ group, index, docTypes, onTypeChange, onRemoveFile, onAddFiles, onAddCamera, onRemoveGroup }) => (
+const DocGroup = ({ group, index, docTypes, typesLoading, onTypeChange, onRemoveFile, onAddFiles, onAddCamera, onRemoveGroup }) => (
   <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
     <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
       <span className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
@@ -155,6 +155,7 @@ const DocGroup = ({ group, index, docTypes, onTypeChange, onRemoveFile, onAddFil
           onChange={val => onTypeChange(group.id, val)}
           placeholder="Select document type…"
           searchPlaceholder="Search types…"
+          isLoading={typesLoading}
         />
       </div>
       <button onClick={() => onRemoveGroup(group.id)}
@@ -361,6 +362,7 @@ const DocumentUpload = () => {
   const [tab, setTab]               = useState('upload');
   const [groups, setGroups]         = useState([]);
   const [docTypes, setDocTypes]     = useState([]);
+  const [typesLoading, setTypesLoading] = useState(true);
   const [patientName, setPatientName] = useState('');
   const [notes, setNotes]           = useState('');
   const [progress, setProgress]     = useState(null);
@@ -377,7 +379,8 @@ const DocumentUpload = () => {
   useEffect(() => {
     getClaimDocumentTypesAPI()
       .then(({ data }) => setDocTypes(data.filter(d => d.isActive)))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setTypesLoading(false));
   }, []);
 
   useEffect(() => () => {
@@ -600,6 +603,7 @@ const DocumentUpload = () => {
                     group={group}
                     index={idx}
                     docTypes={docTypes}
+                    typesLoading={typesLoading}
                     onTypeChange={setGroupType}
                     onRemoveFile={removeFile}
                     onAddFiles={handleGalleryForGroup}
