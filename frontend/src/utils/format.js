@@ -21,6 +21,28 @@ const _threeDigits = (n) => n >= 100
   ? _ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + _twoDigits(n % 100) : '')
   : _twoDigits(n);
 
+export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0) => {
+  let total = 0;
+  for (const svc of billingServices) {
+    if (!svc.isActive) continue;
+    // fixed_onetime = one-time hospital charge (empanelment etc.), not per-claim
+    // fixed_monthly = monthly flat fee, not per-claim
+    if (svc.billingType === 'fixed_onetime' || svc.billingType === 'fixed_monthly') continue;
+    // per_claim_slab and percentage require a valid calculationBasis
+    const validBases = ['hospital_final_bill', 'final_approval'];
+    if (!validBases.includes(svc.calculationBasis)) continue;
+    const basis = svc.calculationBasis === 'hospital_final_bill' ? hospitalFinalBill : finalApprovalAmount;
+    if (svc.billingType === 'per_claim_slab') {
+      const slabs = [...(svc.slabs || [])].sort((a, b) => a.rangeStart - b.rangeStart);
+      const slab = slabs.find(s => basis >= s.rangeStart && (s.rangeEnd === 0 || basis <= s.rangeEnd));
+      if (slab) total += slab.price;
+    } else if (svc.billingType === 'percentage') {
+      total += Math.round(basis * (svc.percentageRate || 0) / 100);
+    }
+  }
+  return Math.round(total);
+};
+
 export const formatINRWords = (amount) => {
   const num = Math.floor(Number(amount) || 0);
   if (num === 0) return '';

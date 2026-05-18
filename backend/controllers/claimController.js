@@ -9,7 +9,15 @@ const getUserHospitalId = (user) => {
 };
 
 const claimInclude = {
-  hospital: { select: { id: true, name: true } },
+  hospital: {
+    select: {
+      id: true, name: true,
+      billingServices: {
+        where: { isActive: true },
+        include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+      },
+    },
+  },
   insuranceCompany: { select: { id: true, name: true } },
   tpa: { select: { id: true, name: true } },
 };
