@@ -15,7 +15,7 @@ import {
   HiOutlineClipboardList,
 } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
@@ -185,7 +185,8 @@ const UploadLabel = ({ onChange, label }) => (
 const ClaimDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { can } = useAuth();
+  const { can, roleSlug } = useAuth();
+  const isSuperAdmin = roleSlug === 'super_admin';
   const confirm = useConfirm();
   const [claim, setClaim] = useState(null);
   const [claimStatuses, setClaimStatuses] = useState([]);
@@ -223,6 +224,16 @@ const ClaimDetail = () => {
         (prev.mouDiscountOnSettlement || 0),
     }));
   }, [dischargeForm.finalApprovalAmount, settlementForm.settlementAmountDeduction, settlementForm.mouDiscountOnSettlement]);
+
+  useEffect(() => {
+    if (!claim?.hospital?.billingServices?.length) return;
+    const computed = calculateFilePrice(
+      claim.hospital.billingServices,
+      dischargeForm.hospitalFinalBill || 0,
+      dischargeForm.finalApprovalAmount || 0,
+    );
+    setSettlementForm(prev => ({ ...prev, filePrice: computed }));
+  }, [claim, dischargeForm.hospitalFinalBill, dischargeForm.finalApprovalAmount]);
 
   const showTds = claim && ['cashless', 'grievance'].includes(claim.claimType);
 
@@ -565,7 +576,7 @@ const ClaimDetail = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-gray-100">
+          <div className={`grid gap-4 mt-4 pt-4 border-t border-gray-100 ${isSuperAdmin ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'}`}>
             {[
               ['Date of Admit',     formatDate(claim.dateOfAdmit)],
               ['Date of Discharge', formatDate(claim.dateOfDischarge)],
@@ -577,6 +588,16 @@ const ClaimDetail = () => {
                 <p className="text-sm font-bold text-gray-800 mt-0.5">{value}</p>
               </div>
             ))}
+            {isSuperAdmin && (
+              <div>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">File Price</p>
+                <AmountInput
+                  value={settlementForm.filePrice || 0}
+                  onChange={v => setSettlementForm(sf => ({ ...sf, filePrice: v }))}
+                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -808,7 +829,6 @@ const ClaimDetail = () => {
                   { label: 'MOU Discount on Settlement (₹)',  name: 'mouDiscountOnSettlement',    type: 'amount' },
                   ...(showTds ? [{ label: 'TDS (₹) — 10% auto-calculated', name: 'tds', type: 'amount' }] : []),
                   { label: 'Bank Transfer Amount (₹)',        name: 'bankTransferAmount',         type: 'amount' },
-                  { label: 'File Price (₹)',                  name: 'filePrice',                  type: 'amount' },
                   { label: 'Settlement Date',                 name: 'settlementDate',             type: 'date' },
                   { label: 'NEFT Number',                     name: 'neftNo',                     type: 'text' },
                 ].reduce((els, f) => {
@@ -857,9 +877,8 @@ const ClaimDetail = () => {
                   ['Settlement Amount',           formatAmount(claim.settlementAmount)],
                   ['Settlement Deduction',        formatAmount(claim.settlementAmountDeduction)],
                   ['MOU Discount on Settlement',  formatAmount(claim.mouDiscountOnSettlement)],
-                  ['TDS',                         formatAmount(claim.tds)],
+                  ...(showTds ? [['TDS', formatAmount(claim.tds)]] : []),
                   ['Bank Transfer Amount',        formatAmount(claim.bankTransferAmount)],
-                  ['File Price',                  formatAmount(claim.filePrice)],
                   ['Settlement Date',             formatDate(claim.settlementDate)],
                   ['NEFT Number',                 claim.neftNo || '—'],
                   ['Remarks',                     claim.remarks || '—'],
