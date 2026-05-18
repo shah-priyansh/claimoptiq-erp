@@ -11,6 +11,13 @@ import {
   HiOutlineDocumentText, HiOutlinePhotograph, HiOutlineClipboardList,
   HiOutlinePlus, HiOutlineEye, HiOutlineRefresh, HiChevronDown,
 } from 'react-icons/hi';
+import SearchableSelect from '../../components/ui/SearchableSelect';
+
+const STATUS_OPTIONS = [
+  { value: 'pending',  label: 'Pending' },
+  { value: 'reviewed', label: 'Reviewed' },
+  { value: 'claimed',  label: 'Claimed' },
+];
 
 const STATUS_STYLES = {
   pending:  { badge: 'bg-amber-100 text-amber-700 border border-amber-200',  label: 'Pending' },
@@ -183,25 +190,31 @@ const DocumentInbox = () => {
               className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
           </div>
-          <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}
-            className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500">
-            <option value="">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="reviewed">Reviewed</option>
-            <option value="claimed">Claimed</option>
-          </select>
+          <SearchableSelect
+            options={STATUS_OPTIONS}
+            value={filters.status}
+            onChange={val => setFilters(f => ({ ...f, status: val }))}
+            placeholder="All Status"
+            noneLabel="All Status"
+          />
           {!isHospitalUser && (
-            <select value={filters.hospital} onChange={e => setFilters(f => ({ ...f, hospital: e.target.value }))}
-              className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500">
-              <option value="">All Hospitals</option>
-              {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-            </select>
+            <SearchableSelect
+              options={hospitals.map(h => ({ value: h._id, label: h.name }))}
+              value={filters.hospital}
+              onChange={val => setFilters(f => ({ ...f, hospital: val }))}
+              placeholder="All Hospitals"
+              searchPlaceholder="Search hospitals..."
+              noneLabel="All Hospitals"
+            />
           )}
-          <select value={filters.documentType} onChange={e => setFilters(f => ({ ...f, documentType: e.target.value }))}
-            className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500">
-            <option value="">All Doc Types</option>
-            {docTypes.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
-          </select>
+          <SearchableSelect
+            options={docTypes.map(d => ({ value: d._id, label: d.name }))}
+            value={filters.documentType}
+            onChange={val => setFilters(f => ({ ...f, documentType: val }))}
+            placeholder="All Doc Types"
+            searchPlaceholder="Search doc types..."
+            noneLabel="All Doc Types"
+          />
         </div>
       </div>
 
