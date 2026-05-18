@@ -3,6 +3,7 @@ import { Outlet, Navigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import BottomNav from './BottomNav';
+import FloatingUploadButton from './FloatingUploadButton';
 import { useAuth } from '../../context/AuthContext';
 
 const Layout = () => {
@@ -30,6 +31,7 @@ const Layout = () => {
           <Outlet />
         </main>
       </div>
+      <FloatingUploadButton />
       <BottomNav />
     </div>
   );
