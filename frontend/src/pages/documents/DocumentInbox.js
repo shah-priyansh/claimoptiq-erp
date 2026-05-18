@@ -13,6 +13,8 @@ import {
   HiOutlinePlus, HiOutlineEye, HiOutlineRefresh, HiChevronDown,
 } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 const STATUS_OPTIONS = [
   { value: 'pending',  label: 'Pending' },
@@ -53,6 +55,8 @@ const DocumentInbox = () => {
   const [actionId, setActionId] = useState(null);
   const [openPatient, setOpenPatient] = useState(null);
   const [filters, setFilters] = useState({ search: '', status: '', hospital: '', documentType: '' });
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [downloadingPatient, setDownloadingPatient] = useState(null);
 
   const isHospitalUser = !!user?.hospital;
 
@@ -134,6 +138,44 @@ const DocumentInbox = () => {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete');
     } finally { setActionId(null); }
+  };
+
+  const buildAndSaveZip = async (docs, zipName) => {
+    const zip = new JSZip();
+    const results = await Promise.all(docs.map(d => downloadSubmissionAPI(d._id)));
+    results.forEach((res, i) => {
+      const s = docs[i];
+      const docType = s.documentType?.name || 'doc';
+      const fileName = s.originalName || s.fileName || `file_${i}`;
+      const safeName = `${docType}_${fileName}`.replace(/[/\\?%*:|"<>]/g, '_');
+      zip.file(safeName, res.data);
+    });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    saveAs(blob, zipName);
+  };
+
+  const handleDownloadAllGlobal = async () => {
+    setDownloadingAll(true);
+    try {
+      const date = new Date().toISOString().slice(0, 10);
+      await buildAndSaveZip(submissions, `documents_${date}.zip`);
+    } catch {
+      toast.error('Download failed');
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
+  const handleDownloadAllPatient = async (name, docs) => {
+    setDownloadingPatient(name);
+    try {
+      const zipName = `${name.replace(/\s+/g, '_')}_documents.zip`;
+      await buildAndSaveZip(docs, zipName);
+    } catch {
+      toast.error('Download failed');
+    } finally {
+      setDownloadingPatient(null);
+    }
   };
 
   // Group by patient name
