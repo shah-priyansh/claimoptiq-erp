@@ -265,6 +265,9 @@ const ClaimDetail = () => {
         deduction: data.deduction || 0,
         finalApprovalAmount: data.finalApprovalAmount || 0,
         finalApprovalDate: data.finalApprovalDate?.slice(0, 10) || '',
+        treatmentType: data.treatmentType || '',
+        diagnosis: data.diagnosis || '',
+        surgeryName: data.surgeryName || '',
       });
       setFileForm({
         fileReceivedDate: data.fileReceivedDate?.slice(0, 10) || '',
@@ -746,6 +749,39 @@ const ClaimDetail = () => {
                     onChange={v => setDischargeForm(f => ({ ...f, finalApprovalAmount: v }))}
                     className={inputCls} />
                 </div>
+                <div className="md:col-span-2 lg:col-span-3">
+                  <label className={labelCls}>Treatment Type</label>
+                  <div className="flex gap-4 mt-1">
+                    {['Medical', 'Surgical'].map(t => (
+                      <label key={t} className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="treatmentType" value={t}
+                          checked={dischargeForm.treatmentType === t}
+                          onChange={() => setDischargeForm(f => ({ ...f, treatmentType: t, surgeryName: t === 'Medical' ? '' : f.surgeryName }))}
+                          className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500" />
+                        <span className="text-sm text-gray-700">{t}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className={labelCls}>Diagnosis</label>
+                  <input type="text" value={dischargeForm.diagnosis || ''}
+                    onChange={e => setDischargeForm(f => ({ ...f, diagnosis: e.target.value }))}
+                    minLength={3} placeholder="Enter diagnosis (min. 3 letters)"
+                    className={inputCls} />
+                  {dischargeForm.diagnosis && dischargeForm.diagnosis.length < 3 && (
+                    <p className="text-xs text-red-500 mt-0.5">Minimum 3 characters required</p>
+                  )}
+                </div>
+                {dischargeForm.treatmentType === 'Surgical' && (
+                  <div>
+                    <label className={labelCls}>Surgery Name</label>
+                    <input type="text" value={dischargeForm.surgeryName || ''}
+                      onChange={e => setDischargeForm(f => ({ ...f, surgeryName: e.target.value }))}
+                      placeholder="Enter surgery name"
+                      className={inputCls} />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -757,6 +793,9 @@ const ClaimDetail = () => {
                   ['MOU Discount',           formatAmount(claim.mouDiscount)],
                   ['Deduction',              formatAmount(claim.deduction)],
                   ['Final Approval Amount',  formatAmount(claim.finalApprovalAmount)],
+                  ['Treatment Type',         claim.treatmentType || '—'],
+                  ['Diagnosis',              claim.diagnosis || '—'],
+                  ...(claim.treatmentType === 'Surgical' ? [['Surgery Name', claim.surgeryName || '—']] : []),
                 ].map(([l, v]) => <StatCard key={l} label={l} value={v} />)}
               </div>
             )}

@@ -39,10 +39,13 @@ export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, 
       if (matchingSlab) {
         total += matchingSlab.price;
       } else if (mode === 'both' && svc.slabIncrementRange > 0 && svc.slabIncrementPrice > 0) {
-        // Amount exceeds all defined slabs — fall back to incremental
-        const above = Math.max(0, basis - (svc.slabRangeStart || 0));
-        const increments = Math.floor(above / svc.slabIncrementRange);
-        total += increments * svc.slabIncrementPrice;
+        // Amount exceeds last slab — use last slab's price + incremental above its rangeEnd
+        const lastSlab = slabs[slabs.length - 1];
+        if (lastSlab) {
+          const above = Math.max(0, basis - lastSlab.rangeEnd);
+          const increments = Math.floor(above / svc.slabIncrementRange);
+          total += lastSlab.price + increments * svc.slabIncrementPrice;
+        }
       }
     } else if (svc.billingType === 'percentage') {
       total += Math.round(basis * (svc.percentageRate || 0) / 100);

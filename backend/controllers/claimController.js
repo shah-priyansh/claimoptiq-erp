@@ -77,6 +77,9 @@ exports.createClaim = async (req, res) => {
         settlementDate: req.body.settlementDate ? new Date(req.body.settlementDate) : null,
         neftNo: req.body.neftNo || '',
         filePrice: req.body.filePrice || 0,
+        treatmentType: req.body.treatmentType || '',
+        diagnosis: req.body.diagnosis || '',
+        surgeryName: req.body.surgeryName || '',
         remarks: req.body.remarks || '',
         rejectedReason: req.body.rejectedReason || '',
         createdById: req.user.id,
@@ -181,6 +184,7 @@ exports.updateClaim = async (req, res) => {
       'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber',
       'settlementAmount', 'settlementAmountDeduction', 'mouDiscountOnSettlement',
       'tds', 'bankTransferAmount', 'settlementDate', 'neftNo', 'filePrice',
+      'treatmentType', 'diagnosis', 'surgeryName',
       'remarks', 'rejectedReason', 'finalApprovalDate', 'dateOfDischarge', 'dateOfAdmit', 'month',
     ];
 
