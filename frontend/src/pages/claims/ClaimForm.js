@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   createClaimAPI, updateClaimAPI, getClaimAPI,
   getHospitalsAPI, getInsuranceAPI, getTPAAPI,
@@ -188,6 +188,9 @@ const ClaimForm = () => {
   const insuranceOptions = insurances.map(i => ({ value: i._id, label: i.name }));
   const tpaOptions       = tpas.map(t => ({ value: t._id, label: t.name }));
 
+  const selectedHospital = hospitals.find(h => h._id === form.hospital);
+  const doctorOptions = (selectedHospital?.doctors ?? []).map(d => ({ value: d.name, label: d.name }));
+
   const hasDocs = existingAdmissionDocs.length > 0 || pendingAdmissionFiles.length > 0;
 
   return (
@@ -219,7 +222,7 @@ const ClaimForm = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
                 <SearchableSelect options={hospitalOptions} value={form.hospital}
-                  onChange={val => set('hospital', val)} placeholder="Select Hospital"
+                  onChange={val => setForm(f => ({ ...f, hospital: val, doctorName: '' }))} placeholder="Select Hospital"
                   searchPlaceholder="Search hospitals..." isLoading={dataLoading} required />
               </div>
             )}
@@ -255,12 +258,31 @@ const ClaimForm = () => {
               {form.patientMobile && <p className="text-xs text-gray-400 mt-1">{form.patientMobile.length}/10 digits</p>}
               {mobileError && <p className="text-xs text-red-500 mt-0.5">{mobileError}</p>}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name</label>
-              <input name="doctorName" value={form.doctorName} onChange={handleChange}
-                placeholder="Attending doctor"
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-            </div>
+            {form.hospital && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name *</label>
+                {doctorOptions.length > 0 ? (
+                  <SearchableSelect
+                    options={doctorOptions}
+                    value={form.doctorName}
+                    onChange={val => set('doctorName', val)}
+                    placeholder="Select Doctor"
+                    searchPlaceholder="Search doctors..."
+                    required
+                  />
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-2.5 border border-dashed border-gray-300 rounded-lg bg-gray-50">
+                    <span className="text-sm text-gray-400">No doctors registered for this hospital.</span>
+                    <Link
+                      to={`/hospitals/${form.hospital}`}
+                      className="text-sm text-primary-600 hover:underline font-medium flex-shrink-0"
+                    >
+                      Add Doctor
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

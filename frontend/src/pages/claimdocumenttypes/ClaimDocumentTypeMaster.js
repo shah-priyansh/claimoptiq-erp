@@ -11,6 +11,7 @@ import {
   HiOutlinePlus, HiOutlinePencil, HiOutlineTrash,
   HiOutlineLockClosed, HiOutlineX, HiOutlineDocumentText,
 } from 'react-icons/hi';
+import Toggle from '../../components/ui/Toggle';
 
 const emptyForm = { name: '', description: '', isRequired: false, order: '' };
 
@@ -92,6 +93,7 @@ const ClaimDocumentTypeMaster = () => {
   const { can } = useAuth();
   const [docTypes, setDocTypes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [togglingId, setTogglingId] = useState(null);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -140,12 +142,15 @@ const ClaimDocumentTypeMaster = () => {
   };
 
   const handleToggleActive = async (d) => {
+    setTogglingId(d._id);
     try {
       await updateClaimDocumentTypeAPI(d._id, { isActive: !d.isActive });
       toast.success(`Document type ${d.isActive ? 'deactivated' : 'activated'}`);
       fetchAll();
     } catch {
       toast.error('Failed to update');
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -208,12 +213,7 @@ const ClaimDocumentTypeMaster = () => {
               </div>
             </div>
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-              <button
-                onClick={() => handleToggleActive(d)}
-                className={`w-8 h-5 rounded-full transition-colors relative ${d.isActive ? 'bg-primary-600' : 'bg-gray-200'}`}
-              >
-                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${d.isActive ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-              </button>
+              <Toggle checked={d.isActive} onChange={() => handleToggleActive(d)} loading={togglingId === d._id} size="sm" />
               <div className="flex items-center gap-1">
                 {can('claim_document_types', 'edit') && (
                   <button onClick={() => openEdit(d)}
@@ -272,12 +272,7 @@ const ClaimDocumentTypeMaster = () => {
                   )}
                 </td>
                 <td className="py-3 px-4 text-center">
-                  <button
-                    onClick={() => handleToggleActive(d)}
-                    className={`w-8 h-5 rounded-full transition-colors relative ${d.isActive ? 'bg-primary-600' : 'bg-gray-200'}`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${d.isActive ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-                  </button>
+                  <Toggle checked={d.isActive} onChange={() => handleToggleActive(d)} loading={togglingId === d._id} size="sm" />
                 </td>
                 <td className="py-3 px-4 text-center">
                   {d.isSystem ? (
