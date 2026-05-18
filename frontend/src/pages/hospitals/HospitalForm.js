@@ -6,6 +6,25 @@ import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserCircle } from 'react-icons/
 import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
 import { formatINR } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
+import SearchableSelect from '../../components/ui/SearchableSelect';
+
+const BILLING_TYPE_OPTIONS = [
+  { value: 'fixed_monthly',  label: 'Fixed Monthly' },
+  { value: 'per_claim_slab', label: 'Per Claim Slab' },
+  { value: 'fixed_onetime',  label: 'Fixed One-Time' },
+  { value: 'percentage',     label: 'Percentage' },
+];
+
+const OVER_LIMIT_OPTIONS = [
+  { value: 'per_claim',      label: 'Fixed One-Time' },
+  { value: 'percentage',     label: 'Percentage' },
+  { value: 'per_claim_slab', label: 'Per Claim Slab' },
+];
+
+const CALC_BASIS_OPTIONS = [
+  { value: 'hospital_final_bill', label: 'Hospital Final Bill' },
+  { value: 'final_approval',      label: 'Final Approval Amount' },
+];
 
 const emptyDoctor = { name: '', specialization: '', phone: '', email: '' };
 const emptySlab = { rangeStart: 0, rangeEnd: 0, price: 0 };
@@ -397,26 +416,26 @@ const HospitalForm = () => {
                   {/* Service Name — spans 2 cols */}
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-500 mb-1">Service Name</label>
-                    <select value={svc.serviceName} onChange={(e) => handleServiceChange(idx, 'serviceName', e.target.value)}
-                      disabled={dropdownDataLoading}
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white disabled:opacity-60">
-                      <option value="">{dropdownDataLoading ? 'Loading...' : '— Select —'}</option>
-                      {serviceNames.map(s => (
-                        <option key={s._id} value={s.name}>{s.name}</option>
-                      ))}
-                    </select>
+                    <SearchableSelect
+                      options={serviceNames.map(s => ({ value: s.name, label: s.name }))}
+                      value={svc.serviceName}
+                      onChange={(val) => handleServiceChange(idx, 'serviceName', val)}
+                      placeholder="— Select Service —"
+                      searchPlaceholder="Search services..."
+                      isLoading={dropdownDataLoading}
+                      allowClear
+                    />
                   </div>
 
                   {/* Billing Type */}
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Billing Type</label>
-                    <select value={svc.billingType} onChange={(e) => handleServiceChange(idx, 'billingType', e.target.value)}
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
-                      <option value="fixed_monthly">Fixed Monthly</option>
-                      <option value="per_claim_slab">Per Claim Slab</option>
-                      <option value="fixed_onetime">Fixed One-Time</option>
-                      <option value="percentage">Percentage</option>
-                    </select>
+                    <SearchableSelect
+                      options={BILLING_TYPE_OPTIONS}
+                      value={svc.billingType}
+                      onChange={(val) => handleServiceChange(idx, 'billingType', val)}
+                      placeholder="Select type"
+                    />
                   </div>
 
                   {/* Fixed Monthly: Fixed Amount (col 4) */}
@@ -438,12 +457,12 @@ const HospitalForm = () => {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">When Exceeded</label>
-                        <select value={svc.overLimitBehavior} onChange={(e) => handleServiceChange(idx, 'overLimitBehavior', e.target.value)}
-                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
-                          <option value="per_claim">Fixed One-Time</option>
-                          <option value="percentage">Percentage</option>
-                          <option value="per_claim_slab">Per Claim Slab</option>
-                        </select>
+                        <SearchableSelect
+                          options={OVER_LIMIT_OPTIONS}
+                          value={svc.overLimitBehavior}
+                          onChange={(val) => handleServiceChange(idx, 'overLimitBehavior', val)}
+                          placeholder="Select behavior"
+                        />
                       </div>
 
                       {svc.overLimitBehavior === 'per_claim' && (
@@ -467,11 +486,12 @@ const HospitalForm = () => {
                         <>
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Calc Basis</label>
-                            <select value={svc.calculationBasis} onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
-                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
-                              <option value="hospital_final_bill">Hospital Final Bill</option>
-                              <option value="final_approval">Final Approval Amount</option>
-                            </select>
+                            <SearchableSelect
+                              options={CALC_BASIS_OPTIONS}
+                              value={svc.calculationBasis}
+                              onChange={(val) => handleServiceChange(idx, 'calculationBasis', val)}
+                              placeholder="Select basis"
+                            />
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Rate (%)</label>
@@ -654,11 +674,12 @@ const HospitalForm = () => {
                     <>
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">Calc Basis</label>
-                        <select value={svc.calculationBasis} onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
-                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
-                          <option value="hospital_final_bill">Hospital Final Bill</option>
-                          <option value="final_approval">Final Approval Amount</option>
-                        </select>
+                        <SearchableSelect
+                          options={CALC_BASIS_OPTIONS}
+                          value={svc.calculationBasis}
+                          onChange={(val) => handleServiceChange(idx, 'calculationBasis', val)}
+                          placeholder="Select basis"
+                        />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">Rate (%)</label>
@@ -674,11 +695,12 @@ const HospitalForm = () => {
                   {showSlabs && (
                     <div>
                       <label className="block text-xs font-medium text-gray-500 mb-1">Calc Basis</label>
-                      <select value={svc.calculationBasis} onChange={(e) => handleServiceChange(idx, 'calculationBasis', e.target.value)}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
-                        <option value="hospital_final_bill">Hospital Final Bill</option>
-                        <option value="final_approval">Final Approval Amount</option>
-                      </select>
+                      <SearchableSelect
+                        options={CALC_BASIS_OPTIONS}
+                        value={svc.calculationBasis}
+                        onChange={(val) => handleServiceChange(idx, 'calculationBasis', val)}
+                        placeholder="Select basis"
+                      />
                     </div>
                   )}
                 </div>
