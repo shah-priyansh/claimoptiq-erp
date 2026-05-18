@@ -165,7 +165,7 @@ exports.updateClaim = async (req, res) => {
     }
 
     const data = { updatedById: req.user.id };
-    const dateFields = ['dateOfDischarge', 'finalApprovalDate', 'fileReceivedDate', 'courierSubmitDate', 'onlineSubmitDate', 'settlementDate'];
+    const dateFields = ['dateOfAdmit', 'dateOfDischarge', 'finalApprovalDate', 'fileReceivedDate', 'courierSubmitDate', 'onlineSubmitDate', 'settlementDate', 'month'];
     const allowed = [
       'status', 'patientName', 'patientMobile', 'doctorName', 'claimType',
       'policyNo', 'clientId', 'ccnNo', 'hospitalFinalBill', 'mouDiscount',
@@ -173,7 +173,7 @@ exports.updateClaim = async (req, res) => {
       'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber',
       'settlementAmount', 'settlementAmountDeduction', 'mouDiscountOnSettlement',
       'tds', 'bankTransferAmount', 'settlementDate', 'neftNo', 'filePrice',
-      'remarks', 'rejectedReason', 'finalApprovalDate', 'dateOfDischarge',
+      'remarks', 'rejectedReason', 'finalApprovalDate', 'dateOfDischarge', 'dateOfAdmit', 'month',
     ];
 
     for (const key of allowed) {

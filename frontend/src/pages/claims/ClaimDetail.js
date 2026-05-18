@@ -208,6 +208,33 @@ const ClaimDetail = () => {
   const [settlementForm, setSettlementForm] = useState({});
 
   useEffect(() => {
+    setDischargeForm(prev => ({
+      ...prev,
+      finalApprovalAmount: Math.max(0, (prev.hospitalFinalBill || 0) - (prev.mouDiscount || 0) - (prev.deduction || 0)),
+    }));
+  }, [dischargeForm.hospitalFinalBill, dischargeForm.mouDiscount, dischargeForm.deduction]);
+
+  useEffect(() => {
+    setSettlementForm(prev => ({
+      ...prev,
+      settlementAmount:
+        (dischargeForm.finalApprovalAmount || 0) +
+        (prev.settlementAmountDeduction || 0) +
+        (prev.mouDiscountOnSettlement || 0),
+    }));
+  }, [dischargeForm.finalApprovalAmount, settlementForm.settlementAmountDeduction, settlementForm.mouDiscountOnSettlement]);
+
+  const showTds = claim && ['cashless', 'grievance'].includes(claim.claimType);
+
+  useEffect(() => {
+    if (!showTds) return;
+    setSettlementForm(prev => ({
+      ...prev,
+      tds: Math.round((prev.settlementAmount || 0) * 0.10),
+    }));
+  }, [settlementForm.settlementAmount, showTds]);
+
+  useEffect(() => {
     getClaimStatusesAPI().then(({ data }) => setClaimStatuses(data.filter(s => s.isActive))).catch(() => {});
     getClaimDocumentTypesAPI()
       .then(({ data }) => setDocTypes(Array.isArray(data) ? data.filter(d => d.isActive !== false) : []))
@@ -679,7 +706,6 @@ const ClaimDetail = () => {
                   { label: 'Hospital Final Bill (₹)', name: 'hospitalFinalBill',  type: 'amount' },
                   { label: 'MOU Discount (₹)',        name: 'mouDiscount',        type: 'amount' },
                   { label: 'Deduction (₹)',           name: 'deduction',          type: 'amount' },
-                  { label: 'Final Approval Amount (₹)',name:'finalApprovalAmount', type: 'amount' },
                 ].map(f => (
                   <div key={f.name}>
                     <label className={labelCls}>{f.label}</label>
@@ -693,6 +719,12 @@ const ClaimDetail = () => {
                     }
                   </div>
                 ))}
+                <div>
+                  <label className={labelCls}>Final Approval Amount (₹) <span className="text-xs text-gray-400 font-normal">— auto-calculated</span></label>
+                  <AmountInput value={dischargeForm.finalApprovalAmount || 0}
+                    onChange={v => setDischargeForm(f => ({ ...f, finalApprovalAmount: v }))}
+                    className={inputCls} />
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -772,27 +804,40 @@ const ClaimDetail = () => {
             {isEditable ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[
-                  { label: 'Settlement Amount (₹)',           name: 'settlementAmount',          type: 'amount' },
-                  { label: 'Settlement Deduction (₹)',        name: 'settlementAmountDeduction',  type: 'amount' },
+                  { label: 'Settlement Deduction (₹)',        name: 'settlementAmountDeduction',  type: 'amount', allowNegative: true },
                   { label: 'MOU Discount on Settlement (₹)',  name: 'mouDiscountOnSettlement',    type: 'amount' },
-                  { label: 'TDS (₹)',                         name: 'tds',                        type: 'amount' },
-                  { label: 'Bank Transfer Amount (₹)',        name: 'bankTransferAmount',          type: 'amount' },
+                  ...(showTds ? [{ label: 'TDS (₹) — 10% auto-calculated', name: 'tds', type: 'amount' }] : []),
+                  { label: 'Bank Transfer Amount (₹)',        name: 'bankTransferAmount',         type: 'amount' },
                   { label: 'File Price (₹)',                  name: 'filePrice',                  type: 'amount' },
                   { label: 'Settlement Date',                 name: 'settlementDate',             type: 'date' },
                   { label: 'NEFT Number',                     name: 'neftNo',                     type: 'text' },
-                ].map(f => (
-                  <div key={f.name}>
-                    <label className={labelCls}>{f.label}</label>
-                    {f.type === 'amount'
-                      ? <AmountInput value={settlementForm[f.name] || 0}
-                          onChange={v => setSettlementForm({ ...settlementForm, [f.name]: v })}
+                ].reduce((els, f) => {
+                  if (els.length === 0) {
+                    els.push(
+                      <div key="settlementAmount">
+                        <label className={labelCls}>Settlement Amount (₹) <span className="text-xs text-gray-400 font-normal">— auto-calculated</span></label>
+                        <AmountInput value={settlementForm.settlementAmount || 0}
+                          onChange={v => setSettlementForm(sf => ({ ...sf, settlementAmount: v }))}
                           className={inputCls} />
-                      : <input type={f.type} value={settlementForm[f.name] || ''}
-                          onChange={e => setSettlementForm({ ...settlementForm, [f.name]: e.target.value })}
-                          className={inputCls} />
-                    }
-                  </div>
-                ))}
+                      </div>
+                    );
+                  }
+                  els.push(
+                    <div key={f.name}>
+                      <label className={labelCls}>{f.label}</label>
+                      {f.type === 'amount'
+                        ? <AmountInput value={settlementForm[f.name] || 0}
+                            onChange={v => setSettlementForm({ ...settlementForm, [f.name]: v })}
+                            allowNegative={f.allowNegative}
+                            className={inputCls} />
+                        : <input type={f.type} value={settlementForm[f.name] || ''}
+                            onChange={e => setSettlementForm({ ...settlementForm, [f.name]: e.target.value })}
+                            className={inputCls} />
+                      }
+                    </div>
+                  );
+                  return els;
+                }, [])}
                 <div className="md:col-span-2">
                   <label className={labelCls}>Remarks</label>
                   <textarea value={settlementForm.remarks}
