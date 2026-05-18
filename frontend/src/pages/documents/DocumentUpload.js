@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
-import { uploadSubmissionAPI, getClaimDocumentTypesAPI, getSubmissionsAPI, downloadSubmissionAPI, deleteSubmissionAPI } from '../../services/api';
+import { uploadSubmissionAPI, getSubmissionsAPI, downloadSubmissionAPI, deleteSubmissionAPI } from '../../services/api';
 import { toast } from 'react-toastify';
-import SearchableSelect from '../../components/ui/SearchableSelect';
 import {
   HiOutlineCamera, HiOutlineFolderOpen, HiOutlineDocumentText,
   HiOutlineX, HiOutlineCheckCircle,
@@ -143,22 +142,13 @@ const FilePill = ({ file, preview, onRemove }) => (
 );
 
 // ─── Document Group Card ───────────────────────────────────────────────────────
-const DocGroup = ({ group, index, docTypes, typesLoading, onTypeChange, onRemoveFile, onAddFiles, onAddCamera, onRemoveGroup }) => (
+const DocGroup = ({ group, index, onRemoveFile, onAddFiles, onAddCamera, onRemoveGroup }) => (
   <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
     <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
       <span className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
         {index + 1}
       </span>
-      <div className="flex-1 min-w-0">
-        <SearchableSelect
-          options={docTypes.map(d => ({ value: d._id, label: d.name }))}
-          value={group.docTypeId}
-          onChange={val => onTypeChange(group.id, val)}
-          placeholder="Select document type…"
-          searchPlaceholder="Search types…"
-          isLoading={typesLoading}
-        />
-      </div>
+      <span className="flex-1 text-sm text-gray-500">Document {index + 1}</span>
       <button onClick={() => onRemoveGroup(group.id)}
         className="w-9 h-9 rounded-xl text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center flex-shrink-0 transition-colors">
         <HiOutlineTrash className="w-4 h-4" />
@@ -185,7 +175,6 @@ const DocGroup = ({ group, index, docTypes, typesLoading, onTypeChange, onRemove
       </div>
       <p className="text-xs text-gray-400 mt-2">
         {group.files.length} file{group.files.length !== 1 ? 's' : ''}
-        {!group.docTypeId && <span className="text-amber-500 ml-2">← Select type above</span>}
       </p>
     </div>
   </div>
@@ -363,8 +352,6 @@ const DocumentUpload = () => {
   const { user } = useAuth();
   const [tab, setTab]               = useState('upload');
   const [groups, setGroups]         = useState([]);
-  const [docTypes, setDocTypes]     = useState([]);
-  const [typesLoading, setTypesLoading] = useState(true);
   const [patientName, setPatientName] = useState('');
   const [notes, setNotes]           = useState('');
   const [progress, setProgress]     = useState(null);
@@ -377,13 +364,6 @@ const DocumentUpload = () => {
   const galleryGroupRef = useRef(null);
   const idRef           = useRef(0);
   const groupIdRef      = useRef(0);
-
-  useEffect(() => {
-    getClaimDocumentTypesAPI()
-      .then(({ data }) => setDocTypes(data.filter(d => d.isActive)))
-      .catch(() => {})
-      .finally(() => setTypesLoading(false));
-  }, []);
 
   useEffect(() => () => {
     groups.forEach(g => g.files.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview); }));
@@ -403,7 +383,7 @@ const DocumentUpload = () => {
 
   const addNewGroup = (files = []) => {
     const entries = files.map(makeFileEntry).filter(Boolean);
-    const newGroup = { id: ++groupIdRef.current, files: entries, docTypeId: '' };
+    const newGroup = { id: ++groupIdRef.current, files: entries };
     setGroups(prev => [...prev, newGroup]);
     return newGroup.id;
   };
@@ -465,18 +445,13 @@ const DocumentUpload = () => {
     });
   };
 
-  const setGroupType = (groupId, docTypeId) =>
-    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, docTypeId } : g));
-
   const totalFiles = groups.reduce((s, g) => s + g.files.length, 0);
-  const allTypesSelected = groups.every(g => g.docTypeId);
-  const canSubmit = totalFiles > 0 && allTypesSelected && patientName.trim().length > 0;
+  const canSubmit = totalFiles > 0 && patientName.trim().length > 0;
 
   const handleSubmit = async () => {
     if (!patientName.trim()) { toast.error('Please enter patient name'); return; }
-    if (!allTypesSelected) { toast.error('Please select a document type for each group'); return; }
 
-    const allDocs = groups.flatMap(g => g.files.map(f => ({ ...f, docTypeId: g.docTypeId })));
+    const allDocs = groups.flatMap(g => g.files.map(f => ({ ...f })));
     setProgress({ current: 0, total: allDocs.length });
 
     let ok = 0;
@@ -487,7 +462,6 @@ const DocumentUpload = () => {
         const fd = new FormData();
         fd.append('file', doc.file);
         fd.append('patientName', patientName.trim());
-        fd.append('documentTypeId', doc.docTypeId);
         if (notes.trim()) fd.append('notes', notes.trim());
         await uploadSubmissionAPI(fd);
         ok++;
@@ -604,9 +578,6 @@ const DocumentUpload = () => {
                     key={group.id}
                     group={group}
                     index={idx}
-                    docTypes={docTypes}
-                    typesLoading={typesLoading}
-                    onTypeChange={setGroupType}
                     onRemoveFile={removeFile}
                     onAddFiles={handleGalleryForGroup}
                     onAddCamera={openCamera}
@@ -640,7 +611,7 @@ const DocumentUpload = () => {
 
             {groups.length === 0 && (
               <p className="text-xs text-center text-gray-400 mt-3">
-                Add photos or files, then select the document type for each
+                Add photos or files to upload
               </p>
             )}
           </div>
@@ -655,8 +626,6 @@ const DocumentUpload = () => {
               >
                 {!patientName.trim()
                   ? 'Enter patient name to continue'
-                  : !allTypesSelected
-                  ? 'Select type for each document'
                   : `Submit ${totalFiles} Document${totalFiles > 1 ? 's' : ''} →`}
               </button>
             </div>
