@@ -721,9 +721,9 @@ const HospitalForm = () => {
                   <div className="mt-3 bg-gray-50/70 border border-gray-200 rounded-xl p-3">
                     {/* Mode toggle */}
                     {(() => {
-                      const slabMode = svc.slabMode || 'slab_wise';
-                      const showSlabTable = slabMode === 'slab_wise' || slabMode === 'both';
-                      const showIncremental = slabMode === 'incremental' || slabMode === 'both';
+                      const slabMode = (svc.slabMode === 'both') ? 'both' : 'slab_wise';
+                      const showSlabTable = true;
+                      const showIncremental = slabMode === 'both';
                       return (
                         <>
                           <div className="flex items-center justify-between mb-3">
@@ -731,7 +731,6 @@ const HospitalForm = () => {
                             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
                               {[
                                 { value: 'slab_wise', label: 'Slab Wise' },
-                                { value: 'incremental', label: 'Incremental' },
                                 { value: 'both', label: 'Both' },
                               ].map((opt, i) => (
                                 <button
