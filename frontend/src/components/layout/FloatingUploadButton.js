@@ -1,13 +1,15 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { HiOutlineUpload } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 
 const FloatingUploadButton = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { canViewModule } = useAuth();
 
   if (!canViewModule('document_submissions')) return null;
+  if (location.pathname === '/documents/upload') return null;
 
   return (
     <button
