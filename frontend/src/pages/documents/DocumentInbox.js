@@ -322,6 +322,17 @@ const DocumentInbox = () => {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-3">
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${st.badge}`}>{st.label}</span>
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); handleDownloadAllPatient(name, docs); }}
+                      disabled={downloadingPatient === name}
+                      title="Download all documents for this patient"
+                      className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {downloadingPatient === name
+                        ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        : <HiOutlineDownload className="w-4 h-4" />}
+                    </button>
                     <HiChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
                   </div>
                 </button>
