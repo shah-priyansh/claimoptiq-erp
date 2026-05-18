@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { formatINR, formatINRWords } from '../utils/format';
 
-const AmountInput = ({ value, onChange, className, placeholder, allowDecimal = false }) => {
+const AmountInput = ({ value, onChange, className, placeholder, allowDecimal = false, allowNegative = false }) => {
   const [focused, setFocused] = useState(false);
   const [raw, setRaw] = useState('');
 
@@ -11,8 +11,15 @@ const AmountInput = ({ value, onChange, className, placeholder, allowDecimal = f
   };
 
   const handleChange = (e) => {
-    const pattern = allowDecimal ? /[^0-9.]/g : /[^0-9]/g;
-    const v = e.target.value.replace(pattern, '');
+    let v = e.target.value;
+    if (allowNegative) {
+      // allow leading minus, then digits (and dot if decimal)
+      v = v.replace(allowDecimal ? /[^0-9.\-]/g : /[^0-9\-]/g, '');
+      // only one minus, only at start
+      v = v.replace(/(?!^)-/g, '');
+    } else {
+      v = v.replace(allowDecimal ? /[^0-9.]/g : /[^0-9]/g, '');
+    }
     setRaw(v);
   };
 
@@ -22,21 +29,22 @@ const AmountInput = ({ value, onChange, className, placeholder, allowDecimal = f
     onChange(parsed);
   };
 
-  const words = formatINRWords(value);
+  const words = formatINRWords(Math.abs(Number(value)));
+  const displayValue = focused ? raw : (value < 0 ? `−${formatINR(Math.abs(value))}` : formatINR(value));
 
   return (
     <div>
       <input
         type="text"
         inputMode={allowDecimal ? 'decimal' : 'numeric'}
-        value={focused ? raw : formatINR(value)}
+        value={displayValue}
         placeholder={placeholder || '0'}
         className={className}
         onFocus={handleFocus}
         onChange={handleChange}
         onBlur={handleBlur}
       />
-      {words && <p className="text-xs text-gray-400 mt-0.5">{words}</p>}
+      {words && <p className="text-xs text-gray-400 mt-0.5">{value < 0 ? '−' : ''}{words}</p>}
     </div>
   );
 };
