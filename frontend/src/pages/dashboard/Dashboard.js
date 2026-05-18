@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getDashboardAPI } from '../../services/api';
 import { formatCurrencyCompact } from '../../utils/format';
 import { useAuth } from '../../context/AuthContext';
@@ -9,7 +10,9 @@ import {
   HiOutlineBadgeCheck,
   HiOutlineOfficeBuilding,
   HiOutlineXCircle,
-  HiOutlineCurrencyRupee
+  HiOutlineCurrencyRupee,
+  HiOutlineUpload,
+  HiChevronRight,
 } from 'react-icons/hi';
 
 const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
@@ -30,7 +33,8 @@ const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
 const SHOW_REVENUE_SLUGS = ['super_admin', 'hospital_admin'];
 
 const Dashboard = () => {
-  const { roleSlug } = useAuth();
+  const { roleSlug, canViewModule } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const showRevenue = SHOW_REVENUE_SLUGS.includes(roleSlug);
@@ -57,6 +61,24 @@ const Dashboard = () => {
         <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
         <p className="text-sm text-gray-500 mt-1">Overview of your claim operations</p>
       </div>
+
+      {canViewModule('document_submissions') && (
+        <button
+          onClick={() => navigate('/documents/upload')}
+          className="w-full bg-gradient-to-r from-primary-600 to-primary-500 rounded-xl p-5 mb-6 flex items-center justify-between text-white hover:from-primary-700 hover:to-primary-600 transition-all"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
+              <HiOutlineUpload className="w-6 h-6" />
+            </div>
+            <div className="text-left">
+              <p className="font-semibold text-base">Upload Documents</p>
+              <p className="text-sm text-primary-100 mt-0.5">Send patient documents for a claim</p>
+            </div>
+          </div>
+          <HiChevronRight className="w-5 h-5 flex-shrink-0 opacity-80" />
+        </button>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <StatCard
