@@ -208,10 +208,21 @@ const DocumentInbox = () => {
           <h1 className="text-2xl font-bold text-gray-800">Document Inbox</h1>
           <p className="text-sm text-gray-500 mt-1">{total} submissions total</p>
         </div>
-        <button onClick={load}
-          className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2.5 rounded-lg text-sm font-medium">
-          <HiOutlineRefresh className="w-4 h-4" /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDownloadAllGlobal}
+            disabled={downloadingAll || submissions.length === 0}
+            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2.5 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {downloadingAll
+              ? <><div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /><span>Downloading…</span></>
+              : <><HiOutlineDownload className="w-4 h-4" /><span>Download All</span></>}
+          </button>
+          <button onClick={load}
+            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2.5 rounded-lg text-sm font-medium">
+            <HiOutlineRefresh className="w-4 h-4" /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
