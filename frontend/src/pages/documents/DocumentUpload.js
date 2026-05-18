@@ -616,9 +616,9 @@ const DocumentUpload = () => {
             )}
           </div>
 
-          {/* Step 3: Submit */}
+          {/* Step 3: Submit — desktop only inline */}
           {groups.length > 0 && (
-            <div className="mt-2 pb-4">
+            <div className="hidden lg:block mt-2 pb-4">
               <button
                 onClick={handleSubmit}
                 disabled={!canSubmit}
@@ -635,6 +635,21 @@ const DocumentUpload = () => {
 
       {/* ── My Uploads Tab ── */}
       {tab === 'list' && <MyUploads />}
+
+      {/* Fixed submit bar — mobile */}
+      {tab === 'upload' && groups.length > 0 && (
+        <div className="lg:hidden fixed bottom-16 left-0 right-0 z-20 px-4 pb-2">
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            className="w-full py-4 rounded-2xl text-sm font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed bg-primary-600 hover:bg-primary-700 text-white"
+          >
+            {!patientName.trim()
+              ? 'Enter patient name to continue'
+              : `Submit ${totalFiles} Document${totalFiles > 1 ? 's' : ''} →`}
+          </button>
+        </div>
+      )}
     </>
   );
 };
