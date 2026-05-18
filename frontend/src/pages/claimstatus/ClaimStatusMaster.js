@@ -6,6 +6,7 @@ import {
   HiOutlinePlus, HiOutlinePencil, HiOutlineTrash,
   HiOutlineLockClosed, HiOutlineX, HiOutlineCheck
 } from 'react-icons/hi';
+import Toggle from '../../components/ui/Toggle';
 
 const COLOR_OPTIONS = [
   { key: 'blue',   label: 'Blue',   classes: 'bg-blue-100 text-blue-700' },
@@ -124,6 +125,7 @@ const ClaimStatusMaster = () => {
   const { can } = useAuth();
   const [statuses, setStatuses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [togglingId, setTogglingId] = useState(null);
   const [modal, setModal] = useState(null); // null | 'create' | 'edit'
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -161,11 +163,13 @@ const ClaimStatusMaster = () => {
   };
 
   const handleToggleActive = async (s) => {
+    setTogglingId(s._id);
     try {
       await updateClaimStatusAPI(s._id, { isActive: !s.isActive });
       toast.success(`Status ${s.isActive ? 'deactivated' : 'activated'}`);
       fetch();
     } catch { toast.error('Failed to update'); }
+    finally { setTogglingId(null); }
   };
 
   const handleDelete = async (s) => {
@@ -225,12 +229,7 @@ const ClaimStatusMaster = () => {
                 </td>
                 <td className="py-3 px-4 text-sm text-gray-500 font-mono">{s.slug}</td>
                 <td className="py-3 px-4 text-center">
-                  <button
-                    onClick={() => handleToggleActive(s)}
-                    className={`w-8 h-5 rounded-full transition-colors relative ${s.isActive ? 'bg-primary-600' : 'bg-gray-200'}`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${s.isActive ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-                  </button>
+                  <Toggle checked={s.isActive} onChange={() => handleToggleActive(s)} loading={togglingId === s._id} size="sm" />
                 </td>
                 <td className="py-3 px-4 text-center">
                   {s.isSystem ? (
