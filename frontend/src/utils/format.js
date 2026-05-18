@@ -43,7 +43,7 @@ export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, 
         const lastSlab = slabs[slabs.length - 1];
         if (lastSlab) {
           const above = Math.max(0, basis - lastSlab.rangeEnd);
-          const increments = Math.floor(above / svc.slabIncrementRange);
+          const increments = Math.ceil(above / svc.slabIncrementRange);
           total += lastSlab.price + increments * svc.slabIncrementPrice;
         }
       }
