@@ -23,7 +23,6 @@ exports.create = async (req, res) => {
 
     const { patientName, documentTypeId, notes } = req.body;
     if (!patientName?.trim()) return res.status(400).json({ message: 'Patient name is required' });
-    if (!documentTypeId) return res.status(400).json({ message: 'Document type is required' });
 
     const hospitalId = getUserHospitalId(req.user) || req.body.hospitalId;
     if (!hospitalId) return res.status(400).json({ message: 'Hospital is required' });
