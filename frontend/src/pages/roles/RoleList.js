@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getRolesAPI, deleteRoleAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineLockClosed, HiOutlineShieldCheck } from 'react-icons/hi';
 
@@ -47,6 +48,7 @@ const SkeletonCard = () => (
 const RoleList = () => {
   const navigate = useNavigate();
   const { can } = useAuth();
+  const confirm = useConfirm();
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -61,7 +63,7 @@ const RoleList = () => {
   useEffect(() => { fetchRoles(); }, []);
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`Delete role "${name}"? Users assigned to this role will lose access.`)) return;
+    if (!await confirm(`Delete role "${name}"? Users assigned to this role will lose access.`, { title: 'Delete Role', confirmLabel: 'Delete' })) return;
     try {
       await deleteRoleAPI(id);
       toast.success('Role deleted');

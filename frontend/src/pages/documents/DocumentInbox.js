@@ -5,6 +5,7 @@ import {
   downloadSubmissionAPI, getClaimDocumentTypesAPI, getHospitalsAPI,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import {
   HiOutlineSearch, HiOutlineDownload, HiOutlineTrash,
@@ -43,6 +44,7 @@ const DocumentInbox = () => {
   const highlightId = searchParams.get('submissionId');
   const highlightRef = useRef(null);
   const { can, user } = useAuth();
+  const confirm = useConfirm();
   const [submissions, setSubmissions] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [docTypes, setDocTypes] = useState([]);
@@ -123,7 +125,7 @@ const DocumentInbox = () => {
   };
 
   const handleDelete = async (s) => {
-    if (!window.confirm(`Delete submission for "${s.patientName}"?`)) return;
+    if (!await confirm(`Delete submission for "${s.patientName}"?`, { title: 'Delete Submission', confirmLabel: 'Delete' })) return;
     setActionId(s._id);
     try {
       await deleteSubmissionAPI(s._id);

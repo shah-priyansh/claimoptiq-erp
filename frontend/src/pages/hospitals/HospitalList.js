@@ -2,12 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getHospitalsAPI, deleteHospitalAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding } from 'react-icons/hi';
 
 const HospitalList = () => {
   const navigate = useNavigate();
   const { can } = useAuth();
+  const confirm = useConfirm();
   const [hospitals, setHospitals] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -26,7 +28,7 @@ const HospitalList = () => {
   useEffect(() => { fetchHospitals(); }, [fetchHospitals]);
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`Deactivate hospital "${name}"?`)) return;
+    if (!await confirm(`Deactivate hospital "${name}"?`, { title: 'Deactivate Hospital', confirmLabel: 'Deactivate', variant: 'danger' })) return;
     try {
       await deleteHospitalAPI(id);
       toast.success('Hospital deactivated');

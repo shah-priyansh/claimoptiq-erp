@@ -6,6 +6,7 @@ import {
   deleteClaimDocumentTypeAPI,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlinePencil, HiOutlineTrash,
@@ -91,6 +92,7 @@ const Modal = ({ title, form, setForm, onSave, onClose, saving }) => (
 
 const ClaimDocumentTypeMaster = () => {
   const { can } = useAuth();
+  const confirm = useConfirm();
   const [docTypes, setDocTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState(null);
@@ -155,7 +157,7 @@ const ClaimDocumentTypeMaster = () => {
   };
 
   const handleDelete = async (d) => {
-    if (!window.confirm(`Delete document type "${d.name}"?`)) return;
+    if (!await confirm(`Delete document type "${d.name}"?`, { title: 'Delete Document Type', confirmLabel: 'Delete' })) return;
     try {
       await deleteClaimDocumentTypeAPI(d._id);
       toast.success('Document type deleted');

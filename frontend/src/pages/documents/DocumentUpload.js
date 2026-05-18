@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { uploadSubmissionAPI, getClaimDocumentTypesAPI, getSubmissionsAPI, downloadSubmissionAPI, deleteSubmissionAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -208,6 +209,7 @@ const ProgressOverlay = ({ current, total }) => (
 
 // ─── My Uploads (grouped by patient, accordion) ───────────────────────────────
 const MyUploads = () => {
+  const confirm = useConfirm();
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
@@ -246,7 +248,7 @@ const MyUploads = () => {
   };
 
   const handleDelete = async (sub) => {
-    if (!window.confirm(`Delete "${sub.file?.originalName}"? This cannot be undone.`)) return;
+    if (!await confirm(`Delete "${sub.file?.originalName}"? This cannot be undone.`, { title: 'Delete File', confirmLabel: 'Delete' })) return;
     setDeleting(sub._id);
     try {
       await deleteSubmissionAPI(sub._id);

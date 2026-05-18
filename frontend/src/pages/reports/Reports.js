@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
 import { formatCurrency } from '../../utils/format';
+import DateInput from '../../components/ui/DateInput';
 
 const Reports = () => {
   const { user } = useAuth();
@@ -82,9 +83,8 @@ const Reports = () => {
               {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
             </select>
           )}
-          <input type="month" value={filters.month}
-            onChange={(e) => setFilters({ ...filters, month: e.target.value })}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+          <DateInput type="month" value={filters.month}
+            onChange={(e) => setFilters({ ...filters, month: e.target.value })} />
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
             <option value="">All Status</option>
