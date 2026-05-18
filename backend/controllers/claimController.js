@@ -269,7 +269,7 @@ exports.getDashboardStats = async (req, res) => {
       prisma.claim.count({ where: { ...baseWhere, status: 'submitted' } }),
       prisma.claim.count({ where: { ...baseWhere, status: 'settled' } }),
       prisma.claim.count({ where: { ...baseWhere, status: 'rejected' } }),
-      prisma.claim.count({ where: { ...baseWhere, finalApprovalAmount: { gt: 0 } } }),
+      prisma.claim.count({ where: { ...baseWhere, finalApprovalAmount: { gt: 0 }, status: { notIn: ['settled', 'rejected'] } } }),
     ]);
 
     const now = new Date();

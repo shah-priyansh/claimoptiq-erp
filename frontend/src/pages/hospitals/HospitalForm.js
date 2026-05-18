@@ -61,6 +61,7 @@ const HospitalForm = () => {
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(isEdit);
   const [insurers, setInsurers] = useState([]);
   const [serviceNames, setServiceNames] = useState([]);
   const [dropdownDataLoading, setDropdownDataLoading] = useState(true);
@@ -79,7 +80,7 @@ const HospitalForm = () => {
       getHospitalAPI(id).then(({ data }) => setForm(data)).catch(() => {
         toast.error('Hospital not found');
         navigate('/hospitals');
-      });
+      }).finally(() => setFetchLoading(false));
     }
   }, [id, isEdit, navigate]);
 
@@ -196,6 +197,16 @@ const HospitalForm = () => {
       setLoading(false);
     }
   };
+
+  if (fetchLoading) return (
+    <div>
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">Edit Hospital</h1>
+      <div className="flex flex-col items-center justify-center py-32 gap-3">
+        <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-gray-400">Loading hospital data...</p>
+      </div>
+    </div>
+  );
 
   return (
     <div>
