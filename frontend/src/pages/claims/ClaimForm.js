@@ -274,13 +274,14 @@ const ClaimForm = () => {
             {form.hospital && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name *</label>
-                {doctorOptions.length > 0 ? (
+                {dataLoading || doctorOptions.length > 0 ? (
                   <SearchableSelect
                     options={doctorOptions}
                     value={form.doctorName}
                     onChange={val => set('doctorName', val)}
                     placeholder="Select Doctor"
                     searchPlaceholder="Search doctors..."
+                    isLoading={dataLoading}
                     required
                   />
                 ) : (
