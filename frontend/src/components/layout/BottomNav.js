@@ -6,6 +6,7 @@ import {
   HiOutlineDocumentText,
   HiOutlineCog,
   HiOutlineChartBar,
+  HiOutlineUpload,
 } from 'react-icons/hi';
 
 const adminPaths = ['/hospitals', '/insurance', '/tpa', '/users', '/roles', '/claim-statuses'];
@@ -49,6 +50,12 @@ const BottomNav = () => {
           <NavLink to="/claims" className={({ isActive }) => tabCls(isActive)}>
             <HiOutlineDocumentText className="w-6 h-6" />
             Claims
+          </NavLink>
+        )}
+        {canViewModule('document_submissions') && (
+          <NavLink to="/documents/upload" className={({ isActive }) => tabCls(isActive)}>
+            <HiOutlineUpload className="w-6 h-6" />
+            Upload
           </NavLink>
         )}
         {hasAdminAccess && (
