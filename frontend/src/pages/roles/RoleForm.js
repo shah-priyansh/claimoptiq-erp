@@ -24,6 +24,7 @@ const RoleForm = () => {
   });
   const [isSystem, setIsSystem] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(true);
 
   // Load modules + role data together so we can merge missing modules
   useEffect(() => {
@@ -44,7 +45,8 @@ const RoleForm = () => {
           setForm({ name: role.name, description: role.description || '', modulePermissions: merged });
           setIsSystem(role.isSystem);
         })
-        .catch(() => { toast.error('Role not found'); navigate('/roles'); });
+        .catch(() => { toast.error('Role not found'); navigate('/roles'); })
+        .finally(() => setFetchLoading(false));
     } else {
       getModulesAPI().then(({ data }) => {
         setModules(data);
@@ -55,7 +57,7 @@ const RoleForm = () => {
             permissions: { view: false, create: false, edit: false, delete: false, export: false },
           })),
         }));
-      });
+      }).finally(() => setFetchLoading(false));
     }
   }, [id, isEdit, navigate]);
 
@@ -141,6 +143,18 @@ const RoleForm = () => {
       setLoading(false);
     }
   };
+
+  if (fetchLoading) return (
+    <div>
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">
+        {isEdit ? 'Edit Role' : 'Create New Role'}
+      </h1>
+      <div className="flex flex-col items-center justify-center py-32 gap-3">
+        <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-gray-400">Loading...</p>
+      </div>
+    </div>
+  );
 
   return (
     <div>

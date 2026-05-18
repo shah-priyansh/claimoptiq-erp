@@ -303,8 +303,10 @@ const DocumentInbox = () => {
                               </button>
                               {can('document_submissions', 'edit') && s.status !== 'claimed' && (
                                 <button onClick={() => handleMarkReviewed(s)} disabled={busy}
-                                  className={`px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${s.status === 'reviewed' ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'}`}>
-                                  {s.status === 'reviewed' ? 'Unmark' : 'Reviewed'}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${busy ? 'opacity-60 cursor-wait' : ''} ${s.status === 'reviewed' ? 'text-gray-600 border-gray-200 hover:bg-gray-50' : 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'}`}>
+                                  {busy
+                                    ? <><div className="w-3 h-3 border-[1.5px] border-current border-t-transparent rounded-full animate-spin" /><span>Saving…</span></>
+                                    : s.status === 'reviewed' ? 'Unmark' : 'Reviewed'}
                                 </button>
                               )}
                               {s.claim && (
@@ -383,8 +385,10 @@ const DocumentInbox = () => {
                                     </button>
                                     {can('document_submissions', 'edit') && s.status !== 'claimed' && (
                                       <button onClick={() => handleMarkReviewed(s)} disabled={busy}
-                                        className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${s.status === 'reviewed' ? 'text-gray-600 hover:bg-gray-100' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'}`}>
-                                        {s.status === 'reviewed' ? 'Unmark' : 'Reviewed'}
+                                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${busy ? 'opacity-60 cursor-wait' : ''} ${s.status === 'reviewed' ? 'text-gray-600 hover:bg-gray-100' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'}`}>
+                                        {busy
+                                          ? <><div className="w-3 h-3 border-[1.5px] border-current border-t-transparent rounded-full animate-spin" /><span>Saving…</span></>
+                                          : s.status === 'reviewed' ? 'Unmark' : 'Reviewed'}
                                       </button>
                                     )}
                                     {s.claim && (
