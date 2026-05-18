@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getClaimStatusesAPI, createClaimStatusAPI, updateClaimStatusAPI, deleteClaimStatusAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlinePencil, HiOutlineTrash,
@@ -123,6 +124,7 @@ const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
 
 const ClaimStatusMaster = () => {
   const { can } = useAuth();
+  const confirm = useConfirm();
   const [statuses, setStatuses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState(null);
@@ -173,7 +175,7 @@ const ClaimStatusMaster = () => {
   };
 
   const handleDelete = async (s) => {
-    if (!window.confirm(`Delete status "${s.label}"?`)) return;
+    if (!await confirm(`Delete status "${s.label}"?`, { title: 'Delete Status', confirmLabel: 'Delete' })) return;
     try {
       await deleteClaimStatusAPI(s._id);
       toast.success('Status deleted');

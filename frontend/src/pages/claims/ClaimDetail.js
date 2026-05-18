@@ -3,7 +3,9 @@ import ReactDOM from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getClaimAPI, updateClaimAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
+import DateInput from '../../components/ui/DateInput';
 import {
   HiOutlineArrowLeft, HiOutlineUpload, HiOutlineTrash, HiOutlineDownload,
   HiOutlineDocumentText, HiChevronDown, HiCheck,
@@ -184,6 +186,7 @@ const ClaimDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { can } = useAuth();
+  const confirm = useConfirm();
   const [claim, setClaim] = useState(null);
   const [claimStatuses, setClaimStatuses] = useState([]);
   const [docTypes, setDocTypes] = useState([]);
@@ -387,7 +390,7 @@ const ClaimDetail = () => {
   };
 
   const handleDeleteDoc = async (docId) => {
-    if (!window.confirm('Delete this document?')) return;
+    if (!await confirm('Delete this document?', { title: 'Delete Document', confirmLabel: 'Delete' })) return;
     setDeletingDocId(docId);
     try {
       await deleteDocumentAPI(id, docId);
@@ -684,7 +687,7 @@ const ClaimDetail = () => {
                       ? <AmountInput value={dischargeForm[f.name] || 0}
                           onChange={v => setDischargeForm({ ...dischargeForm, [f.name]: v })}
                           className={inputCls} />
-                      : <input type="date" value={dischargeForm[f.name] || ''}
+                      : <DateInput type="date" value={dischargeForm[f.name] || ''}
                           onChange={e => setDischargeForm({ ...dischargeForm, [f.name]: e.target.value })}
                           className={inputCls} />
                     }

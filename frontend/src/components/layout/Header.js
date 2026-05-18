@@ -2,11 +2,23 @@ import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { HiOutlineMenu, HiOutlineLogout } from 'react-icons/hi';
 import NotificationBell from './NotificationBell';
+import { useConfirm } from '../../context/ConfirmContext';
 
 const Header = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
+  const confirm = useConfirm();
   const roleName = user?.role?.name || 'User';
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U';
+
+  const handleLogout = async () => {
+    const ok = await confirm('You will be signed out of ClaimOptiq.', {
+      title: 'Logout',
+      confirmLabel: 'Logout',
+      variant: 'danger',
+      icon: HiOutlineLogout,
+    });
+    if (ok) logout();
+  };
 
   return (
     <header className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 lg:px-6 h-16 flex items-center shadow-sm shadow-gray-100/80">
@@ -46,7 +58,7 @@ const Header = ({ onMenuClick }) => {
           </div>
 
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="ml-1 p-2 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors"
             title="Logout"
           >

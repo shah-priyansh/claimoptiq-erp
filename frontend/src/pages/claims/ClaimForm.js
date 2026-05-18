@@ -7,9 +7,11 @@ import {
   updateSubmissionAPI, uploadDocumentsAPI, deleteDocumentAPI,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { isValidPhone, onPhoneInput, inputCls } from '../../utils/validators';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import DateInput from '../../components/ui/DateInput';
 import {
   HiOutlineDocumentText, HiOutlineX, HiOutlineUpload,
   HiOutlineTrash, HiOutlineDownload,
@@ -33,6 +35,7 @@ const ClaimForm = () => {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [searchParams] = useSearchParams();
   const fromSubmissionId = searchParams.get('submissionId') || '';
   const fromPatientName  = searchParams.get('patientName')  || '';
@@ -127,7 +130,7 @@ const ClaimForm = () => {
   };
 
   const handleDeleteExistingDoc = async (docId) => {
-    if (!window.confirm('Delete this document?')) return;
+    if (!await confirm('Delete this document?', { title: 'Delete Document', confirmLabel: 'Delete' })) return;
     setDeletingDocId(docId);
     try {
       await deleteDocumentAPI(id, docId);
@@ -228,8 +231,7 @@ const ClaimForm = () => {
             )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Month *</label>
-              <input type="month" name="month" value={form.month} onChange={handleChange} required
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <DateInput type="month" name="month" value={form.month} onChange={handleChange} required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Claim Type *</label>
@@ -328,13 +330,11 @@ const ClaimForm = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date of Admit *</label>
-              <input type="date" name="dateOfAdmit" value={form.dateOfAdmit} onChange={handleChange} required
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <DateInput type="date" name="dateOfAdmit" value={form.dateOfAdmit} onChange={handleChange} required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date of Discharge</label>
-              <input type="date" name="dateOfDischarge" value={form.dateOfDischarge} onChange={handleChange}
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <DateInput type="date" name="dateOfDischarge" value={form.dateOfDischarge} onChange={handleChange} />
             </div>
           </div>
         </div>

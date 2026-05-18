@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI } from '../../services/api';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCheck, HiOutlineX } from 'react-icons/hi';
 
 const InsuranceList = () => {
+  const confirm = useConfirm();
   const [items, setItems] = useState([]);
   const [newName, setNewName] = useState('');
   const [editId, setEditId] = useState(null);
@@ -46,7 +48,7 @@ const InsuranceList = () => {
   };
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`Delete "${name}"?`)) return;
+    if (!await confirm(`Delete "${name}"?`, { title: 'Delete', confirmLabel: 'Delete' })) return;
     try {
       await deleteInsuranceAPI(id);
       toast.success('Deleted');

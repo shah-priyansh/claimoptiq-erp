@@ -4,6 +4,7 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 import { AuthProvider } from './context/AuthContext';
+import { ConfirmProvider } from './context/ConfirmContext';
 import Layout from './components/layout/Layout';
 import Login from './pages/auth/Login';
 import Dashboard from './pages/dashboard/Dashboard';
@@ -27,6 +28,7 @@ import DocumentInbox from './pages/documents/DocumentInbox';
 function App() {
   return (
     <AuthProvider>
+      <ConfirmProvider>
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -59,6 +61,7 @@ function App() {
       <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false}
         newestOnTop closeOnClick rtl={false} pauseOnFocusLoss={false} draggable pauseOnHover={false}
         theme="light" />
+      </ConfirmProvider>
     </AuthProvider>
   );
 }
