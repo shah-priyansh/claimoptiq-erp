@@ -180,8 +180,8 @@ const DocumentInbox = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-        <div className={`grid gap-3 grid-cols-1 ${isHospitalUser ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-4'}`}>
-          <div className="relative sm:col-span-2 lg:col-span-1">
+        <div className={`grid gap-3 grid-cols-1 ${isHospitalUser ? 'sm:grid-cols-3' : 'sm:grid-cols-2 lg:grid-cols-4'}`}>
+          <div className={`relative ${isHospitalUser ? '' : 'sm:col-span-2 lg:col-span-1'}`}>
             <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               placeholder="Search patient name..."
