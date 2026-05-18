@@ -142,19 +142,27 @@ const DocumentInbox = () => {
 
   const buildAndSaveZip = async (docs, zipName) => {
     const zip = new JSZip();
-    const results = await Promise.all(docs.map(d => downloadSubmissionAPI(d._id)));
-    results.forEach((res, i) => {
+    const results = await Promise.allSettled(docs.map(d => downloadSubmissionAPI(d._id)));
+    let failCount = 0;
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') { failCount++; return; }
       const s = docs[i];
       const docType = s.documentType?.name || 'doc';
       const fileName = s.originalName || s.fileName || `file_${i}`;
-      const safeName = `${docType}_${fileName}`.replace(/[/\\?%*:|"<>]/g, '_');
-      zip.file(safeName, res.data);
+      const safeName = `${docType}_${i}_${fileName}`.replace(/[/\\?%*:|"<>]/g, '_');
+      zip.file(safeName, result.value.data);
     });
+    if (failCount === docs.length) throw new Error('All downloads failed');
+    if (failCount > 0) toast.warning(`${failCount} file(s) could not be downloaded and were skipped`);
     const blob = await zip.generateAsync({ type: 'blob' });
     saveAs(blob, zipName);
   };
 
   const handleDownloadAllGlobal = async () => {
+    if (submissions.length === 0) {
+      toast.info('No documents to download');
+      return;
+    }
     setDownloadingAll(true);
     try {
       const date = new Date().toISOString().slice(0, 10);
