@@ -16,18 +16,22 @@ import {
 } from 'react-icons/hi';
 
 const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
-  <div className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-sm text-gray-500 font-medium">{title}</p>
-        <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
-        {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
+  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider leading-none">{title}</p>
+        <p className="text-3xl font-bold text-gray-900 mt-2 tabular-nums leading-none">{value}</p>
+        {subtitle && <p className="text-xs text-gray-400 mt-2 leading-tight">{subtitle}</p>}
       </div>
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${color}`}>
+      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${color}`}>
         <Icon className="w-6 h-6" />
       </div>
     </div>
   </div>
+);
+
+const SectionLabel = ({ children }) => (
+  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{children}</p>
 );
 
 const SHOW_REVENUE_SLUGS = ['super_admin', 'hospital_admin'];
@@ -63,22 +67,29 @@ const Dashboard = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
       </div>
     );
   }
 
+  const today = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  });
+
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">Overview of your claim operations</p>
+    <div className="space-y-6">
+
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <p className="text-sm text-gray-400 mt-0.5">{today}</p>
       </div>
 
+      {/* Upload CTA */}
       {canViewModule('document_submissions') && (
         <button
           onClick={() => navigate('/documents/upload')}
-          className="w-full bg-gradient-to-r from-primary-600 to-primary-500 rounded-xl p-5 mb-6 flex items-center justify-between text-white hover:from-primary-700 hover:to-primary-600 transition-all"
+          className="w-full bg-gradient-to-r from-primary-600 to-primary-500 rounded-2xl p-5 flex items-center justify-between text-white hover:from-primary-700 hover:to-primary-600 shadow-md shadow-primary-200 hover:shadow-lg hover:shadow-primary-300 hover:-translate-y-0.5 transition-all duration-200"
         >
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -89,109 +100,97 @@ const Dashboard = () => {
               <p className="text-sm text-primary-100 mt-0.5">Send patient documents for a claim</p>
             </div>
           </div>
-          <HiChevronRight className="w-5 h-5 flex-shrink-0 opacity-80" />
+          <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+            <HiChevronRight className="w-5 h-5" />
+          </div>
         </button>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <StatCard
-          title="Total Claims"
-          value={stats?.total || 0}
-          icon={HiOutlineDocumentText}
-          color="bg-primary-100 text-primary-600"
-        />
-        <StatCard
-          title="In Process"
-          value={stats?.inProcess || 0}
-          icon={HiOutlineClock}
-          color="bg-amber-100 text-amber-600"
-        />
-        <StatCard
-          title="Approved"
-          value={stats?.approved || 0}
-          icon={HiOutlineBadgeCheck}
-          color="bg-blue-100 text-blue-600"
-        />
-        <StatCard
-          title="Settled"
-          value={stats?.completed || 0}
-          icon={HiOutlineCheckCircle}
-          color="bg-emerald-100 text-emerald-600"
-        />
-        <StatCard
-          title="Rejected"
-          value={stats?.rejected || 0}
-          icon={HiOutlineXCircle}
-          color="bg-red-100 text-red-600"
-        />
+      {/* Claim Overview */}
+      <div>
+        <SectionLabel>Claim Overview</SectionLabel>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <StatCard title="Total Claims"  value={stats?.total || 0}     icon={HiOutlineDocumentText} color="bg-primary-100 text-primary-600" />
+          <StatCard title="In Process"    value={stats?.inProcess || 0} icon={HiOutlineClock}        color="bg-amber-100 text-amber-600" />
+          <StatCard title="Approved"      value={stats?.approved || 0}  icon={HiOutlineBadgeCheck}   color="bg-blue-100 text-blue-600" />
+          <StatCard title="Settled"       value={stats?.completed || 0} icon={HiOutlineCheckCircle}  color="bg-emerald-100 text-emerald-600" />
+          <StatCard title="Rejected"      value={stats?.rejected || 0}  icon={HiOutlineXCircle}      color="bg-red-100 text-red-600" />
+        </div>
       </div>
 
+      {/* Monthly / Revenue Stats */}
       {showRevenue && (
-        isHospitalAdmin ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-            <StatCard
-              title="Monthly Approved Claims"
-              value={stats?.monthlyStats?.count || 0}
-              icon={HiOutlineCheckCircle}
-              color="bg-teal-100 text-teal-600"
-              subtitle="Settled claims this month"
-            />
-            <StatCard
-              title="Approved Amount"
-              value={formatCurrencyCompact(stats?.monthlyStats?.totalApprovalAmount || 0)}
-              icon={HiOutlineCurrencyRupee}
-              color="bg-green-100 text-green-600"
-              subtitle="Your hospital this month"
-            />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-            <StatCard
-              title="Total Hospitals"
-              value={stats?.hospitalCount || 0}
-              icon={HiOutlineOfficeBuilding}
-              color="bg-indigo-100 text-indigo-600"
-            />
-            <StatCard
-              title="Monthly Settlements"
-              value={stats?.monthlyStats?.count || 0}
-              icon={HiOutlineCurrencyRupee}
-              color="bg-teal-100 text-teal-600"
-              subtitle={`Total: ${formatCurrencyCompact(stats?.monthlyStats?.totalSettlement || 0)}`}
-            />
-            <StatCard
-              title="Monthly Revenue"
-              value={formatCurrencyCompact(stats?.monthlyStats?.totalFilePrice || 0)}
-              icon={HiOutlineCurrencyRupee}
-              color="bg-green-100 text-green-600"
-              subtitle="From file charges"
-            />
-          </div>
-        )
+        <div>
+          <SectionLabel>This Month</SectionLabel>
+          {isHospitalAdmin ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <StatCard
+                title="Settled Claims"
+                value={stats?.monthlyStats?.count || 0}
+                icon={HiOutlineCheckCircle}
+                color="bg-teal-100 text-teal-600"
+                subtitle="Settled claims this month"
+              />
+              <StatCard
+                title="Approved Amount"
+                value={formatCurrencyCompact(stats?.monthlyStats?.totalApprovalAmount || 0)}
+                icon={HiOutlineCurrencyRupee}
+                color="bg-green-100 text-green-600"
+                subtitle="Your hospital this month"
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <StatCard
+                title="Total Hospitals"
+                value={stats?.hospitalCount || 0}
+                icon={HiOutlineOfficeBuilding}
+                color="bg-indigo-100 text-indigo-600"
+              />
+              <StatCard
+                title="Monthly Settlements"
+                value={stats?.monthlyStats?.count || 0}
+                icon={HiOutlineCurrencyRupee}
+                color="bg-teal-100 text-teal-600"
+                subtitle={`Total: ${formatCurrencyCompact(stats?.monthlyStats?.totalSettlement || 0)}`}
+              />
+              <StatCard
+                title="Monthly Revenue"
+                value={formatCurrencyCompact(stats?.monthlyStats?.totalFilePrice || 0)}
+                icon={HiOutlineCurrencyRupee}
+                color="bg-green-100 text-green-600"
+                subtitle="From file charges"
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {/* Status Breakdown */}
       {stats?.statusBreakdown?.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Claim Status Breakdown</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-            {stats.statusBreakdown.map((item) => {
-              const c = STATUS_CARD_COLOR[item.color] || STATUS_CARD_COLOR.gray;
-              return (
-                <button
-                  key={item.slug}
-                  onClick={() => navigate(`/claims?status=${item.slug}`)}
-                  className={`relative overflow-hidden rounded-xl border border-transparent ${c.bg} hover:border-current hover:shadow-sm transition-all text-left p-4 group`}
-                >
-                  <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${c.bar}`} />
-                  <p className={`text-2xl font-bold mb-1 pl-2 ${c.num}`}>{item.count}</p>
-                  <p className={`text-xs font-medium leading-tight pl-2 ${c.text}`}>{item.label}</p>
-                </button>
-              );
-            })}
+        <div>
+          <SectionLabel>Status Breakdown</SectionLabel>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              {stats.statusBreakdown.map((item) => {
+                const c = STATUS_CARD_COLOR[item.color] || STATUS_CARD_COLOR.gray;
+                return (
+                  <button
+                    key={item.slug}
+                    onClick={() => navigate(`/claims?status=${item.slug}`)}
+                    className={`relative overflow-hidden rounded-xl border border-transparent ${c.bg} hover:shadow-sm hover:scale-[1.02] active:scale-100 transition-all duration-150 text-left p-4`}
+                  >
+                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${c.bar}`} />
+                    <p className={`text-2xl font-bold tabular-nums mb-1 pl-3 ${c.num}`}>{item.count}</p>
+                    <p className={`text-xs font-semibold leading-tight pl-3 ${c.text}`}>{item.label}</p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
+
     </div>
   );
 };
