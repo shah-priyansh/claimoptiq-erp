@@ -62,6 +62,7 @@ export const getClaimAPI = (id) => API.get(`/claims/${id}`);
 export const createClaimAPI = (data) => API.post('/claims', data);
 export const updateClaimAPI = (id, data) => API.put(`/claims/${id}`, data);
 export const bulkUpdateStatusAPI = (ids, status) => API.put('/claims/bulk-status', { ids, status });
+export const bulkBillAPI = (ids) => API.put('/claims/bulk-bill', { ids });
 export const uploadDocumentsAPI = (id, formData) => API.post(`/claims/${id}/documents`, formData, {
   headers: { 'Content-Type': 'multipart/form-data' }
 });

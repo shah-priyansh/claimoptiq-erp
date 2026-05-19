@@ -88,9 +88,13 @@ const SearchableSelect = ({
           </>
         ) : (
           <>
-            <span className={`flex-1 truncate ${selected ? 'text-gray-800' : 'text-gray-400'}`}>
-              {selected ? selected.label : placeholder}
-            </span>
+            {selected?.badgeClass ? (
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold truncate ${selected.badgeClass}`}>{selected.label}</span>
+            ) : (
+              <span className={`flex-1 truncate ${selected ? 'text-gray-800' : 'text-gray-400'}`}>
+                {selected ? selected.label : placeholder}
+              </span>
+            )}
             <div className="flex items-center gap-0.5 flex-shrink-0">
               {allowClear && selected && (
                 <span
@@ -159,13 +163,15 @@ const SearchableSelect = ({
                       key={o.value}
                       type="button"
                       onClick={() => select(o.value)}
-                      className={`w-full px-4 py-2.5 text-left text-sm flex items-center justify-between gap-2 transition-colors ${
-                        isActive
-                          ? 'bg-primary-50 text-primary-700 font-medium'
-                          : 'text-gray-700 hover:bg-gray-50'
+                      className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between gap-2 transition-colors ${
+                        isActive ? 'bg-primary-50' : 'hover:bg-gray-50'
                       }`}
                     >
-                      <span className="truncate">{o.label}</span>
+                      {o.badgeClass ? (
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold truncate ${o.badgeClass}`}>{o.label}</span>
+                      ) : (
+                        <span className={`truncate ${isActive ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>{o.label}</span>
+                      )}
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>
                   );
