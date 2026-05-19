@@ -114,8 +114,8 @@ exports.getClaims = async (req, res) => {
         lte: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999),
       };
     }
-    if (dateFrom || dateTo) {
-      where.month = where.month || {};
+    if (!month && (dateFrom || dateTo)) {
+      where.month = {};
       if (dateFrom) {
         const d = new Date(dateFrom);
         d.setHours(0, 0, 0, 0);
