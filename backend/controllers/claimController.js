@@ -95,7 +95,7 @@ exports.createClaim = async (req, res) => {
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, search, page = 1, limit = 20 } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
@@ -113,6 +113,19 @@ exports.getClaims = async (req, res) => {
         gte: new Date(d.getFullYear(), d.getMonth(), 1),
         lte: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999),
       };
+    }
+    if (dateFrom || dateTo) {
+      where.month = where.month || {};
+      if (dateFrom) {
+        const d = new Date(dateFrom);
+        d.setHours(0, 0, 0, 0);
+        where.month.gte = d;
+      }
+      if (dateTo) {
+        const d = new Date(dateTo);
+        d.setHours(23, 59, 59, 999);
+        where.month.lte = d;
+      }
     }
     if (search) {
       where.OR = [
