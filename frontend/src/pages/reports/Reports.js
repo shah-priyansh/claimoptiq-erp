@@ -14,6 +14,7 @@ const Reports = () => {
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(false);
   const [claimStatuses, setClaimStatuses] = useState([]);
+  const [billDropdownOpen, setBillDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (!isHospitalUser) {
@@ -68,6 +69,43 @@ const Reports = () => {
     URL.revokeObjectURL(url);
   };
 
+  const exportBillGrouped = () => {
+    if (!claims.length) return;
+    setBillDropdownOpen(false);
+    const grouped = {};
+    claims.forEach(c => {
+      const name = c.hospital?.name || 'Unknown';
+      if (!grouped[name]) {
+        grouped[name] = { count: 0, totalBill: 0, totalApproval: 0, totalSettlement: 0, totalBank: 0, totalFilePrice: 0 };
+      }
+      grouped[name].count += 1;
+      grouped[name].totalBill += c.hospitalFinalBill || 0;
+      grouped[name].totalApproval += c.finalApprovalAmount || 0;
+      grouped[name].totalSettlement += c.settlementAmount || 0;
+      grouped[name].totalBank += c.bankTransferAmount || 0;
+      grouped[name].totalFilePrice += c.filePrice || 0;
+    });
+
+    const headers = ['Hospital', 'No. of Claims', 'Total Hospital Bill', 'Total Approval Amount', 'Total Settlement', 'Total Bank Transfer', 'Total File Price'];
+    const rows = Object.entries(grouped)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, g]) => [name, g.count, g.totalBill, g.totalApproval, g.totalSettlement, g.totalBank, g.totalFilePrice]);
+
+    const csvContent = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bill_grouped_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportBillAll = () => {
+    setBillDropdownOpen(false);
+    exportCSV();
+  };
+
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
 
   // Summary stats
@@ -120,6 +158,33 @@ const Reports = () => {
               className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
               <HiOutlineDownload className="w-4 h-4" /> CSV
             </button>
+            {isSuperAdmin && (
+              <div className="relative">
+                <button
+                  onClick={() => setBillDropdownOpen(o => !o)}
+                  disabled={!claims.length}
+                  className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 whitespace-nowrap"
+                >
+                  <HiOutlineDownload className="w-4 h-4" /> Generate Bill
+                </button>
+                {billDropdownOpen && (
+                  <div className="absolute right-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                    <button
+                      onClick={exportBillGrouped}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg"
+                    >
+                      Group by Hospital
+                    </button>
+                    <button
+                      onClick={exportBillAll}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg border-t border-gray-100"
+                    >
+                      All Claims Report
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
