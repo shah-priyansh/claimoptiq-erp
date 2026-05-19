@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -74,7 +74,7 @@ const Reports = () => {
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
       c.hospitalFinalBill, c.deduction, c.finalApprovalAmount,
       c.settlementAmount, c.tds, c.bankTransferAmount, c.status,
-      ...(isSuperAdmin ? [c.filePrice] : [])
+      ...(isSuperAdmin ? [getFilePrice(c)] : [])
     ]);
 
     const csvContent = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
@@ -128,7 +128,7 @@ const Reports = () => {
     c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
     c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
     c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.settlementAmount || 0,
-    c.tds || 0, c.bankTransferAmount || 0, c.status, c.filePrice || 0,
+    c.tds || 0, c.bankTransferAmount || 0, c.status, getFilePrice(c),
   ];
 
   const subtotalRow = (groupClaims) => {
@@ -274,7 +274,7 @@ const Reports = () => {
       c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
       c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.settlementAmount || 0,
-      c.tds || 0, c.bankTransferAmount || 0, c.status, c.filePrice || 0,
+      c.tds || 0, c.bankTransferAmount || 0, c.status, getFilePrice(c),
     ]);
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     ws['!cols'] = headers.map((_, i) => ({ wch: i === 1 || i === 2 ? 20 : 14 }));
@@ -302,7 +302,7 @@ const Reports = () => {
       c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
       fmtAmt(c.hospitalFinalBill), fmtAmt(c.finalApprovalAmount), fmtAmt(c.settlementAmount),
-      fmtAmt(c.tds), fmtAmt(c.bankTransferAmount), c.status, fmtAmt(c.filePrice),
+      fmtAmt(c.tds), fmtAmt(c.bankTransferAmount), c.status, fmtAmt(getFilePrice(c)),
     ]);
 
     autoTable(doc, {
@@ -321,12 +321,15 @@ const Reports = () => {
 
   const exportAllPDF = () => confirmAndBill(doExportAllPDF);
 
+  const getFilePrice = (c) => c.filePrice ||
+    calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
+
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
 
   // Summary stats
   const totalBill = claims.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
   const totalSettlement = claims.reduce((s, c) => s + (c.bankTransferAmount || 0), 0);
-  const totalFilePrice = claims.reduce((s, c) => s + (c.filePrice || 0), 0);
+  const totalFilePrice = claims.reduce((s, c) => s + getFilePrice(c), 0);
 
   return (
     <div>
@@ -459,7 +462,7 @@ const Reports = () => {
                   <td className="py-2 px-3">{formatAmount(c.tds)}</td>
                   <td className="py-2 px-3">{formatAmount(c.bankTransferAmount)}</td>
                   <td className="py-2 px-3 capitalize">{c.status.replace('_', ' ')}</td>
-                  {isSuperAdmin && <td className="py-2 px-3">{formatAmount(c.filePrice)}</td>}
+                  {isSuperAdmin && <td className="py-2 px-3">{formatAmount(getFilePrice(c))}</td>}
                 </tr>
               ))}
             </tbody>
