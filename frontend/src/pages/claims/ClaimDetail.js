@@ -27,13 +27,6 @@ const CATEGORY_LABELS = {
 const CATEGORY_ORDER = ['admission', 'discharge', 'pod', 'settlement_proof', 'other'];
 const isImage = (name) => /\.(jpe?g|png)$/i.test(name || '');
 
-const statusSteps = [
-  { key: 'admitted',      label: 'Admitted' },
-  { key: 'discharged',    label: 'Discharged' },
-  { key: 'file_received', label: 'File Received' },
-  { key: 'submitted',     label: 'Submitted' },
-  { key: 'settled',       label: 'Settled' },
-];
 
 // ── Micro components ─────────────────────────────────────────────────────────
 const Spinner = ({ sm }) => (
@@ -458,7 +451,8 @@ const ClaimDetail = () => {
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '—';
   const formatAmount = (a) => formatCurrency(Number(a) || 0);
-  const currentStepIdx = statusSteps.findIndex(s => s.key === claim.status);
+  const stepperStatuses = claimStatuses.filter(s => !s.superAdminOnly);
+  const currentStepIdx = stepperStatuses.findIndex(s => s.slug === claim.status);
   const isEditable = can('claims', 'edit');
   const canUpload = can('claims', 'edit');
 
@@ -615,30 +609,32 @@ const ClaimDetail = () => {
       </div>
 
       {/* ── Progress Timeline ── */}
-      <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 mb-4 overflow-x-auto shadow-sm">
-        <div className="flex items-center min-w-[480px]">
-          {statusSteps.map((step, idx) => (
-            <React.Fragment key={step.key}>
-              <div className="flex flex-col items-center gap-1.5">
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all
-                  ${idx < currentStepIdx  ? 'bg-primary-600 border-primary-600 text-white shadow-sm shadow-primary-200' :
-                    idx === currentStepIdx ? 'bg-white border-primary-500 text-primary-600 shadow-sm' :
-                    'bg-gray-50 border-gray-200 text-gray-300'}`}>
-                  {idx < currentStepIdx ? <HiCheck className="w-4 h-4" /> : <span className="text-xs font-bold">{idx + 1}</span>}
+      {stepperStatuses.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 mb-4 overflow-x-auto shadow-sm">
+          <div className="flex items-center" style={{ minWidth: `${stepperStatuses.length * 90}px` }}>
+            {stepperStatuses.map((step, idx) => (
+              <React.Fragment key={step.slug}>
+                <div className="flex flex-col items-center gap-1.5">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all
+                    ${idx < currentStepIdx  ? 'bg-primary-600 border-primary-600 text-white shadow-sm shadow-primary-200' :
+                      idx === currentStepIdx ? 'bg-white border-primary-500 text-primary-600 shadow-sm' :
+                      'bg-gray-50 border-gray-200 text-gray-300'}`}>
+                    {idx < currentStepIdx ? <HiCheck className="w-4 h-4" /> : <span className="text-xs font-bold">{idx + 1}</span>}
+                  </div>
+                  <p className={`text-[11px] font-semibold whitespace-nowrap
+                    ${idx < currentStepIdx  ? 'text-primary-600' :
+                      idx === currentStepIdx ? 'text-primary-700' : 'text-gray-300'}`}>
+                    {step.label}
+                  </p>
                 </div>
-                <p className={`text-[11px] font-semibold whitespace-nowrap
-                  ${idx < currentStepIdx  ? 'text-primary-600' :
-                    idx === currentStepIdx ? 'text-primary-700' : 'text-gray-300'}`}>
-                  {step.label}
-                </p>
-              </div>
-              {idx < statusSteps.length - 1 && (
-                <div className={`flex-1 h-0.5 mx-2 rounded-full transition-all ${idx < currentStepIdx ? 'bg-primary-400' : 'bg-gray-100'}`} />
-              )}
-            </React.Fragment>
-          ))}
+                {idx < stepperStatuses.length - 1 && (
+                  <div className={`flex-1 h-0.5 mx-2 rounded-full transition-all ${idx < currentStepIdx ? 'bg-primary-400' : 'bg-gray-100'}`} />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="overflow-x-auto mb-4">

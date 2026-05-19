@@ -98,6 +98,35 @@ export const updateRoleAPI = (id, data) => API.put(`/roles/${id}`, data);
 export const deleteRoleAPI = (id) => API.delete(`/roles/${id}`);
 export const getModulesAPI = () => API.get('/roles/modules');
 
+// Staff — Employees
+export const getEmployeesAPI = (params) => API.get('/staff/employees', { params });
+export const getEmployeeAPI = (id) => API.get(`/staff/employees/${id}`);
+export const getMyEmployeeAPI = () => API.get('/staff/employees/me');
+export const createEmployeeAPI = (data) => API.post('/staff/employees', data);
+export const updateEmployeeAPI = (id, data) => API.put(`/staff/employees/${id}`, data);
+
+// Staff — Attendance
+export const clockInAPI = () => API.post('/staff/attendance/clock-in');
+export const clockOutAPI = () => API.post('/staff/attendance/clock-out');
+export const getTodayAttendanceAPI = () => API.get('/staff/attendance/today');
+export const getMyAttendanceAPI = (params) => API.get('/staff/attendance/my', { params });
+export const getAllAttendanceAPI = (params) => API.get('/staff/attendance', { params });
+export const addAttendanceAPI = (data) => API.post('/staff/attendance', data);
+export const addMyAttendanceAPI = (data) => API.post('/staff/attendance/my', data);
+export const deleteAttendanceRecordAPI = (id) => API.delete(`/staff/attendance/${id}`);
+
+// Staff — Salary
+export const computeSalaryAPI = (data) => API.post('/staff/salary/compute', data);
+export const getSalaryRecordsAPI = (params) => API.get('/staff/salary', { params });
+export const getMySalaryAPI = () => API.get('/staff/salary/my');
+export const updateSalaryRecordAPI = (id, data) => API.put(`/staff/salary/${id}`, data);
+
+// Staff — Holidays
+export const getHolidaysAPI = (params) => API.get('/staff/holidays', { params });
+export const createHolidayAPI = (data) => API.post('/staff/holidays', data);
+export const updateHolidayAPI = (id, data) => API.put(`/staff/holidays/${id}`, data);
+export const deleteHolidayAPI = (id) => API.delete(`/staff/holidays/${id}`);
+
 export const getNotificationsAPI = () => API.get('/notifications');
 export const markNotificationReadAPI = (id) => API.patch(`/notifications/${id}/read`);
 export const markAllNotificationsReadAPI = () => API.patch('/notifications/read-all');

@@ -136,6 +136,7 @@ model User {
   documentSubmissions        DocumentSubmission[] @relation("SubmissionUploadedBy")
   statusChangedSubmissions   DocumentSubmission[] @relation("SubmissionStatusChangedBy")
   notifications              Notification[]
+  employee                   Employee?
 
   @@map("users")
 }
@@ -304,4 +305,85 @@ model Notification {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
+}
+
+// ─── Staff Salary Module ───────────────────────────────────────────
+
+model Employee {
+  id            String              @id @default(uuid())
+  empNumber     String              @unique @map("emp_number")
+  name          String
+  basicSalary   Float               @map("basic_salary")
+  shiftStart    String              @map("shift_start")
+  shiftEnd      String              @map("shift_end")
+  standardHours Float               @map("standard_hours")
+  userId        String?             @unique @map("user_id")
+  isActive      Boolean             @default(true) @map("is_active")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+  user          User?               @relation(fields: [userId], references: [id])
+  allowances    EmployeeAllowance[]
+  attendance    AttendanceRecord[]
+  salaryRecords SalaryRecord[]
+
+  @@map("employees")
+}
+
+model EmployeeAllowance {
+  id         String   @id @default(uuid())
+  employeeId String   @map("employee_id")
+  name       String
+  amount     Float
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("employee_allowances")
+}
+
+model HolidayMaster {
+  id        String   @id @default(uuid())
+  date      DateTime
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("holiday_master")
+}
+
+model AttendanceRecord {
+  id           String    @id @default(uuid())
+  employeeId   String    @map("employee_id")
+  date         DateTime
+  inTime       DateTime  @map("in_time")
+  outTime      DateTime? @map("out_time")
+  totalMinutes Int?      @map("total_minutes")
+  extraMinutes Int?      @map("extra_minutes")
+  otType       String    @default("none") @map("ot_type")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@map("attendance_records")
+}
+
+model SalaryRecord {
+  id               String   @id @default(uuid())
+  employeeId       String   @map("employee_id")
+  month            DateTime
+  basicSalary      Float    @map("basic_salary")
+  calendarDays     Int      @map("calendar_days")
+  presentDays      Int      @map("present_days")
+  dailyOtMinutes   Int      @default(0) @map("daily_ot_minutes")
+  sundayOtMinutes  Int      @default(0) @map("sunday_ot_minutes")
+  holidayOtMinutes Int      @default(0) @map("holiday_ot_minutes")
+  extraAllowances  Json     @default("[]") @map("extra_allowances")
+  totalAmount      Float    @default(0) @map("total_amount")
+  isFinalized      Boolean  @default(false) @map("is_finalized")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  employee         Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, month])
+  @@map("salary_records")
 }

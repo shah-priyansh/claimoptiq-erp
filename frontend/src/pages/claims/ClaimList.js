@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -11,6 +11,7 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const ClaimList = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { can, user, roleSlug } = useAuth();
   const isSuperAdmin = roleSlug === 'super_admin';
   const isHospitalUser = !!user?.hospital;
@@ -22,8 +23,9 @@ const ClaimList = () => {
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
+  const initStatus = new URLSearchParams(location.search).get('status') || '';
   const [filters, setFilters] = useState({
-    search: '', hospital: '', status: '', claimType: '', month: '', page: 1
+    search: '', hospital: '', status: initStatus, claimType: '', month: '', page: 1
   });
 
   useEffect(() => {

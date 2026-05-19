@@ -32,6 +32,19 @@ const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
 
 const SHOW_REVENUE_SLUGS = ['super_admin', 'hospital_admin'];
 
+const STATUS_CARD_COLOR = {
+  blue:   { bar: 'bg-blue-500',   bg: 'bg-blue-50',   text: 'text-blue-700',   num: 'text-blue-800'   },
+  green:  { bar: 'bg-green-500',  bg: 'bg-green-50',  text: 'text-green-700',  num: 'text-green-800'  },
+  red:    { bar: 'bg-red-500',    bg: 'bg-red-50',    text: 'text-red-700',    num: 'text-red-800'    },
+  yellow: { bar: 'bg-yellow-400', bg: 'bg-yellow-50', text: 'text-yellow-700', num: 'text-yellow-800' },
+  purple: { bar: 'bg-purple-500', bg: 'bg-purple-50', text: 'text-purple-700', num: 'text-purple-800' },
+  orange: { bar: 'bg-orange-500', bg: 'bg-orange-50', text: 'text-orange-700', num: 'text-orange-800' },
+  pink:   { bar: 'bg-pink-500',   bg: 'bg-pink-50',   text: 'text-pink-700',   num: 'text-pink-800'   },
+  indigo: { bar: 'bg-indigo-500', bg: 'bg-indigo-50', text: 'text-indigo-700', num: 'text-indigo-800' },
+  teal:   { bar: 'bg-teal-500',   bg: 'bg-teal-50',   text: 'text-teal-700',   num: 'text-teal-800'   },
+  gray:   { bar: 'bg-gray-400',   bg: 'bg-gray-50',   text: 'text-gray-600',   num: 'text-gray-700'   },
+};
+
 const Dashboard = () => {
   const { roleSlug, canViewModule } = useAuth();
   const navigate = useNavigate();
@@ -158,25 +171,27 @@ const Dashboard = () => {
       )}
 
       {/* Status Breakdown */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Claim Status Breakdown</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {[
-            { label: 'Admitted', value: stats?.admitted || 0, color: 'bg-blue-500' },
-            { label: 'Discharged', value: stats?.discharged || 0, color: 'bg-yellow-500' },
-            { label: 'File Received', value: stats?.fileReceived || 0, color: 'bg-purple-500' },
-            { label: 'Submitted', value: stats?.submitted || 0, color: 'bg-orange-500' },
-            { label: 'Settled', value: stats?.completed || 0, color: 'bg-green-500' },
-            { label: 'Rejected', value: stats?.rejected || 0, color: 'bg-red-500' },
-          ].map((item) => (
-            <div key={item.label} className="text-center">
-              <div className={`w-3 h-3 rounded-full ${item.color} mx-auto mb-2`}></div>
-              <p className="text-xl font-bold text-gray-800">{item.value}</p>
-              <p className="text-xs text-gray-500">{item.label}</p>
-            </div>
-          ))}
+      {stats?.statusBreakdown?.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Claim Status Breakdown</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            {stats.statusBreakdown.map((item) => {
+              const c = STATUS_CARD_COLOR[item.color] || STATUS_CARD_COLOR.gray;
+              return (
+                <button
+                  key={item.slug}
+                  onClick={() => navigate(`/claims?status=${item.slug}`)}
+                  className={`relative overflow-hidden rounded-xl border border-transparent ${c.bg} hover:border-current hover:shadow-sm transition-all text-left p-4 group`}
+                >
+                  <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${c.bar}`} />
+                  <p className={`text-2xl font-bold mb-1 pl-2 ${c.num}`}>{item.count}</p>
+                  <p className={`text-xs font-medium leading-tight pl-2 ${c.text}`}>{item.label}</p>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
