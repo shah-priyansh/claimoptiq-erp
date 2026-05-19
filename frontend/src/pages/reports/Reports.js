@@ -4,13 +4,12 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
 import { formatCurrency } from '../../utils/format';
-import DateInput from '../../components/ui/DateInput';
 
 const Reports = () => {
   const { user } = useAuth();
   const isHospitalUser = !!user?.hospital;
   const [hospitals, setHospitals] = useState([]);
-  const [filters, setFilters] = useState({ hospital: '', month: '', status: '' });
+  const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '' });
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(false);
   const [claimStatuses, setClaimStatuses] = useState([]);
@@ -29,7 +28,8 @@ const Reports = () => {
     try {
       const params = { limit: 10000 };
       if (filters.hospital) params.hospital = filters.hospital;
-      if (filters.month) params.month = filters.month;
+      if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+      if (filters.dateTo) params.dateTo = filters.dateTo;
       if (filters.status) params.status = filters.status;
       const { data } = await getClaimsAPI(params);
       setClaims(data.claims);
@@ -79,7 +79,7 @@ const Reports = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
           {!isHospitalUser && (
             <select value={filters.hospital} onChange={(e) => setFilters({ ...filters, hospital: e.target.value })}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
@@ -87,8 +87,20 @@ const Reports = () => {
               {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
             </select>
           )}
-          <DateInput type="month" value={filters.month}
-            onChange={(e) => setFilters({ ...filters, month: e.target.value })} />
+          <input
+            type="date"
+            value={filters.dateFrom}
+            onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+            placeholder="From Date"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+          <input
+            type="date"
+            value={filters.dateTo}
+            onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+            placeholder="To Date"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
             <option value="">All Status</option>
