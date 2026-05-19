@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -15,6 +15,18 @@ const Reports = () => {
   const [loading, setLoading] = useState(false);
   const [claimStatuses, setClaimStatuses] = useState([]);
   const [billDropdownOpen, setBillDropdownOpen] = useState(false);
+  const billDropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!billDropdownOpen) return;
+    const handler = (e) => {
+      if (billDropdownRef.current && !billDropdownRef.current.contains(e.target)) {
+        setBillDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [billDropdownOpen]);
 
   useEffect(() => {
     if (!isHospitalUser) {
@@ -159,7 +171,7 @@ const Reports = () => {
               <HiOutlineDownload className="w-4 h-4" /> CSV
             </button>
             {isSuperAdmin && (
-              <div className="relative">
+              <div className="relative" ref={billDropdownRef}>
                 <button
                   onClick={() => setBillDropdownOpen(o => !o)}
                   disabled={!claims.length}
@@ -191,7 +203,7 @@ const Reports = () => {
 
       {/* Summary */}
       {claims.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+        <div className={`grid grid-cols-1 gap-4 mb-6 ${isSuperAdmin ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
             <p className="text-2xl font-bold text-gray-800">{claims.length}</p>
             <p className="text-xs text-gray-500">Total Claims</p>
