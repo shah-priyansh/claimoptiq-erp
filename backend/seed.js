@@ -104,6 +104,7 @@ const claimStatuses = [
   { slug: 'submitted',     label: 'Submitted',     color: 'indigo', order: 4, isSystem: true },
   { slug: 'settled',       label: 'Settled',       color: 'green',  order: 5, isSystem: true },
   { slug: 'rejected',      label: 'Rejected',      color: 'red',    order: 6, isSystem: true },
+  { slug: 'billed',        label: 'Billed',        color: 'teal',   order: 7, isSystem: true, superAdminOnly: true },
 ];
 
 const claimDocumentTypes = [
