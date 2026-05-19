@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI } from '../../services/api';
+import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkUpdateStatusAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
 import { formatCurrency } from '../../utils/format';
@@ -10,6 +11,7 @@ import autoTable from 'jspdf-autotable';
 
 const Reports = () => {
   const { user, roleSlug } = useAuth();
+  const confirm = useConfirm();
   const isHospitalUser = !!user?.hospital;
   const isSuperAdmin = roleSlug === 'super_admin';
   const [hospitals, setHospitals] = useState([]);
@@ -18,6 +20,7 @@ const Reports = () => {
   const [loading, setLoading] = useState(false);
   const [claimStatuses, setClaimStatuses] = useState([]);
   const [billDropdownOpen, setBillDropdownOpen] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
   const billDropdownRef = useRef(null);
 
   useEffect(() => {
@@ -84,6 +87,28 @@ const Reports = () => {
     URL.revokeObjectURL(url);
   };
 
+  const confirmAndBill = async (exportFn) => {
+    setBillDropdownOpen(false);
+    const unbilled = claims.filter(c => c.status !== 'billed');
+    const ok = await confirm(
+      `This will mark ${unbilled.length} claim${unbilled.length !== 1 ? 's' : ''} as Billed and export the report. Continue?`,
+      { title: 'Generate Bill', confirmLabel: 'Generate & Mark Billed', variant: 'primary' }
+    );
+    if (!ok) return;
+    setBillingLoading(true);
+    try {
+      const ids = unbilled.map(c => c._id);
+      if (ids.length) await bulkUpdateStatusAPI(ids, 'billed');
+      setClaims(prev => prev.map(c => c.status !== 'billed' ? { ...c, status: 'billed' } : c));
+      toast.success(`${ids.length} claim${ids.length !== 1 ? 's' : ''} marked as Billed`);
+      exportFn();
+    } catch {
+      toast.error('Failed to update claim statuses');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
   const BILL_COLS = ['SR', 'Patient Name', 'Claim Type', 'Insurance', 'TPA', 'Policy No', 'DOA', 'DOD',
     'Hospital Bill', 'Approval Amount', 'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'File Price'];
 
@@ -120,9 +145,7 @@ const Reports = () => {
       sum('tds'), sum('bankTransferAmount'), '', sum('filePrice')];
   };
 
-  const exportBillExcel = () => {
-    if (!claims.length) return;
-    setBillDropdownOpen(false);
+  const doExportBillExcel = () => {
     const groups = buildGroupedData();
     const wb = XLSX.utils.book_new();
     const wsData = [];
@@ -177,9 +200,9 @@ const Reports = () => {
 
   const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(v) : (v || '-');
 
-  const exportBillPDF = () => {
-    if (!claims.length) return;
-    setBillDropdownOpen(false);
+  const exportBillExcel = () => confirmAndBill(doExportBillExcel);
+
+  const doExportBillPDF = () => {
     const groups = buildGroupedData();
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const today = new Date().toLocaleDateString('en-IN');
@@ -240,9 +263,10 @@ const Reports = () => {
     doc.save(`bill_grouped_${dateStr}.pdf`);
   };
 
-  const exportAllExcel = () => {
+  const exportBillPDF = () => confirmAndBill(doExportBillPDF);
+
+  const doExportAllExcel = () => {
     if (!claims.length) return;
-    setBillDropdownOpen(false);
     const wb = XLSX.utils.book_new();
     const headers = ['SR', 'Patient Name', 'Hospital', 'Claim Type', 'Insurance', 'TPA', 'Policy No',
       'DOA', 'DOD', 'Hospital Bill', 'Approval Amount', 'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'File Price'];
@@ -260,9 +284,10 @@ const Reports = () => {
     XLSX.writeFile(wb, `all_claims_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const exportAllPDF = () => {
+  const exportAllExcel = () => confirmAndBill(doExportAllExcel);
+
+  const doExportAllPDF = () => {
     if (!claims.length) return;
-    setBillDropdownOpen(false);
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
@@ -295,6 +320,8 @@ const Reports = () => {
 
     doc.save(`all_claims_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
+
+  const exportAllPDF = () => confirmAndBill(doExportAllPDF);
 
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
 
@@ -352,10 +379,10 @@ const Reports = () => {
               <div className="relative" ref={billDropdownRef}>
                 <button
                   onClick={() => setBillDropdownOpen(o => !o)}
-                  disabled={!claims.length}
+                  disabled={!claims.length || billingLoading}
                   className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 whitespace-nowrap"
                 >
-                  <HiOutlineDownload className="w-4 h-4" /> Generate Bill
+                  <HiOutlineDownload className="w-4 h-4" /> {billingLoading ? 'Updating...' : 'Generate Bill'}
                 </button>
                 {billDropdownOpen && (
                   <div className="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
