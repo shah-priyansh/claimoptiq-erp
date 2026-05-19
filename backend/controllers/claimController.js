@@ -339,16 +339,23 @@ exports.getDashboardStats = async (req, res) => {
     const userHospitalId = getUserHospitalId(req.user);
     const baseWhere = userHospitalId ? { hospitalId: userHospitalId } : {};
 
-    const [total, admitted, discharged, fileReceived, submitted, settled, rejected, approved] = await Promise.all([
+    const [total, approved, statusGroups, allStatuses] = await Promise.all([
       prisma.claim.count({ where: baseWhere }),
-      prisma.claim.count({ where: { ...baseWhere, status: 'admitted' } }),
-      prisma.claim.count({ where: { ...baseWhere, status: 'discharged' } }),
-      prisma.claim.count({ where: { ...baseWhere, status: 'file_received' } }),
-      prisma.claim.count({ where: { ...baseWhere, status: 'submitted' } }),
-      prisma.claim.count({ where: { ...baseWhere, status: 'settled' } }),
-      prisma.claim.count({ where: { ...baseWhere, status: 'rejected' } }),
       prisma.claim.count({ where: { ...baseWhere, finalApprovalAmount: { gt: 0 }, status: { notIn: ['settled', 'rejected'] } } }),
+      prisma.claim.groupBy({ by: ['status'], where: baseWhere, _count: { id: true } }),
+      prisma.claimStatus.findMany({ where: { isActive: true, superAdminOnly: false }, orderBy: { order: 'asc' }, select: { slug: true, label: true, color: true } }),
     ]);
+
+    const countMap = {};
+    statusGroups.forEach(g => { countMap[g.status] = g._count.id; });
+    const statusBreakdown = allStatuses.map(s => ({ slug: s.slug, label: s.label, color: s.color, count: countMap[s.slug] || 0 }));
+
+    const settled  = countMap['settled']  || 0;
+    const rejected = countMap['rejected'] || 0;
+    const admitted = countMap['admitted'] || 0;
+    const discharged   = countMap['discharged']    || 0;
+    const fileReceived = countMap['file_received'] || 0;
+    const submitted    = countMap['submitted']     || 0;
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -378,6 +385,7 @@ exports.getDashboardStats = async (req, res) => {
       discharged,
       fileReceived,
       submitted,
+      statusBreakdown,
       hospitalCount,
       approved,
       isHospitalUser: !!userHospitalId,

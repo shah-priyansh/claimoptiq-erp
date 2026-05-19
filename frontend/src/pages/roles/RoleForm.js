@@ -9,6 +9,7 @@ const MODULE_GROUPS = [
   { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'users', 'roles', 'claim_statuses', 'claim_document_types'] },
   { label: 'Documents',      keys: ['document_submissions'] },
   { label: null,             keys: ['reports'] },
+  { label: 'Staff',          keys: ['staff'] },
 ];
 
 const RoleForm = () => {

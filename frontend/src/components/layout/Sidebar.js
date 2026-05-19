@@ -147,6 +147,12 @@ const Sidebar = ({ isOpen, onClose }) => {
               Reports
             </NavLink>
           )}
+          {canViewModule('staff') && (
+            <NavLink to="/staff" className={linkClass} onClick={onClose}>
+              <HiOutlineUserGroup className="w-5 h-5 flex-shrink-0" />
+              Staff
+            </NavLink>
+          )}
         </nav>
       </aside>
     </>

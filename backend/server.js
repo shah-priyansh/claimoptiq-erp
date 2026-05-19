@@ -31,6 +31,7 @@ app.use('/api/claim-statuses', require('./routes/claimStatusRoutes'));
 app.use('/api/claim-document-types', require('./routes/claimDocumentTypeRoutes'));
 app.use('/api/document-submissions', require('./routes/documentSubmissionRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/staff', require('./routes/staffRoutes'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'ClaimOptiq API is running' });

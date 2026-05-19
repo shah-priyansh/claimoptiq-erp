@@ -24,6 +24,7 @@ import ClaimDocumentTypeMaster from './pages/claimdocumenttypes/ClaimDocumentTyp
 import BillingServiceNameList from './pages/billingservicenames/BillingServiceNameList';
 import DocumentUpload from './pages/documents/DocumentUpload';
 import DocumentInbox from './pages/documents/DocumentInbox';
+import StaffModule from './pages/staff/StaffModule';
 
 function App() {
   return (
@@ -54,6 +55,7 @@ function App() {
             <Route path="/billing-service-names" element={<BillingServiceNameList />} />
             <Route path="/documents/upload" element={<DocumentUpload />} />
             <Route path="/documents/inbox" element={<DocumentInbox />} />
+            <Route path="/staff" element={<StaffModule />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
