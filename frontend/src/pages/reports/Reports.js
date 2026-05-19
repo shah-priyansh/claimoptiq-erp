@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getClaimsAPI, getHospitalsAPI } from '../../services/api';
+import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
@@ -13,11 +13,15 @@ const Reports = () => {
   const [filters, setFilters] = useState({ hospital: '', month: '', status: '' });
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [claimStatuses, setClaimStatuses] = useState([]);
 
   useEffect(() => {
     if (!isHospitalUser) {
       getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
     }
+    getClaimStatusesAPI()
+      .then(({ data }) => setClaimStatuses(data.filter(s => s.isActive !== false)))
+      .catch(() => {});
   }, [isHospitalUser]);
 
   const generateReport = async () => {
@@ -88,11 +92,9 @@ const Reports = () => {
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
             <option value="">All Status</option>
-            <option value="admitted">Admitted</option>
-            <option value="discharged">Discharged</option>
-            <option value="submitted">Submitted</option>
-            <option value="settled">Settled</option>
-            <option value="rejected">Rejected</option>
+            {claimStatuses.map(s => (
+              <option key={s.id} value={s.slug}>{s.label}</option>
+            ))}
           </select>
           <div className="flex gap-2">
             <button onClick={generateReport} disabled={loading}
