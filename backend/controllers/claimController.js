@@ -148,8 +148,10 @@ exports.getClaims = async (req, res) => {
       prisma.claim.count({ where }),
     ]);
 
+    const isSuperAdmin = req.user?.role?.slug === 'super_admin';
+    const claimsData = toResponse(claims);
     res.json({
-      claims: toResponse(claims),
+      claims: isSuperAdmin ? claimsData : claimsData.map(({ filePrice, ...rest }) => rest),
       total,
       page: parseInt(page),
       pages: Math.ceil(total / parseInt(limit)),
