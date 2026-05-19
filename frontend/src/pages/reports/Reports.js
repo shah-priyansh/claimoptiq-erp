@@ -6,7 +6,7 @@ import { HiOutlineDownload } from 'react-icons/hi';
 import { formatCurrency } from '../../utils/format';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 const Reports = () => {
   const { user, roleSlug } = useAuth();
@@ -175,12 +175,15 @@ const Reports = () => {
     XLSX.writeFile(wb, `bill_grouped_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(v) : (v || '-');
+
   const exportBillPDF = () => {
     if (!claims.length) return;
     setBillDropdownOpen(false);
     const groups = buildGroupedData();
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const today = new Date().toLocaleDateString('en-IN');
+    const dateStr = new Date().toISOString().slice(0, 10);
 
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
@@ -191,39 +194,30 @@ const Reports = () => {
 
     let startY = 28;
 
-    groups.forEach(([hospitalName, groupClaims], gi) => {
-      // Hospital header band
-      doc.autoTable({
+    groups.forEach(([hospitalName, groupClaims]) => {
+      autoTable(doc, {
         startY,
         body: [[hospitalName]],
         theme: 'plain',
-        styles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 10, cellPadding: 3 },
-        columnStyles: { 0: { cellWidth: 'auto' } },
+        styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 3 },
         margin: { left: 14, right: 14 },
-        didDrawPage: (data) => { if (gi === 0) startY = data.cursor.y; },
       });
       startY = doc.lastAutoTable.finalY;
 
-      // Claims table
-      doc.autoTable({
+      const bodyRows = [
+        ...groupClaims.map(c => claimRow(c).map((v, i) => (i >= 8 && i <= 12) || i === 14 ? fmtAmt(v) : (v ?? ''))),
+        subtotalRow(groupClaims).map((v, i) => (i >= 8 && i <= 12) || i === 14 ? fmtAmt(v) : (v || '')),
+      ];
+
+      autoTable(doc, {
         startY,
         head: [BILL_COLS],
-        body: [
-          ...groupClaims.map(c => claimRow(c).map((v, i) => {
-            if (i >= 8 && i <= 12 || i === 14) return v > 0 ? formatCurrency(v) : '-';
-            return v ?? '';
-          })),
-          subtotalRow(groupClaims).map((v, i) => {
-            if (i >= 8 && i <= 12 || i === 14) return typeof v === 'number' && v > 0 ? formatCurrency(v) : (v || '');
-            return v || '';
-          }),
-        ],
+        body: bodyRows,
         theme: 'grid',
         headStyles: { fillColor: [243, 244, 246], textColor: [55, 65, 81], fontStyle: 'bold', fontSize: 7 },
         bodyStyles: { fontSize: 7, textColor: [31, 41, 55] },
         didParseCell: (data) => {
-          const isSubtotal = data.row.index === groupClaims.length;
-          if (isSubtotal) {
+          if (data.section === 'body' && data.row.index === groupClaims.length) {
             data.cell.styles.fillColor = [254, 249, 195];
             data.cell.styles.fontStyle = 'bold';
           }
@@ -233,20 +227,73 @@ const Reports = () => {
       startY = doc.lastAutoTable.finalY + 4;
     });
 
-    // Grand total
-    doc.autoTable({
+    autoTable(doc, {
       startY,
-      body: [grandTotalRow().map((v, i) => {
-        if (i >= 8 && i <= 12 || i === 14) return typeof v === 'number' && v > 0 ? formatCurrency(v) : (v || '');
-        return v || '';
-      })],
-      columns: BILL_COLS.map(h => ({ header: h })),
+      head: [BILL_COLS],
+      body: [grandTotalRow().map((v, i) => (i >= 8 && i <= 12) || i === 14 ? fmtAmt(v) : (v || ''))],
       theme: 'plain',
+      headStyles: { fillColor: [220, 252, 231], textColor: [21, 128, 61], fontStyle: 'bold', fontSize: 7 },
       bodyStyles: { fillColor: [220, 252, 231], fontStyle: 'bold', fontSize: 7 },
       margin: { left: 14, right: 14 },
     });
 
-    doc.save(`bill_grouped_${new Date().toISOString().slice(0, 10)}.pdf`);
+    doc.save(`bill_grouped_${dateStr}.pdf`);
+  };
+
+  const exportAllExcel = () => {
+    if (!claims.length) return;
+    setBillDropdownOpen(false);
+    const wb = XLSX.utils.book_new();
+    const headers = ['SR', 'Patient Name', 'Hospital', 'Claim Type', 'Insurance', 'TPA', 'Policy No',
+      'DOA', 'DOD', 'Hospital Bill', 'Approval Amount', 'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'File Price'];
+    const rows = claims.map(c => [
+      c.srNo, c.patientName, c.hospital?.name || '', c.claimType,
+      c.insuranceCompany?.name || '', c.tpa?.name || '', c.policyNo,
+      c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
+      c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
+      c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.settlementAmount || 0,
+      c.tds || 0, c.bankTransferAmount || 0, c.status, c.filePrice || 0,
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = headers.map((_, i) => ({ wch: i === 1 || i === 2 ? 20 : 14 }));
+    XLSX.utils.book_append_sheet(wb, ws, 'All Claims');
+    XLSX.writeFile(wb, `all_claims_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const exportAllPDF = () => {
+    if (!claims.length) return;
+    setBillDropdownOpen(false);
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('All Claims Report — ClaimOptiq', 14, 15);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, 14, 21);
+
+    const headers = ['SR', 'Patient', 'Hospital', 'Type', 'Insurance', 'TPA', 'Policy No',
+      'DOA', 'DOD', 'Hosp Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', 'File Price'];
+    const rows = claims.map(c => [
+      c.srNo, c.patientName, c.hospital?.name || '', c.claimType,
+      c.insuranceCompany?.name || '', c.tpa?.name || '', c.policyNo,
+      c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
+      c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
+      fmtAmt(c.hospitalFinalBill), fmtAmt(c.finalApprovalAmount), fmtAmt(c.settlementAmount),
+      fmtAmt(c.tds), fmtAmt(c.bankTransferAmount), c.status, fmtAmt(c.filePrice),
+    ]);
+
+    autoTable(doc, {
+      startY: 26,
+      head: [headers],
+      body: rows,
+      theme: 'grid',
+      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+      bodyStyles: { fontSize: 7, textColor: [31, 41, 55] },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
+      margin: { left: 14, right: 14 },
+    });
+
+    doc.save(`all_claims_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
@@ -311,18 +358,21 @@ const Reports = () => {
                   <HiOutlineDownload className="w-4 h-4" /> Generate Bill
                 </button>
                 {billDropdownOpen && (
-                  <div className="absolute right-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                    <button
-                      onClick={exportBillExcel}
-                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center gap-2"
-                    >
-                      <span className="text-green-600 font-bold text-xs">XLS</span> Export Excel (.xlsx)
+                  <div className="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                    <p className="px-4 pt-2.5 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">Group by Hospital</p>
+                    <button onClick={exportBillExcel} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <span className="text-green-600 font-bold text-xs w-8">XLS</span> Export Excel
                     </button>
-                    <button
-                      onClick={exportBillPDF}
-                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg border-t border-gray-100 flex items-center gap-2"
-                    >
-                      <span className="text-red-600 font-bold text-xs">PDF</span> Export PDF
+                    <button onClick={exportBillPDF} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <span className="text-red-600 font-bold text-xs w-8">PDF</span> Export PDF
+                    </button>
+                    <div className="border-t border-gray-100 mt-1" />
+                    <p className="px-4 pt-2.5 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">All Claims Report</p>
+                    <button onClick={exportAllExcel} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <span className="text-green-600 font-bold text-xs w-8">XLS</span> Export Excel
+                    </button>
+                    <button onClick={exportAllPDF} className="w-full text-left px-4 py-2 pb-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2">
+                      <span className="text-red-600 font-bold text-xs w-8">PDF</span> Export PDF
                     </button>
                   </div>
                 )}
