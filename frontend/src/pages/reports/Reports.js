@@ -252,11 +252,9 @@ const Reports = () => {
 
     autoTable(doc, {
       startY,
-      head: [BILL_COLS],
       body: [grandTotalRow().map((v, i) => (i >= 8 && i <= 12) || i === 14 ? fmtAmt(v) : (v || ''))],
       theme: 'plain',
-      headStyles: { fillColor: [220, 252, 231], textColor: [21, 128, 61], fontStyle: 'bold', fontSize: 7 },
-      bodyStyles: { fillColor: [220, 252, 231], fontStyle: 'bold', fontSize: 7 },
+      bodyStyles: { fillColor: [220, 252, 231], fontStyle: 'bold', fontSize: 7, textColor: [21, 128, 61] },
       margin: { left: 14, right: 14 },
     });
 
