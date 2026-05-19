@@ -4,6 +4,9 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
 import { formatCurrency } from '../../utils/format';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const Reports = () => {
   const { user, roleSlug } = useAuth();
@@ -81,41 +84,169 @@ const Reports = () => {
     URL.revokeObjectURL(url);
   };
 
-  const exportBillGrouped = () => {
-    if (!claims.length) return;
-    setBillDropdownOpen(false);
+  const BILL_COLS = ['SR', 'Patient Name', 'Claim Type', 'Insurance', 'TPA', 'Policy No', 'DOA', 'DOD',
+    'Hospital Bill', 'Approval Amount', 'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'File Price'];
+
+  const buildGroupedData = () => {
     const grouped = {};
     claims.forEach(c => {
       const name = c.hospital?.name || 'Unknown';
-      if (!grouped[name]) {
-        grouped[name] = { count: 0, totalBill: 0, totalApproval: 0, totalSettlement: 0, totalBank: 0, totalFilePrice: 0 };
-      }
-      grouped[name].count += 1;
-      grouped[name].totalBill += c.hospitalFinalBill || 0;
-      grouped[name].totalApproval += c.finalApprovalAmount || 0;
-      grouped[name].totalSettlement += c.settlementAmount || 0;
-      grouped[name].totalBank += c.bankTransferAmount || 0;
-      grouped[name].totalFilePrice += c.filePrice || 0;
+      if (!grouped[name]) grouped[name] = [];
+      grouped[name].push(c);
     });
-
-    const headers = ['Hospital', 'No. of Claims', 'Total Hospital Bill', 'Total Approval Amount', 'Total Settlement', 'Total Bank Transfer', 'Total File Price'];
-    const rows = Object.entries(grouped)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([name, g]) => [name, g.count, g.totalBill, g.totalApproval, g.totalSettlement, g.totalBank, g.totalFilePrice]);
-
-    const csvContent = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bill_grouped_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
   };
 
-  const exportBillAll = () => {
+  const claimRow = (c) => [
+    c.srNo, c.patientName, c.claimType,
+    c.insuranceCompany?.name || '', c.tpa?.name || '', c.policyNo,
+    c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
+    c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
+    c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.settlementAmount || 0,
+    c.tds || 0, c.bankTransferAmount || 0, c.status, c.filePrice || 0,
+  ];
+
+  const subtotalRow = (groupClaims) => {
+    const sum = (key) => groupClaims.reduce((s, c) => s + (c[key] || 0), 0);
+    return ['', 'Subtotal', '', '', '', '', '', '',
+      sum('hospitalFinalBill'), sum('finalApprovalAmount'), sum('settlementAmount'),
+      sum('tds'), sum('bankTransferAmount'), '', sum('filePrice')];
+  };
+
+  const grandTotalRow = () => {
+    const sum = (key) => claims.reduce((s, c) => s + (c[key] || 0), 0);
+    return ['', 'Grand Total', '', '', '', '', '', '',
+      sum('hospitalFinalBill'), sum('finalApprovalAmount'), sum('settlementAmount'),
+      sum('tds'), sum('bankTransferAmount'), '', sum('filePrice')];
+  };
+
+  const exportBillExcel = () => {
+    if (!claims.length) return;
     setBillDropdownOpen(false);
-    exportCSV();
+    const groups = buildGroupedData();
+    const wb = XLSX.utils.book_new();
+    const wsData = [];
+    const merges = [];
+    const rowStyles = []; // track row index → style type
+
+    const numCols = BILL_COLS.length;
+
+    groups.forEach(([hospitalName, groupClaims]) => {
+      // Hospital header row
+      const headerRowIdx = wsData.length;
+      wsData.push([hospitalName, ...Array(numCols - 1).fill('')]);
+      merges.push({ s: { r: headerRowIdx, c: 0 }, e: { r: headerRowIdx, c: numCols - 1 } });
+      rowStyles.push({ idx: headerRowIdx, type: 'hospital' });
+
+      // Column headers
+      const colHeaderIdx = wsData.length;
+      wsData.push(BILL_COLS);
+      rowStyles.push({ idx: colHeaderIdx, type: 'colHeader' });
+
+      // Claim rows
+      groupClaims.forEach(c => {
+        wsData.push(claimRow(c));
+      });
+
+      // Subtotal
+      const subtotalIdx = wsData.length;
+      wsData.push(subtotalRow(groupClaims));
+      rowStyles.push({ idx: subtotalIdx, type: 'subtotal' });
+
+      wsData.push([]); // spacer
+    });
+
+    // Grand total
+    const grandIdx = wsData.length;
+    wsData.push(grandTotalRow());
+    rowStyles.push({ idx: grandIdx, type: 'grandTotal' });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!merges'] = merges;
+
+    // Column widths
+    ws['!cols'] = [
+      { wch: 6 }, { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 14 }, { wch: 14 },
+      { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 16 },
+      { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Bill Report');
+    XLSX.writeFile(wb, `bill_grouped_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const exportBillPDF = () => {
+    if (!claims.length) return;
+    setBillDropdownOpen(false);
+    const groups = buildGroupedData();
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const today = new Date().toLocaleDateString('en-IN');
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Bill Report — ClaimOptiq', 14, 15);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Generated: ${today}`, 14, 21);
+
+    let startY = 28;
+
+    groups.forEach(([hospitalName, groupClaims], gi) => {
+      // Hospital header band
+      doc.autoTable({
+        startY,
+        body: [[hospitalName]],
+        theme: 'plain',
+        styles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 10, cellPadding: 3 },
+        columnStyles: { 0: { cellWidth: 'auto' } },
+        margin: { left: 14, right: 14 },
+        didDrawPage: (data) => { if (gi === 0) startY = data.cursor.y; },
+      });
+      startY = doc.lastAutoTable.finalY;
+
+      // Claims table
+      doc.autoTable({
+        startY,
+        head: [BILL_COLS],
+        body: [
+          ...groupClaims.map(c => claimRow(c).map((v, i) => {
+            if (i >= 8 && i <= 12 || i === 14) return v > 0 ? formatCurrency(v) : '-';
+            return v ?? '';
+          })),
+          subtotalRow(groupClaims).map((v, i) => {
+            if (i >= 8 && i <= 12 || i === 14) return typeof v === 'number' && v > 0 ? formatCurrency(v) : (v || '');
+            return v || '';
+          }),
+        ],
+        theme: 'grid',
+        headStyles: { fillColor: [243, 244, 246], textColor: [55, 65, 81], fontStyle: 'bold', fontSize: 7 },
+        bodyStyles: { fontSize: 7, textColor: [31, 41, 55] },
+        didParseCell: (data) => {
+          const isSubtotal = data.row.index === groupClaims.length;
+          if (isSubtotal) {
+            data.cell.styles.fillColor = [254, 249, 195];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
+        margin: { left: 14, right: 14 },
+      });
+      startY = doc.lastAutoTable.finalY + 4;
+    });
+
+    // Grand total
+    doc.autoTable({
+      startY,
+      body: [grandTotalRow().map((v, i) => {
+        if (i >= 8 && i <= 12 || i === 14) return typeof v === 'number' && v > 0 ? formatCurrency(v) : (v || '');
+        return v || '';
+      })],
+      columns: BILL_COLS.map(h => ({ header: h })),
+      theme: 'plain',
+      bodyStyles: { fillColor: [220, 252, 231], fontStyle: 'bold', fontSize: 7 },
+      margin: { left: 14, right: 14 },
+    });
+
+    doc.save(`bill_grouped_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
@@ -182,16 +313,16 @@ const Reports = () => {
                 {billDropdownOpen && (
                   <div className="absolute right-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
                     <button
-                      onClick={exportBillGrouped}
-                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg"
+                      onClick={exportBillExcel}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center gap-2"
                     >
-                      Group by Hospital
+                      <span className="text-green-600 font-bold text-xs">XLS</span> Export Excel (.xlsx)
                     </button>
                     <button
-                      onClick={exportBillAll}
-                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg border-t border-gray-100"
+                      onClick={exportBillPDF}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg border-t border-gray-100 flex items-center gap-2"
                     >
-                      All Claims Report
+                      <span className="text-red-600 font-bold text-xs">PDF</span> Export PDF
                     </button>
                   </div>
                 )}
