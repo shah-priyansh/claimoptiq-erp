@@ -127,6 +127,10 @@ export const createHolidayAPI = (data) => API.post('/staff/holidays', data);
 export const updateHolidayAPI = (id, data) => API.put(`/staff/holidays/${id}`, data);
 export const deleteHolidayAPI = (id) => API.delete(`/staff/holidays/${id}`);
 
+// Staff — OT Settings
+export const getOtSettingsAPI = () => API.get('/staff/ot-settings');
+export const updateOtSettingsAPI = (data) => API.put('/staff/ot-settings', data);
+
 export const getNotificationsAPI = () => API.get('/notifications');
 export const markNotificationReadAPI = (id) => API.patch(`/notifications/${id}/read`);
 export const markAllNotificationsReadAPI = () => API.patch('/notifications/read-all');

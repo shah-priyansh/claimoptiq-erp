@@ -176,7 +176,7 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn }) => {
               <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase w-36">In Time</th>
               <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase w-36">Out Time</th>
               <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Duty Hours</th>
-              <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">Extra Hours</th>
+              <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">OT / Short Hrs</th>
               <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase">OT</th>
               <th className="py-2.5 px-3 w-8" />
             </tr>
@@ -235,9 +235,13 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn }) => {
                     {row.totalMinutes ? fmtMinutes(row.totalMinutes) : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="py-1.5 px-4 text-xs font-medium">
-                    {row.extraMinutes > 0
-                      ? <span className="text-green-600">{fmtMinutes(row.extraMinutes)}</span>
-                      : <span className="text-gray-300">—</span>}
+                    {row.extraMinutes > 0 ? (
+                      <span className="text-green-600">+{fmtMinutes(row.extraMinutes)}</span>
+                    ) : row.totalMinutes != null && row.totalMinutes < Math.round(employee.standardHours * 60) ? (
+                      <span className="text-red-500">-{fmtMinutes(Math.round(employee.standardHours * 60) - row.totalMinutes)}</span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="py-1.5 px-4">
                     {badge
@@ -490,7 +494,7 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
-              {['#', 'Date', 'Day', 'In Time', 'Out Time', 'Duty Hours', 'Extra Hours', 'OT'].map(h => (
+              {['#', 'Date', 'Day', 'In Time', 'Out Time', 'Duty Hours', 'OT / Short Hrs', 'OT'].map(h => (
                 <th key={h} className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -513,10 +517,14 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
                   <td className="py-2 px-4 text-gray-700 text-xs">{row.rec ? fmtTime(row.rec.inTime) : <span className="text-gray-300">—</span>}</td>
                   <td className="py-2 px-4 text-gray-700 text-xs">{row.rec?.outTime ? fmtTime(row.rec.outTime) : <span className="text-gray-300">—</span>}</td>
                   <td className="py-2 px-4 text-xs text-gray-600">{row.rec?.totalMinutes ? fmtMinutes(row.rec.totalMinutes) : <span className="text-gray-300">—</span>}</td>
-                  <td className="py-2 px-4 text-xs">
-                    {row.rec?.extraMinutes > 0
-                      ? <span className="text-green-600 font-medium">{fmtMinutes(row.rec.extraMinutes)}</span>
-                      : <span className="text-gray-300">—</span>}
+                  <td className="py-2 px-4 text-xs font-medium">
+                    {row.rec?.extraMinutes > 0 ? (
+                      <span className="text-green-600">+{fmtMinutes(row.rec.extraMinutes)}</span>
+                    ) : row.rec?.totalMinutes != null && row.rec.totalMinutes < Math.round(employee.standardHours * 60) ? (
+                      <span className="text-red-500">-{fmtMinutes(Math.round(employee.standardHours * 60) - row.rec.totalMinutes)}</span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="py-2 px-4">
                     {badge

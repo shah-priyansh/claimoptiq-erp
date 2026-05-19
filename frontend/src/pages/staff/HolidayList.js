@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getHolidaysAPI, createHolidayAPI, updateHolidayAPI, deleteHolidayAPI } from '../../services/api';
+import { getHolidaysAPI, createHolidayAPI, updateHolidayAPI, deleteHolidayAPI, getOtSettingsAPI, updateOtSettingsAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineX, HiChevronDown } from 'react-icons/hi';
@@ -70,6 +70,94 @@ const HolidayForm = ({ holiday, onSave, onClose }) => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+const OtSettingsCard = ({ canEdit }) => {
+  const [settings, setSettings] = useState(null);
+  const [form, setForm] = useState({ dailyMultiplier: '', sundayMultiplier: '', holidayMultiplier: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getOtSettingsAPI()
+      .then(({ data }) => {
+        setSettings(data);
+        setForm({
+          dailyMultiplier: data.dailyMultiplier,
+          sundayMultiplier: data.sundayMultiplier,
+          holidayMultiplier: data.holidayMultiplier,
+        });
+      })
+      .catch(() => toast.error('Failed to load OT settings'));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { data } = await updateOtSettingsAPI(form);
+      setSettings(data);
+      toast.success('OT settings saved');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save');
+    } finally { setSaving(false); }
+  };
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const rows = [
+    { key: 'dailyMultiplier',   label: 'Daily OT',   hint: 'Extra hours on regular weekdays' },
+    { key: 'sundayMultiplier',  label: 'Sunday OT',  hint: 'All hours worked on Sundays' },
+    { key: 'holidayMultiplier', label: 'Holiday OT', hint: 'All hours worked on holidays' },
+  ];
+
+  return (
+    <div className="max-w-2xl mt-8">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+          <div>
+            <p className="text-sm font-semibold text-gray-700">OT Rate Settings</p>
+            <p className="text-xs text-gray-400 mt-0.5">Multipliers applied on hourly rate for overtime</p>
+          </div>
+          {canEdit && (
+            <button
+              onClick={handleSave}
+              disabled={saving || !settings}
+              className="px-4 py-1.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          )}
+        </div>
+
+        <div className="divide-y divide-gray-100">
+          {rows.map(({ key, label, hint }) => (
+            <div key={key} className="flex items-center justify-between px-4 py-3 gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-800">{label}</p>
+                <p className="text-xs text-gray-400">{hint}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-sm text-gray-500">×</span>
+                {canEdit ? (
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.1"
+                    value={form[key]}
+                    onChange={e => set(key, e.target.value)}
+                    className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-right font-semibold text-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  />
+                ) : (
+                  <span className="w-20 px-2 py-1.5 text-right text-sm font-semibold text-gray-900">
+                    {settings ? settings[key] : '—'}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -166,6 +254,8 @@ const HolidayList = ({ canEdit }) => {
           onClose={() => setShowForm(false)}
         />
       )}
+
+      <OtSettingsCard canEdit={canEdit} />
     </div>
   );
 };
