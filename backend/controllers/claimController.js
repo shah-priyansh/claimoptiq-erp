@@ -95,7 +95,7 @@ exports.createClaim = async (req, res) => {
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, page = 1, limit = 25 } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);

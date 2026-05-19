@@ -4,7 +4,9 @@ import { getHospitalsAPI, deleteHospitalAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding, HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi';
+
+const PAGE_SIZE = 25;
 
 const HospitalList = () => {
   const navigate = useNavigate();
@@ -13,19 +15,30 @@ const HospitalList = () => {
   const [hospitals, setHospitals] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const fetchHospitals = useCallback(async () => {
+    setLoading(true);
     try {
-      const { data } = await getHospitalsAPI({ search, active: 'true' });
-      setHospitals(data);
+      const { data } = await getHospitalsAPI({ search, active: 'true', page, limit: PAGE_SIZE });
+      setHospitals(data.hospitals);
+      setTotal(data.total);
+      setPages(data.pages);
     } catch (error) {
       toast.error('Failed to fetch hospitals');
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, page]);
 
   useEffect(() => { fetchHospitals(); }, [fetchHospitals]);
+
+  const handleSearchChange = (val) => {
+    setSearch(val);
+    setPage(1);
+  };
 
   const handleDelete = async (id, name) => {
     if (!await confirm(`Deactivate hospital "${name}"?`, { title: 'Deactivate Hospital', confirmLabel: 'Deactivate', variant: 'danger' })) return;
@@ -43,7 +56,7 @@ const HospitalList = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Hospitals</h1>
-          <p className="text-sm text-gray-500 mt-1">{hospitals.length} hospitals registered</p>
+          <p className="text-sm text-gray-500 mt-1">{total} hospitals registered</p>
         </div>
         {can('hospitals', 'create') && (
           <button
@@ -63,7 +76,7 @@ const HospitalList = () => {
             type="text"
             placeholder="Search hospitals..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
         </div>
@@ -158,7 +171,7 @@ const HospitalList = () => {
               ) : (
                 hospitals.map((h, idx) => (
                   <tr key={h._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/hospitals/${h._id}`)}>
-                    <td className="py-3 px-4 text-sm text-gray-500">{idx + 1}</td>
+                    <td className="py-3 px-4 text-sm text-gray-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
                     <td className="py-3 px-4 text-sm font-medium text-gray-800">{h.name}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.phone || h.contact || '-'}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.city || '-'}</td>
@@ -190,6 +203,25 @@ const HospitalList = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {pages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
+            <p className="text-sm text-gray-500">
+              Page {page} of {pages} ({total} hospitals)
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setPage(p => p - 1)} disabled={page <= 1}
+                className="p-2.5 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50">
+                <HiOutlineChevronLeft className="w-4 h-4" />
+              </button>
+              <button onClick={() => setPage(p => p + 1)} disabled={page >= pages}
+                className="p-2.5 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50">
+                <HiOutlineChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

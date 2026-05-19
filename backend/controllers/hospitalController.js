@@ -10,6 +10,11 @@ const hospitalInclude = {
   doctors: true,
 };
 
+const hospitalListInclude = {
+  billingServices: { select: { id: true } },
+  doctors: { select: { id: true } },
+};
+
 const validateHospitalFields = (body) => {
   if (body.phone && !isValidPhone(body.phone)) return 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
   if (body.email && !isValidEmail(body.email)) return 'Enter a valid email address';
@@ -94,13 +99,32 @@ exports.createHospital = async (req, res) => {
 
 exports.getHospitals = async (req, res) => {
   try {
-    const { search, active } = req.query;
+    const { search, active, page, limit = 25 } = req.query;
     const where = {};
 
     if (active !== undefined) where.isActive = active === 'true';
     if (search) where.name = { contains: search, mode: 'insensitive' };
     if (req.user.hospital) {
       where.id = req.user.hospital.id || req.user.hospital;
+    }
+
+    if (page !== undefined) {
+      const skip = (Number(page) - 1) * Number(limit);
+      const [hospitals, total] = await Promise.all([
+        prisma.hospital.findMany({
+          where,
+          include: hospitalListInclude,
+          orderBy: { name: 'asc' },
+          skip,
+          take: Number(limit),
+        }),
+        prisma.hospital.count({ where }),
+      ]);
+      return res.json({
+        hospitals: toResponse(hospitals),
+        total,
+        pages: Math.ceil(total / Number(limit)),
+      });
     }
 
     const hospitals = await prisma.hospital.findMany({
