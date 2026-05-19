@@ -15,11 +15,11 @@ router.route('/')
   .get(checkPermission('claims', 'view'), getClaims)
   .post(checkPermission('claims', 'create'), createClaim);
 
+router.put('/bulk-status', checkPermission('claims', 'edit'), bulkUpdateStatus);
+
 router.route('/:id')
   .get(checkPermission('claims', 'view'), getClaim)
   .put(checkPermission('claims', 'edit'), updateClaim);
-
-router.put('/bulk-status', checkPermission('claims', 'edit'), bulkUpdateStatus);
 router.post('/:id/documents', checkPermission('claims', 'view'), upload.array('files', 10), uploadDocuments);
 router.delete('/:id/documents/:docId', checkPermission('claims', 'delete'), deleteDocument);
 
