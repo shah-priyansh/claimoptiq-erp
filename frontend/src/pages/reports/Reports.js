@@ -6,8 +6,9 @@ import { HiOutlineDownload } from 'react-icons/hi';
 import { formatCurrency } from '../../utils/format';
 
 const Reports = () => {
-  const { user } = useAuth();
+  const { user, roleSlug } = useAuth();
   const isHospitalUser = !!user?.hospital;
+  const isSuperAdmin = roleSlug === 'super_admin';
   const [hospitals, setHospitals] = useState([]);
   const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '' });
   const [claims, setClaims] = useState([]);
@@ -44,7 +45,8 @@ const Reports = () => {
     if (!claims.length) return;
     const headers = ['SR', 'Month', 'Patient Name', 'Hospital', 'Claim Type', 'Insurance', 'TPA',
       'Policy No', 'DOA', 'DOD', 'Hospital Bill', 'Deduction', 'Final Approval',
-      'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'File Price'];
+      'Settlement Amount', 'TDS', 'Bank Transfer', 'Status',
+      ...(isSuperAdmin ? ['File Price'] : [])];
     const rows = claims.map(c => [
       c.srNo, c.month ? new Date(c.month).toLocaleDateString('en-IN') : '',
       c.patientName, c.hospital?.name || '', c.claimType,
@@ -52,7 +54,8 @@ const Reports = () => {
       c.policyNo, c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
       c.hospitalFinalBill, c.deduction, c.finalApprovalAmount,
-      c.settlementAmount, c.tds, c.bankTransferAmount, c.status, c.filePrice
+      c.settlementAmount, c.tds, c.bankTransferAmount, c.status,
+      ...(isSuperAdmin ? [c.filePrice] : [])
     ]);
 
     const csvContent = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
@@ -136,10 +139,12 @@ const Reports = () => {
             <p className="text-2xl font-bold text-gray-800">{formatAmount(totalSettlement)}</p>
             <p className="text-xs text-gray-500">Total Bank Transfers</p>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <p className="text-2xl font-bold text-green-600">{formatAmount(totalFilePrice)}</p>
-            <p className="text-xs text-gray-500">Total Revenue (File Price)</p>
-          </div>
+          {isSuperAdmin && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+              <p className="text-2xl font-bold text-green-600">{formatAmount(totalFilePrice)}</p>
+              <p className="text-xs text-gray-500">Total Revenue (File Price)</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -149,14 +154,14 @@ const Reports = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', 'File Price'].map(h => (
+                {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', ...(isSuperAdmin ? ['File Price'] : [])].map(h => (
                   <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {claims.length === 0 ? (
-                <tr><td colSpan={isHospitalUser ? 10 : 11} className="py-8 text-center text-gray-400">
+                <tr><td colSpan={isHospitalUser ? (isSuperAdmin ? 10 : 9) : (isSuperAdmin ? 11 : 10)} className="py-8 text-center text-gray-400">
                   {loading ? 'Loading...' : 'Click "Generate" to view report'}
                 </td></tr>
               ) : claims.map(c => (
@@ -171,7 +176,7 @@ const Reports = () => {
                   <td className="py-2 px-3">{formatAmount(c.tds)}</td>
                   <td className="py-2 px-3">{formatAmount(c.bankTransferAmount)}</td>
                   <td className="py-2 px-3 capitalize">{c.status.replace('_', ' ')}</td>
-                  <td className="py-2 px-3">{formatAmount(c.filePrice)}</td>
+                  {isSuperAdmin && <td className="py-2 px-3">{formatAmount(c.filePrice)}</td>}
                 </tr>
               ))}
             </tbody>
