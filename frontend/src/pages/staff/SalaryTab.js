@@ -194,13 +194,39 @@ const AdminSalaryView = ({ canEdit }) => {
     const wb = XLSX.utils.book_new();
     const headers = ['EMP No', 'Name', 'Basic Salary', 'Calendar Days', 'Present Days', 'Earned Basic',
       'Fixed Allow', 'Extra Allow', 'Daily OT Min', 'Sunday OT Min', 'Holiday OT Min', 'OT Amount', 'Total Salary', 'Status'];
+
+    const r2 = (v) => Math.round(v * 100) / 100;
     const rows = records.map(r => {
       const bd = computeBreakdown(r);
-      return [r.employee.empNumber, r.employee.name, r.basicSalary, r.calendarDays, r.presentDays,
-        bd.earnedBasic, bd.fixedAllow, bd.extraAllow, r.dailyOtMinutes, r.sundayOtMinutes, r.holidayOtMinutes,
-        bd.totalOt, r.totalAmount, r.isFinalized ? 'Finalized' : 'Draft'];
+      return [r.employee.empNumber, r.employee.name, r2(r.basicSalary), r.calendarDays, r.presentDays,
+        r2(bd.earnedBasic), r2(bd.fixedAllow), r2(bd.extraAllow), r.dailyOtMinutes, r.sundayOtMinutes, r.holidayOtMinutes,
+        r2(bd.totalOt), r2(r.totalAmount), r.isFinalized ? 'Finalized' : 'Draft'];
     });
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+    // Totals row — sum numeric columns, blank for non-numeric
+    const tot = records.reduce((acc, r) => {
+      const bd = computeBreakdown(r);
+      acc.earnedBasic   += bd.earnedBasic;
+      acc.fixedAllow    += bd.fixedAllow;
+      acc.extraAllow    += bd.extraAllow;
+      acc.dailyOtMin    += r.dailyOtMinutes;
+      acc.sundayOtMin   += r.sundayOtMinutes;
+      acc.holidayOtMin  += r.holidayOtMinutes;
+      acc.totalOt       += bd.totalOt;
+      acc.totalAmount   += r.totalAmount;
+      return acc;
+    }, { earnedBasic: 0, fixedAllow: 0, extraAllow: 0, dailyOtMin: 0, sundayOtMin: 0, holidayOtMin: 0, totalOt: 0, totalAmount: 0 });
+
+    const totalsRow = ['', 'TOTAL', '', '', '',
+      Math.round(tot.earnedBasic * 100) / 100,
+      Math.round(tot.fixedAllow * 100) / 100,
+      Math.round(tot.extraAllow * 100) / 100,
+      tot.dailyOtMin, tot.sundayOtMin, tot.holidayOtMin,
+      Math.round(tot.totalOt * 100) / 100,
+      Math.round(tot.totalAmount * 100) / 100,
+      ''];
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows, [], totalsRow]);
     ws['!cols'] = headers.map((_, i) => ({ wch: i < 2 ? 18 : 14 }));
     XLSX.utils.book_append_sheet(wb, ws, monthLabel);
     XLSX.writeFile(wb, `salary_${months[selMonth-1]}_${selYear}.xlsx`);
@@ -212,7 +238,17 @@ const AdminSalaryView = ({ canEdit }) => {
     doc.setFontSize(13); doc.setFont('helvetica', 'bold');
     doc.text(`Staff Salary — ${monthLabel}`, 14, 14);
     doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-    doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, 14, 20);
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')} | ${records.length} employee(s)`, 14, 20);
+
+    const tot = records.reduce((acc, r) => {
+      const bd = computeBreakdown(r);
+      acc.earnedBasic  += bd.earnedBasic;
+      acc.allowances   += bd.fixedAllow + bd.extraAllow;
+      acc.totalOt      += bd.totalOt;
+      acc.totalAmount  += r.totalAmount;
+      return acc;
+    }, { earnedBasic: 0, allowances: 0, totalOt: 0, totalAmount: 0 });
+
     autoTable(doc, {
       startY: 25,
       head: [['EMP', 'Name', 'Days', 'Earned Basic', 'Allowances', 'Daily OT', 'Sun OT', 'Hol OT', 'OT Amt', 'Total', 'Status']],
@@ -223,8 +259,19 @@ const AdminSalaryView = ({ canEdit }) => {
           fmtMin(r.dailyOtMinutes), fmtMin(r.sundayOtMinutes), fmtMin(r.holidayOtMinutes),
           formatCurrency(bd.totalOt), formatCurrency(r.totalAmount), r.isFinalized ? 'Final' : 'Draft'];
       }),
-      headStyles: { fillColor: [37, 99, 235], textColor: [255,255,255], fontStyle: 'bold', fontSize: 7 },
+      foot: [[
+        '', `TOTAL (${records.length})`, '',
+        formatCurrency(tot.earnedBasic),
+        formatCurrency(tot.allowances),
+        '', '', '',
+        formatCurrency(tot.totalOt),
+        formatCurrency(tot.totalAmount),
+        '',
+      ]],
+      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
       bodyStyles: { fontSize: 7 },
+      footStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+      showFoot: 'lastPage',
       theme: 'grid',
       margin: { left: 14, right: 14 },
     });

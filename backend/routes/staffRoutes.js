@@ -14,6 +14,9 @@ const {
 const {
   getHolidays, createHoliday, updateHoliday, deleteHoliday,
 } = require('../controllers/holidayController');
+const {
+  getOtSettings, updateOtSettings,
+} = require('../controllers/otSettingsController');
 
 router.use(protect);
 
@@ -47,5 +50,9 @@ router.get('/holidays', checkPermission('staff', 'view'), getHolidays);
 router.post('/holidays', checkPermission('staff', 'create'), createHoliday);
 router.put('/holidays/:id', checkPermission('staff', 'edit'), updateHoliday);
 router.delete('/holidays/:id', checkPermission('staff', 'delete'), deleteHoliday);
+
+// OT Settings
+router.get('/ot-settings', checkPermission('staff', 'view'), getOtSettings);
+router.put('/ot-settings', checkPermission('staff', 'edit'), updateOtSettings);
 
 module.exports = router;

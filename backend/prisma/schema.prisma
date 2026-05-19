@@ -387,3 +387,13 @@ model SalaryRecord {
   @@unique([employeeId, month])
   @@map("salary_records")
 }
+
+model OtSettings {
+  id                String   @id @default(uuid())
+  dailyMultiplier   Float    @default(1.5) @map("daily_multiplier")
+  sundayMultiplier  Float    @default(2.0) @map("sunday_multiplier")
+  holidayMultiplier Float    @default(2.0) @map("holiday_multiplier")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("ot_settings")
+}

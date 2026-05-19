@@ -1,9 +1,9 @@
 const prisma = require('../config/prisma');
-const { OT_DAILY_MULT, OT_SUNDAY_MULT, OT_HOLIDAY_MULT } = require('./attendanceController');
+const { getOtMultipliers } = require('./otSettingsController');
 
 const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
 
-const computeSalary = (employee, attendance, calendarDays, extraAllowances = []) => {
+const computeSalary = (employee, attendance, calendarDays, extraAllowances = [], otMults = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayMultiplier: 2.0 }) => {
   const presentDays = attendance.filter(a => a.outTime).length;
   const dailyOtMinutes = attendance.filter(a => a.otType === 'daily').reduce((s, a) => s + (a.extraMinutes || 0), 0);
   const sundayOtMinutes = attendance.filter(a => a.otType === 'sunday').reduce((s, a) => s + (a.extraMinutes || 0), 0);
@@ -14,9 +14,9 @@ const computeSalary = (employee, attendance, calendarDays, extraAllowances = [])
   const earnedBasic = perDayBasic * presentDays;
 
   const hourlyRate = basicSalary / (calendarDays * employee.standardHours);
-  const dailyOtAmt = (dailyOtMinutes / 60) * hourlyRate * OT_DAILY_MULT;
-  const sundayOtAmt = (sundayOtMinutes / 60) * hourlyRate * OT_SUNDAY_MULT;
-  const holidayOtAmt = (holidayOtMinutes / 60) * hourlyRate * OT_HOLIDAY_MULT;
+  const dailyOtAmt = (dailyOtMinutes / 60) * hourlyRate * otMults.dailyMultiplier;
+  const sundayOtAmt = (sundayOtMinutes / 60) * hourlyRate * otMults.sundayMultiplier;
+  const holidayOtAmt = (holidayOtMinutes / 60) * hourlyRate * otMults.holidayMultiplier;
   const totalOtAmt = dailyOtAmt + sundayOtAmt + holidayOtAmt;
 
   const fixedAllowances = employee.allowances.reduce((s, a) => s + a.amount, 0);
@@ -58,13 +58,14 @@ exports.computeSalary = async (req, res) => {
     const empIds = employees.map(e => e.id);
 
     // Single batch fetch for all employees instead of N+1
-    const [allAttendance, allExisting] = await Promise.all([
+    const [allAttendance, allExisting, otMults] = await Promise.all([
       prisma.attendanceRecord.findMany({
         where: { employeeId: { in: empIds }, date: { gte: monthStart, lte: monthEnd } },
       }),
       prisma.salaryRecord.findMany({
         where: { employeeId: { in: empIds }, month: monthStart },
       }),
+      getOtMultipliers(),
     ]);
 
     const attendanceByEmp = {};
@@ -82,7 +83,7 @@ exports.computeSalary = async (req, res) => {
 
       const attendance = attendanceByEmp[emp.id] || [];
       const extraAllowances = existing?.extraAllowances || [];
-      const calc = computeSalary(emp, attendance, calDays, extraAllowances);
+      const calc = computeSalary(emp, attendance, calDays, extraAllowances, otMults);
 
       const record = await prisma.salaryRecord.upsert({
         where: { employeeId_month: { employeeId: emp.id, month: monthStart } },
@@ -163,16 +164,19 @@ exports.updateSalaryRecord = async (req, res) => {
       // Recompute total
       const ry = record.month.getUTCFullYear(), rm = record.month.getUTCMonth() + 1;
       const rLastDay = new Date(Date.UTC(ry, rm, 0)).getUTCDate();
-      const attendance = await prisma.attendanceRecord.findMany({
-        where: {
-          employeeId: record.employeeId,
-          date: {
-            gte: new Date(`${ry}-${String(rm).padStart(2, '0')}-01T00:00:00.000Z`),
-            lte: new Date(`${ry}-${String(rm).padStart(2, '0')}-${String(rLastDay).padStart(2, '0')}T23:59:59.999Z`),
+      const [attendance, otMults] = await Promise.all([
+        prisma.attendanceRecord.findMany({
+          where: {
+            employeeId: record.employeeId,
+            date: {
+              gte: new Date(`${ry}-${String(rm).padStart(2, '0')}-01T00:00:00.000Z`),
+              lte: new Date(`${ry}-${String(rm).padStart(2, '0')}-${String(rLastDay).padStart(2, '0')}T23:59:59.999Z`),
+            },
           },
-        },
-      });
-      const calc = computeSalary(record.employee, attendance, record.calendarDays, extraAllowances);
+        }),
+        getOtMultipliers(),
+      ]);
+      const calc = computeSalary(record.employee, attendance, record.calendarDays, extraAllowances, otMults);
       data.totalAmount = calc.totalAmount;
     }
     if (isFinalized !== undefined) data.isFinalized = isFinalized;

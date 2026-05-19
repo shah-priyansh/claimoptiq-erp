@@ -1,8 +1,5 @@
 const prisma = require('../config/prisma');
 
-const OT_DAILY_MULT = 1.5;
-const OT_SUNDAY_MULT = 2.0;
-const OT_HOLIDAY_MULT = 2.0;
 
 const getOtType = async (date) => {
   const d = new Date(date);
@@ -207,6 +204,3 @@ exports.deleteAttendance = async (req, res) => {
   }
 };
 
-exports.OT_DAILY_MULT = OT_DAILY_MULT;
-exports.OT_SUNDAY_MULT = OT_SUNDAY_MULT;
-exports.OT_HOLIDAY_MULT = OT_HOLIDAY_MULT;
