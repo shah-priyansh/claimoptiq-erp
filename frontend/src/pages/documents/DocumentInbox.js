@@ -10,7 +10,8 @@ import { toast } from 'react-toastify';
 import {
   HiOutlineSearch, HiOutlineDownload, HiOutlineTrash,
   HiOutlineDocumentText, HiOutlinePhotograph, HiOutlineClipboardList,
-  HiOutlinePlus, HiOutlineEye, HiOutlineRefresh, HiChevronDown,
+  HiOutlinePlus, HiOutlineEye, HiOutlineRefresh, HiChevronDown, HiOutlineCheckCircle,
+  HiOutlineChevronLeft, HiOutlineChevronRight,
 } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import JSZip from 'jszip';
@@ -51,24 +52,29 @@ const DocumentInbox = () => {
   const [hospitals, setHospitals] = useState([]);
   const [docTypes, setDocTypes] = useState([]);
   const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState(null);
   const [openPatient, setOpenPatient] = useState(null);
   const [filters, setFilters] = useState({ search: '', status: '', hospital: '', documentType: '' });
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [downloadingPatient, setDownloadingPatient] = useState(null);
+  const [reviewingAllPatient, setReviewingAllPatient] = useState(null);
 
   const isHospitalUser = !!user?.hospital;
 
   const load = useCallback(() => {
     setLoading(true);
-    const params = { limit: 200 };
+    const params = { page, limit: PAGE_SIZE };
     Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
     getSubmissionsAPI(params)
       .then(({ data }) => {
         const list = data.submissions || data;
         setSubmissions(list);
         setTotal(data.total || list.length);
+        setPages(data.pages || 1);
         if (highlightId) {
           const target = list.find(s => s._id === highlightId);
           if (target) setOpenPatient(target.patientName);
@@ -79,7 +85,10 @@ const DocumentInbox = () => {
       })
       .catch(() => toast.error('Failed to load submissions'))
       .finally(() => setLoading(false));
-  }, [filters, highlightId]);
+  }, [filters, highlightId, page]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [filters]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -186,6 +195,21 @@ const DocumentInbox = () => {
     }
   };
 
+  const handleReviewAll = async (name, docs) => {
+    const pending = docs.filter(d => d.status === 'pending');
+    if (pending.length === 0) return;
+    setReviewingAllPatient(name);
+    try {
+      await Promise.all(pending.map(d => updateSubmissionAPI(d._id, { status: 'reviewed' })));
+      toast.success(`${pending.length} document${pending.length > 1 ? 's' : ''} marked as reviewed`);
+      load();
+    } catch {
+      toast.error('Failed to review all');
+    } finally {
+      setReviewingAllPatient(null);
+    }
+  };
+
   // Group by patient name
   const grouped = submissions.reduce((acc, s) => {
     if (!acc[s.patientName]) acc[s.patientName] = [];
@@ -206,7 +230,7 @@ const DocumentInbox = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Document Inbox</h1>
-          <p className="text-sm text-gray-500 mt-1">{total} submissions total</p>
+          <p className="text-sm text-gray-500 mt-1">{total} submissions total{pages > 1 ? ` · Page ${page} of ${pages}` : ''}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -300,6 +324,7 @@ const DocumentInbox = () => {
             const st       = STATUS_STYLES[gStatus] || STATUS_STYLES.pending;
             const hospital = docs[0]?.hospital?.name;
             const hasPendingClaim = docs.some(d => d.status !== 'claimed' && !d.claim);
+            const pendingCount = docs.filter(d => d.status === 'pending').length;
 
             return (
               <div key={name} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -322,6 +347,19 @@ const DocumentInbox = () => {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-3">
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${st.badge}`}>{st.label}</span>
+                    {can('document_submissions', 'edit') && pendingCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); handleReviewAll(name, docs); }}
+                        disabled={reviewingAllPatient === name}
+                        title={`Mark all ${pendingCount} pending as reviewed`}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {reviewingAllPatient === name
+                          ? <><div className="w-3 h-3 border-[1.5px] border-current border-t-transparent rounded-full animate-spin" /><span>Reviewing…</span></>
+                          : <><HiOutlineCheckCircle className="w-3.5 h-3.5" /><span>Review All{pendingCount < docs.length ? ` (${pendingCount})` : ''}</span></>}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={e => { e.stopPropagation(); handleDownloadAllPatient(name, docs); }}
@@ -489,6 +527,52 @@ const DocumentInbox = () => {
             );
           })}
         </div>
+      )}
+
+      {/* Pagination */}
+      {!loading && pages > 1 && (
+        <div className="flex items-center justify-between mt-4 bg-white rounded-xl border border-gray-200 px-5 py-3">
+          <p className="text-sm text-gray-500">
+            Showing <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}</span> of <span className="font-medium text-gray-700">{total}</span> submissions
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <HiOutlineChevronLeft className="w-4 h-4" />
+            </button>
+            {Array.from({ length: Math.min(pages, 7) }, (_, i) => {
+              let p;
+              if (pages <= 7) p = i + 1;
+              else if (page <= 4) p = i + 1;
+              else if (page >= pages - 3) p = pages - 6 + i;
+              else p = page - 3 + i;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
+                    p === page ? 'bg-primary-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setPage(p => Math.min(pages, p + 1))}
+              disabled={page === pages}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <HiOutlineChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+      {!loading && total > 0 && pages === 1 && (
+        <p className="text-xs text-center text-gray-400 mt-3">{total} submission{total !== 1 ? 's' : ''}</p>
       )}
     </div>
   );
