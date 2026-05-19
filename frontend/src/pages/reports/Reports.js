@@ -135,14 +135,16 @@ const Reports = () => {
     const sum = (key) => groupClaims.reduce((s, c) => s + (c[key] || 0), 0);
     return ['', 'Subtotal', '', '', '', '', '', '',
       sum('hospitalFinalBill'), sum('finalApprovalAmount'), sum('settlementAmount'),
-      sum('tds'), sum('bankTransferAmount'), '', sum('filePrice')];
+      sum('tds'), sum('bankTransferAmount'), '',
+      groupClaims.reduce((s, c) => s + getFilePrice(c), 0)];
   };
 
   const grandTotalRow = () => {
     const sum = (key) => claims.reduce((s, c) => s + (c[key] || 0), 0);
     return ['', 'Grand Total', '', '', '', '', '', '',
       sum('hospitalFinalBill'), sum('finalApprovalAmount'), sum('settlementAmount'),
-      sum('tds'), sum('bankTransferAmount'), '', sum('filePrice')];
+      sum('tds'), sum('bankTransferAmount'), '',
+      claims.reduce((s, c) => s + getFilePrice(c), 0)];
   };
 
   const doExportBillExcel = () => {
