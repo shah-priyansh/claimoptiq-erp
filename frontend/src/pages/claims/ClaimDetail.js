@@ -246,7 +246,9 @@ const ClaimDetail = () => {
   }, [settlementForm.settlementAmount, showTds]);
 
   useEffect(() => {
-    getClaimStatusesAPI().then(({ data }) => setClaimStatuses(data.filter(s => s.isActive))).catch(() => {});
+    getClaimStatusesAPI().then(({ data }) => setClaimStatuses(
+      data.filter(s => s.isActive && (!s.superAdminOnly || isSuperAdmin))
+    )).catch(() => {});
     getClaimDocumentTypesAPI()
       .then(({ data }) => setDocTypes(Array.isArray(data) ? data.filter(d => d.isActive !== false) : []))
       .catch(() => toast.error('Failed to load document types'));

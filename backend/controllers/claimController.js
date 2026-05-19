@@ -190,6 +190,14 @@ exports.updateClaim = async (req, res) => {
       return res.status(403).json({ message: "You can only update your own hospital's claims" });
     }
 
+    // Only super admin can set super-admin-only statuses (e.g. 'billed')
+    if (req.body.status) {
+      const targetStatus = await prisma.claimStatus.findUnique({ where: { slug: req.body.status } });
+      if (targetStatus?.superAdminOnly && req.user?.role?.slug !== 'super_admin') {
+        return res.status(403).json({ message: 'You do not have permission to set this status' });
+      }
+    }
+
     const data = { updatedById: req.user.id };
     const dateFields = ['dateOfAdmit', 'dateOfDischarge', 'finalApprovalDate', 'fileReceivedDate', 'courierSubmitDate', 'onlineSubmitDate', 'settlementDate', 'month'];
     const allowed = [

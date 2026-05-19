@@ -168,8 +168,9 @@ model ClaimStatus {
   label     String
   color     String   @default("gray")
   order     Int      @default(0)
-  isActive  Boolean  @default(true) @map("is_active")
-  isSystem  Boolean  @default(false) @map("is_system")
+  isActive        Boolean  @default(true) @map("is_active")
+  isSystem        Boolean  @default(false) @map("is_system")
+  superAdminOnly  Boolean  @default(false) @map("super_admin_only")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
