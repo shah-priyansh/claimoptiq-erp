@@ -8,7 +8,7 @@ import { toast } from 'react-toastify';
 import DateInput from '../../components/ui/DateInput';
 import {
   HiOutlineArrowLeft, HiOutlineUpload, HiOutlineTrash, HiOutlineDownload,
-  HiOutlineDocumentText, HiChevronDown, HiCheck,
+  HiOutlineDocumentText, HiChevronDown, HiCheck, HiOutlineSearch,
   HiOutlineX, HiOutlineChevronLeft, HiOutlineChevronRight,
   HiOutlineUser, HiOutlineCash, HiOutlineTruck,
   HiOutlineShieldCheck, HiOutlinePencil, HiOutlineCalendar,
@@ -190,6 +190,7 @@ const ClaimDetail = () => {
   const confirm = useConfirm();
   const [claim, setClaim] = useState(null);
   const [claimStatuses, setClaimStatuses] = useState([]);
+  const [statusesLoading, setStatusesLoading] = useState(true);
   const [docTypes, setDocTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -199,6 +200,7 @@ const ClaimDetail = () => {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusDropOpen, setStatusDropOpen] = useState(false);
   const [statusDropPos, setStatusDropPos] = useState({ top: 0, left: 0 });
+  const [statusSearch, setStatusSearch] = useState('');
   const statusBtnRef = useRef(null);
   const [previewIdx, setPreviewIdx] = useState(null);
   const [pendingFiles, setPendingFiles] = useState({ discharge: [], pod: [], settlement_proof: [], other: [] });
@@ -248,7 +250,7 @@ const ClaimDetail = () => {
   useEffect(() => {
     getClaimStatusesAPI().then(({ data }) => setClaimStatuses(
       data.filter(s => s.isActive && (!s.superAdminOnly || isSuperAdmin))
-    )).catch(() => {});
+    )).catch(() => {}).finally(() => setStatusesLoading(false));
     getClaimDocumentTypesAPI()
       .then(({ data }) => setDocTypes(Array.isArray(data) ? data.filter(d => d.isActive !== false) : []))
       .catch(() => toast.error('Failed to load document types'));
@@ -561,7 +563,7 @@ const ClaimDetail = () => {
                   onClick={() => {
                     const r = statusBtnRef.current.getBoundingClientRect();
                     setStatusDropPos({ top: r.bottom + 6, left: r.left });
-                    setStatusDropOpen(v => !v);
+                    setStatusSearch(''); setStatusDropOpen(v => !v);
                   }}
                   disabled={statusUpdating}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${statusBadgeCls} ${statusUpdating ? 'opacity-60' : 'hover:shadow-sm'}`}>
@@ -571,6 +573,11 @@ const ClaimDetail = () => {
                 </button>
               ) : (
                 <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${statusBadgeCls}`}>{statusLabel}</span>
+              )}
+              {isSuperAdmin && (
+                <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${claim.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>
+                  {claim.isBilled ? 'Billed' : 'Unbilled'}
+                </span>
               )}
               {isEditable && (
                 <button onClick={() => navigate(`/claims/${id}/edit`)}
@@ -1139,22 +1146,43 @@ const ClaimDetail = () => {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setStatusDropOpen(false)} />
           <div style={{ top: statusDropPos.top, left: statusDropPos.left }}
-            className="fixed z-50 w-56 bg-white rounded-2xl shadow-2xl shadow-black/10 border border-gray-100 py-1.5 overflow-hidden">
-            <p className="px-4 pt-1.5 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-widest border-b border-gray-100 mb-1">
+            className="fixed z-50 w-56 bg-white rounded-2xl shadow-2xl shadow-black/10 border border-gray-100 overflow-hidden">
+            <p className="px-4 pt-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
               Update Status
             </p>
-            {claimStatuses.map(s => {
-              const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';
-              const isActive = s.slug === claim.status;
-              return (
-                <button key={s._id}
-                  onClick={() => { handleUpdateStatus(s.slug); setStatusDropOpen(false); }}
-                  className={`w-full px-3 py-2.5 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${cls}`}>{s.label}</span>
-                  {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
-                </button>
-              );
-            })}
+            <div className="px-3 pb-2">
+              <div className="relative">
+                <HiOutlineSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
+                <input
+                  autoFocus
+                  value={statusSearch}
+                  onChange={e => setStatusSearch(e.target.value)}
+                  placeholder="Search..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+            </div>
+            <div className="max-h-56 overflow-y-auto overscroll-contain border-t border-gray-100">
+              {statusesLoading ? (
+                <div className="flex items-center justify-center gap-2 py-6">
+                  <div className="w-4 h-4 border-2 border-gray-200 border-t-primary-500 rounded-full animate-spin" />
+                  <span className="text-xs text-gray-400">Loading...</span>
+                </div>
+              ) : claimStatuses
+                .filter(s => s.label.toLowerCase().includes(statusSearch.toLowerCase()))
+                .map(s => {
+                  const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';
+                  const isActive = s.slug === claim.status;
+                  return (
+                    <button key={s._id}
+                      onClick={() => { handleUpdateStatus(s.slug); setStatusDropOpen(false); }}
+                      className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
+                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{s.label}</span>
+                      {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+            </div>
           </div>
         </>,
         document.body

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkUpdateStatusAPI } from '../../services/api';
+import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload } from 'react-icons/hi';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
+import SearchableSelect from '../../components/ui/SearchableSelect';
+import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -19,6 +21,7 @@ const Reports = () => {
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(false);
   const [claimStatuses, setClaimStatuses] = useState([]);
+  const [statusesLoading, setStatusesLoading] = useState(true);
   const [billDropdownOpen, setBillDropdownOpen] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
   const billDropdownRef = useRef(null);
@@ -39,8 +42,9 @@ const Reports = () => {
       getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
     }
     getClaimStatusesAPI()
-      .then(({ data }) => setClaimStatuses(data.filter(s => s.isActive !== false)))
-      .catch(() => {});
+      .then(({ data }) => setClaimStatuses(data.filter(s => s.isActive !== false && (!s.superAdminOnly || isSuperAdmin))))
+      .catch(() => {})
+      .finally(() => setStatusesLoading(false));
   }, [isHospitalUser]);
 
   const generateReport = async () => {
@@ -65,7 +69,7 @@ const Reports = () => {
     const headers = ['SR', 'Month', 'Patient Name', 'Hospital', 'Claim Type', 'Insurance', 'TPA',
       'Policy No', 'DOA', 'DOD', 'Hospital Bill', 'Deduction', 'Final Approval',
       'Settlement Amount', 'TDS', 'Bank Transfer', 'Status',
-      ...(isSuperAdmin ? ['File Price'] : [])];
+      ...(isSuperAdmin ? ['Bill Status', 'File Price'] : [])];
     const rows = claims.map(c => [
       c.srNo, c.month ? new Date(c.month).toLocaleDateString('en-IN') : '',
       c.patientName, c.hospital?.name || '', c.claimType,
@@ -74,7 +78,7 @@ const Reports = () => {
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
       c.hospitalFinalBill, c.deduction, c.finalApprovalAmount,
       c.settlementAmount, c.tds, c.bankTransferAmount, c.status,
-      ...(isSuperAdmin ? [getFilePrice(c)] : [])
+      ...(isSuperAdmin ? [c.isBilled ? 'Billed' : 'Unbilled', getFilePrice(c)] : [])
     ]);
 
     const csvContent = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
@@ -89,7 +93,7 @@ const Reports = () => {
 
   const confirmAndBill = async (exportFn) => {
     setBillDropdownOpen(false);
-    const unbilled = claims.filter(c => c.status !== 'billed');
+    const unbilled = claims.filter(c => !c.isBilled);
     const ok = await confirm(
       `This will mark ${unbilled.length} claim${unbilled.length !== 1 ? 's' : ''} as Billed and export the report. Continue?`,
       { title: 'Generate Bill', confirmLabel: 'Generate & Mark Billed', variant: 'primary' }
@@ -98,19 +102,19 @@ const Reports = () => {
     setBillingLoading(true);
     try {
       const ids = unbilled.map(c => c._id);
-      if (ids.length) await bulkUpdateStatusAPI(ids, 'billed');
-      setClaims(prev => prev.map(c => c.status !== 'billed' ? { ...c, status: 'billed' } : c));
+      if (ids.length) await bulkBillAPI(ids);
+      setClaims(prev => prev.map(c => c.isBilled ? c : { ...c, isBilled: true }));
       toast.success(`${ids.length} claim${ids.length !== 1 ? 's' : ''} marked as Billed`);
       exportFn();
     } catch {
-      toast.error('Failed to update claim statuses');
+      toast.error('Failed to mark claims as billed');
     } finally {
       setBillingLoading(false);
     }
   };
 
   const BILL_COLS = ['SR', 'Patient Name', 'Claim Type', 'Insurance', 'TPA', 'Policy No', 'DOA', 'DOD',
-    'Hospital Bill', 'Approval Amount', 'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'File Price'];
+    'Hospital Bill', 'Approval Amount', 'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'Bill Status', 'File Price'];
 
   const buildGroupedData = () => {
     const grouped = {};
@@ -128,14 +132,14 @@ const Reports = () => {
     c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
     c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
     c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.settlementAmount || 0,
-    c.tds || 0, c.bankTransferAmount || 0, c.status, getFilePrice(c),
+    c.tds || 0, c.bankTransferAmount || 0, c.status, c.isBilled ? 'Billed' : 'Unbilled', getFilePrice(c),
   ];
 
   const subtotalRow = (groupClaims) => {
     const sum = (key) => groupClaims.reduce((s, c) => s + (c[key] || 0), 0);
     return ['', 'Subtotal', '', '', '', '', '', '',
       sum('hospitalFinalBill'), sum('finalApprovalAmount'), sum('settlementAmount'),
-      sum('tds'), sum('bankTransferAmount'), '',
+      sum('tds'), sum('bankTransferAmount'), '', '',
       groupClaims.reduce((s, c) => s + getFilePrice(c), 0)];
   };
 
@@ -143,7 +147,7 @@ const Reports = () => {
     const sum = (key) => claims.reduce((s, c) => s + (c[key] || 0), 0);
     return ['', 'Grand Total', '', '', '', '', '', '',
       sum('hospitalFinalBill'), sum('finalApprovalAmount'), sum('settlementAmount'),
-      sum('tds'), sum('bankTransferAmount'), '',
+      sum('tds'), sum('bankTransferAmount'), '', '',
       claims.reduce((s, c) => s + getFilePrice(c), 0)];
   };
 
@@ -230,8 +234,8 @@ const Reports = () => {
       startY = doc.lastAutoTable.finalY;
 
       const bodyRows = [
-        ...groupClaims.map(c => claimRow(c).map((v, i) => (i >= 8 && i <= 12) || i === 14 ? fmtAmt(v) : (v ?? ''))),
-        subtotalRow(groupClaims).map((v, i) => (i >= 8 && i <= 12) || i === 14 ? fmtAmt(v) : (v || '')),
+        ...groupClaims.map(c => claimRow(c).map((v, i) => (i >= 8 && i <= 12) || i === 15 ? fmtAmt(v) : (v ?? ''))),
+        subtotalRow(groupClaims).map((v, i) => (i >= 8 && i <= 12) || i === 15 ? fmtAmt(v) : (v || '')),
       ];
 
       autoTable(doc, {
@@ -254,7 +258,7 @@ const Reports = () => {
 
     autoTable(doc, {
       startY,
-      body: [grandTotalRow().map((v, i) => (i >= 8 && i <= 12) || i === 14 ? fmtAmt(v) : (v || ''))],
+      body: [grandTotalRow().map((v, i) => (i >= 8 && i <= 12) || i === 15 ? fmtAmt(v) : (v || ''))],
       theme: 'plain',
       bodyStyles: { fillColor: [220, 252, 231], fontStyle: 'bold', fontSize: 7, textColor: [21, 128, 61] },
       margin: { left: 14, right: 14 },
@@ -269,14 +273,14 @@ const Reports = () => {
     if (!claims.length) return;
     const wb = XLSX.utils.book_new();
     const headers = ['SR', 'Patient Name', 'Hospital', 'Claim Type', 'Insurance', 'TPA', 'Policy No',
-      'DOA', 'DOD', 'Hospital Bill', 'Approval Amount', 'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'File Price'];
+      'DOA', 'DOD', 'Hospital Bill', 'Approval Amount', 'Settlement Amount', 'TDS', 'Bank Transfer', 'Status', 'Bill Status', 'File Price'];
     const rows = claims.map(c => [
       c.srNo, c.patientName, c.hospital?.name || '', c.claimType,
       c.insuranceCompany?.name || '', c.tpa?.name || '', c.policyNo,
       c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
       c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.settlementAmount || 0,
-      c.tds || 0, c.bankTransferAmount || 0, c.status, getFilePrice(c),
+      c.tds || 0, c.bankTransferAmount || 0, c.status, c.isBilled ? 'Billed' : 'Unbilled', getFilePrice(c),
     ]);
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     ws['!cols'] = headers.map((_, i) => ({ wch: i === 1 || i === 2 ? 20 : 14 }));
@@ -297,14 +301,14 @@ const Reports = () => {
     doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, 14, 21);
 
     const headers = ['SR', 'Patient', 'Hospital', 'Type', 'Insurance', 'TPA', 'Policy No',
-      'DOA', 'DOD', 'Hosp Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', 'File Price'];
+      'DOA', 'DOD', 'Hosp Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', 'Bill Status', 'File Price'];
     const rows = claims.map(c => [
       c.srNo, c.patientName, c.hospital?.name || '', c.claimType,
       c.insuranceCompany?.name || '', c.tpa?.name || '', c.policyNo,
       c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
       fmtAmt(c.hospitalFinalBill), fmtAmt(c.finalApprovalAmount), fmtAmt(c.settlementAmount),
-      fmtAmt(c.tds), fmtAmt(c.bankTransferAmount), c.status, fmtAmt(getFilePrice(c)),
+      fmtAmt(c.tds), fmtAmt(c.bankTransferAmount), c.status, c.isBilled ? 'Billed' : 'Unbilled', fmtAmt(getFilePrice(c)),
     ]);
 
     autoTable(doc, {
@@ -342,11 +346,14 @@ const Reports = () => {
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
         <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
           {!isHospitalUser && (
-            <select value={filters.hospital} onChange={(e) => setFilters({ ...filters, hospital: e.target.value })}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">All Hospitals</option>
-              {hospitals.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-            </select>
+            <SearchableSelect
+              options={hospitals.map(h => ({ value: h._id, label: h.name }))}
+              value={filters.hospital}
+              onChange={val => setFilters({ ...filters, hospital: val })}
+              placeholder="All Hospitals"
+              searchPlaceholder="Search hospitals..."
+              allowClear
+            />
           )}
           <input
             type="date"
@@ -362,13 +369,15 @@ const Reports = () => {
             placeholder="To Date"
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
-          <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-            <option value="">All Status</option>
-            {claimStatuses.map(s => (
-              <option key={s.id} value={s.slug}>{s.label}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700' }))}
+            value={filters.status}
+            onChange={val => setFilters({ ...filters, status: val })}
+            placeholder="All Status"
+            searchPlaceholder="Search status..."
+            isLoading={statusesLoading}
+            allowClear
+          />
           <div className="flex gap-2">
             <button onClick={generateReport} disabled={loading}
               className="flex-1 bg-primary-600 hover:bg-primary-700 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">
@@ -442,14 +451,14 @@ const Reports = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', ...(isSuperAdmin ? ['File Price'] : [])].map(h => (
+                {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', ...(isSuperAdmin ? ['Bill Status', 'File Price'] : [])].map(h => (
                   <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {claims.length === 0 ? (
-                <tr><td colSpan={isHospitalUser ? (isSuperAdmin ? 10 : 9) : (isSuperAdmin ? 11 : 10)} className="py-8 text-center text-gray-400">
+                <tr><td colSpan={isHospitalUser ? (isSuperAdmin ? 11 : 9) : (isSuperAdmin ? 12 : 10)} className="py-8 text-center text-gray-400">
                   {loading ? 'Loading...' : 'Click "Generate" to view report'}
                 </td></tr>
               ) : claims.map(c => (
@@ -464,7 +473,16 @@ const Reports = () => {
                   <td className="py-2 px-3">{formatAmount(c.tds)}</td>
                   <td className="py-2 px-3">{formatAmount(c.bankTransferAmount)}</td>
                   <td className="py-2 px-3 capitalize">{c.status.replace('_', ' ')}</td>
-                  {isSuperAdmin && <td className="py-2 px-3">{formatAmount(getFilePrice(c))}</td>}
+                  {isSuperAdmin && (
+                    <>
+                      <td className="py-2 px-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>
+                          {c.isBilled ? 'Billed' : 'Unbilled'}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3">{formatAmount(getFilePrice(c))}</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>

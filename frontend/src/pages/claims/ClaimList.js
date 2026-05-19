@@ -11,7 +11,8 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const ClaimList = () => {
   const navigate = useNavigate();
-  const { can, user } = useAuth();
+  const { can, user, roleSlug } = useAuth();
+  const isSuperAdmin = roleSlug === 'super_admin';
   const isHospitalUser = !!user?.hospital;
   const [claims, setClaims] = useState([]);
   const [hospitals, setHospitals] = useState([]);
@@ -31,7 +32,7 @@ const ClaimList = () => {
       getClaimStatusesAPI(),
     ]).then(([h, s]) => {
       setHospitals(h.data);
-      setClaimStatuses(s.data.filter(s => s.isActive));
+      setClaimStatuses(s.data.filter(s => s.isActive && (!s.superAdminOnly || isSuperAdmin)));
     }).catch(() => {}).finally(() => setFiltersLoading(false));
   }, []);
 
@@ -65,21 +66,29 @@ const ClaimList = () => {
     }
   };
 
-  const StatusBadge = ({ c }) => {
+  const StatusBadge = ({ c, loading }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
     const [pos, setPos] = useState({ top: 0, left: 0 });
     const btnRef = useRef(null);
+    const searchRef = useRef(null);
 
     const st = claimStatuses.find(s => s.slug === c.status);
     const isUpdating = updatingId === c._id;
     const colorCls = STATUS_COLOR_MAP[st?.color] || 'bg-gray-100 text-gray-700';
     const label = st?.label || (c.status || '').replace(/_/g, ' ');
 
+    const filtered = search
+      ? claimStatuses.filter(s => s.label.toLowerCase().includes(search.toLowerCase()))
+      : claimStatuses;
+
     const openDrop = (e) => {
       e.stopPropagation();
       const r = btnRef.current.getBoundingClientRect();
       setPos({ top: r.bottom + 6, left: r.left });
+      setSearch('');
       setIsOpen(true);
+      setTimeout(() => searchRef.current?.focus(), 30);
     };
 
     if (!can('claims', 'edit')) {
@@ -116,25 +125,46 @@ const ClaimList = () => {
             <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
             <div
               style={{ top: pos.top, left: pos.left }}
-              className="fixed z-50 w-52 bg-white rounded-2xl shadow-2xl shadow-black/10 border border-gray-100 py-1.5 overflow-hidden"
+              className="fixed z-50 w-56 bg-white rounded-2xl shadow-2xl shadow-black/10 border border-gray-100 overflow-hidden"
             >
-              <p className="px-4 pt-1.5 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-widest border-b border-gray-100 mb-1">
+              <p className="px-4 pt-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
                 Update Status
               </p>
-              {claimStatuses.map(s => {
-                const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';
-                const isActive = s.slug === c.status;
-                return (
-                  <button
-                    key={s._id}
-                    onClick={() => { handleStatusChange(c._id, s.slug); setIsOpen(false); }}
-                    className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
-                  >
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{s.label}</span>
-                    {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
-                  </button>
-                );
-              })}
+              <div className="px-3 pb-2">
+                <div className="relative">
+                  <HiOutlineSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
+                  <input
+                    ref={searchRef}
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+              <div className="max-h-56 overflow-y-auto overscroll-contain border-t border-gray-100">
+                {loading ? (
+                  <div className="flex items-center justify-center gap-2 py-6">
+                    <div className="w-4 h-4 border-2 border-gray-200 border-t-primary-500 rounded-full animate-spin" />
+                    <span className="text-xs text-gray-400">Loading...</span>
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <p className="px-4 py-4 text-xs text-gray-400 text-center">No results</p>
+                ) : filtered.map(s => {
+                  const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';
+                  const isActive = s.slug === c.status;
+                  return (
+                    <button
+                      key={s._id}
+                      onClick={() => { handleStatusChange(c._id, s.slug); setIsOpen(false); }}
+                      className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                    >
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{s.label}</span>
+                      {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </>,
           document.body
@@ -179,7 +209,7 @@ const ClaimList = () => {
             />
           )}
           <SearchableSelect
-            options={claimStatuses.map(s => ({ value: s.slug, label: s.label }))}
+            options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700' }))}
             value={filters.status}
             onChange={val => setFilters({ ...filters, status: val, page: 1 })}
             placeholder="All Status"
@@ -222,7 +252,7 @@ const ClaimList = () => {
                       <p className="text-xs text-gray-400 mt-0.5">{c.policyNo || 'No policy number'}</p>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <StatusBadge c={c} />
+                      <StatusBadge c={c} loading={filtersLoading} />
                       {can('claims', 'edit') && (
                         <button onClick={(e) => { e.stopPropagation(); navigate(`/claims/${c._id}/edit`); }}
                           className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
@@ -282,7 +312,7 @@ const ClaimList = () => {
                   </td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
-                  <td className="py-3 px-3"><StatusBadge c={c} /></td>
+                  <td className="py-3 px-3"><StatusBadge c={c} loading={filtersLoading} /></td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       {can('claims', 'edit') && (

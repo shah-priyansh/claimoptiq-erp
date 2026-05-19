@@ -151,7 +151,7 @@ exports.getClaims = async (req, res) => {
     const isSuperAdmin = req.user?.role?.slug === 'super_admin';
     const claimsData = toResponse(claims);
     res.json({
-      claims: isSuperAdmin ? claimsData : claimsData.map(({ filePrice, ...rest }) => rest),
+      claims: isSuperAdmin ? claimsData : claimsData.map(({ filePrice, isBilled, ...rest }) => rest),
       total,
       page: parseInt(page),
       pages: Math.ceil(total / parseInt(limit)),
@@ -310,6 +310,25 @@ exports.bulkUpdateStatus = async (req, res) => {
       data: { status, updatedById: req.user.id },
     });
     res.json({ message: `${count} claims updated to "${status}"`, count });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.bulkBill = async (req, res) => {
+  try {
+    if (req.user?.role?.slug !== 'super_admin') {
+      return res.status(403).json({ message: 'Only super admin can mark claims as billed' });
+    }
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ message: 'ids (array) is required' });
+    }
+    const { count } = await prisma.claim.updateMany({
+      where: { id: { in: ids } },
+      data: { isBilled: true, updatedById: req.user.id },
+    });
+    res.json({ message: `${count} claims marked as billed`, count });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }

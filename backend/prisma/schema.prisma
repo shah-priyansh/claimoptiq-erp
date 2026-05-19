@@ -230,6 +230,7 @@ model Claim {
   settlementDate            DateTime?         @map("settlement_date")
   neftNo                    String            @default("") @map("neft_no")
   filePrice                 Float             @default(0) @map("file_price")
+  isBilled                  Boolean           @default(false) @map("is_billed")
   treatmentType             String            @default("") @map("treatment_type")
   diagnosis                 String            @default("")
   surgeryName               String            @default("") @map("surgery_name")
