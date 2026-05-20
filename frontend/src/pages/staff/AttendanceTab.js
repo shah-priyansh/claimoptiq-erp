@@ -24,8 +24,19 @@ const NativeSelect = ({ value, onChange, children, className = '' }) => (
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fmtTime = (dt) =>
-  dt ? new Date(dt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+// Always display in IST (UTC+5:30) regardless of browser timezone
+const toIST = (dt) => {
+  const d = new Date(new Date(dt).getTime() + 330 * 60 * 1000);
+  return { h: d.getUTCHours(), m: d.getUTCMinutes() };
+};
+
+const fmtTime = (dt) => {
+  if (!dt) return '—';
+  const { h, m } = toIST(dt);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+};
 
 const fmtMinutes = (mins) => {
   if (mins == null || mins <= 0) return '—';
@@ -90,12 +101,16 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn }) => {
       const isSunday = date.getDay() === 0;
       const isHoliday = holidays.some(h => h.date?.slice(0, 10) === ds);
       const holidayName = holidays.find(h => h.date?.slice(0, 10) === ds)?.name || null;
+      const toISTStr = (dt) => {
+        const { h, m } = toIST(dt);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      };
       return {
         date,
         ds,
         dayName: DAY_NAMES[date.getDay()],
-        inTime:  rec?.inTime  ? new Date(rec.inTime).toTimeString().slice(0, 5)  : '',
-        outTime: rec?.outTime ? new Date(rec.outTime).toTimeString().slice(0, 5) : '',
+        inTime:  rec?.inTime  ? toISTStr(rec.inTime)  : '',
+        outTime: rec?.outTime ? toISTStr(rec.outTime) : '',
         totalMinutes:  rec?.totalMinutes  ?? null,
         extraMinutes:  rec?.extraMinutes  ?? null,
         otType:        rec?.otType || (isSunday ? 'sunday' : isHoliday ? 'holiday' : 'none'),
@@ -136,8 +151,8 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn }) => {
 
     setSavingIdx(s => ({ ...s, [idx]: true }));
     try {
-      const inDateTime  = `${row.ds}T${row.inTime}:00`;
-      const outDateTime = row.outTime ? `${row.ds}T${row.outTime}:00` : null;
+      const inDateTime  = `${row.ds}T${row.inTime}:00+05:30`;
+      const outDateTime = row.outTime ? `${row.ds}T${row.outTime}:00+05:30` : null;
       const payload = { date: row.ds, inTime: inDateTime, outTime: outDateTime };
       const doSave = saveFn || ((p) => addAttendanceAPI({ employeeId: employee.id, ...p }));
       const { data } = await doSave(payload);
