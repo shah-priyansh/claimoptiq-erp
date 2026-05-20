@@ -10,6 +10,7 @@ import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import JSZip from 'jszip';
 
 const Reports = () => {
   const { user, roleSlug } = useAuth();
@@ -116,40 +117,12 @@ const Reports = () => {
     );
   };
 
-  const exportCSV = () => {
-    if (!claims.length) return;
-    const headers = ['SR', 'Month', 'Patient Name', 'Hospital', 'Claim Type', 'Insurance', 'TPA',
-      'Policy No', 'DOA', 'DOD', 'Hospital Bill', 'Deduction', 'Final Approval',
-      'Settlement Amount', 'TDS', 'Bank Transfer', 'Status',
-      ...(isSuperAdmin ? ['Bill Status', 'File Price'] : [])];
-    const rows = claims.map(c => [
-      c.srNo, c.month ? new Date(c.month).toLocaleDateString('en-IN') : '',
-      c.patientName, c.hospital?.name || '', c.claimType,
-      c.insuranceCompany?.name || '', c.tpa?.name || '',
-      c.policyNo, c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
-      c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
-      c.hospitalFinalBill, c.deduction, c.finalApprovalAmount,
-      c.settlementAmount, c.tds, c.bankTransferAmount, c.status,
-      ...(isSuperAdmin ? [c.isBilled ? 'Billed' : 'Unbilled', getFilePrice(c)] : [])
-    ]);
-
-    const csvContent = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `claim_report_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   // --- Bill Export helpers ---
 
   const BILL_COLS = ['SR', 'PATIENT NAME', 'DOCTOR NAME', 'CLAIM TYPE', 'COMPANY/TPA', 'CCN NO',
     'D.O.A.', 'D.O.D.', 'HOSPITAL BILL', 'FINAL APPROVAL AMOUNT', 'FILE PRICE'];
   const NUM_BILL_COLS = BILL_COLS.length; // 11
 
-  // Returns [{ hospital, monthGroups: [{ month, items }] }] — one entry per hospital
   const groupByHospital = () => {
     const byHosp = {};
     claims.forEach(c => {
@@ -170,17 +143,11 @@ const Reports = () => {
   const billClaimRow = (c) => {
     const companytpa = [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ');
     return [
-      c.srNo || '',
-      c.patientName || '',
-      c.doctorName || '',
-      c.claimType || '',
-      companytpa,
+      c.srNo || '', c.patientName || '', c.doctorName || '', c.claimType || '', companytpa,
       c.ccnNo || '',
       c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
-      c.hospitalFinalBill || 0,
-      c.finalApprovalAmount || 0,
-      getFilePrice(c),
+      c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, getFilePrice(c),
     ];
   };
 
@@ -192,152 +159,204 @@ const Reports = () => {
 
   const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(v) : (v || '-');
 
-  const doExportBillExcel = () => {
+  const buildExcelWB = (hospital, monthGroups) => {
     const thin = { style: 'thin', color: { auto: 1 } };
     const border = { top: thin, bottom: thin, left: thin, right: thin };
-    const dateStr = new Date().toISOString().slice(0, 10);
+    const wsData = [];
+    const merges = [];
+    const rowMeta = [];
 
-    const applyStyle = (ws, r, c, style) => {
+    monthGroups.forEach(({ month, items }) => {
+      const rHosp = wsData.length;
+      wsData.push([hospital.toUpperCase(), ...Array(NUM_BILL_COLS - 1).fill('')]);
+      merges.push({ s: { r: rHosp, c: 0 }, e: { r: rHosp, c: NUM_BILL_COLS - 1 } });
+      rowMeta.push({ row: rHosp, type: 'hospital' });
+
+      const rSub = wsData.length;
+      wsData.push([monthLabel(month), ...Array(NUM_BILL_COLS - 1).fill('')]);
+      merges.push({ s: { r: rSub, c: 0 }, e: { r: rSub, c: NUM_BILL_COLS - 1 } });
+      rowMeta.push({ row: rSub, type: 'subtitle' });
+
+      wsData.push([...BILL_COLS]);
+      rowMeta.push({ row: wsData.length - 1, type: 'header' });
+
+      items.forEach(c => {
+        rowMeta.push({ row: wsData.length, type: 'data' });
+        wsData.push(billClaimRow(c));
+      });
+
+      const totalFP = items.reduce((s, c) => s + getFilePrice(c), 0);
+      const totalRow = Array(NUM_BILL_COLS).fill('');
+      totalRow[1] = 'TOTAL';
+      totalRow[NUM_BILL_COLS - 1] = totalFP;
+      rowMeta.push({ row: wsData.length, type: 'total' });
+      wsData.push(totalRow);
+      wsData.push(Array(NUM_BILL_COLS).fill(''));
+    });
+
+    const rFooter = wsData.length;
+    wsData.push(['Prepared by: First Care Consultancy', ...Array(NUM_BILL_COLS - 1).fill('')]);
+    merges.push({ s: { r: rFooter, c: 0 }, e: { r: rFooter, c: NUM_BILL_COLS - 1 } });
+    rowMeta.push({ row: rFooter, type: 'footer' });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!merges'] = merges;
+    ws['!cols'] = [
+      { wch: 5 }, { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 30 },
+      { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 20 }, { wch: 12 },
+    ];
+
+    const applyStyle = (r, c, style) => {
       const ref = XLSX.utils.encode_cell({ r, c });
       if (!ws[ref]) ws[ref] = { v: '', t: 's' };
       ws[ref].s = style;
     };
 
-    groupByHospital().forEach(({ hospital, monthGroups }) => {
-      const wsData = [];
-      const merges = [];
-      const rowMeta = [];
-
-      monthGroups.forEach(({ month, items }) => {
-        const rHosp = wsData.length;
-        wsData.push([hospital.toUpperCase(), ...Array(NUM_BILL_COLS - 1).fill('')]);
-        merges.push({ s: { r: rHosp, c: 0 }, e: { r: rHosp, c: NUM_BILL_COLS - 1 } });
-        rowMeta.push({ row: rHosp, type: 'hospital' });
-
-        const rSub = wsData.length;
-        wsData.push([monthLabel(month), ...Array(NUM_BILL_COLS - 1).fill('')]);
-        merges.push({ s: { r: rSub, c: 0 }, e: { r: rSub, c: NUM_BILL_COLS - 1 } });
-        rowMeta.push({ row: rSub, type: 'subtitle' });
-
-        const rHead = wsData.length;
-        wsData.push([...BILL_COLS]);
-        rowMeta.push({ row: rHead, type: 'header' });
-
-        items.forEach(c => {
-          rowMeta.push({ row: wsData.length, type: 'data' });
-          wsData.push(billClaimRow(c));
-        });
-
-        const totalFP = items.reduce((s, c) => s + getFilePrice(c), 0);
-        const totalRow = Array(NUM_BILL_COLS).fill('');
-        totalRow[1] = 'TOTAL';
-        totalRow[NUM_BILL_COLS - 1] = totalFP;
-        rowMeta.push({ row: wsData.length, type: 'total' });
-        wsData.push(totalRow);
-
-        wsData.push(Array(NUM_BILL_COLS).fill(''));
-      });
-
-      const rFooter = wsData.length;
-      wsData.push(['Prepared by: First Care Consultancy', ...Array(NUM_BILL_COLS - 1).fill('')]);
-      merges.push({ s: { r: rFooter, c: 0 }, e: { r: rFooter, c: NUM_BILL_COLS - 1 } });
-      rowMeta.push({ row: rFooter, type: 'footer' });
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!merges'] = merges;
-      ws['!cols'] = [
-        { wch: 5 }, { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 30 },
-        { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 20 }, { wch: 12 },
-      ];
-
-      rowMeta.forEach(({ row, type }) => {
-        const styles = {
-          hospital: { font: { bold: true, sz: 12, name: 'Arial' }, alignment: { horizontal: 'center', vertical: 'center' }, border },
-          subtitle: { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'center', vertical: 'center' }, border },
-          header:   { font: { bold: true, underline: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border },
-          footer:   { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'left', vertical: 'center' } },
-        };
-        for (let c = 0; c < NUM_BILL_COLS; c++) {
-          if (type === 'data') {
-            applyStyle(ws, row, c, { font: { sz: 10, name: 'Arial' }, alignment: { horizontal: c >= 8 ? 'right' : 'left', vertical: 'center' }, border });
-          } else if (type === 'total') {
-            applyStyle(ws, row, c, { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: c === 1 ? 'center' : c >= 8 ? 'right' : 'left', vertical: 'center' }, border });
-          } else if (styles[type]) {
-            applyStyle(ws, row, c, styles[type]);
-          }
+    rowMeta.forEach(({ row, type }) => {
+      const styles = {
+        hospital: { font: { bold: true, sz: 12, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } }, alignment: { horizontal: 'left', vertical: 'center' } },
+        subtitle: { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'center', vertical: 'center' }, border },
+        header:   { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'F3F4F6' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border },
+        footer:   { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'left', vertical: 'center' } },
+      };
+      for (let c = 0; c < NUM_BILL_COLS; c++) {
+        if (type === 'data') {
+          applyStyle(row, c, { font: { sz: 9, name: 'Arial' }, alignment: { horizontal: c >= 8 ? 'right' : 'left', vertical: 'center' }, border });
+        } else if (type === 'total') {
+          applyStyle(row, c, { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } }, alignment: { horizontal: c === 1 ? 'center' : c >= 8 ? 'right' : 'left', vertical: 'center' }, border });
+        } else if (styles[type]) {
+          applyStyle(row, c, styles[type]);
         }
-      });
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Bill Report');
-      const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
-      XLSX.writeFile(wb, `bill_${safeName}_${dateStr}.xlsx`);
+      }
     });
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bill Report');
+    return wb;
   };
 
-  const doExportBillPDF = () => {
-    const dateStr = new Date().toISOString().slice(0, 10);
+  const buildPDFDoc = (hospital, monthGroups) => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const today = new Date().toLocaleDateString('en-IN');
 
-    groupByHospital().forEach(({ hospital, monthGroups }) => {
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      let startY = 14;
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Bill Report — ClaimOptiq', 14, 15);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Generated: ${today}`, 14, 21);
 
-      monthGroups.forEach(({ month, items }) => {
-        autoTable(doc, {
-          startY,
-          body: [[hospital.toUpperCase()]],
-          theme: 'plain',
-          styles: { fontStyle: 'bold', fontSize: 11, halign: 'center', cellPadding: 2 },
-          tableLineColor: [0, 0, 0], tableLineWidth: 0.3,
-          margin: { left: 14, right: 14 },
-        });
-        startY = doc.lastAutoTable.finalY;
+    let startY = 28;
 
-        autoTable(doc, {
-          startY,
-          body: [[monthLabel(month)]],
-          theme: 'plain',
-          styles: { fontStyle: 'bold', fontSize: 9, halign: 'center', cellPadding: 1.5 },
-          tableLineColor: [0, 0, 0], tableLineWidth: 0.3,
-          margin: { left: 14, right: 14 },
-        });
-        startY = doc.lastAutoTable.finalY;
-
-        const totalFP = items.reduce((s, c) => s + getFilePrice(c), 0);
-        const totalRow = Array(NUM_BILL_COLS).fill('');
-        totalRow[1] = 'TOTAL';
-        totalRow[NUM_BILL_COLS - 1] = fmtAmt(totalFP);
-
-        autoTable(doc, {
-          startY,
-          head: [BILL_COLS],
-          body: [
-            ...items.map(c => billClaimRow(c).map((v, i) => i >= 8 ? fmtAmt(v) : (v ?? ''))),
-            totalRow,
-          ],
-          theme: 'grid',
-          headStyles: { fontStyle: 'bold', fontSize: 7, halign: 'center', textColor: [0, 0, 0], fillColor: [255, 255, 255], lineColor: [0, 0, 0], lineWidth: 0.3 },
-          bodyStyles: { fontSize: 7, textColor: [31, 41, 55], lineColor: [0, 0, 0], lineWidth: 0.3 },
-          didParseCell: (data) => {
-            if (data.section === 'body' && data.row.index === items.length) {
-              data.cell.styles.fontStyle = 'bold';
-            }
-            if (data.column.index >= 8) data.cell.styles.halign = 'right';
-          },
-          margin: { left: 14, right: 14 },
-        });
-        startY = doc.lastAutoTable.finalY + 6;
-
-        if (startY > 170) { doc.addPage(); startY = 14; }
+    monthGroups.forEach(({ month, items }) => {
+      autoTable(doc, {
+        startY,
+        body: [[hospital.toUpperCase()]],
+        theme: 'plain',
+        styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 3 },
+        margin: { left: 14, right: 14 },
       });
+      startY = doc.lastAutoTable.finalY;
 
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Prepared by: First Care Consultancy', 14, startY + 4);
+      autoTable(doc, {
+        startY,
+        body: [[monthLabel(month)]],
+        theme: 'plain',
+        styles: { fontStyle: 'bold', fontSize: 9, halign: 'center', cellPadding: 1.5 },
+        tableLineColor: [0, 0, 0], tableLineWidth: 0.3,
+        margin: { left: 14, right: 14 },
+      });
+      startY = doc.lastAutoTable.finalY;
 
+      const totalFP = items.reduce((s, c) => s + getFilePrice(c), 0);
+      const totalRow = Array(NUM_BILL_COLS).fill('');
+      totalRow[1] = 'TOTAL';
+      totalRow[NUM_BILL_COLS - 1] = fmtAmt(totalFP);
+
+      autoTable(doc, {
+        startY,
+        head: [BILL_COLS],
+        body: [
+          ...items.map(c => billClaimRow(c).map((v, i) => i >= 8 ? fmtAmt(v) : (v ?? ''))),
+          totalRow,
+        ],
+        theme: 'grid',
+        headStyles: { fillColor: [243, 244, 246], textColor: [55, 65, 81], fontStyle: 'bold', fontSize: 7 },
+        bodyStyles: { fontSize: 7, textColor: [31, 41, 55], lineColor: [0, 0, 0], lineWidth: 0.3 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index === items.length) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [254, 249, 195];
+          }
+          if (data.column.index >= 8) data.cell.styles.halign = 'right';
+        },
+        margin: { left: 14, right: 14 },
+      });
+      startY = doc.lastAutoTable.finalY + 6;
+
+      if (startY > 170) { doc.addPage(); startY = 14; }
+    });
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Prepared by: First Care Consultancy', 14, startY + 4);
+
+    return doc;
+  };
+
+  const doExportBillExcel = async () => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const groups = groupByHospital();
+
+    if (groups.length === 1) {
+      const { hospital, monthGroups } = groups[0];
+      const wb = buildExcelWB(hospital, monthGroups);
+      const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
+      XLSX.writeFile(wb, `bill_${safeName}_${dateStr}.xlsx`);
+      return;
+    }
+
+    const zip = new JSZip();
+    groups.forEach(({ hospital, monthGroups }) => {
+      const wb = buildExcelWB(hospital, monthGroups);
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
+      zip.file(`bill_${safeName}_${dateStr}.xlsx`, buf);
+    });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bill_report_${dateStr}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const doExportBillPDF = async () => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const groups = groupByHospital();
+
+    if (groups.length === 1) {
+      const { hospital, monthGroups } = groups[0];
+      const doc = buildPDFDoc(hospital, monthGroups);
       const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
       doc.save(`bill_${safeName}_${dateStr}.pdf`);
+      return;
+    }
+
+    const zip = new JSZip();
+    groups.forEach(({ hospital, monthGroups }) => {
+      const doc = buildPDFDoc(hospital, monthGroups);
+      const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
+      zip.file(`bill_${safeName}_${dateStr}.pdf`, doc.output('arraybuffer'));
     });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bill_report_${dateStr}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const getFilePrice = (c) => c.filePrice ||
@@ -430,22 +449,14 @@ const Reports = () => {
               className="flex-1 bg-primary-600 hover:bg-primary-700 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">
               {loading ? 'Loading...' : 'Generate'}
             </button>
-            <button onClick={exportCSV} disabled={!claims.length}
-              className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
-              <HiOutlineDownload className="w-4 h-4" /> CSV
+            <button onClick={doExportBillExcel} disabled={!claims.length}
+              className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-medium disabled:opacity-50 whitespace-nowrap">
+              <HiOutlineDownload className="w-3.5 h-3.5" /> XLS
             </button>
-            {isSuperAdmin && (
-              <div className="flex gap-1">
-                <button onClick={doExportBillExcel} disabled={!claims.length}
-                  className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-medium disabled:opacity-50 whitespace-nowrap">
-                  <HiOutlineDownload className="w-3.5 h-3.5" /> XLS
-                </button>
-                <button onClick={doExportBillPDF} disabled={!claims.length}
-                  className="flex items-center gap-1 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-xs font-medium disabled:opacity-50 whitespace-nowrap">
-                  <HiOutlineDownload className="w-3.5 h-3.5" /> PDF
-                </button>
-              </div>
-            )}
+            <button onClick={doExportBillPDF} disabled={!claims.length}
+              className="flex items-center gap-1 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-xs font-medium disabled:opacity-50 whitespace-nowrap">
+              <HiOutlineDownload className="w-3.5 h-3.5" /> PDF
+            </button>
           </div>
         </div>
       </div>
