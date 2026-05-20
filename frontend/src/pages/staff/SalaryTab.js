@@ -78,7 +78,18 @@ const ExtraAllowanceEditor = ({ record, onUpdate }) => {
 
 const SalaryRow = ({ r, canEdit, onUpdate, onFinalize }) => {
   const [expanded, setExpanded] = useState(false);
+  const [changing, setChanging] = useState(false);
   const bd = computeBreakdown(r);
+
+  const handleStatusChange = async (newValue) => {
+    setChanging(true);
+    try {
+      await onFinalize(r.id, newValue);
+    } finally {
+      setChanging(false);
+    }
+  };
+
   return (
     <>
       <tr className="hover:bg-gray-50 text-sm cursor-pointer" onClick={() => setExpanded(e => !e)}>
@@ -98,16 +109,31 @@ const SalaryRow = ({ r, canEdit, onUpdate, onFinalize }) => {
         <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.totalOt)}</td>
         <td className="py-3 px-4 font-bold text-gray-900">{formatCurrency(r.totalAmount)}</td>
         <td className="py-3 px-4">
-          {r.isFinalized
-            ? <span className="flex items-center gap-1 text-xs text-green-700 font-semibold bg-green-100 px-2 py-0.5 rounded-full"><HiOutlineLockClosed className="w-3 h-3" />Finalized</span>
-            : <span className="text-xs text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded-full font-semibold">Draft</span>}
+          {changing
+            ? <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-semibold animate-pulse">Updating...</span>
+            : r.isFinalized
+              ? <span className="flex items-center gap-1 text-xs text-green-700 font-semibold bg-green-100 px-2 py-0.5 rounded-full"><HiOutlineLockClosed className="w-3 h-3" />Finalized</span>
+              : <span className="text-xs text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded-full font-semibold">Draft</span>}
         </td>
         <td className="py-3 px-4 text-right">
-          {canEdit && !r.isFinalized && (
-            <button onClick={e => { e.stopPropagation(); onFinalize(r.id); }}
-              className="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded font-medium">
-              Finalize
-            </button>
+          {canEdit && (
+            r.isFinalized ? (
+              <button
+                onClick={e => { e.stopPropagation(); handleStatusChange(false); }}
+                disabled={changing}
+                className="text-xs bg-yellow-500 hover:bg-yellow-600 text-white px-2.5 py-1 rounded font-medium disabled:opacity-50"
+              >
+                {changing ? 'Updating...' : 'Revert to Draft'}
+              </button>
+            ) : (
+              <button
+                onClick={e => { e.stopPropagation(); handleStatusChange(true); }}
+                disabled={changing}
+                className="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded font-medium disabled:opacity-50"
+              >
+                {changing ? 'Updating...' : 'Finalize'}
+              </button>
+            )
           )}
         </td>
       </tr>
@@ -177,12 +203,12 @@ const AdminSalaryView = ({ canEdit }) => {
     finally { setComputing(false); }
   };
 
-  const handleFinalize = async (id) => {
+  const handleFinalize = async (id, isFinalized) => {
     try {
-      const { data } = await updateSalaryRecordAPI(id, { isFinalized: true });
+      const { data } = await updateSalaryRecordAPI(id, { isFinalized });
       setRecords(prev => prev.map(r => r.id === id ? data : r));
-      toast.success('Salary finalized');
-    } catch { toast.error('Failed to finalize'); }
+      toast.success(isFinalized ? 'Salary finalized' : 'Reverted to draft');
+    } catch { toast.error(isFinalized ? 'Failed to finalize' : 'Failed to revert to draft'); }
   };
 
   const handleUpdate = (updated) => {
