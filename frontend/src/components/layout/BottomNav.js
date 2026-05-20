@@ -13,7 +13,7 @@ const adminPaths = ['/hospitals', '/insurance', '/tpa', '/users', '/roles', '/cl
 const adminModules = ['hospitals', 'insurance', 'tpa', 'users', 'roles', 'claim_statuses'];
 
 const BottomNav = () => {
-  const { canViewModule } = useAuth();
+  const { canViewModule, user } = useAuth();
   const location = useLocation();
 
   const isAdminActive = adminPaths.some(p => location.pathname.startsWith(p));
@@ -52,7 +52,7 @@ const BottomNav = () => {
             Claims
           </NavLink>
         )}
-        {canViewModule('document_submissions') && (
+        {canViewModule('document_submissions') && user?.hospital && (
           <NavLink to="/documents/upload" className={({ isActive }) => tabCls(isActive)}>
             <HiOutlineUpload className="w-6 h-6" />
             Upload

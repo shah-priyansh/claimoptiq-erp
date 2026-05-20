@@ -6,9 +6,9 @@ import { useAuth } from '../../context/AuthContext';
 const FloatingUploadButton = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { canViewModule } = useAuth();
+  const { canViewModule, user } = useAuth();
 
-  if (!canViewModule('document_submissions')) return null;
+  if (!canViewModule('document_submissions') || !user?.hospital) return null;
   if (location.pathname === '/documents/upload') return null;
 
   return (

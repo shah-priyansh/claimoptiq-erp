@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck, HiOutlineX } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -23,6 +23,8 @@ const ClaimList = () => {
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
+  const [rejectionPending, setRejectionPending] = useState(null); // { claimId, currentStatus }
+  const [rejectionInput, setRejectionInput] = useState('');
   const initStatus = new URLSearchParams(location.search).get('status') || '';
   const [filters, setFilters] = useState({
     search: '', hospital: '', status: initStatus, claimType: '', month: '', page: 1
@@ -55,17 +57,38 @@ const ClaimList = () => {
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '-';
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
 
-  const handleStatusChange = async (claimId, newStatus) => {
+  const handleStatusChange = async (claimId, newStatus, currentStatus, rejectedReason) => {
+    if (newStatus === 'rejected' && rejectedReason === undefined) {
+      setRejectionInput('');
+      setRejectionPending({ claimId, currentStatus });
+      return;
+    }
     setUpdatingId(claimId);
     try {
-      await updateClaimAPI(claimId, { status: newStatus });
-      setClaims(prev => prev.map(c => c._id === claimId ? { ...c, status: newStatus } : c));
+      const extra = newStatus === 'rejected'
+        ? { rejectedReason: rejectedReason || '' }
+        : currentStatus === 'rejected'
+        ? { rejectedReason: '' }
+        : {};
+      await updateClaimAPI(claimId, { status: newStatus, ...extra });
+      setClaims(prev => prev.map(c =>
+        c._id === claimId
+          ? { ...c, status: newStatus, ...(extra.rejectedReason !== undefined ? { rejectedReason: extra.rejectedReason } : {}) }
+          : c
+      ));
       toast.success('Status updated');
     } catch {
       toast.error('Failed to update status');
     } finally {
       setUpdatingId(null);
     }
+  };
+
+  const handleConfirmRejection = () => {
+    if (!rejectionInput.trim()) { toast.error('Please enter a rejection reason'); return; }
+    const { claimId, currentStatus } = rejectionPending;
+    setRejectionPending(null);
+    handleStatusChange(claimId, 'rejected', currentStatus, rejectionInput.trim());
   };
 
   const StatusBadge = ({ c, loading }) => {
@@ -158,7 +181,7 @@ const ClaimList = () => {
                   return (
                     <button
                       key={s._id}
-                      onClick={() => { handleStatusChange(c._id, s.slug); setIsOpen(false); }}
+                      onClick={() => { handleStatusChange(c._id, s.slug, c.status); setIsOpen(false); }}
                       className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
                     >
                       <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{s.label}</span>
@@ -356,6 +379,46 @@ const ClaimList = () => {
           </div>
         )}
       </div>
+      {/* Rejection Reason Modal */}
+      {rejectionPending && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-red-500 to-red-400" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <HiOutlineX className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Rejection Reason</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Enter why this claim is being rejected</p>
+                </div>
+              </div>
+              <textarea
+                autoFocus
+                rows={3}
+                value={rejectionInput}
+                onChange={e => setRejectionInput(e.target.value)}
+                placeholder="Enter rejection reason…"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-400 resize-none"
+              />
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => setRejectionPending(null)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmRejection}
+                  className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-colors">
+                  Mark as Rejected
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

@@ -194,6 +194,8 @@ const ClaimDetail = () => {
   const [statusDropOpen, setStatusDropOpen] = useState(false);
   const [statusDropPos, setStatusDropPos] = useState({ top: 0, left: 0 });
   const [statusSearch, setStatusSearch] = useState('');
+  const [rejectionModal, setRejectionModal] = useState(false);
+  const [rejectionInput, setRejectionInput] = useState('');
   const statusBtnRef = useRef(null);
   const [previewIdx, setPreviewIdx] = useState(null);
   const [pendingFiles, setPendingFiles] = useState({ discharge: [], pod: [], settlement_proof: [], other: [] });
@@ -202,6 +204,8 @@ const ClaimDetail = () => {
   const [dischargeForm, setDischargeForm] = useState({});
   const [fileForm, setFileForm] = useState({});
   const [settlementForm, setSettlementForm] = useState({});
+  const [filePriceManual, setFilePriceManual] = useState(false);
+  const [savingFilePrice, setSavingFilePrice] = useState(false);
 
   useEffect(() => {
     setDischargeForm(prev => ({
@@ -221,6 +225,7 @@ const ClaimDetail = () => {
   }, [dischargeForm.finalApprovalAmount, settlementForm.settlementAmountDeduction, settlementForm.mouDiscountOnSettlement]);
 
   useEffect(() => {
+    if (filePriceManual) return;
     if (!claim?.hospital?.billingServices?.length) return;
     const computed = calculateFilePrice(
       claim.hospital.billingServices,
@@ -228,7 +233,7 @@ const ClaimDetail = () => {
       dischargeForm.finalApprovalAmount || 0,
     );
     setSettlementForm(prev => ({ ...prev, filePrice: computed }));
-  }, [claim, dischargeForm.hospitalFinalBill, dischargeForm.finalApprovalAmount]);
+  }, [claim, dischargeForm.hospitalFinalBill, dischargeForm.finalApprovalAmount, filePriceManual]);
 
   const showTds = claim && ['cashless', 'grievance'].includes(claim.claimType);
 
@@ -283,9 +288,11 @@ const ClaimDetail = () => {
         settlementDate: data.settlementDate?.slice(0, 10) || '',
         neftNo: data.neftNo || '',
         filePrice: data.filePrice || 0,
+        filePriceOverridden: !!data.filePriceOverridden,
         remarks: data.remarks || '',
         rejectedReason: data.rejectedReason || '',
       });
+      setFilePriceManual(!!data.filePriceOverridden);
     } catch {
       toast.error('Claim not found');
       navigate('/claims');
@@ -309,16 +316,36 @@ const ClaimDetail = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [previewIdx, claim?.documents?.length]);
 
-  const handleUpdateStatus = async (slug) => {
-    if (slug === claim.status) return;
+  const doStatusUpdate = async (slug, extra = {}) => {
     setStatusUpdating(true);
     try {
-      await updateClaimAPI(id, { status: slug });
+      await updateClaimAPI(id, { status: slug, ...extra });
       toast.success('Status updated');
       await fetchClaim(true);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to update status');
     } finally { setStatusUpdating(false); }
+  };
+
+  const handleUpdateStatus = (slug) => {
+    if (slug === claim.status) return;
+    if (slug === 'rejected') {
+      setRejectionInput('');
+      setRejectionModal(true);
+      return;
+    }
+    const extra = claim.status === 'rejected' ? { rejectedReason: '' } : {};
+    if (claim.status === 'rejected') {
+      setSettlementForm(sf => ({ ...sf, rejectedReason: '' }));
+    }
+    doStatusUpdate(slug, extra);
+  };
+
+  const handleConfirmRejection = async () => {
+    if (!rejectionInput.trim()) { toast.error('Please enter a rejection reason'); return; }
+    setRejectionModal(false);
+    setSettlementForm(sf => ({ ...sf, rejectedReason: rejectionInput.trim() }));
+    await doStatusUpdate('rejected', { rejectedReason: rejectionInput.trim() });
   };
 
   const handleFileSelect = (e, category) => {
@@ -396,6 +423,20 @@ const ClaimDetail = () => {
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to save');
     } finally { setSaving(false); }
+  };
+
+  const handleSaveFilePrice = async () => {
+    setSavingFilePrice(true);
+    try {
+      await updateClaimAPI(id, {
+        filePrice: settlementForm.filePrice,
+        filePriceOverridden: settlementForm.filePriceOverridden,
+      });
+      toast.success('File price saved');
+      await fetchClaim(true);
+    } catch {
+      toast.error('Failed to save file price');
+    } finally { setSavingFilePrice(false); }
   };
 
   const handleSaveOtherDocs = async () => {
@@ -597,11 +638,32 @@ const ClaimDetail = () => {
             {isSuperAdmin && (
               <div>
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">File Price</p>
-                <AmountInput
-                  value={settlementForm.filePrice || 0}
-                  onChange={v => setSettlementForm(sf => ({ ...sf, filePrice: v }))}
-                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                />
+                <div className="flex items-center gap-1.5">
+                  <AmountInput
+                    value={settlementForm.filePrice || 0}
+                    onChange={v => { setFilePriceManual(true); setSettlementForm(sf => ({ ...sf, filePrice: v, filePriceOverridden: true })); }}
+                    className={`w-full px-2.5 py-1.5 border rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white ${filePriceManual ? 'border-amber-300' : 'border-gray-200'}`}
+                  />
+                  <button
+                    onClick={handleSaveFilePrice}
+                    disabled={savingFilePrice}
+                    className="flex-shrink-0 px-2.5 py-1.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors">
+                    {savingFilePrice ? <Spinner sm /> : 'Save'}
+                  </button>
+                </div>
+                {filePriceManual ? (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-[10px] font-semibold text-amber-600">Manually edited</span>
+                    <span className="text-gray-300">·</span>
+                    <button
+                      onClick={() => { setFilePriceManual(false); setSettlementForm(sf => ({ ...sf, filePriceOverridden: false })); }}
+                      className="text-[10px] text-primary-600 hover:underline font-medium">
+                      Reset to auto
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-gray-400 mt-1">Auto-calculated</p>
+                )}
               </div>
             )}
           </div>
@@ -699,7 +761,7 @@ const ClaimDetail = () => {
                 <StatCard label="Settlement Amount"    value={formatAmount(claim.settlementAmount)} />
                 <StatCard label="TDS"                  value={formatAmount(claim.tds)} />
                 <StatCard label="Bank Transfer"        value={formatAmount(claim.bankTransferAmount)} highlight />
-                <StatCard label="File Price"           value={formatAmount(claim.filePrice)} />
+                {isSuperAdmin && <StatCard label="File Price" value={formatAmount(claim.filePrice)} />}
               </div>
             </div>
 
@@ -1136,6 +1198,47 @@ const ClaimDetail = () => {
           </div>
         )}
       </div>
+
+      {/* ── Rejection Reason Modal ── */}
+      {rejectionModal && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-red-500 to-red-400" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <HiOutlineX className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Rejection Reason</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Enter why this claim is being rejected</p>
+                </div>
+              </div>
+              <textarea
+                autoFocus
+                rows={3}
+                value={rejectionInput}
+                onChange={e => setRejectionInput(e.target.value)}
+                placeholder="Enter rejection reason…"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-400 resize-none"
+              />
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => setRejectionModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmRejection}
+                  className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-colors">
+                  Mark as Rejected
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* ── Status dropdown portal ── */}
       {statusDropOpen && !statusUpdating && ReactDOM.createPortal(

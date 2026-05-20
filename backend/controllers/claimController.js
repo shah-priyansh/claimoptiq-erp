@@ -206,7 +206,7 @@ exports.updateClaim = async (req, res) => {
       'deduction', 'finalApprovalAmount', 'fileReceivedDate', 'submitMode',
       'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber',
       'settlementAmount', 'settlementAmountDeduction', 'mouDiscountOnSettlement',
-      'tds', 'bankTransferAmount', 'settlementDate', 'neftNo', 'filePrice',
+      'tds', 'bankTransferAmount', 'settlementDate', 'neftNo', 'filePrice', 'filePriceOverridden',
       'treatmentType', 'diagnosis', 'surgeryName',
       'remarks', 'rejectedReason', 'finalApprovalDate', 'dateOfDischarge', 'dateOfAdmit', 'month',
     ];
