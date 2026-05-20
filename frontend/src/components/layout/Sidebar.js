@@ -29,7 +29,8 @@ const adminItems = [
 ];
 
 const Sidebar = ({ isOpen, onClose }) => {
-  const { canViewModule, user } = useAuth();
+  const { canViewModule, user, roleSlug } = useAuth();
+  const isSuperAdmin = roleSlug === 'super_admin';
   const location = useLocation();
 
   const isAdminRoute = adminItems.some(item => location.pathname.startsWith(item.to));
@@ -151,6 +152,12 @@ const Sidebar = ({ isOpen, onClose }) => {
             <NavLink to="/staff" className={linkClass} onClick={onClose}>
               <HiOutlineUserGroup className="w-5 h-5 flex-shrink-0" />
               Staff
+            </NavLink>
+          )}
+          {isSuperAdmin && (
+            <NavLink to="/settings" className={linkClass} onClick={onClose}>
+              <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
+              Settings
             </NavLink>
           )}
         </nav>

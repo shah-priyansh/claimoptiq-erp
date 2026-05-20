@@ -26,6 +26,7 @@ import BillingServiceNameList from './pages/billingservicenames/BillingServiceNa
 import DocumentUpload from './pages/documents/DocumentUpload';
 import DocumentInbox from './pages/documents/DocumentInbox';
 import StaffModule from './pages/staff/StaffModule';
+import SiteSettings from './pages/settings/SiteSettings';
 
 function App() {
   return (
@@ -57,6 +58,7 @@ function App() {
             <Route path="/documents/upload" element={<ProtectedRoute module="document_submissions" requireHospital><DocumentUpload /></ProtectedRoute>} />
             <Route path="/documents/inbox" element={<ProtectedRoute module="document_submissions"><DocumentInbox /></ProtectedRoute>} />
             <Route path="/staff" element={<ProtectedRoute module="staff"><StaffModule /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute superAdminOnly><SiteSettings /></ProtectedRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
