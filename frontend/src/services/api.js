@@ -27,6 +27,9 @@ API.interceptors.response.use(
 // Auth
 export const loginAPI = (data) => API.post('/auth/login', data);
 export const getMeAPI = () => API.get('/auth/me');
+export const getPublicStatsAPI = () => API.get('/settings');
+export const updateSiteSettingsAPI = (data) => API.put('/settings', data);
+
 export const getUsersAPI = () => API.get('/auth/users');
 export const createUserAPI = (data) => API.post('/auth/users', data);
 export const updateUserAPI = (id, data) => API.put(`/auth/users/${id}`, data);

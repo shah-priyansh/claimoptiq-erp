@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { loginAPI } from '../../services/api';
+import { loginAPI, getPublicStatsAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { isValidIdentifier, inputCls } from '../../utils/validators';
 
@@ -11,6 +11,11 @@ const Login = () => {
   const [form, setForm] = useState({ identifier: '', password: '' });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState({});
+
+  useEffect(() => {
+    getPublicStatsAPI().then(({ data }) => setStats(data)).catch(() => {});
+  }, []);
 
   if (user) return <Navigate to="/dashboard" replace />;
 
@@ -55,18 +60,22 @@ const Login = () => {
           <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <span className="text-4xl font-bold text-white">C</span>
           </div>
-          <h1 className="text-4xl font-bold mb-4">ClaimOptiq</h1>
-          <p className="text-xl text-primary-100 mb-2">AI ERP Suite</p>
+          <h1 className="text-4xl font-bold mb-4">{stats.login_title || 'ClaimOptiq'}</h1>
+          <p className="text-xl text-primary-100 mb-2">{stats.login_subtitle || 'AI ERP Suite'}</p>
           <p className="text-primary-200 text-sm max-w-md">
-            AI-Powered Healthcare Business Operating System by First Care Consultancy
+            {stats.login_tagline || 'AI-Powered Healthcare Business Operating System by First Care Consultancy'}
           </p>
           <div className="mt-10 grid grid-cols-2 gap-4 text-sm text-primary-100">
             <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-2xl font-bold text-white">4300+</p>
+              <p className="text-2xl font-bold text-white">
+                {stats.login_stat_claims || '—'}
+              </p>
               <p>Claims Managed</p>
             </div>
             <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-2xl font-bold text-white">50+</p>
+              <p className="text-2xl font-bold text-white">
+                {stats.login_stat_hospitals || '—'}
+              </p>
               <p>Hospitals</p>
             </div>
           </div>

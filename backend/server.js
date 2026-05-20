@@ -32,10 +32,12 @@ app.use('/api/claim-document-types', require('./routes/claimDocumentTypeRoutes')
 app.use('/api/document-submissions', require('./routes/documentSubmissionRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/staff', require('./routes/staffRoutes'));
+app.use('/api/settings', require('./routes/siteSettingRoutes'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'ClaimOptiq API is running' });
 });
+
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
