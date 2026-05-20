@@ -50,7 +50,7 @@ const STATUS_CARD_COLOR = {
 };
 
 const Dashboard = () => {
-  const { roleSlug, canViewModule } = useAuth();
+  const { roleSlug, canViewModule, user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -86,7 +86,7 @@ const Dashboard = () => {
       </div>
 
       {/* Upload CTA */}
-      {canViewModule('document_submissions') && (
+      {canViewModule('document_submissions') && user?.hospital && (
         <button
           onClick={() => navigate('/documents/upload')}
           className="w-full bg-gradient-to-r from-primary-600 to-primary-500 rounded-2xl p-5 flex items-center justify-between text-white hover:from-primary-700 hover:to-primary-600 shadow-md shadow-primary-200 hover:shadow-lg hover:shadow-primary-300 hover:-translate-y-0.5 transition-all duration-200"
