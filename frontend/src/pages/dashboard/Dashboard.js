@@ -5,12 +5,10 @@ import { formatCurrencyCompact } from '../../utils/format';
 import { useAuth } from '../../context/AuthContext';
 import {
   HiOutlineDocumentText,
-  HiOutlineClock,
   HiOutlineCheckCircle,
-  HiOutlineBadgeCheck,
   HiOutlineOfficeBuilding,
-  HiOutlineXCircle,
   HiOutlineCurrencyRupee,
+  HiOutlineTrendingUp,
   HiOutlineUpload,
   HiChevronRight,
 } from 'react-icons/hi';
@@ -109,13 +107,7 @@ const Dashboard = () => {
       {/* Claim Overview */}
       <div>
         <SectionLabel>Claim Overview</SectionLabel>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <StatCard title="Total Claims"  value={stats?.total || 0}     icon={HiOutlineDocumentText} color="bg-primary-100 text-primary-600" />
-          <StatCard title="In Process"    value={stats?.inProcess || 0} icon={HiOutlineClock}        color="bg-amber-100 text-amber-600" />
-          <StatCard title="Approved"      value={stats?.approved || 0}  icon={HiOutlineBadgeCheck}   color="bg-blue-100 text-blue-600" />
-          <StatCard title="Settled"       value={stats?.completed || 0} icon={HiOutlineCheckCircle}  color="bg-emerald-100 text-emerald-600" />
-          <StatCard title="Rejected"      value={stats?.rejected || 0}  icon={HiOutlineXCircle}      color="bg-red-100 text-red-600" />
-        </div>
+        <StatCard title="Total Claims" value={stats?.total || 0} icon={HiOutlineDocumentText} color="bg-primary-100 text-primary-600" />
       </div>
 
       {/* Monthly / Revenue Stats */}
@@ -149,17 +141,17 @@ const Dashboard = () => {
               />
               <StatCard
                 title="Monthly Settlements"
-                value={stats?.monthlyStats?.count || 0}
+                value={formatCurrencyCompact(stats?.monthlyStats?.totalApprovalAmount || 0)}
                 icon={HiOutlineCurrencyRupee}
                 color="bg-teal-100 text-teal-600"
-                subtitle={`Total: ${formatCurrencyCompact(stats?.monthlyStats?.totalSettlement || 0)}`}
+                subtitle={`${stats?.monthlyStats?.count || 0} claim${stats?.monthlyStats?.count !== 1 ? 's' : ''} settled this month`}
               />
               <StatCard
                 title="Monthly Revenue"
                 value={formatCurrencyCompact(stats?.monthlyStats?.totalFilePrice || 0)}
-                icon={HiOutlineCurrencyRupee}
+                icon={HiOutlineTrendingUp}
                 color="bg-green-100 text-green-600"
-                subtitle="From file charges"
+                subtitle="From file charges this month"
               />
             </div>
           )}
