@@ -218,11 +218,11 @@ const ClaimDetail = () => {
     setSettlementForm(prev => ({
       ...prev,
       settlementAmount:
-        (dischargeForm.finalApprovalAmount || 0) +
+        (dischargeForm.finalApprovalAmount || claim?.finalApprovalAmount || 0) +
         (prev.settlementAmountDeduction || 0) +
         (prev.mouDiscountOnSettlement || 0),
     }));
-  }, [dischargeForm.finalApprovalAmount, settlementForm.settlementAmountDeduction, settlementForm.mouDiscountOnSettlement]);
+  }, [dischargeForm.finalApprovalAmount, claim?.finalApprovalAmount, settlementForm.settlementAmountDeduction, settlementForm.mouDiscountOnSettlement]);
 
   useEffect(() => {
     if (filePriceManual) return;
@@ -244,6 +244,24 @@ const ClaimDetail = () => {
       tds: Math.round((prev.settlementAmount || 0) * 0.10),
     }));
   }, [settlementForm.settlementAmount, showTds]);
+
+  useEffect(() => {
+    setSettlementForm(prev => ({
+      ...prev,
+      bankTransferAmount: Math.max(
+        0,
+        (prev.settlementAmount || 0) -
+        (prev.mouDiscountOnSettlement || 0) -
+        (prev.settlementAmountDeduction || 0) -
+        (prev.tds || 0),
+      ),
+    }));
+  }, [
+    settlementForm.settlementAmount,
+    settlementForm.mouDiscountOnSettlement,
+    settlementForm.settlementAmountDeduction,
+    settlementForm.tds,
+  ]);
 
   useEffect(() => {
     getClaimStatusesAPI().then(({ data }) => setClaimStatuses(
@@ -279,12 +297,19 @@ const ClaimDetail = () => {
         courierCompanyName: data.courierCompanyName || '',
         podNumber: data.podNumber || '',
       });
+      const initialSettlementAmount = data.settlementAmount
+        || ((data.finalApprovalAmount || 0) + (data.settlementAmountDeduction || 0) + (data.mouDiscountOnSettlement || 0))
+        || 0;
+      const initialTds = data.tds
+        || (['cashless', 'grievance'].includes(data.claimType) ? Math.round(initialSettlementAmount * 0.10) : 0);
+      const initialBank = data.bankTransferAmount
+        || Math.max(0, initialSettlementAmount - (data.mouDiscountOnSettlement || 0) - (data.settlementAmountDeduction || 0) - initialTds);
       setSettlementForm({
-        settlementAmount: data.settlementAmount || 0,
+        settlementAmount: initialSettlementAmount,
         settlementAmountDeduction: data.settlementAmountDeduction || 0,
         mouDiscountOnSettlement: data.mouDiscountOnSettlement || 0,
-        tds: data.tds || 0,
-        bankTransferAmount: data.bankTransferAmount || 0,
+        tds: initialTds,
+        bankTransferAmount: initialBank,
         settlementDate: data.settlementDate?.slice(0, 10) || '',
         neftNo: data.neftNo || '',
         filePrice: data.filePrice || 0,
@@ -934,7 +959,7 @@ const ClaimDetail = () => {
                   { label: 'Settlement Deduction (₹)',        name: 'settlementAmountDeduction',  type: 'amount', allowNegative: true },
                   { label: 'MOU Discount on Settlement (₹)',  name: 'mouDiscountOnSettlement',    type: 'amount' },
                   ...(showTds ? [{ label: 'TDS (₹) — 10% auto-calculated', name: 'tds', type: 'amount' }] : []),
-                  { label: 'Bank Transfer Amount (₹)',        name: 'bankTransferAmount',         type: 'amount' },
+                  { label: 'Bank Transfer Amount (₹) — auto-calculated', name: 'bankTransferAmount', type: 'amount' },
                   { label: 'Settlement Date',                 name: 'settlementDate',             type: 'date' },
                   { label: 'NEFT Number',                     name: 'neftNo',                     type: 'text' },
                 ].reduce((els, f) => {
