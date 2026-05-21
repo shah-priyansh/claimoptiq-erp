@@ -218,8 +218,8 @@ const ClaimDetail = () => {
     setSettlementForm(prev => ({
       ...prev,
       settlementAmount:
-        (dischargeForm.finalApprovalAmount || claim?.finalApprovalAmount || 0) +
-        (prev.settlementAmountDeduction || 0) +
+        (dischargeForm.finalApprovalAmount || claim?.finalApprovalAmount || 0) -
+        (prev.settlementAmountDeduction || 0) -
         (prev.mouDiscountOnSettlement || 0),
     }));
   }, [dischargeForm.finalApprovalAmount, claim?.finalApprovalAmount, settlementForm.settlementAmountDeduction, settlementForm.mouDiscountOnSettlement]);
@@ -250,18 +250,10 @@ const ClaimDetail = () => {
       ...prev,
       bankTransferAmount: Math.max(
         0,
-        (prev.settlementAmount || 0) -
-        (prev.mouDiscountOnSettlement || 0) -
-        (prev.settlementAmountDeduction || 0) -
-        (prev.tds || 0),
+        (prev.settlementAmount || 0) - (prev.tds || 0),
       ),
     }));
-  }, [
-    settlementForm.settlementAmount,
-    settlementForm.mouDiscountOnSettlement,
-    settlementForm.settlementAmountDeduction,
-    settlementForm.tds,
-  ]);
+  }, [settlementForm.settlementAmount, settlementForm.tds]);
 
   useEffect(() => {
     getClaimStatusesAPI().then(({ data }) => setClaimStatuses(
@@ -298,12 +290,12 @@ const ClaimDetail = () => {
         podNumber: data.podNumber || '',
       });
       const initialSettlementAmount = data.settlementAmount
-        || ((data.finalApprovalAmount || 0) + (data.settlementAmountDeduction || 0) + (data.mouDiscountOnSettlement || 0))
+        || ((data.finalApprovalAmount || 0) - (data.settlementAmountDeduction || 0) - (data.mouDiscountOnSettlement || 0))
         || 0;
       const initialTds = data.tds
         || (['cashless', 'grievance'].includes(data.claimType) ? Math.round(initialSettlementAmount * 0.10) : 0);
       const initialBank = data.bankTransferAmount
-        || Math.max(0, initialSettlementAmount - (data.mouDiscountOnSettlement || 0) - (data.settlementAmountDeduction || 0) - initialTds);
+        || Math.max(0, initialSettlementAmount - initialTds);
       setSettlementForm({
         settlementAmount: initialSettlementAmount,
         settlementAmountDeduction: data.settlementAmountDeduction || 0,
@@ -957,7 +949,7 @@ const ClaimDetail = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[
                   { label: 'Settlement Deduction (₹)',        name: 'settlementAmountDeduction',  type: 'amount', allowNegative: true },
-                  { label: 'MOU Discount on Settlement (₹)',  name: 'mouDiscountOnSettlement',    type: 'amount' },
+                  { label: 'MOU Discount on Settlement (₹)',  name: 'mouDiscountOnSettlement',    type: 'amount', allowNegative: true },
                   ...(showTds ? [{ label: 'TDS (₹) — 10% auto-calculated', name: 'tds', type: 'amount' }] : []),
                   { label: 'Bank Transfer Amount (₹) — auto-calculated', name: 'bankTransferAmount', type: 'amount' },
                   { label: 'Settlement Date',                 name: 'settlementDate',             type: 'date' },
