@@ -2,6 +2,7 @@ const prisma = require('../config/prisma');
 const path = require('path');
 const fs = require('fs');
 const { toResponse } = require('../utils/toResponse');
+const calculateFilePrice = require('../utils/calculateFilePrice');
 
 const getUserHospitalId = (user) => {
   if (!user.hospital) return null;
@@ -222,6 +223,11 @@ exports.updateClaim = async (req, res) => {
     if (req.body.tpa !== undefined) data.tpaId = req.body.tpa || null;
     if (req.body.hospital) data.hospitalId = req.body.hospital;
 
+    // Auto-set settlementDate when transitioning to settled
+    if (data.status === 'settled' && !data.settlementDate && !claim.settlementDate) {
+      data.settlementDate = new Date();
+    }
+
     const updated = await prisma.claim.update({
       where: { id: req.params.id },
       data,
@@ -361,15 +367,59 @@ exports.getDashboardStats = async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    const monthlyAgg = await prisma.claim.aggregate({
+    const billingServiceSelect = {
+      select: {
+        billingServices: {
+          where: { isActive: true },
+          include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+        },
+      },
+    };
+
+    // Settled claims this month — for settlement amount and count
+    const monthlySettledClaims = await prisma.claim.findMany({
       where: {
         ...baseWhere,
         status: 'settled',
-        settlementDate: { gte: monthStart, lte: monthEnd },
+        OR: [
+          { settlementDate: { gte: monthStart, lte: monthEnd } },
+          { settlementDate: null, updatedAt: { gte: monthStart, lte: monthEnd } },
+        ],
       },
-      _sum: { bankTransferAmount: true, filePrice: true, finalApprovalAmount: true },
-      _count: { id: true },
+      select: {
+        bankTransferAmount: true,
+        finalApprovalAmount: true,
+      },
     });
+
+    // All billed claims this month — for revenue (file price)
+    const monthlyBilledClaims = await prisma.claim.findMany({
+      where: {
+        ...baseWhere,
+        isBilled: true,
+        createdAt: { gte: monthStart, lte: monthEnd },
+      },
+      select: {
+        filePrice: true,
+        filePriceOverridden: true,
+        hospitalFinalBill: true,
+        finalApprovalAmount: true,
+        hospital: billingServiceSelect,
+      },
+    });
+
+    let totalSettlement = 0, totalApprovalAmount = 0;
+    for (const c of monthlySettledClaims) {
+      totalSettlement += c.bankTransferAmount || 0;
+      totalApprovalAmount += c.finalApprovalAmount || 0;
+    }
+
+    let totalFilePrice = 0;
+    for (const c of monthlyBilledClaims) {
+      totalFilePrice += c.filePriceOverridden && c.filePrice
+        ? c.filePrice
+        : calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
+    }
 
     let hospitalCount = 0;
     if (!userHospitalId) {
@@ -390,10 +440,10 @@ exports.getDashboardStats = async (req, res) => {
       approved,
       isHospitalUser: !!userHospitalId,
       monthlyStats: {
-        totalSettlement: monthlyAgg._sum.bankTransferAmount || 0,
-        totalFilePrice: monthlyAgg._sum.filePrice || 0,
-        totalApprovalAmount: monthlyAgg._sum.finalApprovalAmount || 0,
-        count: monthlyAgg._count.id || 0,
+        totalSettlement,
+        totalFilePrice,
+        totalApprovalAmount,
+        count: monthlySettledClaims.length,
       },
     });
   } catch (error) {
