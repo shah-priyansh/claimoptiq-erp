@@ -47,17 +47,34 @@ const STATUS_CARD_COLOR = {
   gray:   { bar: 'bg-gray-400',   bg: 'bg-gray-50',   text: 'text-gray-600',   num: 'text-gray-700'   },
 };
 
+const CACHE_KEY = 'dashboard_stats';
+const CACHE_TTL = 60 * 1000; // 1 minute
+
 const Dashboard = () => {
   const { roleSlug, canViewModule, user } = useAuth();
   const navigate = useNavigate();
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const { data, ts } = JSON.parse(cached);
+        if (Date.now() - ts < CACHE_TTL) return data;
+      }
+    } catch {}
+    return null;
+  });
+  const [loading, setLoading] = useState(!stats);
   const showRevenue = SHOW_REVENUE_SLUGS.includes(roleSlug);
   const isHospitalAdmin = roleSlug === 'hospital_admin';
 
   useEffect(() => {
     getDashboardAPI()
-      .then((res) => setStats(res.data))
+      .then((res) => {
+        setStats(res.data);
+        try {
+          sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: res.data, ts: Date.now() }));
+        } catch {}
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);

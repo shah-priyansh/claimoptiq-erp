@@ -340,77 +340,102 @@ exports.bulkBill = async (req, res) => {
   }
 };
 
+// Claim statuses change rarely — cache for 5 minutes to skip a DB round trip on every dashboard load
+let _statusCache = null;
+let _statusCacheExpiry = 0;
+const STATUS_CACHE_TTL = 5 * 60 * 1000;
+
+async function getCachedStatuses() {
+  if (_statusCache && Date.now() < _statusCacheExpiry) return _statusCache;
+  _statusCache = await prisma.claimStatus.findMany({
+    where: { isActive: true, superAdminOnly: false },
+    orderBy: { order: 'asc' },
+    select: { slug: true, label: true, color: true },
+  });
+  _statusCacheExpiry = Date.now() + STATUS_CACHE_TTL;
+  return _statusCache;
+}
+
+exports.invalidateStatusCache = () => { _statusCache = null; };
+
 exports.getDashboardStats = async (req, res) => {
   try {
     const userHospitalId = getUserHospitalId(req.user);
     const baseWhere = userHospitalId ? { hospitalId: userHospitalId } : {};
 
-    const [total, approved, statusGroups, allStatuses] = await Promise.all([
-      prisma.claim.count({ where: baseWhere }),
-      prisma.claim.count({ where: { ...baseWhere, finalApprovalAmount: { gt: 0 }, status: { notIn: ['settled', 'rejected'] } } }),
-      prisma.claim.groupBy({ by: ['status'], where: baseWhere, _count: { id: true } }),
-      prisma.claimStatus.findMany({ where: { isActive: true, superAdminOnly: false }, orderBy: { order: 'asc' }, select: { slug: true, label: true, color: true } }),
-    ]);
-
-    const countMap = {};
-    statusGroups.forEach(g => { countMap[g.status] = g._count.id; });
-    const statusBreakdown = allStatuses.map(s => ({ slug: s.slug, label: s.label, color: s.color, count: countMap[s.slug] || 0 }));
-
-    const settled  = countMap['settled']  || 0;
-    const rejected = countMap['rejected'] || 0;
-    const admitted = countMap['admitted'] || 0;
-    const discharged   = countMap['discharged']    || 0;
-    const fileReceived = countMap['file_received'] || 0;
-    const submitted    = countMap['submitted']     || 0;
-
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    const billingServiceSelect = {
-      select: {
-        billingServices: {
-          where: { isActive: true },
-          include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+    // Single parallel round trip — all independent queries fire at once
+    const [
+      total,
+      statusGroups,
+      allStatuses,
+      monthlySettledClaims,
+      monthlyBilledClaims,
+      hospitalCount,
+    ] = await Promise.all([
+      prisma.claim.count({ where: baseWhere }),
+      prisma.claim.groupBy({ by: ['status'], where: baseWhere, _count: { id: true } }),
+      getCachedStatuses(),
+      prisma.claim.findMany({
+        where: {
+          ...baseWhere,
+          status: 'settled',
+          OR: [
+            { settlementDate: { gte: monthStart, lte: monthEnd } },
+            { settlementDate: null, updatedAt: { gte: monthStart, lte: monthEnd } },
+          ],
         },
-      },
-    };
+        select: { bankTransferAmount: true, finalApprovalAmount: true },
+      }),
+      prisma.claim.findMany({
+        where: { ...baseWhere, isBilled: true, createdAt: { gte: monthStart, lte: monthEnd } },
+        select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, hospitalId: true },
+      }),
+      userHospitalId
+        ? Promise.resolve(0)
+        : prisma.hospital.count({ where: { isActive: true } }),
+    ]);
 
-    // Settled claims this month — for settlement amount and count
-    const monthlySettledClaims = await prisma.claim.findMany({
-      where: {
-        ...baseWhere,
-        status: 'settled',
-        OR: [
-          { settlementDate: { gte: monthStart, lte: monthEnd } },
-          { settlementDate: null, updatedAt: { gte: monthStart, lte: monthEnd } },
-        ],
-      },
-      select: {
-        bankTransferAmount: true,
-        finalApprovalAmount: true,
-      },
-    });
+    // Fetch billing services only for unique hospitals that still need calculation
+    const hospitalsNeedingCalc = [...new Set(
+      monthlyBilledClaims
+        .filter(c => !(c.filePriceOverridden && c.filePrice))
+        .map(c => c.hospitalId)
+        .filter(Boolean)
+    )];
+    const hospitalBillingMap = {};
+    if (hospitalsNeedingCalc.length > 0) {
+      const hospitals = await prisma.hospital.findMany({
+        where: { id: { in: hospitalsNeedingCalc } },
+        select: {
+          id: true,
+          billingServices: {
+            where: { isActive: true },
+            include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+          },
+        },
+      });
+      hospitals.forEach(h => { hospitalBillingMap[h.id] = h.billingServices; });
+    }
 
-    // All billed claims this month — for revenue (file price)
-    const monthlyBilledClaims = await prisma.claim.findMany({
-      where: {
-        ...baseWhere,
-        isBilled: true,
-        createdAt: { gte: monthStart, lte: monthEnd },
-      },
-      select: {
-        filePrice: true,
-        filePriceOverridden: true,
-        hospitalFinalBill: true,
-        finalApprovalAmount: true,
-        hospital: billingServiceSelect,
-      },
-    });
+    // Compute counts and breakdowns in memory
+    const countMap = {};
+    statusGroups.forEach(g => { countMap[g.status] = g._count.id; });
+    const statusBreakdown = allStatuses.map(s => ({ slug: s.slug, label: s.label, color: s.color, count: countMap[s.slug] || 0 }));
+
+    const settled      = countMap['settled']       || 0;
+    const rejected     = countMap['rejected']      || 0;
+    const admitted     = countMap['admitted']      || 0;
+    const discharged   = countMap['discharged']    || 0;
+    const fileReceived = countMap['file_received'] || 0;
+    const submitted    = countMap['submitted']     || 0;
 
     let totalSettlement = 0, totalApprovalAmount = 0;
     for (const c of monthlySettledClaims) {
-      totalSettlement += c.bankTransferAmount || 0;
+      totalSettlement    += c.bankTransferAmount  || 0;
       totalApprovalAmount += c.finalApprovalAmount || 0;
     }
 
@@ -418,12 +443,7 @@ exports.getDashboardStats = async (req, res) => {
     for (const c of monthlyBilledClaims) {
       totalFilePrice += c.filePriceOverridden && c.filePrice
         ? c.filePrice
-        : calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
-    }
-
-    let hospitalCount = 0;
-    if (!userHospitalId) {
-      hospitalCount = await prisma.hospital.count({ where: { isActive: true } });
+        : calculateFilePrice(hospitalBillingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
     }
 
     res.json({
@@ -437,7 +457,6 @@ exports.getDashboardStats = async (req, res) => {
       submitted,
       statusBreakdown,
       hospitalCount,
-      approved,
       isHospitalUser: !!userHospitalId,
       monthlyStats: {
         totalSettlement,
