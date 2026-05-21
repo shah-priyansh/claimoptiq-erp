@@ -121,59 +121,67 @@ const Dashboard = () => {
         </button>
       )}
 
-      {/* Claim Overview */}
+      {/* Overview Stats */}
       <div>
-        <SectionLabel>Claim Overview</SectionLabel>
-        <StatCard title="Total Claims" value={stats?.total || 0} icon={HiOutlineDocumentText} color="bg-primary-100 text-primary-600" />
+        <SectionLabel>Overview</SectionLabel>
+        {!showRevenue ? (
+          <div className="grid grid-cols-1 gap-4">
+            <StatCard title="Total Claims" value={stats?.total || 0} icon={HiOutlineDocumentText} color="bg-primary-100 text-primary-600" />
+          </div>
+        ) : isHospitalAdmin ? (
+          <div className="grid grid-cols-3 gap-4">
+            <StatCard
+              title="Total Claims"
+              value={stats?.total || 0}
+              icon={HiOutlineDocumentText}
+              color="bg-primary-100 text-primary-600"
+            />
+            <StatCard
+              title="Settled Claims"
+              value={stats?.monthlyStats?.count || 0}
+              icon={HiOutlineCheckCircle}
+              color="bg-teal-100 text-teal-600"
+              subtitle="Settled claims this month"
+            />
+            <StatCard
+              title="Approved Amount"
+              value={formatCurrencyCompact(stats?.monthlyStats?.totalApprovalAmount || 0)}
+              icon={HiOutlineCurrencyRupee}
+              color="bg-green-100 text-green-600"
+              subtitle="Your hospital this month"
+            />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              title="Total Claims"
+              value={stats?.total || 0}
+              icon={HiOutlineDocumentText}
+              color="bg-primary-100 text-primary-600"
+            />
+            <StatCard
+              title="Total Hospitals"
+              value={stats?.hospitalCount || 0}
+              icon={HiOutlineOfficeBuilding}
+              color="bg-indigo-100 text-indigo-600"
+            />
+            <StatCard
+              title="Monthly Settlements"
+              value={formatCurrencyCompact(stats?.monthlyStats?.totalApprovalAmount || 0)}
+              icon={HiOutlineCurrencyRupee}
+              color="bg-teal-100 text-teal-600"
+              subtitle={`${stats?.monthlyStats?.count || 0} claim${stats?.monthlyStats?.count !== 1 ? 's' : ''} settled this month`}
+            />
+            <StatCard
+              title="Monthly Revenue"
+              value={formatCurrencyCompact(stats?.monthlyStats?.totalFilePrice || 0)}
+              icon={HiOutlineTrendingUp}
+              color="bg-green-100 text-green-600"
+              subtitle="From file charges this month"
+            />
+          </div>
+        )}
       </div>
-
-      {/* Monthly / Revenue Stats */}
-      {showRevenue && (
-        <div>
-          <SectionLabel>This Month</SectionLabel>
-          {isHospitalAdmin ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <StatCard
-                title="Settled Claims"
-                value={stats?.monthlyStats?.count || 0}
-                icon={HiOutlineCheckCircle}
-                color="bg-teal-100 text-teal-600"
-                subtitle="Settled claims this month"
-              />
-              <StatCard
-                title="Approved Amount"
-                value={formatCurrencyCompact(stats?.monthlyStats?.totalApprovalAmount || 0)}
-                icon={HiOutlineCurrencyRupee}
-                color="bg-green-100 text-green-600"
-                subtitle="Your hospital this month"
-              />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <StatCard
-                title="Total Hospitals"
-                value={stats?.hospitalCount || 0}
-                icon={HiOutlineOfficeBuilding}
-                color="bg-indigo-100 text-indigo-600"
-              />
-              <StatCard
-                title="Monthly Settlements"
-                value={formatCurrencyCompact(stats?.monthlyStats?.totalApprovalAmount || 0)}
-                icon={HiOutlineCurrencyRupee}
-                color="bg-teal-100 text-teal-600"
-                subtitle={`${stats?.monthlyStats?.count || 0} claim${stats?.monthlyStats?.count !== 1 ? 's' : ''} settled this month`}
-              />
-              <StatCard
-                title="Monthly Revenue"
-                value={formatCurrencyCompact(stats?.monthlyStats?.totalFilePrice || 0)}
-                icon={HiOutlineTrendingUp}
-                color="bg-green-100 text-green-600"
-                subtitle="From file charges this month"
-              />
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Status Breakdown */}
       {stats?.statusBreakdown?.length > 0 && (
