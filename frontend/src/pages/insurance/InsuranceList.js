@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
+import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCheck, HiOutlineX } from 'react-icons/hi';
 
 const InsuranceList = () => {
   const confirm = useConfirm();
+  const { can } = useAuth();
+  const canCreate = can('insurance', 'create');
+  const canEdit = can('insurance', 'edit');
+  const canDelete = can('insurance', 'delete');
   const [items, setItems] = useState([]);
   const [newName, setNewName] = useState('');
   const [editId, setEditId] = useState(null);
@@ -62,20 +67,22 @@ const InsuranceList = () => {
       <p className="text-sm text-gray-500 mb-6">Manage insurance company list for claim dropdowns</p>
 
       {/* Add Form */}
-      <form onSubmit={handleAdd} className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
-        <div className="flex gap-3">
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Enter insurance company name..."
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
-          <button type="submit"
-            className="flex items-center gap-1 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-            <HiOutlinePlus className="w-4 h-4" /> Add
-          </button>
-        </div>
-      </form>
+      {canCreate && (
+        <form onSubmit={handleAdd} className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+          <div className="flex gap-3">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Enter insurance company name..."
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+            <button type="submit"
+              className="flex items-center gap-1 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              <HiOutlinePlus className="w-4 h-4" /> Add
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* List */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -119,14 +126,18 @@ const InsuranceList = () => {
                       </>
                     ) : (
                       <>
-                        <button onClick={() => { setEditId(item._id); setEditName(item.name); }}
-                          className="p-2.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg">
-                          <HiOutlinePencil className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(item._id, item.name)}
-                          className="p-2.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg">
-                          <HiOutlineTrash className="w-4 h-4" />
-                        </button>
+                        {canEdit && (
+                          <button onClick={() => { setEditId(item._id); setEditName(item.name); }}
+                            className="p-2.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg">
+                            <HiOutlinePencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button onClick={() => handleDelete(item._id, item.name)}
+                            className="p-2.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                            <HiOutlineTrash className="w-4 h-4" />
+                          </button>
+                        )}
                       </>
                     )}
                   </div>

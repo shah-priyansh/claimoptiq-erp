@@ -13,7 +13,7 @@ const adminPaths = ['/hospitals', '/insurance', '/tpa', '/users', '/roles', '/cl
 const adminModules = ['hospitals', 'insurance', 'tpa', 'users', 'roles', 'claim_statuses'];
 
 const BottomNav = () => {
-  const { canViewModule, user } = useAuth();
+  const { canViewModule, canManageModule, user } = useAuth();
   const location = useLocation();
 
   const isAdminActive = adminPaths.some(p => location.pathname.startsWith(p));
@@ -25,9 +25,9 @@ const BottomNav = () => {
     { path: '/users', module: 'users' },
     { path: '/roles', module: 'roles' },
     { path: '/claim-statuses', module: 'claim_statuses' },
-  ].find(item => canViewModule(item.module))?.path || '/hospitals';
+  ].find(item => canManageModule(item.module))?.path || '/hospitals';
 
-  const hasAdminAccess = adminModules.some(m => canViewModule(m));
+  const hasAdminAccess = adminModules.some(m => canManageModule(m));
 
   const tabCls = (active) =>
     `flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors min-h-[56px] ${

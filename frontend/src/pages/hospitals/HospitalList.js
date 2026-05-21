@@ -94,8 +94,11 @@ const HospitalList = () => {
           ) : (
             <div className="divide-y divide-gray-100">
               {hospitals.map((h) => (
-                <div key={h._id} className="p-4 active:bg-gray-50"
-                  onClick={() => navigate(`/hospitals/${h._id}`)}>
+                <div
+                  key={h._id}
+                  className={`p-4 ${can('hospitals', 'edit') ? 'active:bg-gray-50 cursor-pointer' : ''}`}
+                  onClick={can('hospitals', 'edit') ? () => navigate(`/hospitals/${h._id}/edit`) : undefined}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
@@ -108,20 +111,24 @@ const HospitalList = () => {
                         </p>
                       </div>
                     </div>
-                    {can('hospitals', 'create') && (
+                    {(can('hospitals', 'edit') || can('hospitals', 'delete')) && (
                       <div className="flex gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => navigate(`/hospitals/${h._id}/edit`)}
-                          className="p-2.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg"
-                        >
-                          <HiOutlinePencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(h._id, h.name)}
-                          className="p-2.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                        >
-                          <HiOutlineTrash className="w-4 h-4" />
-                        </button>
+                        {can('hospitals', 'edit') && (
+                          <button
+                            onClick={() => navigate(`/hospitals/${h._id}/edit`)}
+                            className="p-2.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg"
+                          >
+                            <HiOutlinePencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        {can('hospitals', 'delete') && (
+                          <button
+                            onClick={() => handleDelete(h._id, h.name)}
+                            className="p-2.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                          >
+                            <HiOutlineTrash className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -170,7 +177,11 @@ const HospitalList = () => {
                 <tr><td colSpan={7} className="py-8 text-center text-gray-400">No hospitals found</td></tr>
               ) : (
                 hospitals.map((h, idx) => (
-                  <tr key={h._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/hospitals/${h._id}`)}>
+                  <tr
+                    key={h._id}
+                    className={`hover:bg-gray-50 ${can('hospitals', 'edit') ? 'cursor-pointer' : ''}`}
+                    onClick={can('hospitals', 'edit') ? () => navigate(`/hospitals/${h._id}/edit`) : undefined}
+                  >
                     <td className="py-3 px-4 text-sm text-gray-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
                     <td className="py-3 px-4 text-sm font-medium text-gray-800">{h.name}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.phone || h.contact || '-'}</td>
@@ -179,21 +190,21 @@ const HospitalList = () => {
                     <td className="py-3 px-4 text-sm text-gray-600">{h.billingServices?.length || 0}</td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                        {can('hospitals', 'create') && (
-                          <>
-                            <button
-                              onClick={() => navigate(`/hospitals/${h._id}/edit`)}
-                              className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg"
-                            >
-                              <HiOutlinePencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(h._id, h.name)}
-                              className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                            >
-                              <HiOutlineTrash className="w-4 h-4" />
-                            </button>
-                          </>
+                        {can('hospitals', 'edit') && (
+                          <button
+                            onClick={() => navigate(`/hospitals/${h._id}/edit`)}
+                            className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg"
+                          >
+                            <HiOutlinePencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        {can('hospitals', 'delete') && (
+                          <button
+                            onClick={() => handleDelete(h._id, h.name)}
+                            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                          >
+                            <HiOutlineTrash className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
                     </td>

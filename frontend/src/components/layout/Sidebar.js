@@ -29,14 +29,14 @@ const adminItems = [
 ];
 
 const Sidebar = ({ isOpen, onClose }) => {
-  const { canViewModule, user, roleSlug } = useAuth();
+  const { canViewModule, canManageModule, user, roleSlug } = useAuth();
   const isSuperAdmin = roleSlug === 'super_admin';
   const location = useLocation();
 
   const isAdminRoute = adminItems.some(item => location.pathname.startsWith(item.to));
   const [adminOpen, setAdminOpen] = useState(isAdminRoute);
 
-  const visibleAdminItems = adminItems.filter(item => canViewModule(item.module));
+  const visibleAdminItems = adminItems.filter(item => canManageModule(item.module));
   const hasAdminAccess = visibleAdminItems.length > 0;
 
   const linkClass = ({ isActive }) =>
