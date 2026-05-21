@@ -213,23 +213,27 @@ const Reports = () => {
         const monthFP = isSuperAdmin ? items.reduce((s, c) => s + getFilePrice(c), 0) : 0;
         hospBill += monthBill; hospApproval += monthApproval; hospFP += monthFP;
 
+        const rTotal = wsData.length;
         const totalRow = Array(NUM_BILL_COLS).fill('');
-        totalRow[1] = 'TOTAL';
+        totalRow[0] = 'TOTAL';
         totalRow[8] = monthBill;
         totalRow[9] = monthApproval;
         if (isSuperAdmin) totalRow[NUM_BILL_COLS - 1] = monthFP;
-        rowMeta.push({ row: wsData.length, type: 'total' });
+        merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: 7 } });
+        rowMeta.push({ row: rTotal, type: 'total' });
         wsData.push(totalRow);
         wsData.push(Array(NUM_BILL_COLS).fill(''));
       });
 
       if (monthGroups.length > 1) {
+        const rSub = wsData.length;
         const subRow = Array(NUM_BILL_COLS).fill('');
-        subRow[1] = `${hospital.toUpperCase()} SUBTOTAL`;
+        subRow[0] = `${hospital.toUpperCase()} SUBTOTAL`;
         subRow[8] = hospBill;
         subRow[9] = hospApproval;
         if (isSuperAdmin) subRow[NUM_BILL_COLS - 1] = hospFP;
-        rowMeta.push({ row: wsData.length, type: 'subtotal' });
+        merges.push({ s: { r: rSub, c: 0 }, e: { r: rSub, c: 7 } });
+        rowMeta.push({ row: rSub, type: 'subtotal' });
         wsData.push(subRow);
         wsData.push(Array(NUM_BILL_COLS).fill(''));
       }
@@ -238,12 +242,14 @@ const Reports = () => {
     });
 
     if (groups.length > 1) {
+      const rGrand = wsData.length;
       const grandRow = Array(NUM_BILL_COLS).fill('');
-      grandRow[1] = 'GRAND TOTAL';
+      grandRow[0] = 'GRAND TOTAL';
       grandRow[8] = grandBill;
       grandRow[9] = grandApproval;
       if (isSuperAdmin) grandRow[NUM_BILL_COLS - 1] = grandFP;
-      rowMeta.push({ row: wsData.length, type: 'grandtotal' });
+      merges.push({ s: { r: rGrand, c: 0 }, e: { r: rGrand, c: 7 } });
+      rowMeta.push({ row: rGrand, type: 'grandtotal' });
       wsData.push(grandRow);
       wsData.push(Array(NUM_BILL_COLS).fill(''));
     }
@@ -279,11 +285,11 @@ const Reports = () => {
         if (type === 'data') {
           applyStyle(row, c, { font: { sz: 9, name: 'Arial' }, alignment: { horizontal: isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
         } else if (type === 'total') {
-          applyStyle(row, c, { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } }, alignment: { horizontal: c === 1 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } }, alignment: { horizontal: c === 0 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
         } else if (type === 'subtotal') {
-          applyStyle(row, c, { font: { bold: true, sz: 10, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FED7AA' } }, alignment: { horizontal: c === 1 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { bold: true, sz: 10, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FED7AA' } }, alignment: { horizontal: c === 0 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
         } else if (type === 'grandtotal') {
-          applyStyle(row, c, { font: { bold: true, sz: 11, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '1E3A8A' } }, alignment: { horizontal: c === 1 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { bold: true, sz: 11, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '1E3A8A' } }, alignment: { horizontal: c === 0 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
         } else if (styles[type]) {
           applyStyle(row, c, styles[type]);
         }
@@ -298,36 +304,63 @@ const Reports = () => {
   const buildPDFDoc = (groups) => {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const today = new Date().toLocaleDateString('en-IN');
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
 
-    doc.setFontSize(14);
+    const totalClaimsCount = groups.reduce((s, g) => s + g.monthGroups.reduce((m, mg) => m + mg.items.length, 0), 0);
+    const hospitalCount = groups.length;
+
+    // Header (plain, no fill)
+    doc.setTextColor(17, 24, 39);
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text('Claim Report — ClaimOptiq', 14, 15);
+    doc.text('Claim Report', 14, 14);
+
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Generated: ${today}`, 14, 21);
+    doc.setTextColor(75, 85, 99);
+    doc.text(`Generated: ${today}`, pageWidth - 14, 14, { align: 'right' });
+    const meta = [
+      `${totalClaimsCount} claim${totalClaimsCount !== 1 ? 's' : ''}`,
+      `${hospitalCount} hospital${hospitalCount !== 1 ? 's' : ''}`,
+    ].join('  •  ');
+    doc.text(meta, pageWidth - 14, 19, { align: 'right' });
+
+    doc.setDrawColor(17, 24, 39);
+    doc.setLineWidth(0.5);
+    doc.line(14, 22, pageWidth - 14, 22);
+    doc.setTextColor(17, 24, 39);
 
     let startY = 28;
     let grandBill = 0, grandApproval = 0, grandFP = 0;
 
+    const COL_WIDTHS = isSuperAdmin
+      ? [8, 28, 26, 18, 35, 14, 16, 16, 22, 26, 28, 22]
+      : [10, 36, 32, 22, 42, 18, 18, 18, 32, 36];
+    const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
+    const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
+
     const renderSummaryRow = (label, bill, approval, fp, palette) => {
-      const row = Array(NUM_BILL_COLS).fill('');
-      row[1] = label;
-      row[8] = fmtAmt(bill);
-      row[9] = fmtAmt(approval);
-      if (isSuperAdmin) row[NUM_BILL_COLS - 1] = fmtAmt(fp);
+      if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
+      const base = { fillColor: palette.fill, textColor: palette.text, fontStyle: 'bold', fontSize: palette.fontSize, lineColor: palette.line || [156, 163, 175], lineWidth: palette.lineWidth || 0.3, cellPadding: 2 };
+      const row = [
+        { content: label, colSpan: 8, styles: { ...base, halign: 'right' } },
+        { content: fmtAmt(bill), styles: { ...base, halign: 'right' } },
+        { content: fmtAmt(approval), styles: { ...base, halign: 'right' } },
+      ];
+      if (isSuperAdmin) {
+        row.push({ content: '', styles: { fillColor: palette.fill, lineColor: base.lineColor, lineWidth: base.lineWidth } });
+        row.push({ content: fmtAmt(fp), styles: { ...base, halign: 'right' } });
+      }
       autoTable(doc, {
         startY,
         body: [row],
         theme: 'grid',
-        styles: { fontSize: palette.fontSize, fontStyle: 'bold', fillColor: palette.fill, textColor: palette.text, lineColor: [0, 0, 0], lineWidth: 0.5, cellPadding: 1.5 },
-        didParseCell: (data) => {
-          if (data.column.index === 1) data.cell.styles.halign = 'center';
-          if (data.column.index >= 8 && data.column.index !== REFERENCE_BY_COL) data.cell.styles.halign = 'right';
-        },
+        columnStyles,
+        tableWidth: TABLE_WIDTH,
         margin: { left: 14, right: 14 },
       });
-      startY = doc.lastAutoTable.finalY + 6;
-      if (startY > 170) { doc.addPage(); startY = 14; }
+      startY = doc.lastAutoTable.finalY + 4;
     };
 
     groups.forEach(({ hospital, monthGroups }) => {
@@ -338,7 +371,8 @@ const Reports = () => {
           startY,
           body: [[hospital.toUpperCase()]],
           theme: 'plain',
-          styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 3, halign: 'center' },
+          styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 2.5, halign: 'center' },
+          tableWidth: TABLE_WIDTH,
           margin: { left: 14, right: 14 },
         });
         startY = doc.lastAutoTable.finalY;
@@ -347,8 +381,9 @@ const Reports = () => {
           startY,
           body: [[monthLabel(month)]],
           theme: 'plain',
-          styles: { fontStyle: 'bold', fontSize: 9, halign: 'center', cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.5 },
-          tableLineColor: [0, 0, 0], tableLineWidth: 0.5,
+          styles: { fontStyle: 'bold', fontSize: 9, halign: 'center', cellPadding: 1.2, lineColor: [156, 163, 175], lineWidth: 0.3, fillColor: [243, 244, 246], textColor: [17, 24, 39] },
+          tableLineColor: [156, 163, 175], tableLineWidth: 0.3,
+          tableWidth: TABLE_WIDTH,
           margin: { left: 14, right: 14 },
         });
         startY = doc.lastAutoTable.finalY;
@@ -359,57 +394,76 @@ const Reports = () => {
         hospBill += monthBill; hospApproval += monthApproval; hospFP += monthFP;
 
         const bodyRows = items.map(c => billClaimRow(c).map((v, i) => (i >= 8 && i !== REFERENCE_BY_COL) ? fmtAmt(v) : (v ?? '')));
-        const totalRow = Array(NUM_BILL_COLS).fill('');
-        totalRow[1] = 'TOTAL';
-        totalRow[8] = fmtAmt(monthBill);
-        totalRow[9] = fmtAmt(monthApproval);
-        if (isSuperAdmin) totalRow[NUM_BILL_COLS - 1] = fmtAmt(monthFP);
-        bodyRows.push(totalRow);
+        const totalFill = [243, 244, 246];
+        const totalRowObj = [
+          { content: 'TOTAL', colSpan: 8, styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
+          { content: fmtAmt(monthBill), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
+          { content: fmtAmt(monthApproval), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
+        ];
+        if (isSuperAdmin) {
+          totalRowObj.push({ content: '', styles: { fillColor: totalFill } });
+          totalRowObj.push({ content: fmtAmt(monthFP), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } });
+        }
+        bodyRows.push(totalRowObj);
 
         autoTable(doc, {
           startY,
           head: [BILL_COLS],
           body: bodyRows,
           theme: 'grid',
-          styles: { lineColor: [0, 0, 0], lineWidth: 0.5 },
-          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, halign: 'center', lineColor: [0, 0, 0], lineWidth: 0.5 },
-          bodyStyles: { fontSize: 7, textColor: [31, 41, 55], lineColor: [0, 0, 0], lineWidth: 0.5 },
+          styles: { lineColor: [156, 163, 175], lineWidth: 0.2 },
+          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, halign: 'center', lineColor: [37, 99, 235], lineWidth: 0.3 },
+          bodyStyles: { fontSize: 7, textColor: [31, 41, 55], lineColor: [209, 213, 219], lineWidth: 0.2 },
+          columnStyles,
+          tableWidth: TABLE_WIDTH,
           didParseCell: (data) => {
-            if (data.section === 'body' && data.row.index === items.length) {
-              data.cell.styles.fontStyle = 'bold';
-              data.cell.styles.fillColor = [254, 249, 195];
+            if (data.section === 'body' && data.row.index < items.length && data.column.index >= 8 && data.column.index !== REFERENCE_BY_COL) {
+              data.cell.styles.halign = 'right';
             }
-            if (data.column.index >= 8 && data.column.index !== REFERENCE_BY_COL) data.cell.styles.halign = 'right';
           },
           margin: { left: 14, right: 14 },
         });
-        startY = doc.lastAutoTable.finalY + 6;
+        startY = doc.lastAutoTable.finalY + 4;
 
-        if (startY > 170) { doc.addPage(); startY = 14; }
+        if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
       });
 
       if (monthGroups.length > 1) {
         renderSummaryRow(
           `${hospital.toUpperCase()} SUBTOTAL`,
           hospBill, hospApproval, hospFP,
-          { fontSize: 8, fill: [254, 215, 170], text: [31, 41, 55] }
+          { fontSize: 8, fill: [229, 231, 235], text: [17, 24, 39] }
         );
       }
 
       grandBill += hospBill; grandApproval += hospApproval; grandFP += hospFP;
+      startY += 2;
     });
 
     if (groups.length > 1) {
       renderSummaryRow(
         'GRAND TOTAL',
         grandBill, grandApproval, grandFP,
-        { fontSize: 9, fill: [30, 58, 138], text: [255, 255, 255] }
+        { fontSize: 9, fill: [37, 99, 235], text: [255, 255, 255], line: [37, 99, 235], lineWidth: 0.5 }
       );
     }
 
-    doc.setFontSize(9);
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(0.3);
+    doc.line(14, startY + 2, pageWidth - 14, startY + 2);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
-    doc.text('Prepared by: First Care Consultancy', 14, startY + 4);
+    doc.setTextColor(31, 41, 55);
+    doc.text('Prepared by: First Care Consultancy', 14, startY + 7);
+
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(107, 114, 128);
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
+    }
 
     return doc;
   };
