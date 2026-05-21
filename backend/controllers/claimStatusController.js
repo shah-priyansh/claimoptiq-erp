@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { invalidateStatusCache } = require('./claimController');
 
 exports.getAll = async (req, res) => {
   try {
@@ -25,6 +26,7 @@ exports.create = async (req, res) => {
     const status = await prisma.claimStatus.create({
       data: { label: label.trim(), slug: generatedSlug, color: color || 'gray', order: newOrder },
     });
+    invalidateStatusCache();
     res.status(201).json(toResponse(status));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -44,6 +46,7 @@ exports.update = async (req, res) => {
     if (isActive !== undefined) updateData.isActive = isActive;
 
     const updated = await prisma.claimStatus.update({ where: { id: req.params.id }, data: updateData });
+    invalidateStatusCache();
     res.json(toResponse(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -56,6 +59,7 @@ exports.remove = async (req, res) => {
     if (!status) return res.status(404).json({ message: 'Status not found' });
     if (status.isSystem) return res.status(400).json({ message: 'System statuses cannot be deleted' });
     await prisma.claimStatus.delete({ where: { id: req.params.id } });
+    invalidateStatusCache();
     res.json({ message: 'Status deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
