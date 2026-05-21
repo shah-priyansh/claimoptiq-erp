@@ -46,14 +46,26 @@ export const AuthProvider = ({ children }) => {
     return mod.permissions?.[action] === true;
   };
 
-  // Check if user can view a module (for sidebar)
+  // Check if user can view a module's data (for dropdowns, list APIs)
   const canViewModule = (moduleName) => can(moduleName, 'view');
+
+  // Check if user can access a module's management page/menu (any of create/edit/delete).
+  // View alone is intentionally NOT enough for master-data modules — view-only means
+  // the data is reachable from dropdowns in other forms, not from the management UI.
+  const canManageModule = (moduleName) => {
+    if (!user?.role) return false;
+    if (user.role.slug === 'super_admin') return true;
+    const mod = user.role.modulePermissions?.find(m => m.module === moduleName);
+    if (!mod) return false;
+    const p = mod.permissions || {};
+    return !!(p.create || p.edit || p.delete);
+  };
 
   // Get role slug for backward compat
   const roleSlug = user?.role?.slug || '';
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, can, canViewModule, roleSlug }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, can, canViewModule, canManageModule, roleSlug }}>
       {children}
     </AuthContext.Provider>
   );

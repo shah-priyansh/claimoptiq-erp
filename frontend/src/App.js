@@ -37,24 +37,24 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<ProtectedRoute module="dashboard"><Dashboard /></ProtectedRoute>} />
-            <Route path="/hospitals" element={<ProtectedRoute module="hospitals"><HospitalList /></ProtectedRoute>} />
-            <Route path="/hospitals/new" element={<ProtectedRoute module="hospitals"><HospitalForm /></ProtectedRoute>} />
-            <Route path="/hospitals/:id" element={<ProtectedRoute module="hospitals"><HospitalForm /></ProtectedRoute>} />
-            <Route path="/hospitals/:id/edit" element={<ProtectedRoute module="hospitals"><HospitalForm /></ProtectedRoute>} />
-            <Route path="/insurance" element={<ProtectedRoute module="insurance"><InsuranceList /></ProtectedRoute>} />
-            <Route path="/tpa" element={<ProtectedRoute module="tpa"><TPAList /></ProtectedRoute>} />
-            <Route path="/users" element={<ProtectedRoute module="users"><UserList /></ProtectedRoute>} />
+            <Route path="/hospitals" element={<ProtectedRoute module="hospitals" requireManage><HospitalList /></ProtectedRoute>} />
+            <Route path="/hospitals/new" element={<ProtectedRoute module="hospitals" requireManage><HospitalForm /></ProtectedRoute>} />
+            <Route path="/hospitals/:id" element={<ProtectedRoute module="hospitals" requireManage><HospitalForm /></ProtectedRoute>} />
+            <Route path="/hospitals/:id/edit" element={<ProtectedRoute module="hospitals" requireManage><HospitalForm /></ProtectedRoute>} />
+            <Route path="/insurance" element={<ProtectedRoute module="insurance" requireManage><InsuranceList /></ProtectedRoute>} />
+            <Route path="/tpa" element={<ProtectedRoute module="tpa" requireManage><TPAList /></ProtectedRoute>} />
+            <Route path="/users" element={<ProtectedRoute module="users" requireManage><UserList /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute module="claims"><ClaimList /></ProtectedRoute>} />
             <Route path="/claims/new" element={<ProtectedRoute module="claims"><ClaimForm /></ProtectedRoute>} />
             <Route path="/claims/:id/edit" element={<ProtectedRoute module="claims"><ClaimForm /></ProtectedRoute>} />
             <Route path="/claims/:id" element={<ProtectedRoute module="claims"><ClaimDetail /></ProtectedRoute>} />
-            <Route path="/roles" element={<ProtectedRoute module="roles"><RoleList /></ProtectedRoute>} />
-            <Route path="/roles/new" element={<ProtectedRoute module="roles"><RoleForm /></ProtectedRoute>} />
-            <Route path="/roles/:id/edit" element={<ProtectedRoute module="roles"><RoleForm /></ProtectedRoute>} />
+            <Route path="/roles" element={<ProtectedRoute module="roles" requireManage><RoleList /></ProtectedRoute>} />
+            <Route path="/roles/new" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />
+            <Route path="/roles/:id/edit" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
-            <Route path="/claim-statuses" element={<ProtectedRoute module="claim_statuses"><ClaimStatusMaster /></ProtectedRoute>} />
-            <Route path="/claim-document-types" element={<ProtectedRoute module="claim_document_types"><ClaimDocumentTypeMaster /></ProtectedRoute>} />
-            <Route path="/billing-service-names" element={<ProtectedRoute module="billing_service_names"><BillingServiceNameList /></ProtectedRoute>} />
+            <Route path="/claim-statuses" element={<ProtectedRoute module="claim_statuses" requireManage><ClaimStatusMaster /></ProtectedRoute>} />
+            <Route path="/claim-document-types" element={<ProtectedRoute module="claim_document_types" requireManage><ClaimDocumentTypeMaster /></ProtectedRoute>} />
+            <Route path="/billing-service-names" element={<ProtectedRoute module="billing_service_names" requireManage><BillingServiceNameList /></ProtectedRoute>} />
             <Route path="/documents/upload" element={<ProtectedRoute module="document_submissions" requireHospital><DocumentUpload /></ProtectedRoute>} />
             <Route path="/documents/inbox" element={<ProtectedRoute module="document_submissions"><DocumentInbox /></ProtectedRoute>} />
             <Route path="/staff" element={<ProtectedRoute module="staff"><StaffModule /></ProtectedRoute>} />
