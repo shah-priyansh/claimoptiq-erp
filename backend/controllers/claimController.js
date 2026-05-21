@@ -12,7 +12,7 @@ const getUserHospitalId = (user) => {
 const claimInclude = {
   hospital: {
     select: {
-      id: true, name: true,
+      id: true, name: true, referenceBy: true,
       billingServices: {
         where: { isActive: true },
         include: { slabs: { orderBy: { rangeStart: 'asc' } } },
@@ -151,8 +151,14 @@ exports.getClaims = async (req, res) => {
 
     const isSuperAdmin = req.user?.role?.slug === 'super_admin';
     const claimsData = toResponse(claims);
+    const stripped = isSuperAdmin
+      ? claimsData
+      : claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
+          ...rest,
+          hospital: hospital ? (({ referenceBy, ...h }) => h)(hospital) : hospital,
+        }));
     res.json({
-      claims: isSuperAdmin ? claimsData : claimsData.map(({ filePrice, isBilled, ...rest }) => rest),
+      claims: stripped,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / parseInt(limit)),

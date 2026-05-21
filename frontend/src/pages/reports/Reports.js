@@ -120,8 +120,10 @@ const Reports = () => {
   // --- Bill Export helpers ---
 
   const BILL_COLS = ['SR', 'PATIENT NAME', 'DOCTOR NAME', 'CLAIM TYPE', 'COMPANY/TPA', 'CCN NO',
-    'D.O.A.', 'D.O.D.', 'HOSPITAL BILL', 'FINAL APPROVAL AMOUNT', 'FILE PRICE'];
-  const NUM_BILL_COLS = BILL_COLS.length; // 11
+    'D.O.A.', 'D.O.D.', 'HOSPITAL BILL', 'FINAL APPROVAL AMOUNT',
+    ...(isSuperAdmin ? ['REFERENCE BY', 'FILE PRICE'] : [])];
+  const NUM_BILL_COLS = BILL_COLS.length; // 12 for super admin, 10 otherwise
+  const REFERENCE_BY_COL = 10; // only meaningful when isSuperAdmin
 
   const groupByHospital = () => {
     const byHosp = {};
@@ -147,7 +149,8 @@ const Reports = () => {
       c.ccnNo || '',
       c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
-      c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, getFilePrice(c),
+      c.hospitalFinalBill || 0, c.finalApprovalAmount || 0,
+      ...(isSuperAdmin ? [c.hospital?.referenceBy || '', getFilePrice(c)] : []),
     ];
   };
 
@@ -185,10 +188,13 @@ const Reports = () => {
         wsData.push(billClaimRow(c));
       });
 
-      const totalFP = items.reduce((s, c) => s + getFilePrice(c), 0);
       const totalRow = Array(NUM_BILL_COLS).fill('');
       totalRow[1] = 'TOTAL';
-      totalRow[NUM_BILL_COLS - 1] = totalFP;
+      totalRow[8] = items.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
+      totalRow[9] = items.reduce((s, c) => s + (c.finalApprovalAmount || 0), 0);
+      if (isSuperAdmin) {
+        totalRow[NUM_BILL_COLS - 1] = items.reduce((s, c) => s + getFilePrice(c), 0);
+      }
       rowMeta.push({ row: wsData.length, type: 'total' });
       wsData.push(totalRow);
       wsData.push(Array(NUM_BILL_COLS).fill(''));
@@ -203,7 +209,8 @@ const Reports = () => {
     ws['!merges'] = merges;
     ws['!cols'] = [
       { wch: 5 }, { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 30 },
-      { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 20 }, { wch: 12 },
+      { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 20 },
+      ...(isSuperAdmin ? [{ wch: 18 }, { wch: 12 }] : []),
     ];
 
     const applyStyle = (r, c, style) => {
@@ -214,16 +221,17 @@ const Reports = () => {
 
     rowMeta.forEach(({ row, type }) => {
       const styles = {
-        hospital: { font: { bold: true, sz: 12, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } }, alignment: { horizontal: 'left', vertical: 'center' } },
+        hospital: { font: { bold: true, sz: 12, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } }, alignment: { horizontal: 'center', vertical: 'center' } },
         subtitle: { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'center', vertical: 'center' }, border },
         header:   { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'F3F4F6' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border },
         footer:   { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'left', vertical: 'center' } },
       };
       for (let c = 0; c < NUM_BILL_COLS; c++) {
+        const isAmountCol = c >= 8 && c !== REFERENCE_BY_COL;
         if (type === 'data') {
-          applyStyle(row, c, { font: { sz: 9, name: 'Arial' }, alignment: { horizontal: c >= 8 ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { sz: 9, name: 'Arial' }, alignment: { horizontal: isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
         } else if (type === 'total') {
-          applyStyle(row, c, { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } }, alignment: { horizontal: c === 1 ? 'center' : c >= 8 ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } }, alignment: { horizontal: c === 1 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
         } else if (styles[type]) {
           applyStyle(row, c, styles[type]);
         }
@@ -231,7 +239,7 @@ const Reports = () => {
     });
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Bill Report');
+    XLSX.utils.book_append_sheet(wb, ws, 'Claim Report');
     return wb;
   };
 
@@ -241,7 +249,7 @@ const Reports = () => {
 
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text('Bill Report — ClaimOptiq', 14, 15);
+    doc.text('Claim Report — ClaimOptiq', 14, 15);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.text(`Generated: ${today}`, 14, 21);
@@ -253,7 +261,7 @@ const Reports = () => {
         startY,
         body: [[hospital.toUpperCase()]],
         theme: 'plain',
-        styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 3 },
+        styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 3, halign: 'center' },
         margin: { left: 14, right: 14 },
       });
       startY = doc.lastAutoTable.finalY;
@@ -262,33 +270,36 @@ const Reports = () => {
         startY,
         body: [[monthLabel(month)]],
         theme: 'plain',
-        styles: { fontStyle: 'bold', fontSize: 9, halign: 'center', cellPadding: 1.5 },
-        tableLineColor: [0, 0, 0], tableLineWidth: 0.3,
+        styles: { fontStyle: 'bold', fontSize: 9, halign: 'center', cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.5 },
+        tableLineColor: [0, 0, 0], tableLineWidth: 0.5,
         margin: { left: 14, right: 14 },
       });
       startY = doc.lastAutoTable.finalY;
 
-      const totalFP = items.reduce((s, c) => s + getFilePrice(c), 0);
+      const bodyRows = items.map(c => billClaimRow(c).map((v, i) => (i >= 8 && i !== REFERENCE_BY_COL) ? fmtAmt(v) : (v ?? '')));
       const totalRow = Array(NUM_BILL_COLS).fill('');
       totalRow[1] = 'TOTAL';
-      totalRow[NUM_BILL_COLS - 1] = fmtAmt(totalFP);
+      totalRow[8] = fmtAmt(items.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0));
+      totalRow[9] = fmtAmt(items.reduce((s, c) => s + (c.finalApprovalAmount || 0), 0));
+      if (isSuperAdmin) {
+        totalRow[NUM_BILL_COLS - 1] = fmtAmt(items.reduce((s, c) => s + getFilePrice(c), 0));
+      }
+      bodyRows.push(totalRow);
 
       autoTable(doc, {
         startY,
         head: [BILL_COLS],
-        body: [
-          ...items.map(c => billClaimRow(c).map((v, i) => i >= 8 ? fmtAmt(v) : (v ?? ''))),
-          totalRow,
-        ],
+        body: bodyRows,
         theme: 'grid',
-        headStyles: { fillColor: [243, 244, 246], textColor: [55, 65, 81], fontStyle: 'bold', fontSize: 7 },
-        bodyStyles: { fontSize: 7, textColor: [31, 41, 55], lineColor: [0, 0, 0], lineWidth: 0.3 },
+        styles: { lineColor: [0, 0, 0], lineWidth: 0.5 },
+        headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, halign: 'center', lineColor: [0, 0, 0], lineWidth: 0.5 },
+        bodyStyles: { fontSize: 7, textColor: [31, 41, 55], lineColor: [0, 0, 0], lineWidth: 0.5 },
         didParseCell: (data) => {
           if (data.section === 'body' && data.row.index === items.length) {
             data.cell.styles.fontStyle = 'bold';
             data.cell.styles.fillColor = [254, 249, 195];
           }
-          if (data.column.index >= 8) data.cell.styles.halign = 'right';
+          if (data.column.index >= 8 && data.column.index !== REFERENCE_BY_COL) data.cell.styles.halign = 'right';
         },
         margin: { left: 14, right: 14 },
       });
@@ -312,7 +323,7 @@ const Reports = () => {
       const { hospital, monthGroups } = groups[0];
       const wb = buildExcelWB(hospital, monthGroups);
       const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
-      XLSX.writeFile(wb, `bill_${safeName}_${dateStr}.xlsx`);
+      XLSX.writeFile(wb, `claim_${safeName}_${dateStr}.xlsx`);
       return;
     }
 
@@ -321,13 +332,13 @@ const Reports = () => {
       const wb = buildExcelWB(hospital, monthGroups);
       const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
       const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
-      zip.file(`bill_${safeName}_${dateStr}.xlsx`, buf);
+      zip.file(`claim_${safeName}_${dateStr}.xlsx`, buf);
     });
     const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bill_report_${dateStr}.zip`;
+    a.download = `claim_report_${dateStr}.zip`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -340,7 +351,7 @@ const Reports = () => {
       const { hospital, monthGroups } = groups[0];
       const doc = buildPDFDoc(hospital, monthGroups);
       const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
-      doc.save(`bill_${safeName}_${dateStr}.pdf`);
+      doc.save(`claim_${safeName}_${dateStr}.pdf`);
       return;
     }
 
@@ -348,13 +359,13 @@ const Reports = () => {
     groups.forEach(({ hospital, monthGroups }) => {
       const doc = buildPDFDoc(hospital, monthGroups);
       const safeName = hospital.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
-      zip.file(`bill_${safeName}_${dateStr}.pdf`, doc.output('arraybuffer'));
+      zip.file(`claim_${safeName}_${dateStr}.pdf`, doc.output('arraybuffer'));
     });
     const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bill_report_${dateStr}.zip`;
+    a.download = `claim_report_${dateStr}.zip`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -368,7 +379,7 @@ const Reports = () => {
   const totalSettlement = claims.reduce((s, c) => s + (c.bankTransferAmount || 0), 0);
   const totalFilePrice = claims.reduce((s, c) => s + getFilePrice(c), 0);
 
-  const tableColCount = (isHospitalUser ? 9 : 10) + (isSuperAdmin ? 2 : 0) + (billMode ? 1 : 0);
+  const tableColCount = (isHospitalUser ? 9 : 10) + (isSuperAdmin ? 3 : 0) + (billMode ? 1 : 0);
 
   return (
     <div>
@@ -501,7 +512,7 @@ const Reports = () => {
                     />
                   </th>
                 )}
-                {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', ...(isSuperAdmin ? ['Bill Status', 'File Price'] : [])].map(h => (
+                {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', ...(isSuperAdmin ? ['Reference By', 'Bill Status', 'File Price'] : [])].map(h => (
                   <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -540,6 +551,7 @@ const Reports = () => {
                   <td className="py-2 px-3 capitalize">{c.status.replace('_', ' ')}</td>
                   {isSuperAdmin && (
                     <>
+                      <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{c.hospital?.referenceBy || '-'}</td>
                       <td className="py-2 px-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>
                           {c.isBilled ? 'Billed' : 'Unbilled'}
