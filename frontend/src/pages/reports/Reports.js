@@ -156,10 +156,10 @@ const Reports = () => {
       }));
   };
 
-  const billClaimRow = (c, withReference) => {
+  const billClaimRow = (c, withReference, sr) => {
     const companytpa = [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ');
     return [
-      c.srNo || '', c.patientName || '', c.doctorName || '', c.claimType || '', companytpa,
+      sr, c.patientName || '', c.doctorName || '', c.claimType || '', companytpa,
       c.ccnNo || '',
       c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
@@ -206,9 +206,9 @@ const Reports = () => {
         wsData.push([...BILL_COLS]);
         rowMeta.push({ row: wsData.length - 1, type: 'header' });
 
-        items.forEach(c => {
+        items.forEach((c, idx) => {
           rowMeta.push({ row: wsData.length, type: 'data' });
-          wsData.push(billClaimRow(c, withReference));
+          wsData.push(billClaimRow(c, withReference, idx + 1));
         });
 
         const monthBill = items.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
@@ -403,7 +403,7 @@ const Reports = () => {
         const monthFP = isSuperAdmin ? items.reduce((s, c) => s + getFilePrice(c), 0) : 0;
         hospBill += monthBill; hospApproval += monthApproval; hospFP += monthFP;
 
-        const bodyRows = items.map(c => billClaimRow(c, withReference).map((v, i) => (i >= 8 && i !== REFERENCE_BY_COL) ? fmtAmt(v) : (v ?? '')));
+        const bodyRows = items.map((c, idx) => billClaimRow(c, withReference, idx + 1).map((v, i) => (i >= 8 && i !== REFERENCE_BY_COL) ? fmtAmt(v) : (v ?? '')));
         const totalFill = [243, 244, 246];
         const totalRowObj = [
           { content: 'TOTAL', colSpan: 8, styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
