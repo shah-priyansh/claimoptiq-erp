@@ -13,7 +13,7 @@ const NativeSelect = ({ value, onChange, children }) => (
     <select
       value={value}
       onChange={onChange}
-      className="appearance-none pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 cursor-pointer"
+      className="appearance-none bg-none pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 cursor-pointer"
     >
       {children}
     </select>
@@ -22,6 +22,20 @@ const NativeSelect = ({ value, onChange, children }) => (
 );
 
 const fmtMin = (m) => { const h = Math.floor(m / 60); const mn = m % 60; return `${h}h ${String(mn).padStart(2, '0')}m`; };
+
+const countSundays = (year, monthIdx0) => {
+  const days = new Date(year, monthIdx0 + 1, 0).getDate();
+  let count = 0;
+  for (let d = 1; d <= days; d++) {
+    if (new Date(year, monthIdx0, d).getDay() === 0) count++;
+  }
+  return count;
+};
+
+const sundaysInRecord = (r) => {
+  const d = new Date(r.month);
+  return countSundays(d.getUTCFullYear(), d.getUTCMonth());
+};
 
 const OT_DAILY = 1.5, OT_SUN = 2.0, OT_HOL = 2.0;
 
@@ -95,7 +109,10 @@ const SalaryRow = ({ r, canEdit, onUpdate, onFinalize }) => {
       <tr className="hover:bg-gray-50 text-sm cursor-pointer" onClick={() => setExpanded(e => !e)}>
         <td className="py-3 px-4 font-semibold text-primary-600">{r.employee.empNumber}</td>
         <td className="py-3 px-4 font-medium text-gray-800">{r.employee.name}</td>
-        <td className="py-3 px-4 text-gray-600">{r.presentDays}/{r.calendarDays}</td>
+        <td className="py-3 px-4 text-gray-600">
+          <div>{r.presentDays}/{r.calendarDays}</div>
+          <div className="text-[10px] text-purple-600 font-medium mt-0.5">{sundaysInRecord(r)} Sundays</div>
+        </td>
         <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.earnedBasic)}</td>
         <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.fixedAllow + bd.extraAllow)}</td>
         <td className="py-3 px-4">
@@ -218,13 +235,13 @@ const AdminSalaryView = ({ canEdit }) => {
   const exportExcel = () => {
     const monthLabel = `${months[selMonth - 1]} ${selYear}`;
     const wb = XLSX.utils.book_new();
-    const headers = ['EMP No', 'Name', 'Basic Salary', 'Calendar Days', 'Present Days', 'Earned Basic',
+    const headers = ['EMP No', 'Name', 'Basic Salary', 'Calendar Days', 'Sundays', 'Present Days', 'Earned Basic',
       'Fixed Allow', 'Extra Allow', 'Daily OT Min', 'Sunday OT Min', 'Holiday OT Min', 'OT Amount', 'Total Salary', 'Status'];
 
     const r2 = (v) => Math.round(v * 100) / 100;
     const rows = records.map(r => {
       const bd = computeBreakdown(r);
-      return [r.employee.empNumber, r.employee.name, r2(r.basicSalary), r.calendarDays, r.presentDays,
+      return [r.employee.empNumber, r.employee.name, r2(r.basicSalary), r.calendarDays, sundaysInRecord(r), r.presentDays,
         r2(bd.earnedBasic), r2(bd.fixedAllow), r2(bd.extraAllow), r.dailyOtMinutes, r.sundayOtMinutes, r.holidayOtMinutes,
         r2(bd.totalOt), r2(r.totalAmount), r.isFinalized ? 'Finalized' : 'Draft'];
     });
@@ -243,7 +260,7 @@ const AdminSalaryView = ({ canEdit }) => {
       return acc;
     }, { earnedBasic: 0, fixedAllow: 0, extraAllow: 0, dailyOtMin: 0, sundayOtMin: 0, holidayOtMin: 0, totalOt: 0, totalAmount: 0 });
 
-    const totalsRow = ['', 'TOTAL', '', '', '',
+    const totalsRow = ['', 'TOTAL', '', '', '', '',
       Math.round(tot.earnedBasic * 100) / 100,
       Math.round(tot.fixedAllow * 100) / 100,
       Math.round(tot.extraAllow * 100) / 100,
@@ -277,16 +294,17 @@ const AdminSalaryView = ({ canEdit }) => {
 
     autoTable(doc, {
       startY: 25,
-      head: [['EMP', 'Name', 'Days', 'Earned Basic', 'Allowances', 'Daily OT', 'Sun OT', 'Hol OT', 'OT Amt', 'Total', 'Status']],
+      head: [['EMP', 'Name', 'Days', 'Sundays', 'Earned Basic', 'Allowances', 'Daily OT', 'Sun OT', 'Hol OT', 'OT Amt', 'Total', 'Status']],
       body: records.map(r => {
         const bd = computeBreakdown(r);
         return [r.employee.empNumber, r.employee.name, `${r.presentDays}/${r.calendarDays}`,
+          sundaysInRecord(r),
           formatCurrency(bd.earnedBasic), formatCurrency(bd.fixedAllow + bd.extraAllow),
           fmtMin(r.dailyOtMinutes), fmtMin(r.sundayOtMinutes), fmtMin(r.holidayOtMinutes),
           formatCurrency(bd.totalOt), formatCurrency(r.totalAmount), r.isFinalized ? 'Final' : 'Draft'];
       }),
       foot: [[
-        '', `TOTAL (${records.length})`, '',
+        '', `TOTAL (${records.length})`, '', '',
         formatCurrency(tot.earnedBasic),
         formatCurrency(tot.allowances),
         '', '', '',
@@ -346,7 +364,7 @@ const AdminSalaryView = ({ canEdit }) => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['EMP No','Name','Days','Earned Basic','Allowances','OT Hours','OT Amount','Total','Status',''].map(h => (
+                {['EMP No','Name','Days / Sundays','Earned Basic','Allowances','OT Hours','OT Amount','Total','Status',''].map(h => (
                   <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -382,7 +400,7 @@ const MySalaryView = () => {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              {['Month','Days Present','Basic Earned','Allowances','OT Amount','Total'].map(h => (
+              {['Month','Days / Sundays','Basic Earned','Allowances','OT Amount','Total'].map(h => (
                 <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">{h}</th>
               ))}
             </tr>
@@ -398,7 +416,10 @@ const MySalaryView = () => {
               return (
                 <tr key={r.id} className="hover:bg-gray-50">
                   <td className="py-3 px-4 font-medium text-gray-800">{months[m.getMonth()]} {m.getFullYear()}</td>
-                  <td className="py-3 px-4 text-gray-600">{r.presentDays}/{r.calendarDays}</td>
+                  <td className="py-3 px-4 text-gray-600">
+                    <div>{r.presentDays}/{r.calendarDays}</div>
+                    <div className="text-[10px] text-purple-600 font-medium mt-0.5">{sundaysInRecord(r)} Sundays</div>
+                  </td>
                   <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.earnedBasic)}</td>
                   <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.fixedAllow + bd.extraAllow)}</td>
                   <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.totalOt)}</td>

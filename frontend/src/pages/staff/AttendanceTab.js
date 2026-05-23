@@ -14,7 +14,7 @@ const NativeSelect = ({ value, onChange, children, className = '' }) => (
     <select
       value={value}
       onChange={onChange}
-      className="appearance-none w-full pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 cursor-pointer"
+      className="appearance-none bg-none w-full pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 cursor-pointer"
     >
       {children}
     </select>
@@ -76,7 +76,7 @@ const OT_BADGE = {
 
 // ── Monthly attendance grid (admin) ──────────────────────────────────────────
 
-const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn }) => {
+const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn }) => {
   const [records, setRecords] = useState([]);
   const [rows, setRows] = useState([]);
   const [savingIdx, setSavingIdx] = useState({});
@@ -147,7 +147,47 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn }) => {
 
   const saveRow = useCallback(async (idx) => {
     const row = rows[idx];
-    if (!row || !row.inTime || !row.isDirty) return;
+    if (!row || !row.isDirty) return;
+
+    // In time cleared: delete the existing record (if any)
+    if (!row.inTime) {
+      if (!row.recordId) {
+        setRows(prev => {
+          const next = [...prev];
+          next[idx] = { ...next[idx], isDirty: false };
+          return next;
+        });
+        return;
+      }
+      const doDelete = deleteFn || deleteAttendanceRecordAPI;
+      setSavingIdx(s => ({ ...s, [idx]: true }));
+      try {
+        await doDelete(row.recordId);
+        setRows(prev => {
+          const next = [...prev];
+          const r = next[idx];
+          next[idx] = {
+            ...r,
+            recordId: null,
+            totalMinutes: null,
+            extraMinutes: null,
+            otType: r.isSunday ? 'sunday' : r.isHoliday ? 'holiday' : 'none',
+            isDirty: false,
+          };
+          return next;
+        });
+        setSavedIdx(s => ({ ...s, [idx]: true }));
+        clearTimeout(timerRef.current[idx]);
+        timerRef.current[idx] = setTimeout(() => {
+          setSavedIdx(s => { const n = { ...s }; delete n[idx]; return n; });
+        }, 2000);
+      } catch (err) {
+        toast.error(err.response?.data?.message || 'Failed to delete');
+      } finally {
+        setSavingIdx(s => { const n = { ...s }; delete n[idx]; return n; });
+      }
+      return;
+    }
 
     setSavingIdx(s => ({ ...s, [idx]: true }));
     try {
@@ -171,7 +211,7 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn }) => {
     } finally {
       setSavingIdx(s => { const n = { ...s }; delete n[idx]; return n; });
     }
-  }, [rows, employee.id]);
+  }, [rows, employee.id, saveFn, deleteFn]);
 
   const handleBlur = (idx) => saveRow(idx);
 
@@ -361,6 +401,7 @@ const AdminAttendanceView = () => {
           month={month}
           year={year}
           holidays={holidays}
+          deleteFn={deleteAttendanceRecordAPI}
         />
       )}
     </div>
