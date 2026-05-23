@@ -110,7 +110,13 @@ const ClaimList = () => {
     const openDrop = (e) => {
       e.stopPropagation();
       const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 6, left: r.left });
+      const dropdownHeight = 320;
+      const spaceBelow = window.innerHeight - r.bottom;
+      const spaceAbove = r.top;
+      const openUp = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
+      const top = openUp ? Math.max(8, r.top - dropdownHeight - 6) : r.bottom + 6;
+      const left = Math.min(r.left, window.innerWidth - 232);
+      setPos({ top, left });
       setSearch('');
       setIsOpen(true);
       setTimeout(() => searchRef.current?.focus(), 30);

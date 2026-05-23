@@ -134,11 +134,10 @@ const Reports = () => {
 
   // --- Bill Export helpers ---
 
-  const BILL_COLS = ['SR', 'PATIENT NAME', 'DOCTOR NAME', 'CLAIM TYPE', 'COMPANY/TPA', 'CCN NO',
+  const getBillCols = (withReference) => ['SR', 'PATIENT NAME', 'DOCTOR NAME', 'CLAIM TYPE', 'COMPANY/TPA', 'CCN NO',
     'D.O.A.', 'D.O.D.', 'HOSPITAL BILL', 'FINAL APPROVAL AMOUNT',
-    ...(isSuperAdmin ? ['REFERENCE BY', 'FILE PRICE'] : [])];
-  const NUM_BILL_COLS = BILL_COLS.length; // 12 for super admin, 10 otherwise
-  const REFERENCE_BY_COL = 10; // only meaningful when isSuperAdmin
+    ...(isSuperAdmin && withReference ? ['REFERENCE BY'] : []),
+    ...(isSuperAdmin ? ['FILE PRICE'] : [])];
 
   const groupByHospital = (data = claims) => {
     const byHosp = {};
@@ -157,7 +156,7 @@ const Reports = () => {
       }));
   };
 
-  const billClaimRow = (c) => {
+  const billClaimRow = (c, withReference) => {
     const companytpa = [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ');
     return [
       c.srNo || '', c.patientName || '', c.doctorName || '', c.claimType || '', companytpa,
@@ -165,7 +164,8 @@ const Reports = () => {
       c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
       c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
       c.hospitalFinalBill || 0, c.finalApprovalAmount || 0,
-      ...(isSuperAdmin ? [c.hospital?.referenceBy || '', getFilePrice(c)] : []),
+      ...(isSuperAdmin && withReference ? [c.hospital?.referenceBy || ''] : []),
+      ...(isSuperAdmin ? [getFilePrice(c)] : []),
     ];
   };
 
@@ -177,7 +177,10 @@ const Reports = () => {
 
   const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(v) : (v || '-');
 
-  const buildExcelWB = (groups) => {
+  const buildExcelWB = (groups, withReference = isSuperAdmin) => {
+    const BILL_COLS = getBillCols(withReference);
+    const NUM_BILL_COLS = BILL_COLS.length;
+    const REFERENCE_BY_COL = isSuperAdmin && withReference ? 10 : -1;
     const thin = { style: 'thin', color: { auto: 1 } };
     const border = { top: thin, bottom: thin, left: thin, right: thin };
     const wsData = [];
@@ -205,7 +208,7 @@ const Reports = () => {
 
         items.forEach(c => {
           rowMeta.push({ row: wsData.length, type: 'data' });
-          wsData.push(billClaimRow(c));
+          wsData.push(billClaimRow(c, withReference));
         });
 
         const monthBill = items.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
@@ -264,7 +267,8 @@ const Reports = () => {
     ws['!cols'] = [
       { wch: 5 }, { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 30 },
       { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 20 },
-      ...(isSuperAdmin ? [{ wch: 18 }, { wch: 12 }] : []),
+      ...(isSuperAdmin && withReference ? [{ wch: 18 }] : []),
+      ...(isSuperAdmin ? [{ wch: 12 }] : []),
     ];
 
     const applyStyle = (r, c, style) => {
@@ -301,7 +305,9 @@ const Reports = () => {
     return wb;
   };
 
-  const buildPDFDoc = (groups) => {
+  const buildPDFDoc = (groups, withReference = isSuperAdmin) => {
+    const BILL_COLS = getBillCols(withReference);
+    const REFERENCE_BY_COL = isSuperAdmin && withReference ? 10 : -1;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const today = new Date().toLocaleDateString('en-IN');
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -335,7 +341,9 @@ const Reports = () => {
     let grandBill = 0, grandApproval = 0, grandFP = 0;
 
     const COL_WIDTHS = isSuperAdmin
-      ? [8, 28, 26, 18, 35, 14, 16, 16, 22, 26, 28, 22]
+      ? withReference
+        ? [8, 28, 26, 18, 35, 14, 16, 16, 22, 26, 28, 22]
+        : [10, 32, 28, 20, 38, 16, 18, 18, 26, 30, 26]
       : [10, 36, 32, 22, 42, 18, 18, 18, 32, 36];
     const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
     const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
@@ -349,7 +357,9 @@ const Reports = () => {
         { content: fmtAmt(approval), styles: { ...base, halign: 'right' } },
       ];
       if (isSuperAdmin) {
-        row.push({ content: '', styles: { fillColor: palette.fill, lineColor: base.lineColor, lineWidth: base.lineWidth } });
+        if (withReference) {
+          row.push({ content: '', styles: { fillColor: palette.fill, lineColor: base.lineColor, lineWidth: base.lineWidth } });
+        }
         row.push({ content: fmtAmt(fp), styles: { ...base, halign: 'right' } });
       }
       autoTable(doc, {
@@ -393,7 +403,7 @@ const Reports = () => {
         const monthFP = isSuperAdmin ? items.reduce((s, c) => s + getFilePrice(c), 0) : 0;
         hospBill += monthBill; hospApproval += monthApproval; hospFP += monthFP;
 
-        const bodyRows = items.map(c => billClaimRow(c).map((v, i) => (i >= 8 && i !== REFERENCE_BY_COL) ? fmtAmt(v) : (v ?? '')));
+        const bodyRows = items.map(c => billClaimRow(c, withReference).map((v, i) => (i >= 8 && i !== REFERENCE_BY_COL) ? fmtAmt(v) : (v ?? '')));
         const totalFill = [243, 244, 246];
         const totalRowObj = [
           { content: 'TOTAL', colSpan: 8, styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
@@ -401,7 +411,9 @@ const Reports = () => {
           { content: fmtAmt(monthApproval), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
         ];
         if (isSuperAdmin) {
-          totalRowObj.push({ content: '', styles: { fillColor: totalFill } });
+          if (withReference) {
+            totalRowObj.push({ content: '', styles: { fillColor: totalFill } });
+          }
           totalRowObj.push({ content: fmtAmt(monthFP), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } });
         }
         bodyRows.push(totalRowObj);
@@ -476,14 +488,14 @@ const Reports = () => {
     const groups = groupByHospital();
 
     if (groups.length === 1) {
-      const wb = buildExcelWB(groups);
+      const wb = buildExcelWB(groups, false);
       XLSX.writeFile(wb, `claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.xlsx`);
       return;
     }
 
     const zip = new JSZip();
     groups.forEach(({ hospital, monthGroups }) => {
-      const wb = buildExcelWB([{ hospital, monthGroups }]);
+      const wb = buildExcelWB([{ hospital, monthGroups }], false);
       const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
       zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.xlsx`, buf);
     });
@@ -501,14 +513,14 @@ const Reports = () => {
     const groups = groupByHospital();
 
     if (groups.length === 1) {
-      const doc = buildPDFDoc(groups);
+      const doc = buildPDFDoc(groups, false);
       doc.save(`claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.pdf`);
       return;
     }
 
     const zip = new JSZip();
     groups.forEach(({ hospital, monthGroups }) => {
-      const doc = buildPDFDoc([{ hospital, monthGroups }]);
+      const doc = buildPDFDoc([{ hospital, monthGroups }], false);
       zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.pdf`, doc.output('arraybuffer'));
     });
     const blob = await zip.generateAsync({ type: 'blob' });
