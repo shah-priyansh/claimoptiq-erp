@@ -8,7 +8,7 @@ import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlin
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 
 const ClaimList = () => {
   const navigate = useNavigate();
@@ -96,94 +96,167 @@ const ClaimList = () => {
 
       const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '';
       const fmtN = (n) => Number(n) || 0;
-      const rows = data.map((c, i) => {
-        const row = {
-          'Sr No': i + 1,
-          'Created At': fmtD(c.createdAt),
-          'Month': c.month ? new Date(c.month).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '',
-          'Month Claim No': c.monthClaimNo || '',
-          'Hospital': c.hospital?.name || '',
-          ...(isSuperAdmin ? { 'Reference': c.hospital?.referenceBy || '' } : {}),
-          'Patient Name': c.patientName || '',
-          'Patient Mobile': c.patientMobile || '',
-          'Doctor': c.doctorName || '',
-          'Claim Type': c.claimType || '',
-          'Insurance Company': c.insuranceCompany?.name || '',
-          'TPA': c.tpa?.name || '',
-          'Policy No': c.policyNo || '',
-          'Client ID': c.clientId || '',
-          'CCN No': c.ccnNo || '',
-          'Date of Admit': fmtD(c.dateOfAdmit),
-          'Date of Discharge': fmtD(c.dateOfDischarge),
-          'Hospital Final Bill': fmtN(c.hospitalFinalBill),
-          'MOU Discount': fmtN(c.mouDiscount),
-          'Deduction': fmtN(c.deduction),
-          'Final Approval Amount': fmtN(c.finalApprovalAmount),
-          'Final Approval Date': fmtD(c.finalApprovalDate),
-          'File Received Date': fmtD(c.fileReceivedDate),
-          'Submit Mode': c.submitMode || '',
-          'Courier Submit Date': fmtD(c.courierSubmitDate),
-          'Online Submit Date': fmtD(c.onlineSubmitDate),
-          'Courier Company': c.courierCompanyName || '',
-          'POD Number': c.podNumber || '',
-          'Settlement Amount': fmtN(c.settlementAmount),
-          'Settlement Deduction': fmtN(c.settlementAmountDeduction),
-          'MOU Discount on Settlement': fmtN(c.mouDiscountOnSettlement),
-          'TDS': fmtN(c.tds),
-          'Bank Transfer Amount': fmtN(c.bankTransferAmount),
-          'Settlement Date': fmtD(c.settlementDate),
-          'NEFT No': c.neftNo || '',
-          'Treatment Type': c.treatmentType || '',
-          'Diagnosis': c.diagnosis || '',
-          'Surgery Name': c.surgeryName || '',
-          'Status': c.status || '',
-          'Rejected Reason': c.rejectedReason || '',
-          'Remarks': c.remarks || '',
-          ...(isSuperAdmin ? { 'File Charge': fmtN(c.filePrice) } : {}),
-        };
-        return row;
+      const inrFmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 });
+      const fmtINR = (n) => {
+        const num = Number(n) || 0;
+        return num === 0 ? '' : inrFmt.format(num);
+      };
+
+      // Column definitions — keeps headers, value extractors, and which columns
+      // are amounts (right-aligned + summed) all in one place.
+      const cols = [
+        { h: 'Sr No',                       v: (_c, i) => i + 1 },
+        { h: 'Created At',                  v: (c)     => fmtD(c.createdAt) },
+        { h: 'Month',                       v: (c)     => c.month ? new Date(c.month).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '' },
+        { h: 'Month Claim No',              v: (c)     => c.monthClaimNo || '' },
+        { h: 'Hospital',                    v: (c)     => c.hospital?.name || '' },
+        ...(isSuperAdmin ? [{ h: 'Reference', v: (c) => c.hospital?.referenceBy || '' }] : []),
+        { h: 'Patient Name',                v: (c)     => c.patientName || '' },
+        { h: 'Patient Mobile',              v: (c)     => c.patientMobile || '' },
+        { h: 'Doctor',                      v: (c)     => c.doctorName || '' },
+        { h: 'Claim Type',                  v: (c)     => c.claimType || '' },
+        { h: 'Insurance Company',           v: (c)     => c.insuranceCompany?.name || '' },
+        { h: 'TPA',                         v: (c)     => c.tpa?.name || '' },
+        { h: 'Policy No',                   v: (c)     => c.policyNo || '' },
+        { h: 'Client ID',                   v: (c)     => c.clientId || '' },
+        { h: 'CCN No',                      v: (c)     => c.ccnNo || '' },
+        { h: 'Date of Admit',               v: (c)     => fmtD(c.dateOfAdmit) },
+        { h: 'Date of Discharge',           v: (c)     => fmtD(c.dateOfDischarge) },
+        { h: 'Hospital Final Bill',         v: (c)     => fmtN(c.hospitalFinalBill),         amount: true },
+        { h: 'MOU Discount',                v: (c)     => fmtN(c.mouDiscount),               amount: true },
+        { h: 'Deduction',                   v: (c)     => fmtN(c.deduction),                 amount: true },
+        { h: 'Final Approval Amount',       v: (c)     => fmtN(c.finalApprovalAmount),       amount: true },
+        { h: 'Final Approval Date',         v: (c)     => fmtD(c.finalApprovalDate) },
+        { h: 'File Received Date',          v: (c)     => fmtD(c.fileReceivedDate) },
+        { h: 'Submit Mode',                 v: (c)     => c.submitMode || '' },
+        { h: 'Courier Submit Date',         v: (c)     => fmtD(c.courierSubmitDate) },
+        { h: 'Online Submit Date',          v: (c)     => fmtD(c.onlineSubmitDate) },
+        { h: 'Courier Company',             v: (c)     => c.courierCompanyName || '' },
+        { h: 'POD Number',                  v: (c)     => c.podNumber || '' },
+        { h: 'Settlement Amount',           v: (c)     => fmtN(c.settlementAmount),          amount: true },
+        { h: 'Settlement Deduction',        v: (c)     => fmtN(c.settlementAmountDeduction), amount: true },
+        { h: 'MOU Discount on Settlement',  v: (c)     => fmtN(c.mouDiscountOnSettlement),   amount: true },
+        { h: 'TDS',                         v: (c)     => fmtN(c.tds),                       amount: true },
+        { h: 'Bank Transfer Amount',        v: (c)     => fmtN(c.bankTransferAmount),        amount: true },
+        { h: 'Settlement Date',             v: (c)     => fmtD(c.settlementDate) },
+        { h: 'NEFT No',                     v: (c)     => c.neftNo || '' },
+        { h: 'Treatment Type',              v: (c)     => c.treatmentType || '' },
+        { h: 'Diagnosis',                   v: (c)     => c.diagnosis || '' },
+        { h: 'Surgery Name',                v: (c)     => c.surgeryName || '' },
+        { h: 'Status',                      v: (c)     => c.status || '' },
+        { h: 'Rejected Reason',             v: (c)     => c.rejectedReason || '' },
+        { h: 'Remarks',                     v: (c)     => c.remarks || '' },
+        ...(isSuperAdmin ? [{ h: 'File Charge', v: (c) => fmtN(c.filePrice), amount: true }] : []),
+      ];
+
+      const NUM_COLS = cols.length;
+      const headers = cols.map(c => c.h);
+      const amountColIdx = new Set(cols.map((c, i) => c.amount ? i : -1).filter(i => i >= 0));
+
+      // Build AOA — title, header, data rows, blank, total, blank, footer
+      const wsData = [];
+      const rowMeta = [];
+      const merges = [];
+
+      const today = new Date().toLocaleDateString('en-IN');
+      const rTitle = wsData.length;
+      wsData.push([`Claims Export — ${today} — ${data.length} claim(s)`, ...Array(NUM_COLS - 1).fill('')]);
+      merges.push({ s: { r: rTitle, c: 0 }, e: { r: rTitle, c: NUM_COLS - 1 } });
+      rowMeta.push({ row: rTitle, type: 'title' });
+
+      const rHeader = wsData.length;
+      wsData.push([...headers]);
+      rowMeta.push({ row: rHeader, type: 'header' });
+
+      // Pre-format amount values as en-IN strings — guarantees Indian grouping
+      // (e.g. 142473 → "1,42,473") regardless of Excel locale.
+      const totals = {};
+      data.forEach((c, i) => {
+        const row = cols.map((col, idx) => {
+          const raw = col.v(c, i);
+          if (col.amount) {
+            totals[idx] = (totals[idx] || 0) + (Number(raw) || 0);
+            return fmtINR(raw);
+          }
+          return raw;
+        });
+        rowMeta.push({ row: wsData.length, type: 'data' });
+        wsData.push(row);
       });
 
-      const headers = Object.keys(rows[0]);
-      // Columns we should sum in the totals row
-      const sumKeys = new Set([
-        'Hospital Final Bill', 'MOU Discount', 'Deduction', 'Final Approval Amount',
-        'Settlement Amount', 'Settlement Deduction', 'MOU Discount on Settlement',
-        'TDS', 'Bank Transfer Amount', 'File Charge',
-      ]);
-      const r2 = (v) => Math.round(v * 100) / 100;
-      const totalsRow = { 'Sr No': 'TOTAL', 'Created At': `${data.length} claim(s)` };
-      headers.forEach(h => {
-        if (sumKeys.has(h)) {
-          totalsRow[h] = r2(rows.reduce((s, r) => s + (Number(r[h]) || 0), 0));
-        } else if (!(h in totalsRow)) {
-          totalsRow[h] = '';
-        }
+      // Blank spacer + totals row
+      wsData.push(Array(NUM_COLS).fill(''));
+      const rTotal = wsData.length;
+      const totalsRow = Array(NUM_COLS).fill('');
+      totalsRow[0] = 'TOTAL';
+      totalsRow[1] = `${data.length} claim(s)`;
+      Object.entries(totals).forEach(([idx, sum]) => {
+        totalsRow[parseInt(idx, 10)] = fmtINR(Math.round(sum * 100) / 100);
       });
+      wsData.push(totalsRow);
+      rowMeta.push({ row: rTotal, type: 'total' });
 
-      const ws = XLSX.utils.json_to_sheet([...rows, {}, totalsRow], { header: headers });
+      // Footer
+      wsData.push(Array(NUM_COLS).fill(''));
+      const rFooter = wsData.length;
+      wsData.push(['Prepared by: First Care Consultancy', ...Array(NUM_COLS - 1).fill('')]);
+      merges.push({ s: { r: rFooter, c: 0 }, e: { r: rFooter, c: NUM_COLS - 1 } });
+      rowMeta.push({ row: rFooter, type: 'footer' });
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!merges'] = merges;
       ws['!cols'] = headers.map(h => ({ wch: Math.min(Math.max(h.length + 2, 14), 28) }));
 
-      // Indian-style grouping. We pre-format numeric amounts as en-IN strings so
-      // the display is identical in any Excel locale (e.g. 142473 → "1,42,473").
-      // Excel's own format codes for Indian grouping behave inconsistently across
-      // Excel versions, hence the string approach. Sum totals are pre-computed
-      // in JS so we don't lose aggregation.
-      const inrFmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 });
-      const range = XLSX.utils.decode_range(ws['!ref']);
-      headers.forEach((h, colIdx) => {
-        if (!sumKeys.has(h)) return;
-        for (let rIdx = 1; rIdx <= range.e.r; rIdx++) {
-          const addr = XLSX.utils.encode_cell({ r: rIdx, c: colIdx });
-          const cell = ws[addr];
-          if (!cell || cell.v === '' || cell.v == null) continue;
-          const n = Number(cell.v);
-          if (Number.isNaN(n)) continue;
-          cell.t = 's';
-          cell.v = inrFmt.format(n);
-          delete cell.z;
+      const thin = { style: 'thin', color: { auto: 1 } };
+      const border = { top: thin, bottom: thin, left: thin, right: thin };
+
+      const applyStyle = (r, c, style) => {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (!ws[ref]) ws[ref] = { v: '', t: 's' };
+        ws[ref].s = style;
+      };
+
+      rowMeta.forEach(({ row, type }) => {
+        for (let c = 0; c < NUM_COLS; c++) {
+          const isAmount = amountColIdx.has(c);
+          if (type === 'title') {
+            applyStyle(row, c, {
+              font: { bold: true, sz: 12, name: 'Arial', color: { rgb: 'FFFFFF' } },
+              fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } },
+              alignment: { horizontal: 'center', vertical: 'center' },
+            });
+          } else if (type === 'header') {
+            applyStyle(row, c, {
+              font: { bold: true, sz: 9, name: 'Arial' },
+              fill: { patternType: 'solid', fgColor: { rgb: 'F3F4F6' } },
+              alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+              border,
+            });
+          } else if (type === 'data') {
+            applyStyle(row, c, {
+              font: { sz: 9, name: 'Arial' },
+              alignment: { horizontal: isAmount ? 'right' : 'left', vertical: 'center' },
+              border,
+            });
+          } else if (type === 'total') {
+            applyStyle(row, c, {
+              font: { bold: true, sz: 9, name: 'Arial' },
+              fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } },
+              alignment: { horizontal: c === 0 ? 'center' : isAmount ? 'right' : 'left', vertical: 'center' },
+              border,
+            });
+          } else if (type === 'footer') {
+            applyStyle(row, c, {
+              font: { bold: true, sz: 10, name: 'Arial' },
+              alignment: { horizontal: 'left', vertical: 'center' },
+            });
+          }
         }
       });
+
+      // Header row height — bump for wrapText
+      ws['!rows'] = [];
+      ws['!rows'][rHeader] = { hpt: 28 };
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Claims');
