@@ -1,6 +1,6 @@
 export const formatINR = (amount) => {
   const num = Number(amount) || 0;
-  return new Intl.NumberFormat('en-IN').format(num);
+  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(num);
 };
 
 export const formatCurrency = (amount) => `Rs ${formatINR(amount)}`;

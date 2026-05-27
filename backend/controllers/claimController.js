@@ -327,6 +327,69 @@ exports.bulkUpdateStatus = async (req, res) => {
   }
 };
 
+exports.exportClaims = async (req, res) => {
+  try {
+    const { hospital, status, claimType, month, dateFrom, dateTo, search } = req.query;
+    const where = {};
+
+    const userHospitalId = getUserHospitalId(req.user);
+    if (userHospitalId) {
+      where.hospitalId = userHospitalId;
+    } else if (hospital) {
+      where.hospitalId = hospital;
+    }
+
+    if (status) where.status = status;
+    if (claimType) where.claimType = claimType;
+    if (month) {
+      const d = new Date(month);
+      where.month = {
+        gte: new Date(d.getFullYear(), d.getMonth(), 1),
+        lte: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999),
+      };
+    }
+    if (!month && (dateFrom || dateTo)) {
+      where.month = {};
+      if (dateFrom) {
+        const d = new Date(dateFrom);
+        d.setHours(0, 0, 0, 0);
+        where.month.gte = d;
+      }
+      if (dateTo) {
+        const d = new Date(dateTo);
+        d.setHours(23, 59, 59, 999);
+        where.month.lte = d;
+      }
+    }
+    if (search) {
+      where.OR = [
+        { patientName: { contains: search, mode: 'insensitive' } },
+        { policyNo: { contains: search, mode: 'insensitive' } },
+        { ccnNo: { contains: search, mode: 'insensitive' } },
+        { clientId: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const claims = await prisma.claim.findMany({
+      where,
+      include: claimInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const isSuperAdmin = req.user?.role?.slug === 'super_admin';
+    const claimsData = toResponse(claims);
+    const stripped = isSuperAdmin
+      ? claimsData
+      : claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
+          ...rest,
+          hospital: hospital ? (({ referenceBy, ...h }) => h)(hospital) : hospital,
+        }));
+    res.json(stripped);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.bulkBill = async (req, res) => {
   try {
     if (req.user?.role?.slug !== 'super_admin') {
