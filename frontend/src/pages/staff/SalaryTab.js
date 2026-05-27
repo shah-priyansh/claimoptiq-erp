@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { computeSalaryAPI, getSalaryRecordsAPI, getMySalaryAPI, updateSalaryRecordAPI } from '../../services/api';
+import { computeSalaryAPI, getSalaryRecordsAPI, getMySalaryAPI, updateSalaryRecordAPI, getOtSettingsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { formatCurrency } from '../../utils/format';
-import { HiOutlinePlus, HiOutlineTrash, HiOutlineDocumentDownload, HiOutlineLockClosed, HiChevronDown } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineTrash, HiOutlineDocumentDownload, HiOutlineLockClosed, HiChevronDown, HiOutlineInformationCircle } from 'react-icons/hi';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -37,19 +37,21 @@ const sundaysInRecord = (r) => {
   return countSundays(d.getUTCFullYear(), d.getUTCMonth());
 };
 
-const OT_DAILY = 1.5, OT_SUN = 2.0, OT_HOL = 2.0;
+const DEFAULT_OT_MULTS = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayMultiplier: 2.0 };
 
-const computeBreakdown = (r) => {
+const computeBreakdown = (r, otMults = DEFAULT_OT_MULTS) => {
   const basicPerDay = r.basicSalary / r.calendarDays;
   const earnedBasic = basicPerDay * r.presentDays;
   const hourlyRate = r.basicSalary / (r.calendarDays * r.employee.standardHours);
-  const dailyOtAmt = (r.dailyOtMinutes / 60) * hourlyRate * OT_DAILY;
-  const sundayOtAmt = (r.sundayOtMinutes / 60) * hourlyRate * OT_SUN;
-  const holidayOtAmt = (r.holidayOtMinutes / 60) * hourlyRate * OT_HOL;
+  const dailyOtAmt = (r.dailyOtMinutes / 60) * hourlyRate * otMults.dailyMultiplier;
+  const sundayOtAmt = (r.sundayOtMinutes / 60) * hourlyRate * otMults.sundayMultiplier;
+  const holidayOtAmt = (r.holidayOtMinutes / 60) * hourlyRate * otMults.holidayMultiplier;
   const fixedAllow = r.employee.allowances.reduce((s, a) => s + a.amount, 0);
   const extraAllow = (r.extraAllowances || []).reduce((s, a) => s + parseFloat(a.amount || 0), 0);
   return { earnedBasic, dailyOtAmt, sundayOtAmt, holidayOtAmt, fixedAllow, extraAllow, totalOt: dailyOtAmt + sundayOtAmt + holidayOtAmt };
 };
+
+const fmtMult = (n) => `×${Number(n).toFixed(1)}`;
 
 const ExtraAllowanceEditor = ({ record, onUpdate }) => {
   const [items, setItems] = useState(record.extraAllowances || []);
@@ -90,10 +92,10 @@ const ExtraAllowanceEditor = ({ record, onUpdate }) => {
   );
 };
 
-const SalaryRow = ({ r, canEdit, onUpdate, onFinalize }) => {
+const SalaryRow = ({ r, canEdit, onUpdate, onFinalize, otMults }) => {
   const [expanded, setExpanded] = useState(false);
   const [changing, setChanging] = useState(false);
-  const bd = computeBreakdown(r);
+  const bd = computeBreakdown(r, otMults);
 
   const handleStatusChange = async (newValue) => {
     setChanging(true);
@@ -104,51 +106,103 @@ const SalaryRow = ({ r, canEdit, onUpdate, onFinalize }) => {
     }
   };
 
+  const hasAnyOt = r.dailyOtMinutes > 0 || r.sundayOtMinutes > 0 || r.holidayOtMinutes > 0;
+
   return (
     <>
-      <tr className="hover:bg-gray-50 text-sm cursor-pointer" onClick={() => setExpanded(e => !e)}>
-        <td className="py-3 px-4 font-semibold text-primary-600">{r.employee.empNumber}</td>
-        <td className="py-3 px-4 font-medium text-gray-800">{r.employee.name}</td>
-        <td className="py-3 px-4 text-gray-600">
-          <div>{r.presentDays}/{r.calendarDays}</div>
-          <div className="text-[10px] text-purple-600 font-medium mt-0.5">{sundaysInRecord(r)} Sundays</div>
-        </td>
-        <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.earnedBasic)}</td>
-        <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.fixedAllow + bd.extraAllow)}</td>
-        <td className="py-3 px-4">
-          <div className="text-xs space-y-0.5">
-            {r.dailyOtMinutes > 0 && <div><span className="text-yellow-600 font-medium">{fmtMin(r.dailyOtMinutes)}</span> <span className="text-gray-400">daily</span></div>}
-            {r.sundayOtMinutes > 0 && <div><span className="text-purple-600 font-medium">{fmtMin(r.sundayOtMinutes)}</span> <span className="text-gray-400">sunday</span></div>}
-            {r.holidayOtMinutes > 0 && <div><span className="text-red-500 font-medium">{fmtMin(r.holidayOtMinutes)}</span> <span className="text-gray-400">holiday</span></div>}
-            {!r.dailyOtMinutes && !r.sundayOtMinutes && !r.holidayOtMinutes && <span className="text-gray-400">—</span>}
+      <tr
+        className={`text-sm cursor-pointer transition-colors ${expanded ? 'bg-blue-50/40' : 'hover:bg-gray-50'}`}
+        onClick={() => setExpanded(e => !e)}
+      >
+        <td className="py-3 px-4 align-middle">
+          <div className="flex items-center gap-2">
+            <HiChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            <span className="font-semibold text-primary-600">{r.employee.empNumber}</span>
           </div>
         </td>
-        <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.totalOt)}</td>
-        <td className="py-3 px-4 font-bold text-gray-900">{formatCurrency(r.totalAmount)}</td>
-        <td className="py-3 px-4">
-          {changing
-            ? <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-semibold animate-pulse">Updating...</span>
-            : r.isFinalized
-              ? <span className="flex items-center gap-1 text-xs text-green-700 font-semibold bg-green-100 px-2 py-0.5 rounded-full"><HiOutlineLockClosed className="w-3 h-3" />Finalized</span>
-              : <span className="text-xs text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded-full font-semibold">Draft</span>}
+        <td className="py-3 px-4 align-middle font-medium text-gray-800">{r.employee.name}</td>
+        <td className="py-3 px-4 align-middle">
+          <div className="text-gray-700 font-medium tabular-nums">{r.presentDays}<span className="text-gray-400">/{r.calendarDays}</span></div>
+          <div className="flex flex-wrap gap-1 mt-1">
+            <span
+              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                r.sundayPresentDays > 0
+                  ? 'bg-purple-100 border-purple-300 text-purple-800'
+                  : 'bg-purple-50 border-purple-200 text-purple-600'
+              }`}
+              title={`${sundaysInRecord(r)} Sunday(s) in month — ${r.sundayPresentDays || 0} worked`}
+            >
+              {r.sundayPresentDays > 0 ? `${r.sundayPresentDays}/` : ''}{sundaysInRecord(r)} Sun
+            </span>
+            {(r.holidayCount > 0 || r.holidayPresentDays > 0) && (
+              <span
+                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                  r.holidayPresentDays > 0
+                    ? 'bg-orange-100 border-orange-300 text-orange-800'
+                    : 'bg-orange-50 border-orange-200 text-orange-600'
+                }`}
+                title={`${r.holidayCount || 0} Holiday(s) in month — ${r.holidayPresentDays || 0} worked`}
+              >
+                {r.holidayPresentDays > 0 ? `${r.holidayPresentDays}/` : ''}{r.holidayCount || 0} Hol
+              </span>
+            )}
+          </div>
         </td>
-        <td className="py-3 px-4 text-right">
+        <td className="py-3 px-4 align-middle text-gray-700 tabular-nums">{formatCurrency(bd.earnedBasic)}</td>
+        <td className="py-3 px-4 align-middle text-gray-700 tabular-nums">{formatCurrency(bd.fixedAllow + bd.extraAllow)}</td>
+        <td className="py-3 px-4 align-middle">
+          {hasAnyOt ? (
+            <div className="flex flex-wrap gap-1">
+              {r.dailyOtMinutes > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-50 border border-yellow-200 text-[10px] font-semibold text-yellow-800">
+                  <span className="w-1 h-1 rounded-full bg-yellow-500" />{fmtMin(r.dailyOtMinutes)} <span className="text-yellow-600/70 font-normal">Daily</span>
+                </span>
+              )}
+              {r.sundayOtMinutes > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-50 border border-purple-200 text-[10px] font-semibold text-purple-800">
+                  <span className="w-1 h-1 rounded-full bg-purple-500" />{fmtMin(r.sundayOtMinutes)} <span className="text-purple-600/70 font-normal">Sun</span>
+                </span>
+              )}
+              {r.holidayOtMinutes > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-50 border border-orange-200 text-[10px] font-semibold text-orange-800">
+                  <span className="w-1 h-1 rounded-full bg-orange-500" />{fmtMin(r.holidayOtMinutes)} <span className="text-orange-600/70 font-normal">Hol</span>
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-[11px] text-gray-400 italic">No OT</span>
+          )}
+        </td>
+        <td className={`py-3 px-4 align-middle tabular-nums ${hasAnyOt ? 'text-green-700 font-semibold' : 'text-gray-400'}`}>
+          {hasAnyOt ? formatCurrency(bd.totalOt) : '—'}
+        </td>
+        <td className="py-3 px-4 align-middle">
+          <span className="font-bold text-gray-900 tabular-nums">{formatCurrency(r.totalAmount)}</span>
+        </td>
+        <td className="py-3 px-4 align-middle">
+          {changing
+            ? <span className="inline-flex text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full font-semibold animate-pulse">Updating…</span>
+            : r.isFinalized
+              ? <span className="inline-flex items-center gap-1 text-[10px] text-green-700 font-semibold bg-green-100 px-2 py-0.5 rounded-full"><HiOutlineLockClosed className="w-3 h-3" />Finalized</span>
+              : <span className="inline-flex text-[10px] text-yellow-800 bg-yellow-100 px-2 py-0.5 rounded-full font-semibold">Draft</span>}
+        </td>
+        <td className="py-3 px-4 align-middle text-right">
           {canEdit && (
             r.isFinalized ? (
               <button
                 onClick={e => { e.stopPropagation(); handleStatusChange(false); }}
                 disabled={changing}
-                className="text-xs bg-yellow-500 hover:bg-yellow-600 text-white px-2.5 py-1 rounded font-medium disabled:opacity-50"
+                className="text-xs bg-white border border-yellow-400 text-yellow-700 hover:bg-yellow-50 px-2.5 py-1 rounded-md font-semibold disabled:opacity-50 transition-colors"
               >
-                {changing ? 'Updating...' : 'Revert to Draft'}
+                {changing ? 'Updating…' : 'Revert'}
               </button>
             ) : (
               <button
                 onClick={e => { e.stopPropagation(); handleStatusChange(true); }}
                 disabled={changing}
-                className="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded font-medium disabled:opacity-50"
+                className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-md font-semibold disabled:opacity-50 transition-colors shadow-sm"
               >
-                {changing ? 'Updating...' : 'Finalize'}
+                {changing ? 'Updating…' : 'Finalize'}
               </button>
             )
           )}
@@ -156,19 +210,61 @@ const SalaryRow = ({ r, canEdit, onUpdate, onFinalize }) => {
       </tr>
       {expanded && (
         <tr className="bg-blue-50/40">
-          <td colSpan={10} className="px-6 py-3">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mb-3">
+          <td colSpan={10} className="px-6 py-4">
+            {/* Salary breakdown */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mb-4">
               <div><span className="text-gray-500">Basic Salary:</span> <span className="font-semibold">{formatCurrency(r.basicSalary)}</span></div>
               <div><span className="text-gray-500">Calendar Days:</span> <span className="font-semibold">{r.calendarDays}</span></div>
               <div><span className="text-gray-500">Per Day Rate:</span> <span className="font-semibold">{formatCurrency(r.basicSalary / r.calendarDays)}</span></div>
               <div><span className="text-gray-500">Earned Basic:</span> <span className="font-semibold">{formatCurrency(bd.earnedBasic)}</span></div>
               <div><span className="text-gray-500">Fixed Allow:</span> <span className="font-semibold">{formatCurrency(bd.fixedAllow)}</span></div>
               <div><span className="text-gray-500">Extra Allow:</span> <span className="font-semibold">{formatCurrency(bd.extraAllow)}</span></div>
+              <div><span className="text-gray-500">Hourly Rate:</span> <span className="font-semibold">{formatCurrency(r.basicSalary / (r.calendarDays * r.employee.standardHours))}</span></div>
               <div><span className="text-gray-500">OT Total:</span> <span className="font-semibold text-green-600">{formatCurrency(bd.totalOt)}</span></div>
-              <div><span className="text-gray-500">Daily OT:</span> <span className="font-semibold">{formatCurrency(bd.dailyOtAmt)} <span className="text-gray-400">(×1.5)</span></span></div>
-              <div><span className="text-gray-500">Sunday OT:</span> <span className="font-semibold">{formatCurrency(bd.sundayOtAmt)} <span className="text-gray-400">(×2.0)</span></span></div>
-              <div><span className="text-gray-500">Holiday OT:</span> <span className="font-semibold">{formatCurrency(bd.holidayOtAmt)} <span className="text-gray-400">(×2.0)</span></span></div>
             </div>
+
+            {/* Overtime detail panel — helps admin see if employee worked extra/sunday/holiday and at what rate */}
+            <div className="bg-white border border-gray-200 rounded-lg p-3 mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Overtime Detail</p>
+                {bd.totalOt > 0
+                  ? <span className="text-[10px] text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full font-semibold">{formatCurrency(bd.totalOt)} earned</span>
+                  : <span className="text-[10px] text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full font-medium">No OT this month</span>}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className={`rounded-md px-3 py-2 border ${r.dailyOtMinutes > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-gray-700">Daily OT</span>
+                    <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.dailyMultiplier)}</span>
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    {r.dailyOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.dailyOtMinutes)}</span> on weekdays</> : <span className="italic">Not worked</span>}
+                  </div>
+                  <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.dailyOtAmt)}</div>
+                </div>
+                <div className={`rounded-md px-3 py-2 border ${r.sundayOtMinutes > 0 ? 'bg-purple-50 border-purple-200' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-gray-700">Sunday OT</span>
+                    <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.sundayMultiplier)}</span>
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    {r.sundayOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.sundayOtMinutes)}</span> on Sundays</> : <span className="italic">Not worked</span>}
+                  </div>
+                  <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.sundayOtAmt)}</div>
+                </div>
+                <div className={`rounded-md px-3 py-2 border ${r.holidayOtMinutes > 0 ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-gray-700">Holiday OT</span>
+                    <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.holidayMultiplier)}</span>
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    {r.holidayOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.holidayOtMinutes)}</span> on holidays</> : <span className="italic">Not worked</span>}
+                  </div>
+                  <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.holidayOtAmt)}</div>
+                </div>
+              </div>
+            </div>
+
             {canEdit && !r.isFinalized && (
               <div>
                 <p className="text-xs font-semibold text-gray-600 mb-1">Extra / Variable Allowances</p>
@@ -197,6 +293,7 @@ const AdminSalaryView = ({ canEdit }) => {
   const [computing, setComputing] = useState(false);
   const [selMonth, setSelMonth] = useState(now.getMonth() + 1);
   const [selYear, setSelYear] = useState(now.getFullYear());
+  const [otMults, setOtMults] = useState(DEFAULT_OT_MULTS);
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   const load = useCallback(async () => {
@@ -209,6 +306,16 @@ const AdminSalaryView = ({ canEdit }) => {
   }, [selMonth, selYear]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    getOtSettingsAPI()
+      .then(({ data }) => setOtMults({
+        dailyMultiplier: data.dailyMultiplier,
+        sundayMultiplier: data.sundayMultiplier,
+        holidayMultiplier: data.holidayMultiplier,
+      }))
+      .catch(() => {});
+  }, []);
 
   const handleCompute = async () => {
     setComputing(true);
@@ -240,7 +347,7 @@ const AdminSalaryView = ({ canEdit }) => {
 
     const r2 = (v) => Math.round(v * 100) / 100;
     const rows = records.map(r => {
-      const bd = computeBreakdown(r);
+      const bd = computeBreakdown(r, otMults);
       return [r.employee.empNumber, r.employee.name, r2(r.basicSalary), r.calendarDays, sundaysInRecord(r), r.presentDays,
         r2(bd.earnedBasic), r2(bd.fixedAllow), r2(bd.extraAllow), r.dailyOtMinutes, r.sundayOtMinutes, r.holidayOtMinutes,
         r2(bd.totalOt), r2(r.totalAmount), r.isFinalized ? 'Finalized' : 'Draft'];
@@ -248,7 +355,7 @@ const AdminSalaryView = ({ canEdit }) => {
 
     // Totals row — sum numeric columns, blank for non-numeric
     const tot = records.reduce((acc, r) => {
-      const bd = computeBreakdown(r);
+      const bd = computeBreakdown(r, otMults);
       acc.earnedBasic   += bd.earnedBasic;
       acc.fixedAllow    += bd.fixedAllow;
       acc.extraAllow    += bd.extraAllow;
@@ -284,7 +391,7 @@ const AdminSalaryView = ({ canEdit }) => {
     doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')} | ${records.length} employee(s)`, 14, 20);
 
     const tot = records.reduce((acc, r) => {
-      const bd = computeBreakdown(r);
+      const bd = computeBreakdown(r, otMults);
       acc.earnedBasic  += bd.earnedBasic;
       acc.allowances   += bd.fixedAllow + bd.extraAllow;
       acc.totalOt      += bd.totalOt;
@@ -296,7 +403,7 @@ const AdminSalaryView = ({ canEdit }) => {
       startY: 25,
       head: [['EMP', 'Name', 'Days', 'Sundays', 'Earned Basic', 'Allowances', 'Daily OT', 'Sun OT', 'Hol OT', 'OT Amt', 'Total', 'Status']],
       body: records.map(r => {
-        const bd = computeBreakdown(r);
+        const bd = computeBreakdown(r, otMults);
         return [r.employee.empNumber, r.employee.name, `${r.presentDays}/${r.calendarDays}`,
           sundaysInRecord(r),
           formatCurrency(bd.earnedBasic), formatCurrency(bd.fixedAllow + bd.extraAllow),
@@ -323,6 +430,15 @@ const AdminSalaryView = ({ canEdit }) => {
   };
 
   const total = records.reduce((s, r) => s + r.totalAmount, 0);
+  const otTotals = records.reduce((acc, r) => {
+    acc.daily   += r.dailyOtMinutes   || 0;
+    acc.sunday  += r.sundayOtMinutes  || 0;
+    acc.holiday += r.holidayOtMinutes || 0;
+    if (r.sundayOtMinutes > 0)  acc.sundayWorkers  += 1;
+    if (r.holidayOtMinutes > 0) acc.holidayWorkers += 1;
+    if (r.dailyOtMinutes > 0)   acc.dailyWorkers   += 1;
+    return acc;
+  }, { daily: 0, sunday: 0, holiday: 0, dailyWorkers: 0, sundayWorkers: 0, holidayWorkers: 0 });
 
   return (
     <div className="space-y-4">
@@ -352,11 +468,36 @@ const AdminSalaryView = ({ canEdit }) => {
       </div>
 
       {records.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex gap-6">
-          <div><p className="text-xs text-gray-400 font-semibold uppercase">Employees</p><p className="text-xl font-bold text-gray-800">{records.length}</p></div>
-          <div><p className="text-xs text-gray-400 font-semibold uppercase">Total Payroll</p><p className="text-xl font-bold text-primary-600">{formatCurrency(total)}</p></div>
-          <div><p className="text-xs text-gray-400 font-semibold uppercase">Finalized</p><p className="text-xl font-bold text-green-600">{records.filter(r => r.isFinalized).length}/{records.length}</p></div>
-        </div>
+        <>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-6">
+            <div><p className="text-xs text-gray-400 font-semibold uppercase">Employees</p><p className="text-xl font-bold text-gray-800">{records.length}</p></div>
+            <div><p className="text-xs text-gray-400 font-semibold uppercase">Total Payroll</p><p className="text-xl font-bold text-primary-600">{formatCurrency(total)}</p></div>
+            <div><p className="text-xs text-gray-400 font-semibold uppercase">Finalized</p><p className="text-xl font-bold text-green-600">{records.filter(r => r.isFinalized).length}/{records.length}</p></div>
+            <div className="border-l border-gray-200 pl-6">
+              <p className="text-xs text-gray-400 font-semibold uppercase">Daily OT <span className="text-gray-400 font-medium">{fmtMult(otMults.dailyMultiplier)}</span></p>
+              <p className="text-xl font-bold text-yellow-700">{fmtMin(otTotals.daily)}</p>
+              <p className="text-[10px] text-gray-500">{otTotals.dailyWorkers} employee(s)</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-semibold uppercase">Sunday OT <span className="text-gray-400 font-medium">{fmtMult(otMults.sundayMultiplier)}</span></p>
+              <p className="text-xl font-bold text-purple-700">{fmtMin(otTotals.sunday)}</p>
+              <p className="text-[10px] text-gray-500">{otTotals.sundayWorkers} employee(s)</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-semibold uppercase">Holiday OT <span className="text-gray-400 font-medium">{fmtMult(otMults.holidayMultiplier)}</span></p>
+              <p className="text-xl font-bold text-orange-700">{fmtMin(otTotals.holiday)}</p>
+              <p className="text-[10px] text-gray-500">{otTotals.holidayWorkers} employee(s)</p>
+            </div>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 text-xs text-blue-900 flex items-start gap-2">
+            <HiOutlineInformationCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-600" />
+            <div>
+              OT is auto-classified by date: <span className="font-semibold">Sundays</span> and <span className="font-semibold">holidays</span> count every worked minute as OT;
+              other weekdays count only hours beyond the standard duty. After changing holidays or OT multipliers, click
+              <span className="font-semibold"> "Compute Salary"</span> to refresh draft records.
+            </div>
+          </div>
+        </>
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -375,7 +516,7 @@ const AdminSalaryView = ({ canEdit }) => {
               ) : records.length === 0 ? (
                 <tr><td colSpan={10} className="py-10 text-center text-gray-400">Click "Compute Salary" to generate records</td></tr>
               ) : records.map(r => (
-                <SalaryRow key={r.id} r={r} canEdit={canEdit} onUpdate={handleUpdate} onFinalize={handleFinalize} />
+                <SalaryRow key={r.id} r={r} canEdit={canEdit} onUpdate={handleUpdate} onFinalize={handleFinalize} otMults={otMults} />
               ))}
             </tbody>
           </table>
@@ -388,10 +529,18 @@ const AdminSalaryView = ({ canEdit }) => {
 const MySalaryView = () => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [otMults, setOtMults] = useState(DEFAULT_OT_MULTS);
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   useEffect(() => {
     getMySalaryAPI().then(r => setRecords(r.data)).catch(() => toast.error('Failed to load')).finally(() => setLoading(false));
+    getOtSettingsAPI()
+      .then(({ data }) => setOtMults({
+        dailyMultiplier: data.dailyMultiplier,
+        sundayMultiplier: data.sundayMultiplier,
+        holidayMultiplier: data.holidayMultiplier,
+      }))
+      .catch(() => {});
   }, []);
 
   return (
@@ -411,14 +560,23 @@ const MySalaryView = () => {
             ) : records.length === 0 ? (
               <tr><td colSpan={6} className="py-8 text-center text-gray-400">No salary records yet</td></tr>
             ) : records.map(r => {
-              const bd = computeBreakdown(r);
+              const bd = computeBreakdown(r, otMults);
               const m = new Date(r.month);
               return (
                 <tr key={r.id} className="hover:bg-gray-50">
                   <td className="py-3 px-4 font-medium text-gray-800">{months[m.getMonth()]} {m.getFullYear()}</td>
                   <td className="py-3 px-4 text-gray-600">
-                    <div>{r.presentDays}/{r.calendarDays}</div>
-                    <div className="text-[10px] text-purple-600 font-medium mt-0.5">{sundaysInRecord(r)} Sundays</div>
+                    <div className="tabular-nums">{r.presentDays}<span className="text-gray-400">/{r.calendarDays}</span></div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.sundayPresentDays > 0 ? 'bg-purple-100 border-purple-300 text-purple-800' : 'bg-purple-50 border-purple-200 text-purple-600'}`}>
+                        {r.sundayPresentDays > 0 ? `${r.sundayPresentDays}/` : ''}{sundaysInRecord(r)} Sun
+                      </span>
+                      {(r.holidayCount > 0 || r.holidayPresentDays > 0) && (
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.holidayPresentDays > 0 ? 'bg-orange-100 border-orange-300 text-orange-800' : 'bg-orange-50 border-orange-200 text-orange-600'}`}>
+                          {r.holidayPresentDays > 0 ? `${r.holidayPresentDays}/` : ''}{r.holidayCount || 0} Hol
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.earnedBasic)}</td>
                   <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.fixedAllow + bd.extraAllow)}</td>

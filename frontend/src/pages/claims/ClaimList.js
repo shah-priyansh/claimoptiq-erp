@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI } from '../../services/api';
+import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck, HiOutlineX } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import * as XLSX from 'xlsx';
 
 const ClaimList = () => {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ const ClaimList = () => {
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
+  const [exporting, setExporting] = useState(false);
   const [rejectionPending, setRejectionPending] = useState(null); // { claimId, currentStatus }
   const [rejectionInput, setRejectionInput] = useState('');
   const initStatus = new URLSearchParams(location.search).get('status') || '';
@@ -81,6 +83,115 @@ const ClaimList = () => {
       toast.error('Failed to update status');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const params = {};
+      Object.entries(filters).forEach(([k, v]) => { if (v && k !== 'page') params[k] = v; });
+      const { data } = await exportClaimsAPI(params);
+      if (!data.length) { toast.info('No claims to export'); return; }
+
+      const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '';
+      const fmtN = (n) => Number(n) || 0;
+      const rows = data.map((c, i) => {
+        const row = {
+          'Sr No': i + 1,
+          'Created At': fmtD(c.createdAt),
+          'Month': c.month ? new Date(c.month).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '',
+          'Month Claim No': c.monthClaimNo || '',
+          'Hospital': c.hospital?.name || '',
+          ...(isSuperAdmin ? { 'Reference': c.hospital?.referenceBy || '' } : {}),
+          'Patient Name': c.patientName || '',
+          'Patient Mobile': c.patientMobile || '',
+          'Doctor': c.doctorName || '',
+          'Claim Type': c.claimType || '',
+          'Insurance Company': c.insuranceCompany?.name || '',
+          'TPA': c.tpa?.name || '',
+          'Policy No': c.policyNo || '',
+          'Client ID': c.clientId || '',
+          'CCN No': c.ccnNo || '',
+          'Date of Admit': fmtD(c.dateOfAdmit),
+          'Date of Discharge': fmtD(c.dateOfDischarge),
+          'Hospital Final Bill': fmtN(c.hospitalFinalBill),
+          'MOU Discount': fmtN(c.mouDiscount),
+          'Deduction': fmtN(c.deduction),
+          'Final Approval Amount': fmtN(c.finalApprovalAmount),
+          'Final Approval Date': fmtD(c.finalApprovalDate),
+          'File Received Date': fmtD(c.fileReceivedDate),
+          'Submit Mode': c.submitMode || '',
+          'Courier Submit Date': fmtD(c.courierSubmitDate),
+          'Online Submit Date': fmtD(c.onlineSubmitDate),
+          'Courier Company': c.courierCompanyName || '',
+          'POD Number': c.podNumber || '',
+          'Settlement Amount': fmtN(c.settlementAmount),
+          'Settlement Deduction': fmtN(c.settlementAmountDeduction),
+          'MOU Discount on Settlement': fmtN(c.mouDiscountOnSettlement),
+          'TDS': fmtN(c.tds),
+          'Bank Transfer Amount': fmtN(c.bankTransferAmount),
+          'Settlement Date': fmtD(c.settlementDate),
+          'NEFT No': c.neftNo || '',
+          'Treatment Type': c.treatmentType || '',
+          'Diagnosis': c.diagnosis || '',
+          'Surgery Name': c.surgeryName || '',
+          'Status': c.status || '',
+          'Rejected Reason': c.rejectedReason || '',
+          'Remarks': c.remarks || '',
+          ...(isSuperAdmin ? { 'File Charge': fmtN(c.filePrice) } : {}),
+        };
+        return row;
+      });
+
+      const headers = Object.keys(rows[0]);
+      // Columns we should sum in the totals row
+      const sumKeys = new Set([
+        'Hospital Final Bill', 'MOU Discount', 'Deduction', 'Final Approval Amount',
+        'Settlement Amount', 'Settlement Deduction', 'MOU Discount on Settlement',
+        'TDS', 'Bank Transfer Amount', 'File Charge',
+      ]);
+      const r2 = (v) => Math.round(v * 100) / 100;
+      const totalsRow = { 'Sr No': 'TOTAL', 'Created At': `${data.length} claim(s)` };
+      headers.forEach(h => {
+        if (sumKeys.has(h)) {
+          totalsRow[h] = r2(rows.reduce((s, r) => s + (Number(r[h]) || 0), 0));
+        } else if (!(h in totalsRow)) {
+          totalsRow[h] = '';
+        }
+      });
+
+      const ws = XLSX.utils.json_to_sheet([...rows, {}, totalsRow], { header: headers });
+      ws['!cols'] = headers.map(h => ({ wch: Math.min(Math.max(h.length + 2, 14), 28) }));
+
+      // Indian-style number grouping. Excel's `#,##,##0` is locale-dependent, so
+      // we trigger the correct grouping explicitly based on magnitude:
+      // < 1 lakh  → 7,000           (##,##0)
+      // < 1 crore → 1,42,473        (##,##,##0)
+      // ≥ 1 crore → 1,23,45,67,890  (##,##,##,##0)
+      const inrFormat =
+        '[>=10000000]##\\,##\\,##\\,##0.##;[>=100000]##\\,##\\,##0.##;##\\,##0.##';
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      headers.forEach((h, colIdx) => {
+        if (!sumKeys.has(h)) return;
+        for (let rIdx = 1; rIdx <= range.e.r; rIdx++) {
+          const addr = XLSX.utils.encode_cell({ r: rIdx, c: colIdx });
+          const cell = ws[addr];
+          if (!cell || cell.v === '' || cell.v == null) continue;
+          cell.t = 'n';
+          cell.z = inrFormat;
+        }
+      });
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Claims');
+      const stamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `claims_${stamp}.xlsx`);
+      toast.success(`Exported ${data.length} claim(s)`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to export claims');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -211,12 +322,23 @@ const ClaimList = () => {
           <h1 className="text-2xl font-bold text-gray-800">Claims</h1>
           <p className="text-sm text-gray-500 mt-1">{total} total claims</p>
         </div>
-        {can('claims', 'create') && (
-          <button onClick={() => navigate('/claims/new')}
-            className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg text-sm font-medium">
-            <HiOutlinePlus className="w-5 h-5" /> New Claim
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {can('claims', 'export') && (
+            <button
+              onClick={handleExport}
+              disabled={exporting || loading}
+              className="flex items-center justify-center gap-2 bg-white border border-green-600 text-green-700 hover:bg-green-50 px-4 py-3 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors">
+              <HiOutlineDocumentDownload className="w-5 h-5" />
+              {exporting ? 'Exporting…' : 'Export Claims'}
+            </button>
+          )}
+          {can('claims', 'create') && (
+            <button onClick={() => navigate('/claims/new')}
+              className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg text-sm font-medium">
+              <HiOutlinePlus className="w-5 h-5" /> New Claim
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}

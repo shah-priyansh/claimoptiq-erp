@@ -3,11 +3,37 @@ const { getOtMultipliers } = require('./otSettingsController');
 
 const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
 
-const computeSalary = (employee, attendance, calendarDays, extraAllowances = [], otMults = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayMultiplier: 2.0 }) => {
-  const presentDays = attendance.filter(a => a.outTime).length;
-  const dailyOtMinutes = attendance.filter(a => a.otType === 'daily').reduce((s, a) => s + (a.extraMinutes || 0), 0);
-  const sundayOtMinutes = attendance.filter(a => a.otType === 'sunday').reduce((s, a) => s + (a.extraMinutes || 0), 0);
-  const holidayOtMinutes = attendance.filter(a => a.otType === 'holiday').reduce((s, a) => s + (a.extraMinutes || 0), 0);
+const isoDateUTC = (d) => {
+  const dt = new Date(d);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+};
+
+const computeSalary = (
+  employee,
+  attendance,
+  calendarDays,
+  extraAllowances = [],
+  otMults = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayMultiplier: 2.0 },
+  holidaySet = new Set(),
+) => {
+  // Re-classify each attendance row using the current holiday list so that
+  // adding a holiday AFTER attendance is saved still rolls up correctly.
+  const stdMin = Math.round(employee.standardHours * 60);
+  const classified = attendance.filter(a => a.outTime).map(a => {
+    const isSun = new Date(a.date).getUTCDay() === 0;
+    const isHol = holidaySet.has(isoDateUTC(a.date));
+    const total = a.totalMinutes || 0;
+    let type, mins;
+    if (isSun)      { type = 'sunday';  mins = total; }
+    else if (isHol) { type = 'holiday'; mins = total; }
+    else            { type = 'daily';   mins = Math.max(0, total - stdMin); }
+    return { ...a, _otType: type, _otMinutes: mins };
+  });
+
+  const presentDays = classified.length;
+  const dailyOtMinutes   = classified.filter(a => a._otType === 'daily').reduce((s, a) => s + a._otMinutes, 0);
+  const sundayOtMinutes  = classified.filter(a => a._otType === 'sunday').reduce((s, a) => s + a._otMinutes, 0);
+  const holidayOtMinutes = classified.filter(a => a._otType === 'holiday').reduce((s, a) => s + a._otMinutes, 0);
 
   const basicSalary = employee.basicSalary;
   const perDayBasic = basicSalary / calendarDays;
@@ -58,7 +84,7 @@ exports.computeSalary = async (req, res) => {
     const empIds = employees.map(e => e.id);
 
     // Single batch fetch for all employees instead of N+1
-    const [allAttendance, allExisting, otMults] = await Promise.all([
+    const [allAttendance, allExisting, otMults, holidays] = await Promise.all([
       prisma.attendanceRecord.findMany({
         where: { employeeId: { in: empIds }, date: { gte: monthStart, lte: monthEnd } },
       }),
@@ -66,7 +92,11 @@ exports.computeSalary = async (req, res) => {
         where: { employeeId: { in: empIds }, month: monthStart },
       }),
       getOtMultipliers(),
+      prisma.holidayMaster.findMany({
+        where: { date: { gte: monthStart, lte: monthEnd }, isActive: true },
+      }),
     ]);
+    const holidaySet = new Set(holidays.map(h => isoDateUTC(h.date)));
 
     const attendanceByEmp = {};
     allAttendance.forEach(a => {
@@ -83,7 +113,7 @@ exports.computeSalary = async (req, res) => {
 
       const attendance = attendanceByEmp[emp.id] || [];
       const extraAllowances = existing?.extraAllowances || [];
-      const calc = computeSalary(emp, attendance, calDays, extraAllowances, otMults);
+      const calc = computeSalary(emp, attendance, calDays, extraAllowances, otMults, holidaySet);
 
       const record = await prisma.salaryRecord.upsert({
         where: { employeeId_month: { employeeId: emp.id, month: monthStart } },
@@ -125,7 +155,34 @@ exports.getSalaryRecords = async (req, res) => {
       include: { employee: { include: { allowances: true } } },
       orderBy: [{ month: 'desc' }, { employee: { empNumber: 'asc' } }],
     });
-    res.json(records);
+
+    // Attach sundayPresentDays / holidayPresentDays / holidayCount per record
+    // by joining attendance + holiday list. Cheap enough for a monthly view.
+    const withCounts = await Promise.all(records.map(async (r) => {
+      const m0 = r.month;
+      const y0 = m0.getUTCFullYear(), mo0 = m0.getUTCMonth() + 1;
+      const last = new Date(Date.UTC(y0, mo0, 0)).getUTCDate();
+      const mStart = new Date(`${y0}-${String(mo0).padStart(2, '0')}-01T00:00:00.000Z`);
+      const mEnd = new Date(`${y0}-${String(mo0).padStart(2, '0')}-${String(last).padStart(2, '0')}T23:59:59.999Z`);
+      const [attendance, holidays] = await Promise.all([
+        prisma.attendanceRecord.findMany({
+          where: { employeeId: r.employeeId, date: { gte: mStart, lte: mEnd }, outTime: { not: null } },
+        }),
+        prisma.holidayMaster.findMany({
+          where: { date: { gte: mStart, lte: mEnd }, isActive: true },
+        }),
+      ]);
+      const holidaySet = new Set(holidays.map(h => isoDateUTC(h.date)));
+      let sundayPresentDays = 0, holidayPresentDays = 0;
+      for (const a of attendance) {
+        const d = new Date(a.date);
+        if (d.getUTCDay() === 0) sundayPresentDays += 1;
+        else if (holidaySet.has(isoDateUTC(a.date))) holidayPresentDays += 1;
+      }
+      return { ...r, sundayPresentDays, holidayPresentDays, holidayCount: holidays.length };
+    }));
+
+    res.json(withCounts);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -140,7 +197,32 @@ exports.getMySalary = async (req, res) => {
       include: { employee: { include: { allowances: true } } },
       orderBy: { month: 'desc' },
     });
-    res.json(records);
+
+    const withCounts = await Promise.all(records.map(async (r) => {
+      const m0 = r.month;
+      const y0 = m0.getUTCFullYear(), mo0 = m0.getUTCMonth() + 1;
+      const last = new Date(Date.UTC(y0, mo0, 0)).getUTCDate();
+      const mStart = new Date(`${y0}-${String(mo0).padStart(2, '0')}-01T00:00:00.000Z`);
+      const mEnd = new Date(`${y0}-${String(mo0).padStart(2, '0')}-${String(last).padStart(2, '0')}T23:59:59.999Z`);
+      const [attendance, holidays] = await Promise.all([
+        prisma.attendanceRecord.findMany({
+          where: { employeeId: r.employeeId, date: { gte: mStart, lte: mEnd }, outTime: { not: null } },
+        }),
+        prisma.holidayMaster.findMany({
+          where: { date: { gte: mStart, lte: mEnd }, isActive: true },
+        }),
+      ]);
+      const holidaySet = new Set(holidays.map(h => isoDateUTC(h.date)));
+      let sundayPresentDays = 0, holidayPresentDays = 0;
+      for (const a of attendance) {
+        const d = new Date(a.date);
+        if (d.getUTCDay() === 0) sundayPresentDays += 1;
+        else if (holidaySet.has(isoDateUTC(a.date))) holidayPresentDays += 1;
+      }
+      return { ...r, sundayPresentDays, holidayPresentDays, holidayCount: holidays.length };
+    }));
+
+    res.json(withCounts);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -164,19 +246,19 @@ exports.updateSalaryRecord = async (req, res) => {
       // Recompute total
       const ry = record.month.getUTCFullYear(), rm = record.month.getUTCMonth() + 1;
       const rLastDay = new Date(Date.UTC(ry, rm, 0)).getUTCDate();
-      const [attendance, otMults] = await Promise.all([
+      const rMonthStart = new Date(`${ry}-${String(rm).padStart(2, '0')}-01T00:00:00.000Z`);
+      const rMonthEnd = new Date(`${ry}-${String(rm).padStart(2, '0')}-${String(rLastDay).padStart(2, '0')}T23:59:59.999Z`);
+      const [attendance, otMults, holidays] = await Promise.all([
         prisma.attendanceRecord.findMany({
-          where: {
-            employeeId: record.employeeId,
-            date: {
-              gte: new Date(`${ry}-${String(rm).padStart(2, '0')}-01T00:00:00.000Z`),
-              lte: new Date(`${ry}-${String(rm).padStart(2, '0')}-${String(rLastDay).padStart(2, '0')}T23:59:59.999Z`),
-            },
-          },
+          where: { employeeId: record.employeeId, date: { gte: rMonthStart, lte: rMonthEnd } },
         }),
         getOtMultipliers(),
+        prisma.holidayMaster.findMany({
+          where: { date: { gte: rMonthStart, lte: rMonthEnd }, isActive: true },
+        }),
       ]);
-      const calc = computeSalary(record.employee, attendance, record.calendarDays, extraAllowances, otMults);
+      const holidaySet = new Set(holidays.map(h => isoDateUTC(h.date)));
+      const calc = computeSalary(record.employee, attendance, record.calendarDays, extraAllowances, otMults, holidaySet);
       data.totalAmount = calc.totalAmount;
     }
     if (isFinalized !== undefined) data.isFinalized = isFinalized;

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   createClaim, getClaims, getClaim, updateClaim,
-  uploadDocuments, deleteDocument, getDashboardStats, bulkUpdateStatus, bulkBill
+  uploadDocuments, deleteDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims
 } = require('../controllers/claimController');
 const { protect, checkPermission } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -10,6 +10,7 @@ const upload = require('../middleware/upload');
 router.use(protect);
 
 router.get('/dashboard', checkPermission('dashboard', 'view'), getDashboardStats);
+router.get('/export', checkPermission('claims', 'export'), exportClaims);
 
 router.route('/')
   .get(checkPermission('claims', 'view'), getClaims)

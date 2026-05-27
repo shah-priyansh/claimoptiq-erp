@@ -105,15 +105,30 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
         const { h, m } = toIST(dt);
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
       };
+      // Re-derive OT type and effective extra minutes from the current
+      // holiday list rather than the stored otType, so a holiday added
+      // after the record was saved still classifies correctly.
+      const stdMin = Math.round(employee.standardHours * 60);
+      const totalMin = rec?.totalMinutes ?? null;
+      let derivedOtType = 'none';
+      let derivedExtra = rec?.extraMinutes ?? null;
+      if (rec?.outTime && totalMin != null) {
+        if (isSunday)      { derivedOtType = 'sunday';  derivedExtra = totalMin; }
+        else if (isHoliday){ derivedOtType = 'holiday'; derivedExtra = totalMin; }
+        else {
+          derivedExtra = Math.max(0, totalMin - stdMin);
+          derivedOtType = derivedExtra > 0 ? 'daily' : 'none';
+        }
+      }
       return {
         date,
         ds,
         dayName: DAY_NAMES[date.getDay()],
         inTime:  rec?.inTime  ? toISTStr(rec.inTime)  : '',
         outTime: rec?.outTime ? toISTStr(rec.outTime) : '',
-        totalMinutes:  rec?.totalMinutes  ?? null,
-        extraMinutes:  rec?.extraMinutes  ?? null,
-        otType:        rec?.otType || (isSunday ? 'sunday' : isHoliday ? 'holiday' : 'none'),
+        totalMinutes:  totalMin,
+        extraMinutes:  derivedExtra,
+        otType:        derivedOtType,
         recordId:      rec?.id || null,
         isSunday,
         isHoliday,
@@ -536,7 +551,19 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
         const isSunday = date.getDay() === 0;
         const isHoliday = holidays.some(h => h.date?.slice(0, 10) === ds);
         const holidayName = holidays.find(h => h.date?.slice(0, 10) === ds)?.name || null;
-        return { date, ds, dayName: DAY_NAMES[date.getDay()], rec, isSunday, isHoliday, holidayName };
+        const stdMin = Math.round(employee.standardHours * 60);
+        const totalMin = rec?.totalMinutes ?? null;
+        let derivedOtType = 'none';
+        let derivedExtra = rec?.extraMinutes ?? null;
+        if (rec?.outTime && totalMin != null) {
+          if (isSunday)      { derivedOtType = 'sunday';  derivedExtra = totalMin; }
+          else if (isHoliday){ derivedOtType = 'holiday'; derivedExtra = totalMin; }
+          else {
+            derivedExtra = Math.max(0, totalMin - stdMin);
+            derivedOtType = derivedExtra > 0 ? 'daily' : 'none';
+          }
+        }
+        return { date, ds, dayName: DAY_NAMES[date.getDay()], rec, isSunday, isHoliday, holidayName, derivedOtType, derivedExtra };
       }));
     }).catch(() => {});
   }, [employee.id, month, year, holidays]);
@@ -559,8 +586,7 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
             {rows.map((row, idx) => {
               const isToday = row.ds === todayStr;
               const bg = row.isSunday ? 'bg-purple-50' : row.isHoliday ? 'bg-orange-50' : isToday ? 'bg-blue-50' : 'hover:bg-gray-50';
-              const otType = row.rec?.otType;
-              const badge = otType && otType !== 'none' ? OT_BADGE[otType] : null;
+              const badge = row.derivedOtType && row.derivedOtType !== 'none' ? OT_BADGE[row.derivedOtType] : null;
               return (
                 <tr key={row.ds} className={`border-b border-gray-100 ${bg}`}>
                   <td className="py-2 px-4 text-xs text-gray-400 font-mono">{idx + 1}</td>
@@ -574,8 +600,8 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
                   <td className="py-2 px-4 text-gray-700 text-xs">{row.rec?.outTime ? fmtTime(row.rec.outTime) : <span className="text-gray-300">—</span>}</td>
                   <td className="py-2 px-4 text-xs text-gray-600">{row.rec?.totalMinutes ? fmtMinutes(row.rec.totalMinutes) : <span className="text-gray-300">—</span>}</td>
                   <td className="py-2 px-4 text-xs font-medium">
-                    {row.rec?.extraMinutes > 0 ? (
-                      <span className="text-green-600">+{fmtMinutes(row.rec.extraMinutes)}</span>
+                    {row.derivedExtra > 0 ? (
+                      <span className="text-green-600">+{fmtMinutes(row.derivedExtra)}</span>
                     ) : row.rec?.totalMinutes != null && row.rec.totalMinutes < Math.round(employee.standardHours * 60) ? (
                       <span className="text-red-500">-{fmtMinutes(Math.round(employee.standardHours * 60) - row.rec.totalMinutes)}</span>
                     ) : (
