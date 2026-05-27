@@ -164,13 +164,12 @@ const ClaimList = () => {
       const ws = XLSX.utils.json_to_sheet([...rows, {}, totalsRow], { header: headers });
       ws['!cols'] = headers.map(h => ({ wch: Math.min(Math.max(h.length + 2, 14), 28) }));
 
-      // Indian-style number grouping. Excel's `#,##,##0` is locale-dependent, so
-      // we trigger the correct grouping explicitly based on magnitude:
-      // < 1 lakh  → 7,000           (##,##0)
-      // < 1 crore → 1,42,473        (##,##,##0)
-      // ≥ 1 crore → 1,23,45,67,890  (##,##,##,##0)
-      const inrFormat =
-        '[>=10000000]##\\,##\\,##\\,##0.##;[>=100000]##\\,##\\,##0.##;##\\,##0.##';
+      // Indian-style grouping. We pre-format numeric amounts as en-IN strings so
+      // the display is identical in any Excel locale (e.g. 142473 → "1,42,473").
+      // Excel's own format codes for Indian grouping behave inconsistently across
+      // Excel versions, hence the string approach. Sum totals are pre-computed
+      // in JS so we don't lose aggregation.
+      const inrFmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 });
       const range = XLSX.utils.decode_range(ws['!ref']);
       headers.forEach((h, colIdx) => {
         if (!sumKeys.has(h)) return;
@@ -178,8 +177,11 @@ const ClaimList = () => {
           const addr = XLSX.utils.encode_cell({ r: rIdx, c: colIdx });
           const cell = ws[addr];
           if (!cell || cell.v === '' || cell.v == null) continue;
-          cell.t = 'n';
-          cell.z = inrFormat;
+          const n = Number(cell.v);
+          if (Number.isNaN(n)) continue;
+          cell.t = 's';
+          cell.v = inrFmt.format(n);
+          delete cell.z;
         }
       });
 
