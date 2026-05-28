@@ -147,9 +147,6 @@ const RoleForm = () => {
 
   if (fetchLoading) return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">
-        {isEdit ? 'Edit Role' : 'Create New Role'}
-      </h1>
       <div className="flex flex-col items-center justify-center py-32 gap-3">
         <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-gray-400">Loading...</p>
@@ -159,10 +156,6 @@ const RoleForm = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">
-        {isEdit ? 'Edit Role' : 'Create New Role'}
-      </h1>
-
       <form onSubmit={handleSubmit}>
         {/* Basic Info */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">

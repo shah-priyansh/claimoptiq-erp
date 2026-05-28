@@ -488,12 +488,6 @@ const DocumentUpload = () => {
       <input ref={mobileCamRef} type="file" accept="image/*" capture="environment" onChange={handleMobileCamera} className="hidden" />
       <input ref={galleryRef} type="file" accept="image/*,application/pdf" multiple onChange={handleFileChange} className="hidden" />
 
-      {/* Page header */}
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-800">Documents</h1>
-        <p className="text-sm text-gray-500 mt-1">{user?.hospital?.name || 'Your hospital'} — submit to FCC team</p>
-      </div>
-
       {/* Tab switcher */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 max-w-xs">
         <button onClick={() => setTab('upload')}

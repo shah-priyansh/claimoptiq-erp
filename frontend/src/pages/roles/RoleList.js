@@ -84,13 +84,7 @@ const RoleList = () => {
   return (
     <div>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Roles & Permissions</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {!loading && `${roles.length} roles · `}Manage access control for your system
-          </p>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 mb-6">
         {can('roles', 'create') && (
           <button
             onClick={() => navigate('/roles/new')}

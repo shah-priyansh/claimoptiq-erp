@@ -41,9 +41,6 @@ const SiteSettings = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-1">Site Settings</h1>
-      <p className="text-sm text-gray-500 mb-6">Manage content displayed on the login page</p>
-
       <div className="bg-white rounded-xl border border-gray-200 p-6 max-w-lg">
         <h2 className="text-base font-semibold text-gray-700 mb-4">Login Page Stats</h2>
 

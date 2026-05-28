@@ -170,11 +170,7 @@ const ClaimDocumentTypeMaster = () => {
   return (
     <div>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Claim Document Types</h1>
-          <p className="text-sm text-gray-500 mt-1">Define documents required for claim processing</p>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 mb-6">
         {can('claim_document_types', 'create') && (
           <button
             onClick={openCreate}
