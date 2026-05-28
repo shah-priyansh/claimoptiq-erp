@@ -1,14 +1,48 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { HiOutlineMenu, HiOutlineLogout } from 'react-icons/hi';
 import NotificationBell from './NotificationBell';
 import { useConfirm } from '../../context/ConfirmContext';
 
+// Static map for direct routes; dynamic routes are resolved by pattern below.
+const STATIC_TITLES = {
+  '/dashboard':              'Dashboard',
+  '/claims':                 'Claims',
+  '/claims/new':             'New Claim',
+  '/hospitals':              'Hospitals',
+  '/hospitals/new':          'New Hospital',
+  '/insurance':              'Insurance Companies',
+  '/tpa':                    'TPA',
+  '/users':                  'Users',
+  '/roles':                  'Roles & Permissions',
+  '/roles/new':              'New Role',
+  '/reports':                'Reports',
+  '/claim-statuses':         'Claim Status Master',
+  '/claim-document-types':   'Document Types',
+  '/billing-service-names':  'Billing Service Names',
+  '/documents/upload':       'Upload Document',
+  '/documents/inbox':        'Document Inbox',
+  '/staff':                  'Staff',
+  '/settings':               'Settings',
+};
+
+const getPageTitle = (pathname) => {
+  if (STATIC_TITLES[pathname]) return STATIC_TITLES[pathname];
+  if (/^\/claims\/[^/]+\/edit$/.test(pathname))    return 'Edit Claim';
+  if (/^\/claims\/[^/]+$/.test(pathname))          return 'Claim Detail';
+  if (/^\/hospitals\/[^/]+\/edit$/.test(pathname)) return 'Edit Hospital';
+  if (/^\/hospitals\/[^/]+$/.test(pathname))       return 'Hospital Detail';
+  if (/^\/roles\/[^/]+\/edit$/.test(pathname))     return 'Edit Role';
+  return '';
+};
+
 const Header = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
   const confirm = useConfirm();
-  const roleName = user?.role?.name || 'User';
+  const location = useLocation();
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U';
+  const pageTitle = getPageTitle(location.pathname);
 
   const handleLogout = async () => {
     const ok = await confirm('You will be signed out of ClaimOptiq.', {
@@ -35,13 +69,10 @@ const Header = ({ onMenuClick }) => {
           <span className="font-bold text-primary-700 text-base">ClaimOptiq</span>
         </div>
 
-        {/* Desktop: welcome with accent bar */}
+        {/* Desktop: page title with accent bar */}
         <div className="hidden lg:flex items-center gap-3">
           <div className="w-1 h-8 bg-primary-600 rounded-full" />
-          <div>
-            <p className="text-xs text-gray-400 font-medium leading-none mb-1">Welcome back</p>
-            <p className="text-sm font-bold text-gray-800 leading-none">{user?.name}</p>
-          </div>
+          <h1 className="text-lg font-bold text-gray-800 leading-none">{pageTitle}</h1>
         </div>
 
         {/* Right: notification + divider + user + logout */}
@@ -50,11 +81,11 @@ const Header = ({ onMenuClick }) => {
 
           <div className="w-px h-6 bg-gray-200 mx-2 hidden sm:block" />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" title={user?.name}>
             <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center shadow-sm flex-shrink-0">
               <span className="text-white text-xs font-bold">{initials}</span>
             </div>
-            <span className="hidden md:block text-xs font-semibold text-primary-600">{roleName}</span>
+            <span className="hidden md:block text-xs font-semibold text-gray-700">{user?.name}</span>
           </div>
 
           <button

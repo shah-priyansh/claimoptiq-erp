@@ -104,11 +104,7 @@ const UserList = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Users</h1>
-          <p className="text-sm text-gray-500 mt-1">{users.length} users</p>
-        </div>
+      <div className="flex items-center justify-end mb-6">
         {can('users', 'create') && (
           <button onClick={() => { setForm(emptyForm); setEditId(null); setShowModal(true); }}
             className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg text-sm font-medium">

@@ -40,9 +40,6 @@ const StaffModule = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-1">Staff</h1>
-      <p className="text-sm text-gray-500 mb-6">Manage employees, track attendance, and process salaries</p>
-
       {/* Tabs */}
       <div className="flex gap-0 border-b border-gray-200 mb-6">
         {visibleTabs.map(tab => (

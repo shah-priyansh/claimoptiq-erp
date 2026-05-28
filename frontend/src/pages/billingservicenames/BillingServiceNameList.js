@@ -63,9 +63,6 @@ const BillingServiceNameList = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-1">Billing Service Names</h1>
-      <p className="text-sm text-gray-500 mb-6">Manage the service name options available when configuring hospital billing</p>
-
       {canCreate && (
         <form onSubmit={handleAdd} className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
           <div className="flex gap-3">

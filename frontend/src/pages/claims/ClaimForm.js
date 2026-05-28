@@ -199,7 +199,6 @@ const ClaimForm = () => {
 
   if (fetchLoading) return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Edit Claim</h1>
       <div className="flex flex-col items-center justify-center py-32 gap-3">
         <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-gray-400">Loading claim data...</p>
@@ -209,10 +208,6 @@ const ClaimForm = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">
-        {isEdit ? 'Edit Claim' : 'New Claim — Patient Admit'}
-      </h1>
-
       {fromSubmissionId && (
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-5">
           <HiOutlineDocumentText className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />

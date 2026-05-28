@@ -188,11 +188,7 @@ const ClaimStatusMaster = () => {
   return (
     <div>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Claim Status Master</h1>
-          <p className="text-sm text-gray-500 mt-1">Define and manage claim lifecycle statuses</p>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 mb-6">
         {can('claim_statuses', 'create') && (
           <button
             onClick={openCreate}

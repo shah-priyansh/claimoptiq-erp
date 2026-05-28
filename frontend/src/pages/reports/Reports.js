@@ -578,11 +578,7 @@ const Reports = () => {
   return (
     <div>
       {/* Title row */}
-      <div className="flex items-center justify-between mb-1">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Reports</h1>
-          <p className="text-sm text-gray-500">Generate and export claim reports</p>
-        </div>
+      <div className="flex items-center justify-end mb-1">
         {isSuperAdmin && (
           billMode ? (
             <div className="flex items-center gap-3">
