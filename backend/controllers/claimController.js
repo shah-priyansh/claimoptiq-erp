@@ -28,6 +28,10 @@ const claimFullInclude = {
   createdBy: { select: { id: true, name: true } },
   updatedBy: { select: { id: true, name: true } },
   documents: true,
+  statusHistory: {
+    orderBy: { changedAt: 'asc' },
+    include: { changedBy: { select: { id: true, name: true } } },
+  },
 };
 
 exports.createClaim = async (req, res) => {
@@ -42,10 +46,11 @@ exports.createClaim = async (req, res) => {
       where: { month: { gte: monthStart, lte: monthEnd } },
     });
 
+    const initialStatus = req.body.status || 'admitted';
     const claim = await prisma.claim.create({
       data: {
         monthClaimNo: monthCount + 1,
-        status: req.body.status || 'admitted',
+        status: initialStatus,
         hospitalId,
         month: new Date(req.body.month),
         patientName: req.body.patientName,
@@ -85,6 +90,9 @@ exports.createClaim = async (req, res) => {
         rejectedReason: req.body.rejectedReason || '',
         createdById: req.user.id,
         updatedById: req.user.id,
+        statusHistory: {
+          create: { status: initialStatus, changedById: req.user.id },
+        },
       },
       include: claimInclude,
     });
@@ -234,6 +242,13 @@ exports.updateClaim = async (req, res) => {
       data.settlementDate = new Date();
     }
 
+    const statusChanged = data.status && data.status !== claim.status;
+    if (statusChanged) {
+      data.statusHistory = {
+        create: { status: data.status, changedById: req.user.id },
+      };
+    }
+
     const updated = await prisma.claim.update({
       where: { id: req.params.id },
       data,
@@ -317,10 +332,23 @@ exports.bulkUpdateStatus = async (req, res) => {
     if (targetStatus.superAdminOnly && req.user?.role?.slug !== 'super_admin') {
       return res.status(403).json({ message: 'You do not have permission to set this status' });
     }
+    const claimsToUpdate = await prisma.claim.findMany({
+      where: { id: { in: ids }, status: { not: status } },
+      select: { id: true },
+    });
     const { count } = await prisma.claim.updateMany({
       where: { id: { in: ids } },
       data: { status, updatedById: req.user.id },
     });
+    if (claimsToUpdate.length > 0) {
+      await prisma.claimStatusHistory.createMany({
+        data: claimsToUpdate.map(c => ({
+          claimId: c.id,
+          status,
+          changedById: req.user.id,
+        })),
+      });
+    }
     res.json({ message: `${count} claims updated to "${status}"`, count });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

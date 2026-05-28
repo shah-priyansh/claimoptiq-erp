@@ -27,6 +27,26 @@ const CATEGORY_LABELS = {
 const CATEGORY_ORDER = ['admission', 'discharge', 'pod', 'settlement_proof', 'other'];
 const isImage = (name) => /\.(jpe?g|png)$/i.test(name || '');
 
+// Compact duration between two timestamps, e.g. "12m", "5h 20m", "3d 4h", "2mo"
+const formatElapsed = (ms) => {
+  if (!ms || ms < 0) return null;
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) {
+    const rm = mins % 60;
+    return rm ? `${hrs}h ${rm}m` : `${hrs}h`;
+  }
+  const days = Math.floor(hrs / 24);
+  if (days < 30) {
+    const rh = hrs % 24;
+    return rh ? `${days}d ${rh}h` : `${days}d`;
+  }
+  const months = Math.floor(days / 30);
+  return `${months}mo`;
+};
+
 
 // ── Micro components ─────────────────────────────────────────────────────────
 const Spinner = ({ sm }) => (
@@ -509,8 +529,22 @@ const ClaimDetail = () => {
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '—';
   const formatAmount = (a) => formatCurrency(Number(a) || 0);
-  const stepperStatuses = claimStatuses.filter(s => !s.superAdminOnly);
-  const currentStepIdx = stepperStatuses.findIndex(s => s.slug === claim.status);
+  // Build the actual journey from history (fallback to current status if history is missing)
+  const statusMeta = (slug) => claimStatuses.find(s => s.slug === slug);
+  const historyRaw = (claim.statusHistory && claim.statusHistory.length)
+    ? claim.statusHistory
+    : [{ status: claim.status, changedAt: claim.updatedAt || claim.createdAt }];
+  const journey = historyRaw.map((h, idx) => {
+    const meta = statusMeta(h.status);
+    return {
+      key: h._id || `${h.status}-${idx}`,
+      slug: h.status,
+      label: meta?.label || h.status.replace(/_/g, ' '),
+      color: meta?.color || 'gray',
+      changedAt: h.changedAt,
+      changedBy: h.changedBy?.name || null,
+    };
+  });
   const isEditable = can('claims', 'edit');
   const canUpload = can('claims', 'edit');
 
@@ -655,16 +689,18 @@ const ClaimDetail = () => {
             {isSuperAdmin && (
               <div>
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">File Price</p>
-                <div className="flex items-center gap-1.5">
-                  <AmountInput
-                    value={settlementForm.filePrice || 0}
-                    onChange={v => { setFilePriceManual(true); setSettlementForm(sf => ({ ...sf, filePrice: v, filePriceOverridden: true })); }}
-                    className={`w-full px-2.5 py-1.5 border rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white ${filePriceManual ? 'border-amber-300' : 'border-gray-200'}`}
-                  />
+                <div className="flex items-start gap-1.5">
+                  <div className="flex-1 min-w-0">
+                    <AmountInput
+                      value={settlementForm.filePrice || 0}
+                      onChange={v => { setFilePriceManual(true); setSettlementForm(sf => ({ ...sf, filePrice: v, filePriceOverridden: true })); }}
+                      className={`w-full px-2.5 py-1.5 border rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white ${filePriceManual ? 'border-amber-300' : 'border-gray-200'}`}
+                    />
+                  </div>
                   <button
                     onClick={handleSaveFilePrice}
                     disabled={savingFilePrice}
-                    className="flex-shrink-0 px-2.5 py-1.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors">
+                    className="flex-shrink-0 h-[34px] px-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors inline-flex items-center justify-center">
                     {savingFilePrice ? <Spinner sm /> : 'Save'}
                   </button>
                 </div>
@@ -687,30 +723,87 @@ const ClaimDetail = () => {
         </div>
       </div>
 
-      {/* ── Progress Timeline ── */}
-      {stepperStatuses.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 mb-4 overflow-x-auto shadow-sm">
-          <div className="flex items-center" style={{ minWidth: `${stepperStatuses.length * 90}px` }}>
-            {stepperStatuses.map((step, idx) => (
-              <React.Fragment key={step.slug}>
-                <div className="flex flex-col items-center gap-1.5">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all
-                    ${idx < currentStepIdx  ? 'bg-primary-600 border-primary-600 text-white shadow-sm shadow-primary-200' :
-                      idx === currentStepIdx ? 'bg-white border-primary-500 text-primary-600 shadow-sm' :
-                      'bg-gray-50 border-gray-200 text-gray-300'}`}>
-                    {idx < currentStepIdx ? <HiCheck className="w-4 h-4" /> : <span className="text-xs font-bold">{idx + 1}</span>}
-                  </div>
-                  <p className={`text-[11px] font-semibold whitespace-nowrap
-                    ${idx < currentStepIdx  ? 'text-primary-600' :
-                      idx === currentStepIdx ? 'text-primary-700' : 'text-gray-300'}`}>
-                    {step.label}
-                  </p>
-                </div>
-                {idx < stepperStatuses.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-2 rounded-full transition-all ${idx < currentStepIdx ? 'bg-primary-400' : 'bg-gray-100'}`} />
-                )}
-              </React.Fragment>
-            ))}
+      {/* ── Status Journey ── */}
+      {journey.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 mb-4 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-primary-50 flex items-center justify-center">
+                <HiOutlineCalendar className="w-3.5 h-3.5 text-primary-600" />
+              </div>
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status Journey</p>
+            </div>
+            <p className="text-[10px] font-medium text-gray-400">
+              {journey.length} status change{journey.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          <div className="overflow-x-auto pb-2 -mx-1 px-1">
+            <div className="flex items-stretch gap-0">
+              {journey.map((step, idx) => {
+                const isLast = idx === journey.length - 1;
+                const isCurrent = isLast;
+                const dt = step.changedAt ? new Date(step.changedAt) : null;
+                const pillCls = STATUS_COLOR_MAP[step.color] || 'bg-gray-100 text-gray-700';
+                const nextDt = !isLast && journey[idx + 1].changedAt
+                  ? new Date(journey[idx + 1].changedAt) : null;
+                const elapsed = dt && nextDt ? formatElapsed(nextDt - dt) : null;
+
+                return (
+                  <React.Fragment key={step.key}>
+                    <div className="flex flex-col flex-shrink-0 w-[180px]">
+                      <div className={`rounded-xl border p-3 transition-all
+                        ${isCurrent
+                          ? 'border-primary-300 bg-primary-50/40 shadow-sm ring-1 ring-primary-100'
+                          : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0
+                            ${isCurrent
+                              ? 'bg-white border-2 border-primary-500 text-primary-600 ring-2 ring-primary-100'
+                              : 'bg-primary-600 text-white shadow-sm shadow-primary-200'}`}>
+                            {isCurrent
+                              ? <span className="text-[10px] font-bold">{idx + 1}</span>
+                              : <HiCheck className="w-3.5 h-3.5" />}
+                          </div>
+                          {isCurrent && (
+                            <span className="text-[9px] font-bold text-primary-600 uppercase tracking-wider bg-primary-100 px-1.5 py-0.5 rounded">
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize ${pillCls}`}>
+                          {step.label}
+                        </span>
+                        {dt && (
+                          <div className="mt-2 pt-2 border-t border-gray-100">
+                            <p className="text-[11px] font-medium text-gray-700">{dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                            <p className="text-[10px] text-gray-400">{dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+                          </div>
+                        )}
+                        {step.changedBy && (
+                          <p className="text-[10px] text-gray-400 mt-1.5 truncate" title={step.changedBy}>
+                            by <span className="font-medium text-gray-500">{step.changedBy}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {!isLast && (
+                      <div className="flex flex-col items-center justify-center px-2 flex-shrink-0 min-w-[60px]">
+                        {elapsed && (
+                          <span className="text-[9px] font-semibold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded-full border border-gray-100 mb-1">
+                            {elapsed}
+                          </span>
+                        )}
+                        <div className="flex items-center w-full">
+                          <div className="flex-1 h-0.5 bg-primary-300 rounded-full" />
+                          <HiOutlineChevronRight className="w-3.5 h-3.5 text-primary-400 -ml-0.5" />
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

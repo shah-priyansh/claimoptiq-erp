@@ -133,6 +133,7 @@ model User {
   hospital            Hospital?            @relation(fields: [hospitalId], references: [id])
   claimsCreated       Claim[]              @relation("ClaimCreatedBy")
   claimsUpdated       Claim[]              @relation("ClaimUpdatedBy")
+  claimStatusChanges  ClaimStatusHistory[] @relation("ClaimStatusChangedBy")
   documentSubmissions        DocumentSubmission[] @relation("SubmissionUploadedBy")
   statusChangedSubmissions   DocumentSubmission[] @relation("SubmissionStatusChangedBy")
   notifications              Notification[]
@@ -249,8 +250,22 @@ model Claim {
   updatedBy                 User?             @relation("ClaimUpdatedBy", fields: [updatedById], references: [id])
   documents                 ClaimDocument[]
   submissions               DocumentSubmission[]
+  statusHistory             ClaimStatusHistory[]
 
   @@map("claims")
+}
+
+model ClaimStatusHistory {
+  id            String   @id @default(uuid())
+  claimId       String   @map("claim_id")
+  status        String
+  changedAt     DateTime @default(now()) @map("changed_at")
+  changedById   String?  @map("changed_by_id")
+  claim         Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  changedBy     User?    @relation("ClaimStatusChangedBy", fields: [changedById], references: [id])
+
+  @@index([claimId, changedAt])
+  @@map("claim_status_history")
 }
 
 model ClaimDocument {
