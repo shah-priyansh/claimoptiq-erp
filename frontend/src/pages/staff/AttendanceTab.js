@@ -79,16 +79,21 @@ const OT_BADGE = {
 const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn }) => {
   const [records, setRecords] = useState([]);
   const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [savingIdx, setSavingIdx] = useState({});
   const [savedIdx, setSavedIdx] = useState({});
   const timerRef = useRef({});
 
   // Fetch records only when employee/month/year changes
   useEffect(() => {
+    setLoading(true);
     const fetcher = fetchFn
       ? fetchFn({ month, year })
       : getAllAttendanceAPI({ employeeId: employee.id, month, year }).then(r => r.data);
-    fetcher.then(setRecords).catch(() => toast.error('Failed to load attendance'));
+    fetcher
+      .then(setRecords)
+      .catch(() => toast.error('Failed to load attendance'))
+      .finally(() => setLoading(false));
   }, [employee.id, month, year, fetchFn]);
 
   // Rebuild rows whenever records or holidays change (no extra fetch)
@@ -252,7 +257,17 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, idx) => {
+            {loading && (
+              <tr>
+                <td colSpan={9} className="py-16">
+                  <div className="flex flex-col items-center justify-center gap-3 text-gray-400">
+                    <div className="w-8 h-8 border-[3px] border-primary-100 border-t-primary-600 rounded-full animate-spin" />
+                    <p className="text-sm font-medium">Loading attendance...</p>
+                  </div>
+                </td>
+              </tr>
+            )}
+            {!loading && rows.map((row, idx) => {
               const isToday = row.ds === todayStr;
               const isFuture = row.date > today;
               const bg = row.isSunday
@@ -540,8 +555,10 @@ const MyAttendanceView = () => {
 
 const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
   const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     getMyAttendanceAPI({ month, year }).then(({ data }) => {
       const total = daysInMonth(year, month);
       setRows(Array.from({ length: total }, (_, i) => {
@@ -565,7 +582,7 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
         }
         return { date, ds, dayName: DAY_NAMES[date.getDay()], rec, isSunday, isHoliday, holidayName, derivedOtType, derivedExtra };
       }));
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setLoading(false));
   }, [employee.id, month, year, holidays]);
 
   const today = new Date();
@@ -583,7 +600,17 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, idx) => {
+            {loading && (
+              <tr>
+                <td colSpan={8} className="py-16">
+                  <div className="flex flex-col items-center justify-center gap-3 text-gray-400">
+                    <div className="w-8 h-8 border-[3px] border-primary-100 border-t-primary-600 rounded-full animate-spin" />
+                    <p className="text-sm font-medium">Loading attendance...</p>
+                  </div>
+                </td>
+              </tr>
+            )}
+            {!loading && rows.map((row, idx) => {
               const isToday = row.ds === todayStr;
               const bg = row.isSunday ? 'bg-purple-50' : row.isHoliday ? 'bg-orange-50' : isToday ? 'bg-blue-50' : 'hover:bg-gray-50';
               const badge = row.derivedOtType && row.derivedOtType !== 'none' ? OT_BADGE[row.derivedOtType] : null;
