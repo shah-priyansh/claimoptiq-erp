@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
-import { HiOutlineDownload, HiChevronDown } from 'react-icons/hi';
+import { HiOutlineDownload, HiChevronDown, HiOutlineX } from 'react-icons/hi';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
@@ -12,11 +12,39 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import JSZip from 'jszip';
 
+// ─── Field definitions ────────────────────────────────────────────────────────
+const BASE_FIELD_DEFS = [
+  { key: 'patientName',   label: 'PATIENT NAME',           width: 22, pdfW: 28, defaultOn: true,  getValue: c => c.patientName || '' },
+  { key: 'doctorName',    label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
+  { key: 'claimType',     label: 'CLAIM TYPE',             width: 14, pdfW: 18, defaultOn: true,  getValue: c => c.claimType || '' },
+  { key: 'companyTpa',    label: 'COMPANY/TPA',            width: 30, pdfW: 35, defaultOn: true,  getValue: c => [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ') },
+  { key: 'ccnNo',         label: 'CCN NO',                 width: 13, pdfW: 14, defaultOn: true,  getValue: c => c.ccnNo || '' },
+  { key: 'policyNo',      label: 'POLICY NO',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.policyNo || '' },
+  { key: 'clientId',      label: 'CLIENT ID',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.clientId || '' },
+  { key: 'dateOfAdmit',   label: 'D.O.A.',                 width: 13, pdfW: 16, defaultOn: true,  getValue: c => c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '' },
+  { key: 'dateOfDischarge',label: 'D.O.D.',                width: 13, pdfW: 16, defaultOn: true,  getValue: c => c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '' },
+  { key: 'hospitalBill',  label: 'HOSPITAL BILL',          width: 14, pdfW: 22, defaultOn: true,  isAmount: true, getValue: c => c.hospitalFinalBill || 0 },
+  { key: 'approvalAmt',   label: 'FINAL APPROVAL AMOUNT',  width: 20, pdfW: 26, defaultOn: true,  isAmount: true, getValue: c => c.finalApprovalAmount || 0 },
+  { key: 'settlement',    label: 'SETTLEMENT AMOUNT',      width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.settlementAmount || 0 },
+  { key: 'tds',           label: 'TDS',                    width: 12, pdfW: 14, defaultOn: false, isAmount: true, getValue: c => c.tds || 0 },
+  { key: 'bankTransfer',  label: 'BANK TRANSFER AMOUNT',   width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.bankTransferAmount || 0 },
+  { key: 'status',        label: 'STATUS',                 width: 18, pdfW: 22, defaultOn: false, getValue: c => (c.status || '').replace(/_/g, ' ') },
+];
+const SA_FIELD_DEFS = [
+  { key: 'referenceBy',   label: 'REFERENCE BY',           width: 18, pdfW: 28, defaultOn: true,  superAdminOnly: true, getValue: c => c.hospital?.referenceBy || '' },
+  { key: 'filePrice',     label: 'FILE PRICE',             width: 12, pdfW: 22, defaultOn: true,  superAdminOnly: true, isAmount: true, getValue: null },
+];
+
+const DEFAULT_SELECTED = BASE_FIELD_DEFS.filter(f => f.defaultOn).map(f => f.key);
+const DEFAULT_SELECTED_SA = [...DEFAULT_SELECTED, ...SA_FIELD_DEFS.map(f => f.key)];
+
+// ─── Component ────────────────────────────────────────────────────────────────
 const Reports = () => {
   const { user, roleSlug } = useAuth();
   const confirm = useConfirm();
   const isHospitalUser = !!user?.hospital;
   const isSuperAdmin = roleSlug === 'super_admin';
+
   const [hospitals, setHospitals] = useState([]);
   const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '' });
   const [claims, setClaims] = useState([]);
@@ -25,23 +53,23 @@ const Reports = () => {
   const [statusesLoading, setStatusesLoading] = useState(true);
   const [billingLoading, setBillingLoading] = useState(false);
 
-  // Bill mode state
   const [billMode, setBillMode] = useState(false);
   const [selectedClaimIds, setSelectedClaimIds] = useState([]);
 
-  // Export dropdown state
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef(null);
 
+  // Field selection modal
+  const [fieldModal, setFieldModal] = useState({ open: false, pendingAction: null });
+  const [selectedFields, setSelectedFields] = useState(isSuperAdmin ? DEFAULT_SELECTED_SA : DEFAULT_SELECTED);
+
   useEffect(() => {
     if (!exportMenuOpen) return;
-    const handleClickOutside = (e) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
-        setExportMenuOpen(false);
-      }
+    const handler = (e) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) setExportMenuOpen(false);
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [exportMenuOpen]);
 
   useEffect(() => {
@@ -53,6 +81,20 @@ const Reports = () => {
       .catch(() => {})
       .finally(() => setStatusesLoading(false));
   }, [isHospitalUser]);
+
+  const getFilePrice = useCallback(
+    (c) => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0),
+    []
+  );
+
+  // Build field defs available for this user
+  const allFieldDefs = isSuperAdmin
+    ? [...BASE_FIELD_DEFS, ...SA_FIELD_DEFS.map(f => f.key === 'filePrice' ? { ...f, getValue: c => getFilePrice(c) } : f)]
+    : BASE_FIELD_DEFS;
+
+  const activeFieldDefs = allFieldDefs.filter(f => selectedFields.includes(f.key));
+
+  // ── Data ──────────────────────────────────────────────────────────────────
 
   const fetchClaims = async () => {
     const params = { limit: 10000 };
@@ -66,35 +108,24 @@ const Reports = () => {
 
   const generateReport = async () => {
     setLoading(true);
-    try {
-      const result = await fetchClaims();
-      setClaims(result);
-    } catch {
-      toast.error('Failed to generate report');
-    } finally {
-      setLoading(false);
-    }
+    try { setClaims(await fetchClaims()); }
+    catch { toast.error('Failed to generate report'); }
+    finally { setLoading(false); }
   };
+
+  // ── Bill mode ─────────────────────────────────────────────────────────────
 
   const handleGenerateBill = async () => {
     setSelectedClaimIds([]);
     setBillMode(true);
     if (claims.length > 0) return;
     setLoading(true);
-    try {
-      const result = await fetchClaims();
-      setClaims(result);
-    } catch {
-      toast.error('Failed to generate report');
-    } finally {
-      setLoading(false);
-    }
+    try { setClaims(await fetchClaims()); }
+    catch { toast.error('Failed to generate report'); }
+    finally { setLoading(false); }
   };
 
-  const handleCancelBillMode = () => {
-    setBillMode(false);
-    setSelectedClaimIds([]);
-  };
+  const handleCancelBillMode = () => { setBillMode(false); setSelectedClaimIds([]); };
 
   const handleInitialBill = async () => {
     const ids = selectedClaimIds;
@@ -111,33 +142,16 @@ const Reports = () => {
       setSelectedClaimIds([]);
       setBillMode(false);
       toast.success(`${ids.length} claim${ids.length !== 1 ? 's' : ''} marked as Billed`);
-    } catch {
-      toast.error('Failed to mark claims as billed');
-    } finally {
-      setBillingLoading(false);
-    }
+    } catch { toast.error('Failed to mark claims as billed'); }
+    finally { setBillingLoading(false); }
   };
 
   const allSelected = claims.length > 0 && claims.every(c => selectedClaimIds.includes(c._id));
   const someSelected = selectedClaimIds.length > 0;
+  const toggleSelectAll = () => { if (allSelected) setSelectedClaimIds([]); else setSelectedClaimIds(claims.map(c => c._id)); };
+  const toggleClaim = (id) => setSelectedClaimIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
 
-  const toggleSelectAll = () => {
-    if (allSelected) setSelectedClaimIds([]);
-    else setSelectedClaimIds(claims.map(c => c._id));
-  };
-
-  const toggleClaim = (id) => {
-    setSelectedClaimIds(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
-
-  // --- Bill Export helpers ---
-
-  const getBillCols = (withReference) => ['SR', 'PATIENT NAME', 'DOCTOR NAME', 'CLAIM TYPE', 'COMPANY/TPA', 'CCN NO',
-    'D.O.A.', 'D.O.D.', 'HOSPITAL BILL', 'FINAL APPROVAL AMOUNT',
-    ...(isSuperAdmin && withReference ? ['REFERENCE BY'] : []),
-    ...(isSuperAdmin ? ['FILE PRICE'] : [])];
+  // ── Export helpers ────────────────────────────────────────────────────────
 
   const groupByHospital = (data = claims) => {
     const byHosp = {};
@@ -156,19 +170,6 @@ const Reports = () => {
       }));
   };
 
-  const billClaimRow = (c, withReference, sr) => {
-    const companytpa = [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ');
-    return [
-      sr, c.patientName || '', c.doctorName || '', c.claimType || '', companytpa,
-      c.ccnNo || '',
-      c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '',
-      c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '',
-      c.hospitalFinalBill || 0, c.finalApprovalAmount || 0,
-      ...(isSuperAdmin && withReference ? [c.hospital?.referenceBy || ''] : []),
-      ...(isSuperAdmin ? [getFilePrice(c)] : []),
-    ];
-  };
-
   const monthLabel = (month) => {
     if (!month) return 'CLAIM';
     const d = new Date(month);
@@ -177,99 +178,107 @@ const Reports = () => {
 
   const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(v) : (v || '-');
 
-  const buildExcelWB = (groups, withReference = isSuperAdmin) => {
-    const BILL_COLS = getBillCols(withReference);
-    const NUM_BILL_COLS = BILL_COLS.length;
-    const REFERENCE_BY_COL = isSuperAdmin && withReference ? 10 : -1;
+  const safeHospitalName = (name) =>
+    name.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
+
+  // ── Excel builder (dynamic fields) ───────────────────────────────────────
+
+  const buildExcelWB = (groups, fields = activeFieldDefs) => {
+    const COLS = [{ key: '_sr', label: 'SR', width: 5 }, ...fields];
+    const N = COLS.length;
+    const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
+    const nonAmountCount = COLS.filter(f => !f.isAmount).length;
+
     const thin = { style: 'thin', color: { auto: 1 } };
     const border = { top: thin, bottom: thin, left: thin, right: thin };
     const wsData = [];
     const merges = [];
     const rowMeta = [];
 
-    let grandBill = 0, grandApproval = 0, grandFP = 0;
+    const grandTotals = {};
+    amountIndices.forEach(i => { grandTotals[i] = 0; });
 
     groups.forEach(({ hospital, monthGroups }) => {
-      let hospBill = 0, hospApproval = 0, hospFP = 0;
+      const hospTotals = {};
+      amountIndices.forEach(i => { hospTotals[i] = 0; });
 
       monthGroups.forEach(({ month, items }) => {
+        // Hospital header row
         const rHosp = wsData.length;
-        wsData.push([hospital.toUpperCase(), ...Array(NUM_BILL_COLS - 1).fill('')]);
-        merges.push({ s: { r: rHosp, c: 0 }, e: { r: rHosp, c: NUM_BILL_COLS - 1 } });
+        wsData.push([hospital.toUpperCase(), ...Array(N - 1).fill('')]);
+        merges.push({ s: { r: rHosp, c: 0 }, e: { r: rHosp, c: N - 1 } });
         rowMeta.push({ row: rHosp, type: 'hospital' });
 
+        // Subtitle row
         const rSub = wsData.length;
-        wsData.push([monthLabel(month), ...Array(NUM_BILL_COLS - 1).fill('')]);
-        merges.push({ s: { r: rSub, c: 0 }, e: { r: rSub, c: NUM_BILL_COLS - 1 } });
+        wsData.push([monthLabel(month), ...Array(N - 1).fill('')]);
+        merges.push({ s: { r: rSub, c: 0 }, e: { r: rSub, c: N - 1 } });
         rowMeta.push({ row: rSub, type: 'subtitle' });
 
-        wsData.push([...BILL_COLS]);
+        // Header row
+        wsData.push(COLS.map(f => f.label || 'SR'));
         rowMeta.push({ row: wsData.length - 1, type: 'header' });
 
+        const monthTotals = {};
+        amountIndices.forEach(i => { monthTotals[i] = 0; });
+
+        // Data rows
         items.forEach((c, idx) => {
+          const row = COLS.map((f, ci) => {
+            if (ci === 0) return idx + 1; // SR
+            return f.getValue(c);
+          });
+          amountIndices.forEach(i => { monthTotals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
           rowMeta.push({ row: wsData.length, type: 'data' });
-          wsData.push(billClaimRow(c, withReference, idx + 1));
+          wsData.push(row);
         });
 
-        const monthBill = items.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
-        const monthApproval = items.reduce((s, c) => s + (c.finalApprovalAmount || 0), 0);
-        const monthFP = isSuperAdmin ? items.reduce((s, c) => s + getFilePrice(c), 0) : 0;
-        hospBill += monthBill; hospApproval += monthApproval; hospFP += monthFP;
+        amountIndices.forEach(i => { hospTotals[i] += monthTotals[i]; });
 
+        // Monthly total row
         const rTotal = wsData.length;
-        const totalRow = Array(NUM_BILL_COLS).fill('');
+        const totalRow = Array(N).fill('');
         totalRow[0] = 'TOTAL';
-        totalRow[8] = monthBill;
-        totalRow[9] = monthApproval;
-        if (isSuperAdmin) totalRow[NUM_BILL_COLS - 1] = monthFP;
-        merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: 7 } });
+        amountIndices.forEach(i => { totalRow[i] = monthTotals[i]; });
+        merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: nonAmountCount - 1 } });
         rowMeta.push({ row: rTotal, type: 'total' });
         wsData.push(totalRow);
-        wsData.push(Array(NUM_BILL_COLS).fill(''));
+        wsData.push(Array(N).fill(''));
       });
 
       if (monthGroups.length > 1) {
-        const rSub = wsData.length;
-        const subRow = Array(NUM_BILL_COLS).fill('');
-        subRow[0] = `${hospital.toUpperCase()} SUBTOTAL`;
-        subRow[8] = hospBill;
-        subRow[9] = hospApproval;
-        if (isSuperAdmin) subRow[NUM_BILL_COLS - 1] = hospFP;
-        merges.push({ s: { r: rSub, c: 0 }, e: { r: rSub, c: 7 } });
-        rowMeta.push({ row: rSub, type: 'subtotal' });
-        wsData.push(subRow);
-        wsData.push(Array(NUM_BILL_COLS).fill(''));
+        const rSubtotal = wsData.length;
+        const subtotalRow = Array(N).fill('');
+        subtotalRow[0] = `${hospital.toUpperCase()} SUBTOTAL`;
+        amountIndices.forEach(i => { subtotalRow[i] = hospTotals[i]; });
+        merges.push({ s: { r: rSubtotal, c: 0 }, e: { r: rSubtotal, c: nonAmountCount - 1 } });
+        rowMeta.push({ row: rSubtotal, type: 'subtotal' });
+        wsData.push(subtotalRow);
+        wsData.push(Array(N).fill(''));
       }
 
-      grandBill += hospBill; grandApproval += hospApproval; grandFP += hospFP;
+      amountIndices.forEach(i => { grandTotals[i] += hospTotals[i]; });
     });
 
     if (groups.length > 1) {
       const rGrand = wsData.length;
-      const grandRow = Array(NUM_BILL_COLS).fill('');
+      const grandRow = Array(N).fill('');
       grandRow[0] = 'GRAND TOTAL';
-      grandRow[8] = grandBill;
-      grandRow[9] = grandApproval;
-      if (isSuperAdmin) grandRow[NUM_BILL_COLS - 1] = grandFP;
-      merges.push({ s: { r: rGrand, c: 0 }, e: { r: rGrand, c: 7 } });
+      amountIndices.forEach(i => { grandRow[i] = grandTotals[i]; });
+      merges.push({ s: { r: rGrand, c: 0 }, e: { r: rGrand, c: nonAmountCount - 1 } });
       rowMeta.push({ row: rGrand, type: 'grandtotal' });
       wsData.push(grandRow);
-      wsData.push(Array(NUM_BILL_COLS).fill(''));
+      wsData.push(Array(N).fill(''));
     }
 
     const rFooter = wsData.length;
-    wsData.push(['Prepared by: First Care Consultancy', ...Array(NUM_BILL_COLS - 1).fill('')]);
-    merges.push({ s: { r: rFooter, c: 0 }, e: { r: rFooter, c: NUM_BILL_COLS - 1 } });
+    wsData.push(['Prepared by: First Care Consultancy', ...Array(N - 1).fill('')]);
+    merges.push({ s: { r: rFooter, c: 0 }, e: { r: rFooter, c: N - 1 } });
     rowMeta.push({ row: rFooter, type: 'footer' });
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!merges'] = merges;
-    ws['!cols'] = [
-      { wch: 5 }, { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 30 },
-      { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 20 },
-      ...(isSuperAdmin && withReference ? [{ wch: 18 }] : []),
-      ...(isSuperAdmin ? [{ wch: 12 }] : []),
-    ];
+    ws['!cols'] = COLS.map(f => ({ wch: f.width || 5 }));
 
     const applyStyle = (r, c, style) => {
       const ref = XLSX.utils.encode_cell({ r, c });
@@ -280,20 +289,20 @@ const Reports = () => {
     rowMeta.forEach(({ row, type }) => {
       const styles = {
         hospital: { font: { bold: true, sz: 12, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } }, alignment: { horizontal: 'center', vertical: 'center' } },
-        subtitle: { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'center', vertical: 'center' }, border },
-        header:   { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'F3F4F6' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border },
-        footer:   { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'left', vertical: 'center' } },
+        subtitle:  { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'center', vertical: 'center' }, border },
+        header:    { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'F3F4F6' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border },
+        footer:    { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'left', vertical: 'center' } },
       };
-      for (let c = 0; c < NUM_BILL_COLS; c++) {
-        const isAmountCol = c >= 8 && c !== REFERENCE_BY_COL;
+      for (let c = 0; c < N; c++) {
+        const isAmt = amountIndices.includes(c);
         if (type === 'data') {
-          applyStyle(row, c, { font: { sz: 9, name: 'Arial' }, alignment: { horizontal: isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { sz: 9, name: 'Arial' }, alignment: { horizontal: isAmt ? 'right' : 'left', vertical: 'center' }, border });
         } else if (type === 'total') {
-          applyStyle(row, c, { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } }, alignment: { horizontal: c === 0 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } }, alignment: { horizontal: c === 0 ? 'center' : isAmt ? 'right' : 'left', vertical: 'center' }, border });
         } else if (type === 'subtotal') {
-          applyStyle(row, c, { font: { bold: true, sz: 10, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FED7AA' } }, alignment: { horizontal: c === 0 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { bold: true, sz: 10, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'FED7AA' } }, alignment: { horizontal: c === 0 ? 'center' : isAmt ? 'right' : 'left', vertical: 'center' }, border });
         } else if (type === 'grandtotal') {
-          applyStyle(row, c, { font: { bold: true, sz: 11, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '1E3A8A' } }, alignment: { horizontal: c === 0 ? 'center' : isAmountCol ? 'right' : 'left', vertical: 'center' }, border });
+          applyStyle(row, c, { font: { bold: true, sz: 11, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '1E3A8A' } }, alignment: { horizontal: c === 0 ? 'center' : isAmt ? 'right' : 'left', vertical: 'center' }, border });
         } else if (styles[type]) {
           applyStyle(row, c, styles[type]);
         }
@@ -305,66 +314,58 @@ const Reports = () => {
     return wb;
   };
 
-  const buildPDFDoc = (groups, withReference = isSuperAdmin) => {
-    const BILL_COLS = getBillCols(withReference);
-    const REFERENCE_BY_COL = isSuperAdmin && withReference ? 10 : -1;
+  // ── PDF builder (dynamic fields) ─────────────────────────────────────────
+
+  const buildPDFDoc = (groups, fields = activeFieldDefs) => {
+    const COLS = [{ key: '_sr', label: 'SR', pdfW: 8 }, ...fields];
+    const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
+    const nonAmountCount = COLS.filter(f => !f.isAmount).length;
+    const COL_WIDTHS = COLS.map(f => f.pdfW || 8);
+    const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
+    const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
+
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const today = new Date().toLocaleDateString('en-IN');
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-
     const totalClaimsCount = groups.reduce((s, g) => s + g.monthGroups.reduce((m, mg) => m + mg.items.length, 0), 0);
-    const hospitalCount = groups.length;
 
-    // Header (plain, no fill)
     doc.setTextColor(17, 24, 39);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('Claim Report', 14, 14);
-
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(75, 85, 99);
     doc.text(`Generated: ${today}`, pageWidth - 14, 14, { align: 'right' });
-    const meta = [
-      `${totalClaimsCount} claim${totalClaimsCount !== 1 ? 's' : ''}`,
-      `${hospitalCount} hospital${hospitalCount !== 1 ? 's' : ''}`,
-    ].join('  •  ');
-    doc.text(meta, pageWidth - 14, 19, { align: 'right' });
-
+    doc.text(`${totalClaimsCount} claim${totalClaimsCount !== 1 ? 's' : ''}  •  ${groups.length} hospital${groups.length !== 1 ? 's' : ''}`, pageWidth - 14, 19, { align: 'right' });
     doc.setDrawColor(17, 24, 39);
     doc.setLineWidth(0.5);
     doc.line(14, 22, pageWidth - 14, 22);
     doc.setTextColor(17, 24, 39);
 
     let startY = 28;
-    let grandBill = 0, grandApproval = 0, grandFP = 0;
+    const grandTotals = {};
+    amountIndices.forEach(i => { grandTotals[i] = 0; });
 
-    const COL_WIDTHS = isSuperAdmin
-      ? withReference
-        ? [8, 28, 26, 18, 35, 14, 16, 16, 22, 26, 28, 22]
-        : [10, 32, 28, 20, 38, 16, 18, 18, 26, 30, 26]
-      : [10, 36, 32, 22, 42, 18, 18, 18, 32, 36];
-    const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
-    const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
-
-    const renderSummaryRow = (label, bill, approval, fp, palette) => {
+    const renderSummaryRow = (label, totalsMap, palette) => {
       if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
       const base = { fillColor: palette.fill, textColor: palette.text, fontStyle: 'bold', fontSize: palette.fontSize, lineColor: palette.line || [156, 163, 175], lineWidth: palette.lineWidth || 0.3, cellPadding: 2 };
-      const row = [
-        { content: label, colSpan: 8, styles: { ...base, halign: 'right' } },
-        { content: fmtAmt(bill), styles: { ...base, halign: 'right' } },
-        { content: fmtAmt(approval), styles: { ...base, halign: 'right' } },
+      const row = COLS.map((f, i) => {
+        if (i === 0) return { content: label, colSpan: nonAmountCount, styles: { ...base, halign: 'right' } };
+        if (f.isAmount) return { content: fmtAmt(totalsMap[i] || 0), styles: { ...base, halign: 'right' } };
+        return null;
+      }).filter(Boolean);
+
+      // rebuild: first cell spans non-amount cols, then each amount col
+      const summaryRow = [
+        { content: label, colSpan: nonAmountCount, styles: { ...base, halign: 'right' } },
+        ...amountIndices.map(i => ({ content: fmtAmt(totalsMap[i] || 0), styles: { ...base, halign: 'right' } })),
       ];
-      if (isSuperAdmin) {
-        if (withReference) {
-          row.push({ content: '', styles: { fillColor: palette.fill, lineColor: base.lineColor, lineWidth: base.lineWidth } });
-        }
-        row.push({ content: fmtAmt(fp), styles: { ...base, halign: 'right' } });
-      }
+
       autoTable(doc, {
         startY,
-        body: [row],
+        body: [summaryRow],
         theme: 'grid',
         columnStyles,
         tableWidth: TABLE_WIDTH,
@@ -374,7 +375,8 @@ const Reports = () => {
     };
 
     groups.forEach(({ hospital, monthGroups }) => {
-      let hospBill = 0, hospApproval = 0, hospFP = 0;
+      const hospTotals = {};
+      amountIndices.forEach(i => { hospTotals[i] = 0; });
 
       monthGroups.forEach(({ month, items }) => {
         autoTable(doc, {
@@ -398,29 +400,30 @@ const Reports = () => {
         });
         startY = doc.lastAutoTable.finalY;
 
-        const monthBill = items.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
-        const monthApproval = items.reduce((s, c) => s + (c.finalApprovalAmount || 0), 0);
-        const monthFP = isSuperAdmin ? items.reduce((s, c) => s + getFilePrice(c), 0) : 0;
-        hospBill += monthBill; hospApproval += monthApproval; hospFP += monthFP;
+        const monthTotals = {};
+        amountIndices.forEach(i => { monthTotals[i] = 0; });
 
-        const bodyRows = items.map((c, idx) => billClaimRow(c, withReference, idx + 1).map((v, i) => (i >= 8 && i !== REFERENCE_BY_COL) ? fmtAmt(v) : (v ?? '')));
+        const bodyRows = items.map((c, idx) => {
+          const row = COLS.map((f, ci) => {
+            if (ci === 0) return idx + 1;
+            return f.getValue(c);
+          });
+          amountIndices.forEach(i => { monthTotals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
+          return row.map((v, i) => amountIndices.includes(i) ? fmtAmt(v) : (v ?? ''));
+        });
+
+        amountIndices.forEach(i => { hospTotals[i] += monthTotals[i]; });
+
         const totalFill = [243, 244, 246];
         const totalRowObj = [
-          { content: 'TOTAL', colSpan: 8, styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
-          { content: fmtAmt(monthBill), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
-          { content: fmtAmt(monthApproval), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
+          { content: 'TOTAL', colSpan: nonAmountCount, styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
+          ...amountIndices.map(i => ({ content: fmtAmt(monthTotals[i]), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } })),
         ];
-        if (isSuperAdmin) {
-          if (withReference) {
-            totalRowObj.push({ content: '', styles: { fillColor: totalFill } });
-          }
-          totalRowObj.push({ content: fmtAmt(monthFP), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } });
-        }
         bodyRows.push(totalRowObj);
 
         autoTable(doc, {
           startY,
-          head: [BILL_COLS],
+          head: [COLS.map(f => f.label || 'SR')],
           body: bodyRows,
           theme: 'grid',
           styles: { lineColor: [156, 163, 175], lineWidth: 0.2 },
@@ -429,35 +432,25 @@ const Reports = () => {
           columnStyles,
           tableWidth: TABLE_WIDTH,
           didParseCell: (data) => {
-            if (data.section === 'body' && data.row.index < items.length && data.column.index >= 8 && data.column.index !== REFERENCE_BY_COL) {
+            if (data.section === 'body' && data.row.index < items.length && amountIndices.includes(data.column.index)) {
               data.cell.styles.halign = 'right';
             }
           },
           margin: { left: 14, right: 14 },
         });
         startY = doc.lastAutoTable.finalY + 4;
-
         if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
       });
 
       if (monthGroups.length > 1) {
-        renderSummaryRow(
-          `${hospital.toUpperCase()} SUBTOTAL`,
-          hospBill, hospApproval, hospFP,
-          { fontSize: 8, fill: [229, 231, 235], text: [17, 24, 39] }
-        );
+        renderSummaryRow(`${hospital.toUpperCase()} SUBTOTAL`, hospTotals, { fontSize: 8, fill: [229, 231, 235], text: [17, 24, 39] });
       }
-
-      grandBill += hospBill; grandApproval += hospApproval; grandFP += hospFP;
+      amountIndices.forEach(i => { grandTotals[i] += hospTotals[i]; });
       startY += 2;
     });
 
     if (groups.length > 1) {
-      renderSummaryRow(
-        'GRAND TOTAL',
-        grandBill, grandApproval, grandFP,
-        { fontSize: 9, fill: [37, 99, 235], text: [255, 255, 255], line: [37, 99, 235], lineWidth: 0.5 }
-      );
+      renderSummaryRow('GRAND TOTAL', grandTotals, { fontSize: 9, fill: [37, 99, 235], text: [255, 255, 255], line: [37, 99, 235], lineWidth: 0.5 });
     }
 
     doc.setDrawColor(229, 231, 235);
@@ -476,104 +469,105 @@ const Reports = () => {
       doc.setTextColor(107, 114, 128);
       doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
     }
-
     return doc;
   };
 
-  const safeHospitalName = (name) =>
-    name.replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 30);
+  // ── Export runners ────────────────────────────────────────────────────────
 
-  const doExportBillExcel = async () => {
+  const runExport = async (action, fields) => {
     const dateStr = new Date().toISOString().slice(0, 10);
     const groups = groupByHospital();
 
-    if (groups.length === 1) {
-      const wb = buildExcelWB(groups, false);
-      XLSX.writeFile(wb, `claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.xlsx`);
+    if (action === 'per-excel') {
+      if (!groups.length) return;
+      if (groups.length === 1) {
+        const wb = buildExcelWB(groups, fields);
+        XLSX.writeFile(wb, `claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.xlsx`);
+        return;
+      }
+      const zip = new JSZip();
+      groups.forEach(({ hospital, monthGroups }) => {
+        const wb = buildExcelWB([{ hospital, monthGroups }], fields);
+        zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.xlsx`, XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+      });
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `claim_report_${dateStr}.zip` });
+      a.click(); URL.revokeObjectURL(a.href);
       return;
     }
 
-    const zip = new JSZip();
-    groups.forEach(({ hospital, monthGroups }) => {
-      const wb = buildExcelWB([{ hospital, monthGroups }], false);
-      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-      zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.xlsx`, buf);
-    });
-    const blob = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `claim_report_${dateStr}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const doExportBillPDF = async () => {
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const groups = groupByHospital();
-
-    if (groups.length === 1) {
-      const doc = buildPDFDoc(groups, false);
-      doc.save(`claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.pdf`);
+    if (action === 'per-pdf') {
+      if (!groups.length) return;
+      if (groups.length === 1) {
+        buildPDFDoc(groups, fields).save(`claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.pdf`);
+        return;
+      }
+      const zip = new JSZip();
+      groups.forEach(({ hospital, monthGroups }) => {
+        zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.pdf`, buildPDFDoc([{ hospital, monthGroups }], fields).output('arraybuffer'));
+      });
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `claim_report_${dateStr}.zip` });
+      a.click(); URL.revokeObjectURL(a.href);
       return;
     }
 
-    const zip = new JSZip();
-    groups.forEach(({ hospital, monthGroups }) => {
-      const doc = buildPDFDoc([{ hospital, monthGroups }], false);
-      zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.pdf`, doc.output('arraybuffer'));
-    });
-    const blob = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `claim_report_${dateStr}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const doExportAllExcel = async () => {
+    // all-excel / all-pdf: fetch fresh
     setLoading(true);
     try {
       const fresh = await fetchClaims();
       setClaims(fresh);
       if (!fresh.length) { toast.info('No claims match the current filters'); return; }
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const wb = buildExcelWB(groupByHospital(fresh));
-      XLSX.writeFile(wb, `claim_report_all_${dateStr}.xlsx`);
-    } catch {
-      toast.error('Failed to export');
-    } finally {
-      setLoading(false);
-    }
+      const freshGroups = groupByHospital(fresh);
+      if (action === 'all-excel') {
+        XLSX.writeFile(buildExcelWB(freshGroups, fields), `claim_report_all_${dateStr}.xlsx`);
+      } else {
+        buildPDFDoc(freshGroups, fields).save(`claim_report_all_${dateStr}.pdf`);
+      }
+    } catch { toast.error('Failed to export'); }
+    finally { setLoading(false); }
   };
 
-  const doExportAllPDF = async () => {
-    setLoading(true);
-    try {
-      const fresh = await fetchClaims();
-      setClaims(fresh);
-      if (!fresh.length) { toast.info('No claims match the current filters'); return; }
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const doc = buildPDFDoc(groupByHospital(fresh));
-      doc.save(`claim_report_all_${dateStr}.pdf`);
-    } catch {
-      toast.error('Failed to export');
-    } finally {
-      setLoading(false);
-    }
+  const openFieldModal = (action) => {
+    setExportMenuOpen(false);
+    setFieldModal({ open: true, pendingAction: action });
   };
 
-  const getFilePrice = (c) => c.filePrice ||
-    calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
+  const handleModalExport = async (format) => {
+    const fields = activeFieldDefs;
+    const action = fieldModal.pendingAction.replace(/-(excel|pdf)$/, `-${format}`);
+    setFieldModal({ open: false, pendingAction: null });
+    await runExport(action, fields);
+  };
 
+  // ── Summary ───────────────────────────────────────────────────────────────
+
+  const getFileP = getFilePrice;
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
-
   const totalBill = claims.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
   const totalSettlement = claims.reduce((s, c) => s + (c.bankTransferAmount || 0), 0);
-  const totalFilePrice = claims.reduce((s, c) => s + getFilePrice(c), 0);
-
+  const totalFilePriceSum = claims.reduce((s, c) => s + getFileP(c), 0);
   const tableColCount = (isHospitalUser ? 9 : 10) + (isSuperAdmin ? 3 : 0) + (billMode ? 1 : 0);
+
+  // ── Field modal helpers ───────────────────────────────────────────────────
+
+  const toggleField = (key) => {
+    setSelectedFields(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  };
+  const selectAllFields = () => setSelectedFields(allFieldDefs.map(f => f.key));
+  const deselectAllFields = () => setSelectedFields([]);
+
+  const FIELD_GROUPS = [
+    { label: 'Patient Info', keys: ['patientName', 'doctorName', 'claimType', 'policyNo', 'clientId'] },
+    { label: 'Payor', keys: ['companyTpa', 'ccnNo'] },
+    { label: 'Dates', keys: ['dateOfAdmit', 'dateOfDischarge'] },
+    { label: 'Financials', keys: ['hospitalBill', 'approvalAmt', 'settlement', 'tds', 'bankTransfer'] },
+    { label: 'Other', keys: ['status', ...(isSuperAdmin ? ['referenceBy', 'filePrice'] : [])] },
+  ];
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div>
@@ -583,26 +577,15 @@ const Reports = () => {
           billMode ? (
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-500">{selectedClaimIds.length} selected</span>
-              <button
-                onClick={handleCancelBillMode}
-                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleInitialBill}
-                disabled={!someSelected || billingLoading}
-                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-              >
+              <button onClick={handleCancelBillMode} className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">Cancel</button>
+              <button onClick={handleInitialBill} disabled={!someSelected || billingLoading}
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
                 {billingLoading ? 'Processing...' : 'Initial Bill'}
               </button>
             </div>
           ) : (
-            <button
-              onClick={handleGenerateBill}
-              disabled={loading}
-              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-            >
+            <button onClick={handleGenerateBill} disabled={loading}
+              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
               {loading ? 'Loading...' : 'Generate Bill'}
             </button>
           )
@@ -622,20 +605,10 @@ const Reports = () => {
               allowClear
             />
           )}
-          <input
-            type="date"
-            value={filters.dateFrom}
-            onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-            placeholder="From Date"
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
-          <input
-            type="date"
-            value={filters.dateTo}
-            onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-            placeholder="To Date"
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
+          <input type="date" value={filters.dateFrom} onChange={e => setFilters({ ...filters, dateFrom: e.target.value })}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+          <input type="date" value={filters.dateTo} onChange={e => setFilters({ ...filters, dateTo: e.target.value })}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           <SearchableSelect
             options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700' }))}
             value={filters.status}
@@ -662,52 +635,34 @@ const Reports = () => {
                 <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 w-52 py-1">
                   {isHospitalUser ? (
                     <>
-                      <button
-                        onClick={() => { setExportMenuOpen(false); doExportBillExcel(); }}
-                        disabled={!claims.length}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                      >
+                      <button onClick={() => openFieldModal('per-excel')} disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
                         <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
                       </button>
-                      <button
-                        onClick={() => { setExportMenuOpen(false); doExportBillPDF(); }}
-                        disabled={!claims.length}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                      >
+                      <button onClick={() => openFieldModal('per-pdf')} disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
                         <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
                       </button>
                     </>
                   ) : (
                     <>
                       <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">All Hospitals (single file)</div>
-                      <button
-                        onClick={() => { setExportMenuOpen(false); doExportAllExcel(); }}
-                        disabled={loading}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                      >
+                      <button onClick={() => openFieldModal('all-excel')} disabled={loading}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
                         <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
                       </button>
-                      <button
-                        onClick={() => { setExportMenuOpen(false); doExportAllPDF(); }}
-                        disabled={loading}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                      >
+                      <button onClick={() => openFieldModal('all-pdf')} disabled={loading}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
                         <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
                       </button>
                       <div className="border-t border-gray-100 my-1" />
                       <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Per Hospital (separate files)</div>
-                      <button
-                        onClick={() => { setExportMenuOpen(false); doExportBillExcel(); }}
-                        disabled={!claims.length}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                      >
+                      <button onClick={() => openFieldModal('per-excel')} disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
                         <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
                       </button>
-                      <button
-                        onClick={() => { setExportMenuOpen(false); doExportBillPDF(); }}
-                        disabled={!claims.length}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                      >
+                      <button onClick={() => openFieldModal('per-pdf')} disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
                         <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
                       </button>
                     </>
@@ -736,7 +691,7 @@ const Reports = () => {
           </div>
           {isSuperAdmin && (
             <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">{formatAmount(totalFilePrice)}</p>
+              <p className="text-2xl font-bold text-green-600">{formatAmount(totalFilePriceSum)}</p>
               <p className="text-xs text-gray-500">Total Revenue (File Price)</p>
             </div>
           )}
@@ -751,12 +706,8 @@ const Reports = () => {
               <tr>
                 {billMode && (
                   <th className="py-3 px-3 w-10">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={toggleSelectAll}
-                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                    />
+                    <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer" />
                   </th>
                 )}
                 {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', ...(isSuperAdmin ? ['Reference By', 'Bill Status', 'File Price'] : [])].map(h => (
@@ -766,24 +717,15 @@ const Reports = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {claims.length === 0 ? (
-                <tr>
-                  <td colSpan={tableColCount} className="py-8 text-center text-gray-400">
-                    {loading ? 'Loading...' : 'Click "Generate" to view report'}
-                  </td>
-                </tr>
+                <tr><td colSpan={tableColCount} className="py-8 text-center text-gray-400">
+                  {loading ? 'Loading...' : 'Click "Generate" to view report'}
+                </td></tr>
               ) : claims.map(c => (
-                <tr
-                  key={c._id}
-                  className={`hover:bg-gray-50 text-sm ${billMode && selectedClaimIds.includes(c._id) ? 'bg-purple-50' : ''}`}
-                >
+                <tr key={c._id} className={`hover:bg-gray-50 text-sm ${billMode && selectedClaimIds.includes(c._id) ? 'bg-purple-50' : ''}`}>
                   {billMode && (
                     <td className="py-2 px-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedClaimIds.includes(c._id)}
-                        onChange={() => toggleClaim(c._id)}
-                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                      />
+                      <input type="checkbox" checked={selectedClaimIds.includes(c._id)} onChange={() => toggleClaim(c._id)}
+                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer" />
                     </td>
                   )}
                   <td className="py-2 px-3 text-gray-500">{c.srNo}</td>
@@ -804,7 +746,7 @@ const Reports = () => {
                           {c.isBilled ? 'Billed' : 'Unbilled'}
                         </span>
                       </td>
-                      <td className="py-2 px-3">{formatAmount(getFilePrice(c))}</td>
+                      <td className="py-2 px-3">{formatAmount(getFileP(c))}</td>
                     </>
                   )}
                 </tr>
@@ -813,6 +755,88 @@ const Reports = () => {
           </table>
         </div>
       </div>
+
+      {/* Field Selection Modal */}
+      {fieldModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Select Export Fields</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{selectedFields.length} of {allFieldDefs.length} fields selected</p>
+              </div>
+              <button onClick={() => setFieldModal({ open: false, pendingAction: null })}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                <HiOutlineX className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Select all / none */}
+            <div className="flex items-center gap-2 px-5 py-2.5 border-b border-gray-50">
+              <button onClick={selectAllFields} className="text-xs text-primary-600 hover:underline font-medium">Select all</button>
+              <span className="text-gray-300">·</span>
+              <button onClick={deselectAllFields} className="text-xs text-gray-500 hover:underline font-medium">Deselect all</button>
+            </div>
+
+            {/* Field groups */}
+            <div className="overflow-y-auto flex-1 px-5 py-3 space-y-4">
+              {FIELD_GROUPS.map(group => {
+                const groupFields = allFieldDefs.filter(f => group.keys.includes(f.key));
+                if (!groupFields.length) return null;
+                return (
+                  <div key={group.label}>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">{group.label}</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {groupFields.map(field => (
+                        <label key={field.key}
+                          className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${
+                            selectedFields.includes(field.key)
+                              ? 'border-primary-200 bg-primary-50'
+                              : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedFields.includes(field.key)}
+                            onChange={() => toggleField(field.key)}
+                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-3.5 h-3.5"
+                          />
+                          <span className={`text-xs font-medium ${selectedFields.includes(field.key) ? 'text-primary-700' : 'text-gray-600'}`}>
+                            {field.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100">
+              <button onClick={() => setFieldModal({ open: false, pendingAction: null })}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">
+                Cancel
+              </button>
+              <button
+                onClick={() => handleModalExport('excel')}
+                disabled={!selectedFields.length}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium disabled:opacity-50"
+              >
+                <HiOutlineDownload className="w-4 h-4" /> Excel
+              </button>
+              <button
+                onClick={() => handleModalExport('pdf')}
+                disabled={!selectedFields.length}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-medium disabled:opacity-50"
+              >
+                <HiOutlineDownload className="w-4 h-4" /> PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
