@@ -659,38 +659,59 @@ const Reports = () => {
                 <HiOutlineDownload className="w-4 h-4" /> Export <HiChevronDown className={`w-4 h-4 transition-transform ${exportMenuOpen ? 'rotate-180' : ''}`} />
               </button>
               {exportMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 w-60 py-1">
-                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">All Hospitals (single file)</div>
-                  <button
-                    onClick={() => { setExportMenuOpen(false); doExportAllExcel(); }}
-                    disabled={loading}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                  >
-                    <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
-                  </button>
-                  <button
-                    onClick={() => { setExportMenuOpen(false); doExportAllPDF(); }}
-                    disabled={loading}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                  >
-                    <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
-                  </button>
-                  <div className="border-t border-gray-100 my-1" />
-                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Per Hospital (separate files)</div>
-                  <button
-                    onClick={() => { setExportMenuOpen(false); doExportBillExcel(); }}
-                    disabled={!claims.length}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                  >
-                    <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
-                  </button>
-                  <button
-                    onClick={() => { setExportMenuOpen(false); doExportBillPDF(); }}
-                    disabled={!claims.length}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
-                  >
-                    <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
-                  </button>
+                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 w-52 py-1">
+                  {isHospitalUser ? (
+                    <>
+                      <button
+                        onClick={() => { setExportMenuOpen(false); doExportBillExcel(); }}
+                        disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
+                      </button>
+                      <button
+                        onClick={() => { setExportMenuOpen(false); doExportBillPDF(); }}
+                        disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">All Hospitals (single file)</div>
+                      <button
+                        onClick={() => { setExportMenuOpen(false); doExportAllExcel(); }}
+                        disabled={loading}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
+                      </button>
+                      <button
+                        onClick={() => { setExportMenuOpen(false); doExportAllPDF(); }}
+                        disabled={loading}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
+                      </button>
+                      <div className="border-t border-gray-100 my-1" />
+                      <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Per Hospital (separate files)</div>
+                      <button
+                        onClick={() => { setExportMenuOpen(false); doExportBillExcel(); }}
+                        disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
+                      </button>
+                      <button
+                        onClick={() => { setExportMenuOpen(false); doExportBillPDF(); }}
+                        disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

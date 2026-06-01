@@ -104,8 +104,9 @@ exports.getHospitals = async (req, res) => {
 
     if (active !== undefined) where.isActive = active === 'true';
     if (search) where.name = { contains: search, mode: 'insensitive' };
-    if (req.user.hospital) {
-      where.id = req.user.hospital.id || req.user.hospital;
+    const userHospId = req.user.hospitalId || req.user.hospital?.id;
+    if (userHospId) {
+      where.id = userHospId;
     }
 
     if (page !== undefined) {
@@ -140,11 +141,9 @@ exports.getHospitals = async (req, res) => {
 
 exports.getHospital = async (req, res) => {
   try {
-    if (req.user.hospital) {
-      const userHospitalId = req.user.hospital.id || req.user.hospital;
-      if (req.params.id !== userHospitalId) {
-        return res.status(403).json({ message: 'You can only view your own hospital' });
-      }
+    const userHospitalId = req.user.hospitalId || req.user.hospital?.id;
+    if (userHospitalId && req.params.id !== userHospitalId) {
+      return res.status(403).json({ message: 'You can only view your own hospital' });
     }
 
     const hospital = await prisma.hospital.findUnique({

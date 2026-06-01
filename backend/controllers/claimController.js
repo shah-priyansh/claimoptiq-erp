@@ -5,8 +5,7 @@ const { toResponse } = require('../utils/toResponse');
 const calculateFilePrice = require('../utils/calculateFilePrice');
 
 const getUserHospitalId = (user) => {
-  if (!user.hospital) return null;
-  return user.hospital.id || user.hospital;
+  return user.hospitalId || user.hospital?.id || null;
 };
 
 const claimInclude = {

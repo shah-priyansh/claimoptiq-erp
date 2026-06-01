@@ -67,18 +67,31 @@ const Sidebar = ({ isOpen, onClose }) => {
         <div className="flex items-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0">
           <div className="relative flex-shrink-0">
             <div className="w-9 h-9 bg-primary-600 rounded-xl flex items-center justify-center shadow-sm shadow-primary-200">
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
-                <rect x="5" y="2" width="14" height="18" rx="2" fill="white" fillOpacity="0.95" />
-                <rect x="8" y="7"  width="8" height="1.5" rx="0.75" fill="#2563eb" />
-                <rect x="8" y="11" width="6" height="1.5" rx="0.75" fill="#2563eb" />
-                <rect x="8" y="15" width="4" height="1.5" rx="0.75" fill="#2563eb" />
-              </svg>
+              {user?.hospital?.name ? (
+                <HiOutlineOfficeBuilding className="w-5 h-5 text-white" />
+              ) : (
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
+                  <rect x="5" y="2" width="14" height="18" rx="2" fill="white" fillOpacity="0.95" />
+                  <rect x="8" y="7"  width="8" height="1.5" rx="0.75" fill="#2563eb" />
+                  <rect x="8" y="11" width="6" height="1.5" rx="0.75" fill="#2563eb" />
+                  <rect x="8" y="15" width="4" height="1.5" rx="0.75" fill="#2563eb" />
+                </svg>
+              )}
             </div>
             <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
           </div>
-          <div>
-            <h1 className="text-[15px] font-bold text-gray-900 leading-tight tracking-tight">ClaimOptiq</h1>
-            <p className="text-[10px] text-gray-400 font-semibold tracking-widest uppercase mt-0.5">FCC ERP Suite</p>
+          <div className="min-w-0">
+            {user?.hospital?.name ? (
+              <>
+                <h1 className="text-[15px] font-bold text-gray-900 leading-tight tracking-tight truncate">{user.hospital.name}</h1>
+                <p className="text-[10px] text-gray-400 font-semibold tracking-widest uppercase mt-0.5">ClaimOptiq</p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-[15px] font-bold text-gray-900 leading-tight tracking-tight">ClaimOptiq</h1>
+                <p className="text-[10px] text-gray-400 font-semibold tracking-widest uppercase mt-0.5">FCC ERP Suite</p>
+              </>
+            )}
           </div>
         </div>
 
