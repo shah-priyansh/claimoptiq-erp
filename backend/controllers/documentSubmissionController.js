@@ -5,8 +5,7 @@ const { toResponse } = require('../utils/toResponse');
 const { notifyRoles, notifyUser } = require('../utils/createNotifications');
 
 const getUserHospitalId = (user) => {
-  if (!user.hospital) return null;
-  return user.hospital.id || user.hospital;
+  return user.hospitalId || user.hospital?.id || null;
 };
 
 const submissionInclude = {
