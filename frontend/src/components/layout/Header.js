@@ -17,7 +17,7 @@ const STATIC_TITLES = {
   '/users':                  'Users',
   '/roles':                  'Roles & Permissions',
   '/roles/new':              'New Role',
-  '/reports':                'Reports',
+  '/reports':                'FCC Bill Generate',
   '/claim-statuses':         'Claim Status Master',
   '/claim-document-types':   'Document Types',
   '/billing-service-names':  'Billing Service Names',
@@ -43,6 +43,9 @@ const Header = ({ onMenuClick }) => {
   const location = useLocation();
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U';
   const pageTitle = getPageTitle(location.pathname);
+  const welcomeText = user?.hospital?.name
+    ? `Welcome, ${user.hospital.name}`
+    : 'Welcome to FCC Panel';
 
   const handleLogout = async () => {
     const ok = await confirm('You will be signed out of ClaimOptiq.', {
@@ -69,10 +72,13 @@ const Header = ({ onMenuClick }) => {
           <span className="font-bold text-primary-700 text-base">ClaimOptiq</span>
         </div>
 
-        {/* Desktop: page title with accent bar */}
+        {/* Desktop: welcome + page title with accent bar */}
         <div className="hidden lg:flex items-center gap-3">
-          <div className="w-1 h-8 bg-primary-600 rounded-full" />
-          <h1 className="text-lg font-bold text-gray-800 leading-none">{pageTitle}</h1>
+          <div className="w-1 h-10 bg-primary-600 rounded-full" />
+          <div>
+            <p className="text-[11px] font-semibold text-primary-700 uppercase tracking-widest leading-none truncate max-w-[400px]">{welcomeText}</p>
+            <h1 className="text-lg font-bold text-gray-800 leading-none mt-1">{pageTitle}</h1>
+          </div>
         </div>
 
         {/* Right: notification + divider + user + logout */}
