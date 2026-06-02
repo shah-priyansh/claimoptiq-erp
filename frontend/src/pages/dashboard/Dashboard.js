@@ -183,7 +183,7 @@ const Dashboard = () => {
           <SectionLabel>Status Breakdown</SectionLabel>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {stats.statusBreakdown.map((item) => {
+              {stats.statusBreakdown.filter((item) => item.count > 0).map((item) => {
                 const c = STATUS_CARD_COLOR[item.color] || STATUS_CARD_COLOR.gray;
                 return (
                   <button

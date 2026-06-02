@@ -9,6 +9,7 @@ const SiteSettings = () => {
     login_tagline: '',
     login_stat_claims: '',
     login_stat_hospitals: '',
+    login_disclaimer: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -21,6 +22,7 @@ const SiteSettings = () => {
         login_tagline:        data.login_tagline || '',
         login_stat_claims:    data.login_stat_claims || '',
         login_stat_hospitals: data.login_stat_hospitals || '',
+        login_disclaimer:     data.login_disclaimer || '',
       }))
       .catch(() => toast.error('Failed to load settings'))
       .finally(() => setLoading(false));
@@ -104,6 +106,17 @@ const SiteSettings = () => {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Disclaimer (shown below login card)</label>
+              <textarea
+                value={form.login_disclaimer}
+                onChange={e => setForm(f => ({ ...f, login_disclaimer: e.target.value }))}
+                rows={3}
+                placeholder="e.g. First Care Consultancy is not registered..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none"
+              />
+            </div>
+
             {/* Preview */}
             <div className="mt-2 p-4 bg-primary-600 rounded-lg">
               <p className="text-xs text-primary-200 mb-3 font-medium uppercase tracking-wide">Preview</p>
@@ -121,6 +134,11 @@ const SiteSettings = () => {
                 </div>
               </div>
             </div>
+            {form.login_disclaimer && (
+              <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <p className="text-xs text-gray-500 italic">{form.login_disclaimer}</p>
+              </div>
+            )}
 
             <button
               type="submit"

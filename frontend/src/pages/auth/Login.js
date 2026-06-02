@@ -83,7 +83,7 @@ const Login = () => {
       </div>
 
       {/* Right - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-6 bg-gray-50">
+      <div className="flex-1 relative flex items-center justify-center p-6 bg-gray-50">
         <div className="w-full max-w-md">
           <div className="lg:hidden text-center mb-8">
             <div className="w-16 h-16 bg-primary-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -131,10 +131,20 @@ const Login = () => {
             </form>
           </div>
 
-          <p className="text-center text-xs text-gray-400 mt-6">
+          <p className="text-center text-xs text-gray-400 mt-4">
             First Care Consultancy &copy; 2026. All rights reserved.
           </p>
         </div>
+
+        {/* Bottom disclaimer */}
+        {stats.login_disclaimer && (
+          <div className="absolute bottom-0 left-0 right-0 px-6 py-5 flex items-start gap-3">
+            <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+            </svg>
+            <p className="text-xs text-amber-600 leading-relaxed">{stats.login_disclaimer}</p>
+          </div>
+        )}
       </div>
     </div>
   );

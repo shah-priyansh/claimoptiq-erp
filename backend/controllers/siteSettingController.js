@@ -6,6 +6,7 @@ const DEFAULTS = {
   login_title:          'ClaimOptiq',
   login_subtitle:       'AI ERP Suite',
   login_tagline:        'AI-Powered Healthcare Business Operating System by First Care Consultancy',
+  login_disclaimer:     'First Care Consultancy is not registered and not regulated by the Insurance Regulatory and Development Authority of India and doesn\'t have any tie up with insurance companies and Third party administrators.',
 };
 
 // Public — no auth
