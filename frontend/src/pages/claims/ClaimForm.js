@@ -58,6 +58,7 @@ const ClaimForm = () => {
 
   const [form, setForm] = useState({
     hospital: user?.hospital?._id || '', month: new Date().toISOString().slice(0, 7),
+    isDirectPatient: false,
     patientName: fromPatientName, patientMobile: '', doctorName: '',
     claimType: 'cashless',
     insuranceCompany: '', tpa: '',
@@ -81,6 +82,7 @@ const ClaimForm = () => {
       getClaimAPI(id).then(({ data }) => {
         setForm({
           hospital: data.hospital?._id || data.hospital || '',
+          isDirectPatient: !!data.isDirectPatient,
           month: data.month ? new Date(data.month).toISOString().slice(0, 7) : '',
           patientName: data.patientName || '',
           patientMobile: data.patientMobile || '',
@@ -225,14 +227,30 @@ const ClaimForm = () => {
       <form onSubmit={handleSubmit}>
         {/* Patient & Admission */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
-          <h2 className="text-base font-semibold text-gray-800 mb-4">Patient & Admission Details</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 className="text-base font-semibold text-gray-800">Patient & Admission Details</h2>
+            {!isHospitalUser && (
+              <label className="inline-flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={form.isDirectPatient}
+                  onChange={e => setForm(f => ({ ...f, isDirectPatient: e.target.checked }))}
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4"
+                />
+                <span className="text-sm font-medium text-gray-700">Direct Patient (not linked to hospital)</span>
+              </label>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {!isHospitalUser && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Hospital {form.isDirectPatient ? <span className="text-gray-400 font-normal">(reference only)</span> : '*'}
+                </label>
                 <SearchableSelect options={hospitalOptions} value={form.hospital}
                   onChange={val => setForm(f => ({ ...f, hospital: val, doctorName: '' }))} placeholder="Select Hospital"
-                  searchPlaceholder="Search hospitals..." isLoading={dataLoading} required />
+                  searchPlaceholder="Search hospitals..." isLoading={dataLoading} required={!form.isDirectPatient}
+                  allowClear={form.isDirectPatient} />
               </div>
             )}
             <div>
@@ -266,7 +284,7 @@ const ClaimForm = () => {
               {form.patientMobile && <p className="text-xs text-gray-400 mt-1">{form.patientMobile.length}/10 digits</p>}
               {mobileError && <p className="text-xs text-red-500 mt-0.5">{mobileError}</p>}
             </div>
-            {form.hospital && (
+            {form.hospital && !form.isDirectPatient && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name *</label>
                 {dataLoading || doctorOptions.length > 0 ? (
@@ -289,6 +307,26 @@ const ClaimForm = () => {
                       Add Doctor
                     </Link>
                   </div>
+                )}
+              </div>
+            )}
+            {form.isDirectPatient && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name</label>
+                {form.hospital && doctorOptions.length > 0 ? (
+                  <SearchableSelect
+                    options={doctorOptions}
+                    value={form.doctorName}
+                    onChange={val => set('doctorName', val)}
+                    placeholder="Select Doctor"
+                    searchPlaceholder="Search doctors..."
+                    isLoading={dataLoading}
+                    allowClear
+                  />
+                ) : (
+                  <input name="doctorName" value={form.doctorName} onChange={handleChange}
+                    placeholder="Doctor name (optional)"
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                 )}
               </div>
             )}

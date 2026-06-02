@@ -200,7 +200,8 @@ model Claim {
   monthClaimNo              Int               @default(0) @map("month_claim_no")
   claimGenerateDate         DateTime          @default(now()) @map("claim_generate_date")
   status                    String            @default("admitted")
-  hospitalId                String            @map("hospital_id")
+  hospitalId                String?           @map("hospital_id")
+  isDirectPatient           Boolean           @default(false) @map("is_direct_patient")
   month                     DateTime
   patientName               String            @map("patient_name")
   patientMobile             String            @default("") @map("patient_mobile")
@@ -243,7 +244,7 @@ model Claim {
   updatedById               String?           @map("updated_by_id")
   createdAt                 DateTime          @default(now()) @map("created_at")
   updatedAt                 DateTime          @updatedAt @map("updated_at")
-  hospital                  Hospital          @relation(fields: [hospitalId], references: [id])
+  hospital                  Hospital?         @relation(fields: [hospitalId], references: [id])
   insuranceCompany          InsuranceCompany? @relation(fields: [insuranceCompanyId], references: [id])
   tpa                       TPA?              @relation(fields: [tpaId], references: [id])
   createdBy                 User?             @relation("ClaimCreatedBy", fields: [createdById], references: [id])

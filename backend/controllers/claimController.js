@@ -36,7 +36,12 @@ const claimFullInclude = {
 exports.createClaim = async (req, res) => {
   try {
     const userHospitalId = getUserHospitalId(req.user);
-    const hospitalId = userHospitalId || req.body.hospital;
+    const isDirectPatient = !userHospitalId && !!req.body.isDirectPatient;
+    const hospitalId = userHospitalId || req.body.hospital || null;
+
+    if (!isDirectPatient && !hospitalId) {
+      return res.status(400).json({ message: 'Hospital is required (or mark as Direct Patient)' });
+    }
 
     const monthDate = new Date(req.body.month);
     const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
@@ -51,6 +56,7 @@ exports.createClaim = async (req, res) => {
         monthClaimNo: monthCount + 1,
         status: initialStatus,
         hospitalId,
+        isDirectPatient,
         month: new Date(req.body.month),
         patientName: req.body.patientName,
         patientMobile: req.body.patientMobile || '',
@@ -103,12 +109,19 @@ exports.createClaim = async (req, res) => {
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, page = 1, limit = 25 } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, page = 1, limit = 25 } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
     if (userHospitalId) {
       where.hospitalId = userHospitalId;
+      where.isDirectPatient = false;
+    } else if (directPatient === 'true') {
+      where.isDirectPatient = true;
+      if (hospital) where.hospitalId = hospital;
+    } else if (directPatient === 'false') {
+      where.isDirectPatient = false;
+      if (hospital) where.hospitalId = hospital;
     } else if (hospital) {
       where.hospitalId = hospital;
     }
@@ -184,7 +197,7 @@ exports.getClaim = async (req, res) => {
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && claim.hospitalId !== userHospitalId) {
+    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
       return res.status(403).json({ message: "You can only view your own hospital's claims" });
     }
 
@@ -200,7 +213,7 @@ exports.updateClaim = async (req, res) => {
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && claim.hospitalId !== userHospitalId) {
+    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
       return res.status(403).json({ message: "You can only update your own hospital's claims" });
     }
 
@@ -234,7 +247,12 @@ exports.updateClaim = async (req, res) => {
     }
     if (req.body.insuranceCompany !== undefined) data.insuranceCompanyId = req.body.insuranceCompany || null;
     if (req.body.tpa !== undefined) data.tpaId = req.body.tpa || null;
-    if (req.body.hospital) data.hospitalId = req.body.hospital;
+    if (req.body.isDirectPatient !== undefined) {
+      data.isDirectPatient = !!req.body.isDirectPatient;
+    }
+    if (req.body.hospital !== undefined) {
+      data.hospitalId = req.body.hospital || null;
+    }
 
     // Auto-set settlementDate when transitioning to settled
     if (data.status === 'settled' && !data.settlementDate && !claim.settlementDate) {
@@ -265,7 +283,7 @@ exports.uploadDocuments = async (req, res) => {
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && claim.hospitalId !== userHospitalId) {
+    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
       return res.status(403).json({ message: "You can only upload to your own hospital's claims" });
     }
 
@@ -300,7 +318,7 @@ exports.deleteDocument = async (req, res) => {
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
     const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && claim.hospitalId !== userHospitalId) {
+    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
       return res.status(403).json({ message: "You can only manage your own hospital's claims" });
     }
 
@@ -356,12 +374,19 @@ exports.bulkUpdateStatus = async (req, res) => {
 
 exports.exportClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
     if (userHospitalId) {
       where.hospitalId = userHospitalId;
+      where.isDirectPatient = false;
+    } else if (directPatient === 'true') {
+      where.isDirectPatient = true;
+      if (hospital) where.hospitalId = hospital;
+    } else if (directPatient === 'false') {
+      where.isDirectPatient = false;
+      if (hospital) where.hospitalId = hospital;
     } else if (hospital) {
       where.hospitalId = hospital;
     }
@@ -420,17 +445,19 @@ exports.exportClaims = async (req, res) => {
 exports.bulkBill = async (req, res) => {
   try {
     if (req.user?.role?.slug !== 'super_admin') {
-      return res.status(403).json({ message: 'Only super admin can mark claims as billed' });
+      return res.status(403).json({ message: 'Only super admin can change bill status' });
     }
-    const { ids } = req.body;
+    const { ids, isBilled = true } = req.body;
     if (!Array.isArray(ids) || !ids.length) {
       return res.status(400).json({ message: 'ids (array) is required' });
     }
+    const targetIsBilled = !!isBilled;
     const { count } = await prisma.claim.updateMany({
       where: { id: { in: ids } },
-      data: { isBilled: true, updatedById: req.user.id },
+      data: { isBilled: targetIsBilled, updatedById: req.user.id },
     });
-    res.json({ message: `${count} claims marked as billed`, count });
+    const label = targetIsBilled ? 'billed' : 'unbilled';
+    res.json({ message: `${count} claims marked as ${label}`, count });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -457,7 +484,7 @@ exports.invalidateStatusCache = () => { _statusCache = null; };
 exports.getDashboardStats = async (req, res) => {
   try {
     const userHospitalId = getUserHospitalId(req.user);
-    const baseWhere = userHospitalId ? { hospitalId: userHospitalId } : {};
+    const baseWhere = userHospitalId ? { hospitalId: userHospitalId, isDirectPatient: false } : {};
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);

@@ -64,7 +64,7 @@ const ClaimList = () => {
   const initStatus = new URLSearchParams(location.search).get('status') || '';
   const [filters, setFilters] = useState({
     search: '', hospital: '', status: initStatus, claimType: '', month: '',
-    dateFrom: '', dateTo: '', page: 1,
+    dateFrom: '', dateTo: '', directPatient: '', page: 1,
   });
   const [searchInput, setSearchInput] = useState('');
 
@@ -176,7 +176,7 @@ const ClaimList = () => {
   const groupByHospital = (data, groupByMonth = true) => {
     const byHosp = {};
     data.forEach(c => {
-      const hosp = c.hospital?.name || 'Unknown';
+      const hosp = c.isDirectPatient ? 'Direct Patients' : (c.hospital?.name || 'Unknown');
       if (!byHosp[hosp]) byHosp[hosp] = {};
       const mk = groupByMonth
         ? (c.month ? new Date(c.month).toISOString().slice(0, 7) : '0000-00')
@@ -644,7 +644,7 @@ const ClaimList = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-3 mb-4">
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-6'}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-7'}`}>
           <div className="relative sm:col-span-2">
             <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
             <input
@@ -658,10 +658,23 @@ const ClaimList = () => {
             <SearchableSelect
               options={hospitals.map(h => ({ value: h._id, label: h.name }))}
               value={filters.hospital}
-              onChange={val => setFilters({ ...filters, hospital: val, page: 1 })}
+              onChange={val => setFilters({ ...filters, hospital: val, directPatient: val ? 'false' : filters.directPatient, page: 1 })}
               placeholder="All Hospitals"
               searchPlaceholder="Search hospitals..."
               isLoading={filtersLoading}
+              allowClear
+            />
+          )}
+          {!isHospitalUser && (
+            <SearchableSelect
+              options={[
+                { value: 'false', label: 'Hospital Patients' },
+                { value: 'true', label: 'Direct Patients' },
+              ]}
+              value={filters.directPatient}
+              onChange={val => setFilters({ ...filters, directPatient: val, hospital: val === 'true' ? '' : filters.hospital, page: 1 })}
+              placeholder="All Patients"
+              searchPlaceholder="Search..."
               allowClear
             />
           )}
@@ -730,7 +743,13 @@ const ClaimList = () => {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
-                    {!isHospitalUser && <><span className="font-medium text-gray-600">{c.hospital?.name || '-'}</span><span>·</span></>}
+                    {!isHospitalUser && (
+                      <>
+                        <span className="font-medium text-gray-600">{c.hospital?.name || '-'}</span>
+                        {c.isDirectPatient && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>}
+                        <span>·</span>
+                      </>
+                    )}
                     <span className="capitalize">{c.claimType}</span>
                     <span>·</span>
                     <span>{formatDate(c.dateOfAdmit)}</span>
@@ -769,7 +788,16 @@ const ClaimList = () => {
                     <p className="text-sm font-medium text-gray-800">{c.patientName}</p>
                     <p className="text-xs text-gray-400">{c.policyNo || '-'}</p>
                   </td>
-                  {!isHospitalUser && <td className="py-3 px-3 text-sm text-gray-600">{c.hospital?.name || '-'}</td>}
+                  {!isHospitalUser && (
+                    <td className="py-3 px-3 text-sm text-gray-600">
+                      <div className="flex items-center gap-1.5">
+                        <span>{c.hospital?.name || '-'}</span>
+                        {c.isDirectPatient && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
+                        )}
+                      </div>
+                    </td>
+                  )}
                   <td className="py-3 px-3"><span className="text-xs font-medium capitalize">{c.claimType}</span></td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
