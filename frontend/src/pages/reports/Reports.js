@@ -46,7 +46,7 @@ const Reports = () => {
   const isSuperAdmin = roleSlug === 'super_admin';
 
   const [hospitals, setHospitals] = useState([]);
-  const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '' });
+  const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '', directPatient: '' });
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(false);
   const [claimStatuses, setClaimStatuses] = useState([]);
@@ -102,6 +102,7 @@ const Reports = () => {
     if (filters.dateFrom) params.dateFrom = filters.dateFrom;
     if (filters.dateTo) params.dateTo = filters.dateTo;
     if (filters.status) params.status = filters.status;
+    if (filters.directPatient) params.directPatient = filters.directPatient;
     const { data } = await getClaimsAPI(params);
     return data.claims;
   };
@@ -137,12 +138,35 @@ const Reports = () => {
     if (!ok) return;
     setBillingLoading(true);
     try {
-      await bulkBillAPI(ids);
+      await bulkBillAPI(ids, true);
       setClaims(prev => prev.map(c => ids.includes(c._id) ? { ...c, isBilled: true } : c));
       setSelectedClaimIds([]);
       setBillMode(false);
       toast.success(`${ids.length} claim${ids.length !== 1 ? 's' : ''} marked as Billed`);
     } catch { toast.error('Failed to mark claims as billed'); }
+    finally { setBillingLoading(false); }
+  };
+
+  const handleToggleBillStatus = async (claim) => {
+    if (!isSuperAdmin || billMode) return;
+    const targetIsBilled = !claim.isBilled;
+    const ok = await confirm(
+      targetIsBilled
+        ? `Mark claim of "${claim.patientName}" as Billed?`
+        : `Move claim of "${claim.patientName}" back to Pending (Unbilled)?`,
+      {
+        title: targetIsBilled ? 'Mark as Billed' : 'Move to Pending',
+        confirmLabel: targetIsBilled ? 'Mark as Billed' : 'Move to Unbilled',
+        variant: 'primary',
+      }
+    );
+    if (!ok) return;
+    setBillingLoading(true);
+    try {
+      await bulkBillAPI([claim._id], targetIsBilled);
+      setClaims(prev => prev.map(c => c._id === claim._id ? { ...c, isBilled: targetIsBilled } : c));
+      toast.success(targetIsBilled ? 'Claim marked as Billed' : 'Claim moved to Pending (Unbilled)');
+    } catch { toast.error('Failed to update bill status'); }
     finally { setBillingLoading(false); }
   };
 
@@ -156,7 +180,7 @@ const Reports = () => {
   const groupByHospital = (data = claims) => {
     const byHosp = {};
     data.forEach(c => {
-      const hosp = c.hospital?.name || 'Unknown';
+      const hosp = c.isDirectPatient ? 'Direct Patients' : (c.hospital?.name || 'Unknown');
       if (!byHosp[hosp]) byHosp[hosp] = {};
       const mk = c.month ? new Date(c.month).toISOString().slice(0, 7) : '0000-00';
       if (!byHosp[hosp][mk]) byHosp[hosp][mk] = { month: c.month, items: [] };
@@ -594,14 +618,27 @@ const Reports = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 mt-6">
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-6'}`}>
           {!isHospitalUser && (
             <SearchableSelect
               options={hospitals.map(h => ({ value: h._id, label: h.name }))}
               value={filters.hospital}
-              onChange={val => setFilters({ ...filters, hospital: val })}
+              onChange={val => setFilters({ ...filters, hospital: val, directPatient: val ? 'false' : filters.directPatient })}
               placeholder="All Hospitals"
               searchPlaceholder="Search hospitals..."
+              allowClear
+            />
+          )}
+          {!isHospitalUser && (
+            <SearchableSelect
+              options={[
+                { value: 'false', label: 'Hospital Patients' },
+                { value: 'true', label: 'Direct Patients' },
+              ]}
+              value={filters.directPatient}
+              onChange={val => setFilters({ ...filters, directPatient: val, hospital: val === 'true' ? '' : filters.hospital })}
+              placeholder="All Patients"
+              searchPlaceholder="Search..."
               allowClear
             />
           )}
@@ -730,7 +767,16 @@ const Reports = () => {
                   )}
                   <td className="py-2 px-3 text-gray-500">{c.srNo}</td>
                   <td className="py-2 px-3 font-medium text-gray-800 whitespace-nowrap">{c.patientName}</td>
-                  {!isHospitalUser && <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{c.hospital?.name || '-'}</td>}
+                  {!isHospitalUser && (
+                    <td className="py-2 px-3 text-gray-600 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <span>{c.hospital?.name || '-'}</span>
+                        {c.isDirectPatient && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
+                        )}
+                      </div>
+                    </td>
+                  )}
                   <td className="py-2 px-3 capitalize">{c.claimType}</td>
                   <td className="py-2 px-3">{formatAmount(c.hospitalFinalBill)}</td>
                   <td className="py-2 px-3">{formatAmount(c.finalApprovalAmount)}</td>
@@ -742,9 +788,17 @@ const Reports = () => {
                     <>
                       <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{c.hospital?.referenceBy || '-'}</td>
                       <td className="py-2 px-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBillStatus(c)}
+                          disabled={billMode || billingLoading}
+                          title={billMode ? '' : (c.isBilled ? 'Click to move back to Pending (Unbilled)' : 'Click to mark as Billed')}
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                            c.isBilled ? 'bg-teal-100 text-teal-800 hover:bg-teal-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          } ${billMode || billingLoading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                        >
                           {c.isBilled ? 'Billed' : 'Unbilled'}
-                        </span>
+                        </button>
                       </td>
                       <td className="py-2 px-3">{formatAmount(getFileP(c))}</td>
                     </>
