@@ -14,7 +14,7 @@ exports.getModules = async (req, res) => {
       { key: 'billing_service_names', label: 'Billing Service Names', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'users', label: 'User Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'roles', label: 'Role Management', actions: ['view', 'create', 'edit', 'delete'] },
-      { key: 'reports', label: 'Reports', actions: ['view', 'export'] },
+      { key: 'reports', label: 'FCC Bill Generate', actions: ['view', 'export'] },
       { key: 'claim_statuses', label: 'Claim Status Master', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'claim_document_types', label: 'Claim Document Types', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'document_submissions', label: 'Document Submissions', actions: ['view', 'create', 'edit', 'delete'] },

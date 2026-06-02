@@ -67,7 +67,7 @@ const BottomNav = () => {
         {canViewModule('reports') && (
           <NavLink to="/reports" className={({ isActive }) => tabCls(isActive)}>
             <HiOutlineChartBar className="w-6 h-6" />
-            Reports
+            FCC Bill Generate
           </NavLink>
         )}
       </div>
