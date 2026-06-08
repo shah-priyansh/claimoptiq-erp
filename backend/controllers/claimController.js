@@ -738,19 +738,19 @@ exports.getDashboardStats = async (req, res) => {
       prisma.claim.count({ where: baseWhere }),
       prisma.claim.groupBy({ by: ['status'], where: baseWhere, _count: { id: true } }),
       getCachedStatuses(),
+      // Use the claim's `month` field (the business month assigned on the form),
+      // not settlementDate/createdAt, so a claim tagged "June" shows up in June's stats
+      // regardless of when it was actually settled or created.
       prisma.claim.findMany({
         where: {
           ...baseWhere,
           status: 'settled',
-          OR: [
-            { settlementDate: { gte: monthStart, lte: monthEnd } },
-            { settlementDate: null, updatedAt: { gte: monthStart, lte: monthEnd } },
-          ],
+          month: { gte: monthStart, lte: monthEnd },
         },
         select: { bankTransferAmount: true, finalApprovalAmount: true },
       }),
       prisma.claim.findMany({
-        where: { ...baseWhere, isBilled: true, createdAt: { gte: monthStart, lte: monthEnd } },
+        where: { ...baseWhere, isBilled: true, month: { gte: monthStart, lte: monthEnd } },
         select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, hospitalId: true },
       }),
       userHospitalId
