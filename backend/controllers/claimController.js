@@ -372,6 +372,242 @@ exports.bulkUpdateStatus = async (req, res) => {
   }
 };
 
+// ── Bulk Import ───────────────────────────────────────────────────────────
+
+const CLAIM_TYPES = ['cashless', 'reimbursement', 'grievance'];
+const SUBMIT_MODES = ['', 'courier', 'online'];
+
+const parseDate = (val) => {
+  if (val === undefined || val === null || val === '') return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+
+  // Excel serial date number
+  if (typeof val === 'number' && val > 25569) {
+    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const s = String(val).trim();
+  if (!s) return null;
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let [, dd, mm, yyyy] = m;
+    if (yyyy.length === 2) yyyy = '20' + yyyy;
+    const d = new Date(`${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}T00:00:00`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const parseNum = (val) => {
+  if (val === undefined || val === null || val === '') return 0;
+  if (typeof val === 'number') return val;
+  const cleaned = String(val).replace(/[,\s₹$]/g, '').trim();
+  if (!cleaned) return 0;
+  const n = Number(cleaned);
+  return isNaN(n) ? 0 : n;
+};
+
+const norm = (s) => String(s || '').trim().toLowerCase();
+
+exports.importClaims = async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || !rows.length) {
+      return res.status(400).json({ message: 'rows (non-empty array) is required' });
+    }
+    if (rows.length > 2000) {
+      return res.status(400).json({ message: 'Maximum 2000 rows per import' });
+    }
+
+    // Resolve hospital/insurance/TPA by name (case-insensitive). Pre-load lookups once.
+    const [hospitals, insurers, tpas, statuses] = await Promise.all([
+      prisma.hospital.findMany({ select: { id: true, name: true, isActive: true } }),
+      prisma.insuranceCompany.findMany({ select: { id: true, name: true, isActive: true } }),
+      prisma.tPA.findMany({ select: { id: true, name: true, isActive: true } }),
+      prisma.claimStatus.findMany({ select: { slug: true, superAdminOnly: true } }),
+    ]);
+    const hospitalMap = new Map(hospitals.map(h => [norm(h.name), h]));
+    const insurerMap  = new Map(insurers.map(i => [norm(i.name), i]));
+    const tpaMap      = new Map(tpas.map(t => [norm(t.name), t]));
+    const statusMap   = new Map(statuses.map(s => [s.slug, s]));
+
+    const userHospitalId = getUserHospitalId(req.user);
+    const isSuperAdmin = req.user?.role?.slug === 'super_admin';
+
+    // Pre-compute monthly counters so srNo within each month is sequential
+    const monthCounters = new Map();
+    const monthKey = (d) => `${d.getFullYear()}-${d.getMonth()}`;
+
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      const rowNum = i + 2; // assume header row 1 in the source file
+      const rowErrors = [];
+
+      // ── Required fields ─────────────────────────────────────────────
+      const patientName = String(row.patientName || '').trim();
+      if (!patientName) rowErrors.push('Patient Name is required');
+
+      const claimType = norm(row.claimType);
+      if (!claimType) rowErrors.push('Claim Type is required');
+      else if (!CLAIM_TYPES.includes(claimType)) rowErrors.push(`Claim Type must be one of: ${CLAIM_TYPES.join(', ')}`);
+
+      const dateOfAdmit = parseDate(row.dateOfAdmit);
+      if (!dateOfAdmit) rowErrors.push('Date of Admit is required (use YYYY-MM-DD or DD/MM/YYYY)');
+
+      // ── Hospital / Direct Patient ───────────────────────────────────
+      let hospitalId = null;
+      let isDirectPatient = false;
+      const hospitalName = String(row.hospital || '').trim();
+      const directFlag = String(row.isDirectPatient || '').trim().toLowerCase();
+
+      if (userHospitalId) {
+        hospitalId = userHospitalId;
+        isDirectPatient = false;
+      } else if (['yes', 'true', '1', 'direct'].includes(directFlag)) {
+        isDirectPatient = true;
+      } else if (hospitalName) {
+        const h = hospitalMap.get(norm(hospitalName));
+        if (!h) rowErrors.push(`Hospital "${hospitalName}" not found`);
+        else if (!h.isActive) rowErrors.push(`Hospital "${hospitalName}" is inactive`);
+        else hospitalId = h.id;
+      } else {
+        rowErrors.push('Hospital is required (or set "Is Direct Patient" to Yes)');
+      }
+
+      // ── Insurance / TPA ─────────────────────────────────────────────
+      let insuranceCompanyId = null;
+      const insuranceName = String(row.insuranceCompany || '').trim();
+      if (insuranceName) {
+        const ins = insurerMap.get(norm(insuranceName));
+        if (!ins) rowErrors.push(`Insurance Company "${insuranceName}" not found`);
+        else if (!ins.isActive) rowErrors.push(`Insurance Company "${insuranceName}" is inactive`);
+        else insuranceCompanyId = ins.id;
+      }
+
+      let tpaId = null;
+      const tpaName = String(row.tpa || '').trim();
+      if (tpaName) {
+        const tp = tpaMap.get(norm(tpaName));
+        if (!tp) rowErrors.push(`TPA "${tpaName}" not found`);
+        else if (!tp.isActive) rowErrors.push(`TPA "${tpaName}" is inactive`);
+        else tpaId = tp.id;
+      }
+
+      // ── Status ──────────────────────────────────────────────────────
+      let status = norm(row.status) || 'admitted';
+      if (!statusMap.has(status)) {
+        rowErrors.push(`Status "${row.status}" is not a valid claim status slug`);
+      } else if (statusMap.get(status).superAdminOnly && !isSuperAdmin) {
+        rowErrors.push(`Status "${status}" can only be set by super admin`);
+      }
+
+      // ── Dates ───────────────────────────────────────────────────────
+      const dateOfDischarge   = parseDate(row.dateOfDischarge);
+      const finalApprovalDate = parseDate(row.finalApprovalDate);
+      const fileReceivedDate  = parseDate(row.fileReceivedDate);
+      const courierSubmitDate = parseDate(row.courierSubmitDate);
+      const onlineSubmitDate  = parseDate(row.onlineSubmitDate);
+      const settlementDate    = parseDate(row.settlementDate);
+      const monthVal          = parseDate(row.month) || dateOfAdmit;
+
+      // ── Submit mode ─────────────────────────────────────────────────
+      const submitMode = norm(row.submitMode);
+      if (submitMode && !['courier', 'online'].includes(submitMode)) {
+        rowErrors.push('Submit Mode must be "courier" or "online" (or leave blank)');
+      }
+
+      if (rowErrors.length) {
+        errors.push({ row: rowNum, patientName, errors: rowErrors });
+        continue;
+      }
+
+      try {
+        const mk = monthKey(monthVal);
+        if (!monthCounters.has(mk)) {
+          const monthStart = new Date(monthVal.getFullYear(), monthVal.getMonth(), 1);
+          const monthEnd   = new Date(monthVal.getFullYear(), monthVal.getMonth() + 1, 0, 23, 59, 59, 999);
+          const existing = await prisma.claim.count({ where: { month: { gte: monthStart, lte: monthEnd } } });
+          monthCounters.set(mk, existing);
+        }
+        const nextNo = monthCounters.get(mk) + 1;
+        monthCounters.set(mk, nextNo);
+
+        const claim = await prisma.claim.create({
+          data: {
+            monthClaimNo: nextNo,
+            status,
+            hospitalId,
+            isDirectPatient,
+            month: monthVal,
+            patientName,
+            patientMobile: String(row.patientMobile || '').trim(),
+            doctorName: String(row.doctorName || '').trim(),
+            claimType,
+            insuranceCompanyId,
+            tpaId,
+            policyNo: String(row.policyNo || '').trim(),
+            clientId: String(row.clientId || '').trim(),
+            ccnNo: String(row.ccnNo || '').trim(),
+            dateOfAdmit,
+            dateOfDischarge,
+            hospitalFinalBill: parseNum(row.hospitalFinalBill),
+            mouDiscount: parseNum(row.mouDiscount),
+            deduction: parseNum(row.deduction),
+            finalApprovalAmount: parseNum(row.finalApprovalAmount),
+            finalApprovalDate,
+            fileReceivedDate,
+            submitMode,
+            courierSubmitDate,
+            onlineSubmitDate,
+            courierCompanyName: String(row.courierCompanyName || '').trim(),
+            podNumber: String(row.podNumber || '').trim(),
+            settlementAmount: parseNum(row.settlementAmount),
+            settlementAmountDeduction: parseNum(row.settlementAmountDeduction),
+            mouDiscountOnSettlement: parseNum(row.mouDiscountOnSettlement),
+            tds: parseNum(row.tds),
+            bankTransferAmount: parseNum(row.bankTransferAmount),
+            settlementDate,
+            neftNo: String(row.neftNo || '').trim(),
+            treatmentType: String(row.treatmentType || '').trim(),
+            diagnosis: String(row.diagnosis || '').trim(),
+            surgeryName: String(row.surgeryName || '').trim(),
+            remarks: String(row.remarks || '').trim(),
+            rejectedReason: String(row.rejectedReason || '').trim(),
+            createdById: req.user.id,
+            updatedById: req.user.id,
+            statusHistory: {
+              create: { status, changedById: req.user.id },
+            },
+          },
+          select: { id: true, patientName: true, srNo: true },
+        });
+        created.push({ row: rowNum, id: claim.id, srNo: claim.srNo, patientName: claim.patientName });
+      } catch (e) {
+        errors.push({ row: rowNum, patientName, errors: [e.message || 'Failed to save'] });
+      }
+    }
+
+    res.status(errors.length && !created.length ? 400 : 200).json({
+      message: `Imported ${created.length} of ${rows.length} claim(s)`,
+      created,
+      errors,
+      totalRows: rows.length,
+      successCount: created.length,
+      errorCount: errors.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.exportClaims = async (req, res) => {
   try {
     const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient } = req.query;
