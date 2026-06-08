@@ -6,6 +6,14 @@ import { toast } from 'react-toastify';
 import { isValidIdentifier, inputCls } from '../../utils/validators';
 import { HiOutlineEye, HiOutlineEyeOff } from 'react-icons/hi';
 
+const StatLoader = () => (
+  <span className="inline-flex items-center gap-1 align-middle">
+    <span className="w-2 h-2 rounded-full bg-white/80 animate-bounce" style={{ animationDelay: '0ms' }} />
+    <span className="w-2 h-2 rounded-full bg-white/80 animate-bounce" style={{ animationDelay: '150ms' }} />
+    <span className="w-2 h-2 rounded-full bg-white/80 animate-bounce" style={{ animationDelay: '300ms' }} />
+  </span>
+);
+
 const CountUp = ({ value, duration = 1600, slowTail = 6 }) => {
   const match = String(value ?? '').match(/^(\d[\d,]*)(.*)$/);
   const target = match ? parseInt(match[1].replace(/,/g, ''), 10) : 0;
@@ -46,11 +54,7 @@ const CountUp = ({ value, duration = 1600, slowTail = 6 }) => {
     return () => rafRef.current && cancelAnimationFrame(rafRef.current);
   }, [target, duration, slowTail]);
 
-  if (!target) {
-    return (
-      <span className="inline-block h-7 w-20 rounded bg-white/20 animate-pulse align-middle" />
-    );
-  }
+  if (!target) return <StatLoader />;
   return <>{count.toLocaleString()}{suffix}</>;
 };
 
