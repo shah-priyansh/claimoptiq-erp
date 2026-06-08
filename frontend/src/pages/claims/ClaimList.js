@@ -70,8 +70,15 @@ const ClaimList = () => {
   const initStatus = new URLSearchParams(location.search).get('status') || '';
   const [filters, setFilters] = useState({
     search: '', hospital: '', status: initStatus, claimType: '', month: '',
-    dateFrom: '', dateTo: '', directPatient: '', page: 1,
+    dateFrom: '', dateTo: '', directPatient: '', reference: '', page: 1,
   });
+
+  // Distinct, sorted referenceBy values from active hospitals (for super-admin filter dropdown)
+  const referenceOptions = React.useMemo(() => {
+    const seen = new Set();
+    hospitals.forEach(h => { if (h.referenceBy && h.referenceBy.trim()) seen.add(h.referenceBy.trim()); });
+    return Array.from(seen).sort((a, b) => a.localeCompare(b)).map(r => ({ value: r, label: r }));
+  }, [hospitals]);
   const [searchInput, setSearchInput] = useState('');
 
   useEffect(() => {
@@ -873,7 +880,7 @@ const ClaimList = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-3 mb-4">
-        <div className={`grid grid-cols-2 gap-2.5 ${isHospitalUser ? 'md:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-6'}`}>
+        <div className={`grid grid-cols-2 gap-2.5 ${isHospitalUser ? 'md:grid-cols-4' : isSuperAdmin ? 'md:grid-cols-3 lg:grid-cols-7' : 'md:grid-cols-3 lg:grid-cols-6'}`}>
           {!isHospitalUser && (
             <SearchableSelect
               options={hospitals.map(h => ({ value: h._id, label: h.name }))}
@@ -892,9 +899,19 @@ const ClaimList = () => {
                 { value: 'true', label: 'Direct Patients' },
               ]}
               value={filters.directPatient}
-              onChange={val => setFilters({ ...filters, directPatient: val, hospital: val === 'true' ? '' : filters.hospital, page: 1 })}
+              onChange={val => setFilters({ ...filters, directPatient: val, hospital: val === 'true' ? '' : filters.hospital, reference: val === 'true' ? '' : filters.reference, page: 1 })}
               placeholder="All Patients"
               searchPlaceholder="Search..."
+              allowClear
+            />
+          )}
+          {isSuperAdmin && (
+            <SearchableSelect
+              options={referenceOptions}
+              value={filters.reference}
+              onChange={val => setFilters({ ...filters, reference: val, directPatient: val ? 'false' : filters.directPatient, page: 1 })}
+              placeholder={referenceOptions.length ? 'All References' : 'No references'}
+              searchPlaceholder="Search references..."
               allowClear
             />
           )}
