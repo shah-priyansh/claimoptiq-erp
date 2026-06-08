@@ -209,10 +209,9 @@ const ClaimDetail = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const VALID_TABS = ['overview', 'admission', 'discharge', 'file_submit', 'settlement', 'documents'];
-  const initialTab = VALID_TABS.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'overview';
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const tabParam = searchParams.get('tab');
+  const activeTab = VALID_TABS.includes(tabParam) ? tabParam : 'overview';
   const changeTab = (key) => {
-    setActiveTab(key);
     const next = new URLSearchParams(searchParams);
     next.set('tab', key);
     setSearchParams(next, { replace: true });
