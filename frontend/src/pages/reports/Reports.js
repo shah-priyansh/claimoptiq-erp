@@ -46,7 +46,15 @@ const Reports = () => {
   const isSuperAdmin = roleSlug === 'super_admin';
 
   const [hospitals, setHospitals] = useState([]);
-  const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '', directPatient: '' });
+  const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '', directPatient: '', reference: '' });
+
+  // Distinct, sorted list of non-empty referenceBy values from active hospitals.
+  // Refreshes when hospitals load.
+  const referenceOptions = React.useMemo(() => {
+    const seen = new Set();
+    hospitals.forEach(h => { if (h.referenceBy && h.referenceBy.trim()) seen.add(h.referenceBy.trim()); });
+    return Array.from(seen).sort((a, b) => a.localeCompare(b)).map(r => ({ value: r, label: r }));
+  }, [hospitals]);
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(false);
   const [claimStatuses, setClaimStatuses] = useState([]);
@@ -103,6 +111,7 @@ const Reports = () => {
     if (filters.dateTo) params.dateTo = filters.dateTo;
     if (filters.status) params.status = filters.status;
     if (filters.directPatient) params.directPatient = filters.directPatient;
+    if (filters.reference && isSuperAdmin) params.reference = filters.reference;
     const { data } = await getClaimsAPI(params);
     return data.claims;
   };
@@ -344,28 +353,42 @@ const Reports = () => {
     const COLS = [{ key: '_sr', label: 'SR', pdfW: 8 }, ...fields];
     const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
     const nonAmountCount = COLS.filter(f => !f.isAmount).length;
-    const COL_WIDTHS = COLS.map(f => f.pdfW || 8);
+
+    // Auto-promote to A3 landscape when the column-width sum would overflow A4.
+    // Only proportionally scale (and shrink font) if A3 still isn't enough.
+    const MARGIN_X = 14;
+    const rawWidths = COLS.map(f => f.pdfW || 8);
+    const rawSum = rawWidths.reduce((s, w) => s + w, 0);
+    const A4_AVAILABLE = 297 - MARGIN_X * 2;
+    const useA3 = rawSum > A4_AVAILABLE;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: useA3 ? 'a3' : 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const AVAILABLE = pageWidth - MARGIN_X * 2;
+    const scale = rawSum > AVAILABLE ? AVAILABLE / rawSum : 1;
+    const COL_WIDTHS = rawWidths.map(w => w * scale);
     const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
     const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
 
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const headFontSize = scale >= 0.95 ? 8 : scale >= 0.8 ? 7 : 6.5;
+    const bodyFontSize = scale >= 0.95 ? 8 : scale >= 0.8 ? 7 : 6.5;
+    const cellPadding  = scale >= 0.95 ? 2 : 1.5;
+
     const today = new Date().toLocaleDateString('en-IN');
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
     const totalClaimsCount = groups.reduce((s, g) => s + g.monthGroups.reduce((m, mg) => m + mg.items.length, 0), 0);
 
     doc.setTextColor(17, 24, 39);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text('Claim Report', 14, 14);
+    doc.text('Claim Report', MARGIN_X, 14);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(75, 85, 99);
-    doc.text(`Generated: ${today}`, pageWidth - 14, 14, { align: 'right' });
-    doc.text(`${totalClaimsCount} claim${totalClaimsCount !== 1 ? 's' : ''}  •  ${groups.length} hospital${groups.length !== 1 ? 's' : ''}`, pageWidth - 14, 19, { align: 'right' });
+    doc.text(`Generated: ${today}`, pageWidth - MARGIN_X, 14, { align: 'right' });
+    doc.text(`${totalClaimsCount} claim${totalClaimsCount !== 1 ? 's' : ''}  •  ${groups.length} hospital${groups.length !== 1 ? 's' : ''}`, pageWidth - MARGIN_X, 19, { align: 'right' });
     doc.setDrawColor(17, 24, 39);
     doc.setLineWidth(0.5);
-    doc.line(14, 22, pageWidth - 14, 22);
+    doc.line(MARGIN_X, 22, pageWidth - MARGIN_X, 22);
     doc.setTextColor(17, 24, 39);
 
     let startY = 28;
@@ -393,7 +416,7 @@ const Reports = () => {
         theme: 'grid',
         columnStyles,
         tableWidth: TABLE_WIDTH,
-        margin: { left: 14, right: 14 },
+        margin: { left: MARGIN_X, right: MARGIN_X },
       });
       startY = doc.lastAutoTable.finalY + 4;
     };
@@ -409,7 +432,7 @@ const Reports = () => {
           theme: 'plain',
           styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 2.5, halign: 'center' },
           tableWidth: TABLE_WIDTH,
-          margin: { left: 14, right: 14 },
+          margin: { left: MARGIN_X, right: MARGIN_X },
         });
         startY = doc.lastAutoTable.finalY;
 
@@ -420,7 +443,7 @@ const Reports = () => {
           styles: { fontStyle: 'bold', fontSize: 9, halign: 'center', cellPadding: 1.2, lineColor: [156, 163, 175], lineWidth: 0.3, fillColor: [243, 244, 246], textColor: [17, 24, 39] },
           tableLineColor: [156, 163, 175], tableLineWidth: 0.3,
           tableWidth: TABLE_WIDTH,
-          margin: { left: 14, right: 14 },
+          margin: { left: MARGIN_X, right: MARGIN_X },
         });
         startY = doc.lastAutoTable.finalY;
 
@@ -450,9 +473,9 @@ const Reports = () => {
           head: [COLS.map(f => f.label || 'SR')],
           body: bodyRows,
           theme: 'grid',
-          styles: { lineColor: [156, 163, 175], lineWidth: 0.2 },
-          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, halign: 'center', lineColor: [37, 99, 235], lineWidth: 0.3 },
-          bodyStyles: { fontSize: 7, textColor: [31, 41, 55], lineColor: [209, 213, 219], lineWidth: 0.2 },
+          styles: { lineColor: [156, 163, 175], lineWidth: 0.2, overflow: 'linebreak', cellPadding },
+          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: headFontSize, halign: 'center', valign: 'middle', lineColor: [37, 99, 235], lineWidth: 0.3 },
+          bodyStyles: { fontSize: bodyFontSize, textColor: [31, 41, 55], lineColor: [209, 213, 219], lineWidth: 0.2, valign: 'middle' },
           columnStyles,
           tableWidth: TABLE_WIDTH,
           didParseCell: (data) => {
@@ -460,7 +483,7 @@ const Reports = () => {
               data.cell.styles.halign = 'right';
             }
           },
-          margin: { left: 14, right: 14 },
+          margin: { left: MARGIN_X, right: MARGIN_X },
         });
         startY = doc.lastAutoTable.finalY + 4;
         if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
@@ -479,11 +502,11 @@ const Reports = () => {
 
     doc.setDrawColor(229, 231, 235);
     doc.setLineWidth(0.3);
-    doc.line(14, startY + 2, pageWidth - 14, startY + 2);
+    doc.line(MARGIN_X, startY + 2, pageWidth - MARGIN_X, startY + 2);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(31, 41, 55);
-    doc.text('Prepared by: First Care Consultancy', 14, startY + 7);
+    doc.text('Prepared by: First Care Consultancy', MARGIN_X, startY + 7);
 
     const pageCount = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
@@ -491,7 +514,7 @@ const Reports = () => {
       doc.setFontSize(8);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(107, 114, 128);
-      doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth - MARGIN_X, pageHeight - 6, { align: 'right' });
     }
     return doc;
   };
@@ -618,7 +641,7 @@ const Reports = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 mt-6">
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-6'}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : isSuperAdmin ? 'lg:grid-cols-7' : 'lg:grid-cols-6'}`}>
           {!isHospitalUser && (
             <SearchableSelect
               options={hospitals.map(h => ({ value: h._id, label: h.name }))}
@@ -629,6 +652,16 @@ const Reports = () => {
               allowClear
             />
           )}
+          {isSuperAdmin && (
+            <SearchableSelect
+              options={referenceOptions}
+              value={filters.reference}
+              onChange={val => setFilters({ ...filters, reference: val, directPatient: val ? 'false' : filters.directPatient })}
+              placeholder={referenceOptions.length ? 'All References' : 'No references'}
+              searchPlaceholder="Search references..."
+              allowClear
+            />
+          )}
           {!isHospitalUser && (
             <SearchableSelect
               options={[
@@ -636,7 +669,7 @@ const Reports = () => {
                 { value: 'true', label: 'Direct Patients' },
               ]}
               value={filters.directPatient}
-              onChange={val => setFilters({ ...filters, directPatient: val, hospital: val === 'true' ? '' : filters.hospital })}
+              onChange={val => setFilters({ ...filters, directPatient: val, hospital: val === 'true' ? '' : filters.hospital, reference: val === 'true' ? '' : filters.reference })}
               placeholder="All Patients"
               searchPlaceholder="Search..."
               allowClear

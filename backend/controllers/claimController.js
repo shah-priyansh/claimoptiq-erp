@@ -109,7 +109,7 @@ exports.createClaim = async (req, res) => {
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, page = 1, limit = 25 } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, page = 1, limit = 25 } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
@@ -124,6 +124,13 @@ exports.getClaims = async (req, res) => {
       if (hospital) where.hospitalId = hospital;
     } else if (hospital) {
       where.hospitalId = hospital;
+    }
+
+    // Reference filter — only meaningful for non-hospital users; matches hospital.referenceBy.
+    // Combines with any hospitalId filter; excludes direct-patient claims (no hospital relation).
+    if (reference && !userHospitalId) {
+      where.hospital = { referenceBy: reference };
+      where.isDirectPatient = false;
     }
 
     if (status) where.status = status;
@@ -610,7 +617,7 @@ exports.importClaims = async (req, res) => {
 
 exports.exportClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
@@ -625,6 +632,11 @@ exports.exportClaims = async (req, res) => {
       if (hospital) where.hospitalId = hospital;
     } else if (hospital) {
       where.hospitalId = hospital;
+    }
+
+    if (reference && !userHospitalId) {
+      where.hospital = { referenceBy: reference };
+      where.isDirectPatient = false;
     }
 
     if (status) where.status = status;
