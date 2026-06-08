@@ -562,6 +562,7 @@ const ClaimDetail = () => {
 
   const tabs = [
     { key: 'overview',   label: 'Overview' },
+    { key: 'admission',  label: 'Admission' },
     { key: 'discharge',  label: 'Discharge' },
     { key: 'file_submit',label: 'File & Submit' },
     { key: 'settlement', label: 'Settlement' },
