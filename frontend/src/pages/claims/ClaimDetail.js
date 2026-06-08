@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getClaimAPI, updateClaimAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -207,7 +207,16 @@ const ClaimDetail = () => {
   const [docTypes, setDocTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const VALID_TABS = ['overview', 'admission', 'discharge', 'file_submit', 'settlement', 'documents'];
+  const initialTab = VALID_TABS.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'overview';
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const changeTab = (key) => {
+    setActiveTab(key);
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', key);
+    setSearchParams(next, { replace: true });
+  };
   const [saving, setSaving] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
@@ -812,7 +821,7 @@ const ClaimDetail = () => {
       <div className="overflow-x-auto mb-4">
         <div className="flex gap-1 bg-white rounded-xl border border-gray-200 p-1 min-w-max shadow-sm">
           {tabs.map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+            <button key={tab.key} onClick={() => changeTab(tab.key)}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap
                 ${activeTab === tab.key ? 'bg-primary-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}>
               {tab.label}
