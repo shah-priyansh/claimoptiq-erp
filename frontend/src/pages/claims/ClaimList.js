@@ -4,13 +4,14 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import ImportClaimsModal from './ImportClaimsModal';
 
 // ─── Field definitions (shared with Reports) ─────────────────────────────────
 const BASE_FIELD_DEFS = [
@@ -34,8 +35,13 @@ const SA_FIELD_DEFS = [
   { key: 'referenceBy', label: 'REFERENCE BY', width: 18, pdfW: 28, defaultOn: true, superAdminOnly: true, getValue: c => c.hospital?.referenceBy || '' },
   { key: 'filePrice',   label: 'FILE PRICE',   width: 12, pdfW: 22, defaultOn: true, superAdminOnly: true, isAmount: true, getValue: null },
 ];
+// Shown only to non-hospital users (super admin / admin / staff) who can see across hospitals.
+const NON_HOSPITAL_FIELD_DEFS = [
+  { key: 'hospital', label: 'HOSPITAL', width: 26, pdfW: 32, defaultOn: true, getValue: c => c.isDirectPatient ? 'Direct Patient' : (c.hospital?.name || '-') },
+];
 const FIELD_GROUPS = [
   { label: 'Patient Info', keys: ['patientName', 'doctorName', 'claimType', 'policyNo', 'clientId'] },
+  { label: 'Hospital',     keys: ['hospital'] },
   { label: 'Payor',        keys: ['companyTpa', 'ccnNo'] },
   { label: 'Dates',        keys: ['dateOfAdmit', 'dateOfDischarge'] },
   { label: 'Financials',   keys: ['hospitalBill', 'approvalAmt', 'settlement', 'tds', 'bankTransfer'] },
@@ -79,14 +85,21 @@ const ClaimList = () => {
   const exportMenuRef = useRef(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [fieldModal, setFieldModal] = useState({ open: false, pendingFormat: null });
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const allFieldDefs = isSuperAdmin
-    ? [...BASE_FIELD_DEFS, ...SA_FIELD_DEFS.map(f =>
+  const allFieldDefs = (() => {
+    const base = [...BASE_FIELD_DEFS];
+    if (!isHospitalUser) base.push(...NON_HOSPITAL_FIELD_DEFS);
+    if (isSuperAdmin) {
+      base.push(...SA_FIELD_DEFS.map(f =>
         f.key === 'filePrice'
           ? { ...f, getValue: c => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0) }
           : f
-      )]
-    : BASE_FIELD_DEFS;
+      ));
+    }
+    return base;
+  })();
 
   const defaultSelected = allFieldDefs.filter(f => f.defaultOn).map(f => f.key);
   const [selectedFields, setSelectedFields] = useState(defaultSelected);
@@ -122,7 +135,7 @@ const ClaimList = () => {
       .then(({ data }) => { setClaims(data.claims); setTotal(data.total); setPages(data.pages); })
       .catch(() => toast.error('Failed to fetch claims'))
       .finally(() => setLoading(false));
-  }, [filters]);
+  }, [filters, refreshKey]);
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '-';
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
@@ -198,8 +211,92 @@ const ClaimList = () => {
     return `CLAIM - ${d.toLocaleString('en', { month: 'short' }).toUpperCase()} - ${d.getFullYear()}`;
   };
 
+  // Excel export — flat list (no hospital grouping) for non-hospital users
+  const buildExcelFlat = (data, fields) => {
+    const COLS = [{ key: '_sr', label: 'SR', width: 5 }, ...fields];
+    const N = COLS.length;
+    const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
+    const nonAmountCount = COLS.filter(f => !f.isAmount).length;
+    const thin = { style: 'thin', color: { auto: 1 } };
+    const border = { top: thin, bottom: thin, left: thin, right: thin };
+
+    const wsData = [];
+    const merges = [];
+    const rowMeta = [];
+
+    // Title
+    wsData.push([`Claims Export — ${data.length} record(s)`, ...Array(N - 1).fill('')]);
+    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: N - 1 } });
+    rowMeta.push({ row: 0, type: 'titlebar' });
+
+    // Header
+    wsData.push(COLS.map(f => f.label || 'SR'));
+    rowMeta.push({ row: wsData.length - 1, type: 'header' });
+
+    const totals = {};
+    amountIndices.forEach(i => { totals[i] = 0; });
+
+    data.forEach((c, idx) => {
+      const row = COLS.map((f, ci) => (ci === 0 ? idx + 1 : f.getValue(c)));
+      amountIndices.forEach(i => { totals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
+      rowMeta.push({ row: wsData.length, type: 'data' });
+      wsData.push(row);
+    });
+
+    if (data.length > 0 && amountIndices.length > 0) {
+      const rTotal = wsData.length;
+      const totalRow = Array(N).fill('');
+      totalRow[0] = 'GRAND TOTAL';
+      amountIndices.forEach(i => { totalRow[i] = totals[i]; });
+      merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: nonAmountCount - 1 } });
+      rowMeta.push({ row: rTotal, type: 'grandtotal' });
+      wsData.push(totalRow);
+      wsData.push(Array(N).fill(''));
+    }
+
+    const rFooter = wsData.length;
+    wsData.push(['Prepared by: First Care Consultancy', ...Array(N - 1).fill('')]);
+    merges.push({ s: { r: rFooter, c: 0 }, e: { r: rFooter, c: N - 1 } });
+    rowMeta.push({ row: rFooter, type: 'footer' });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!merges'] = merges;
+    ws['!cols'] = COLS.map(f => ({ wch: f.width || 5 }));
+
+    const applyStyle = (r, c, style) => {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      if (!ws[ref]) ws[ref] = { v: '', t: 's' };
+      ws[ref].s = style;
+    };
+
+    rowMeta.forEach(({ row, type }) => {
+      for (let c = 0; c < N; c++) {
+        const isAmt = amountIndices.includes(c);
+        if (type === 'titlebar') {
+          applyStyle(row, c, { font: { bold: true, sz: 12, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } }, alignment: { horizontal: 'center', vertical: 'center' } });
+        } else if (type === 'header') {
+          applyStyle(row, c, { font: { bold: true, sz: 9, name: 'Arial' }, fill: { patternType: 'solid', fgColor: { rgb: 'F3F4F6' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border });
+        } else if (type === 'data') {
+          applyStyle(row, c, { font: { sz: 9, name: 'Arial' }, alignment: { horizontal: isAmt ? 'right' : 'left', vertical: 'center' }, border });
+        } else if (type === 'grandtotal') {
+          applyStyle(row, c, { font: { bold: true, sz: 11, name: 'Arial', color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '1E3A8A' } }, alignment: { horizontal: c === 0 ? 'center' : isAmt ? 'right' : 'left', vertical: 'center' }, border });
+        } else if (type === 'footer') {
+          applyStyle(row, c, { font: { bold: true, sz: 10, name: 'Arial' }, alignment: { horizontal: 'left', vertical: 'center' } });
+        }
+      }
+    });
+    ws['!rows'] = [{ hpt: 22 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Claims');
+    return wb;
+  };
+
   // Excel export
   const buildExcel = (data, fields) => {
+    // Non-hospital users (super admin / admin / staff) get a flat list across all hospitals
+    if (!isHospitalUser) return buildExcelFlat(data, fields);
+
     const COLS = [{ key: '_sr', label: 'SR', width: 5 }, ...fields];
     const N = COLS.length;
     const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
@@ -327,20 +424,134 @@ const ClaimList = () => {
     return wb;
   };
 
+  // PDF export — flat list (no hospital grouping) for non-hospital users
+  const buildPDFFlat = (data, fields) => {
+    const COLS = [{ key: '_sr', label: 'SR', pdfW: 8 }, ...fields];
+    const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
+    const nonAmountCount = COLS.filter(f => !f.isAmount).length;
+
+    const MARGIN_X = 14;
+    const rawWidths = COLS.map(f => f.pdfW || 8);
+    const rawSum = rawWidths.reduce((s, w) => s + w, 0);
+    const A4_AVAILABLE = 297 - MARGIN_X * 2;
+    const useA3 = rawSum > A4_AVAILABLE;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: useA3 ? 'a3' : 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const AVAILABLE = pageWidth - MARGIN_X * 2;
+    const scale = rawSum > AVAILABLE ? AVAILABLE / rawSum : 1;
+    const COL_WIDTHS = rawWidths.map(w => w * scale);
+    const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
+    const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
+
+    const headFontSize = scale >= 0.95 ? 8 : scale >= 0.8 ? 7 : 6.5;
+    const bodyFontSize = scale >= 0.95 ? 8 : scale >= 0.8 ? 7 : 6.5;
+    const cellPadding  = scale >= 0.95 ? 2 : 1.5;
+
+    const today = new Date().toLocaleDateString('en-IN');
+    doc.setTextColor(17, 24, 39);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Claims Export', MARGIN_X, 14);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(75, 85, 99);
+    doc.text(`Generated: ${today}`, pageWidth - MARGIN_X, 14, { align: 'right' });
+    doc.text(`${data.length} claim${data.length !== 1 ? 's' : ''}`, pageWidth - MARGIN_X, 19, { align: 'right' });
+    doc.setDrawColor(17, 24, 39);
+    doc.setLineWidth(0.5);
+    doc.line(MARGIN_X, 22, pageWidth - MARGIN_X, 22);
+
+    const totals = {};
+    amountIndices.forEach(i => { totals[i] = 0; });
+
+    const bodyRows = data.map((c, idx) => {
+      const row = COLS.map((f, ci) => (ci === 0 ? idx + 1 : f.getValue(c)));
+      amountIndices.forEach(i => { totals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
+      return row.map((v, i) => amountIndices.includes(i) ? fmtAmt(v) : (v ?? ''));
+    });
+
+    if (data.length > 0 && amountIndices.length > 0) {
+      bodyRows.push([
+        { content: 'GRAND TOTAL', colSpan: nonAmountCount, styles: { halign: 'right', fillColor: [30, 58, 138], fontStyle: 'bold', textColor: [255, 255, 255] } },
+        ...amountIndices.map(i => ({ content: fmtAmt(totals[i]), styles: { halign: 'right', fillColor: [30, 58, 138], fontStyle: 'bold', textColor: [255, 255, 255] } })),
+      ]);
+    }
+
+    autoTable(doc, {
+      startY: 28,
+      head: [COLS.map(f => f.label || 'SR')],
+      body: bodyRows,
+      theme: 'grid',
+      styles: { lineColor: [156, 163, 175], lineWidth: 0.2, overflow: 'linebreak', cellPadding },
+      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: headFontSize, halign: 'center', valign: 'middle', lineColor: [37, 99, 235], lineWidth: 0.3 },
+      bodyStyles: { fontSize: bodyFontSize, textColor: [31, 41, 55], lineColor: [209, 213, 219], lineWidth: 0.2, valign: 'middle' },
+      columnStyles,
+      tableWidth: TABLE_WIDTH,
+      didParseCell: (d) => {
+        if (d.section === 'body' && d.row.index < data.length && amountIndices.includes(d.column.index)) {
+          d.cell.styles.halign = 'right';
+        }
+      },
+      margin: { left: MARGIN_X, right: MARGIN_X },
+    });
+
+    const endY = doc.lastAutoTable.finalY + 4;
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(0.3);
+    doc.line(MARGIN_X, endY, pageWidth - MARGIN_X, endY);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(31, 41, 55);
+    doc.text('Prepared by: First Care Consultancy', MARGIN_X, endY + 5);
+
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(107, 114, 128);
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth - MARGIN_X, pageHeight - 6, { align: 'right' });
+    }
+    return doc;
+  };
+
   // PDF export
   const buildPDF = (data, fields) => {
+    // Non-hospital users (super admin / admin / staff) get a flat list across all hospitals
+    if (!isHospitalUser) return buildPDFFlat(data, fields);
+
     const groups = groupByHospital(data, !isHospitalUser);
     const COLS = [{ key: '_sr', label: 'SR', pdfW: 8 }, ...fields];
     const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
     const nonAmountCount = COLS.filter(f => !f.isAmount).length;
-    const COL_WIDTHS = COLS.map(f => f.pdfW || 8);
-    const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
-    const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
 
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const today = new Date().toLocaleDateString('en-IN');
+    // Choose page size based on how many columns are selected.
+    // A4 landscape (≈269mm usable) fits ~6 fields; A3 landscape (≈392mm usable) fits everything.
+    // Only scale down if even A3 isn't enough.
+    const MARGIN_X = 14;
+    const rawWidths = COLS.map(f => f.pdfW || 8);
+    const rawSum = rawWidths.reduce((s, w) => s + w, 0);
+    const A4_AVAILABLE = 297 - MARGIN_X * 2; // 269mm
+    const useA3 = rawSum > A4_AVAILABLE;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: useA3 ? 'a3' : 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
+    const AVAILABLE = pageWidth - MARGIN_X * 2;
+    const scale = rawSum > AVAILABLE ? AVAILABLE / rawSum : 1;
+    const COL_WIDTHS = rawWidths.map(w => w * scale);
+    const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
+    const columnStyles = COL_WIDTHS.reduce((acc, w, i) => {
+      acc[i] = { cellWidth: w };
+      return acc;
+    }, {});
+
+    // Font stays readable since A3 absorbs the overflow; only shrink if we still had to scale.
+    const headFontSize = scale >= 0.95 ? 8 : scale >= 0.8 ? 7 : 6.5;
+    const bodyFontSize = scale >= 0.95 ? 8 : scale >= 0.8 ? 7 : 6.5;
+    const cellPadding  = scale >= 0.95 ? 2 : 1.5;
+
+    const today = new Date().toLocaleDateString('en-IN');
     const totalCount = data.length;
 
     doc.setTextColor(17, 24, 39);
@@ -421,9 +632,9 @@ const ClaimList = () => {
           head: [COLS.map(f => f.label || 'SR')],
           body: bodyRows,
           theme: 'grid',
-          styles: { lineColor: [156, 163, 175], lineWidth: 0.2 },
-          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, halign: 'center', lineColor: [37, 99, 235], lineWidth: 0.3 },
-          bodyStyles: { fontSize: 7, textColor: [31, 41, 55], lineColor: [209, 213, 219], lineWidth: 0.2 },
+          styles: { lineColor: [156, 163, 175], lineWidth: 0.2, overflow: 'linebreak', cellPadding },
+          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: headFontSize, halign: 'center', valign: 'middle', lineColor: [37, 99, 235], lineWidth: 0.3 },
+          bodyStyles: { fontSize: bodyFontSize, textColor: [31, 41, 55], lineColor: [209, 213, 219], lineWidth: 0.2, valign: 'middle' },
           columnStyles,
           tableWidth: TABLE_WIDTH,
           didParseCell: (data) => {
@@ -431,7 +642,7 @@ const ClaimList = () => {
               data.cell.styles.halign = 'right';
             }
           },
-          margin: { left: 14, right: 14 },
+          margin: { left: MARGIN_X, right: MARGIN_X },
         });
         startY = doc.lastAutoTable.finalY + 4;
         if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
@@ -602,8 +813,26 @@ const ClaimList = () => {
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 mb-6">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+        <div className="relative flex-1 sm:max-w-md">
+          <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
+          <input
+            placeholder="Search patient, policy, CCN..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="w-full pl-9 pr-3 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+        </div>
+        <div className="flex items-center gap-2 sm:ml-auto">
+          {can('claims', 'create') && (
+            <button
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-2 bg-white border border-primary-600 text-primary-700 hover:bg-primary-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlineUpload className="w-5 h-5" />
+              Import
+            </button>
+          )}
           {can('claims', 'export') && (
             <div className="relative" ref={exportMenuRef}>
               <button
@@ -644,16 +873,7 @@ const ClaimList = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-3 mb-4">
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${isHospitalUser ? 'lg:grid-cols-4' : 'lg:grid-cols-7'}`}>
-          <div className="relative sm:col-span-2">
-            <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-            <input
-              placeholder="Search patient, policy, CCN..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-            />
-          </div>
+        <div className={`grid grid-cols-2 gap-2.5 ${isHospitalUser ? 'md:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-6'}`}>
           {!isHospitalUser && (
             <SearchableSelect
               options={hospitals.map(h => ({ value: h._id, label: h.name }))}
@@ -880,6 +1100,13 @@ const ClaimList = () => {
         </div>,
         document.body
       )}
+
+      {/* Import Claims Modal */}
+      <ImportClaimsModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => setRefreshKey(k => k + 1)}
+      />
 
       {/* Field Selection Modal */}
       {fieldModal.open && (

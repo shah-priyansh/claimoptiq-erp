@@ -143,23 +143,31 @@ model User {
 }
 
 model InsuranceCompany {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  claims    Claim[]
+  id            String   @id @default(uuid())
+  name          String   @unique
+  address       String   @default("")
+  contactPerson String   @default("") @map("contact_person")
+  mobile        String   @default("")
+  email         String   @default("")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  claims        Claim[]
 
   @@map("insurance_companies")
 }
 
 model TPA {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  claims    Claim[]
+  id            String   @id @default(uuid())
+  name          String   @unique
+  address       String   @default("")
+  contactPerson String   @default("") @map("contact_person")
+  mobile        String   @default("")
+  email         String   @default("")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  claims        Claim[]
 
   @@map("tpas")
 }
