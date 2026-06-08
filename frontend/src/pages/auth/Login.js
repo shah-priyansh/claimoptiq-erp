@@ -1,10 +1,58 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { loginAPI, getPublicStatsAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { isValidIdentifier, inputCls } from '../../utils/validators';
 import { HiOutlineEye, HiOutlineEyeOff } from 'react-icons/hi';
+
+const CountUp = ({ value, duration = 1600, slowTail = 6 }) => {
+  const match = String(value ?? '').match(/^(\d[\d,]*)(.*)$/);
+  const target = match ? parseInt(match[1].replace(/,/g, ''), 10) : 0;
+  const suffix = match ? match[2] : '';
+  const [count, setCount] = useState(0);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    if (!target || target <= 0) {
+      setCount(0);
+      return;
+    }
+    const tail = Math.min(slowTail, target);
+    const tailStart = target - tail;
+    const fastDuration = duration * 0.45;
+    const slowDuration = duration * 0.85;
+    const startTime = performance.now();
+
+    const tick = (now) => {
+      const elapsed = now - startTime;
+      let v;
+      if (elapsed <= fastDuration) {
+        const t = elapsed / fastDuration;
+        const eased = 1 - Math.pow(1 - t, 2);
+        v = Math.floor(eased * tailStart);
+      } else if (elapsed <= fastDuration + slowDuration) {
+        const t = (elapsed - fastDuration) / slowDuration;
+        const eased = 1 - Math.pow(1 - t, 3);
+        v = tailStart + Math.floor(eased * tail);
+      } else {
+        v = target;
+      }
+      v = Math.min(v, target);
+      setCount(v);
+      if (v < target) rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => rafRef.current && cancelAnimationFrame(rafRef.current);
+  }, [target, duration, slowTail]);
+
+  if (!target) {
+    return (
+      <span className="inline-block h-7 w-20 rounded bg-white/20 animate-pulse align-middle" />
+    );
+  }
+  return <>{count.toLocaleString()}{suffix}</>;
+};
 
 const Login = () => {
   const { user, login } = useAuth();
@@ -69,14 +117,14 @@ const Login = () => {
           </p>
           <div className="mt-10 grid grid-cols-2 gap-4 text-sm text-primary-100">
             <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-2xl font-bold text-white">
-                {stats.login_stat_claims || '—'}
+              <p className="text-2xl font-bold text-white tabular-nums">
+                <CountUp value={stats.login_stat_claims} />
               </p>
               <p>Claims Managed</p>
             </div>
             <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-2xl font-bold text-white">
-                {stats.login_stat_hospitals || '—'}
+              <p className="text-2xl font-bold text-white tabular-nums">
+                <CountUp value={stats.login_stat_hospitals} />
               </p>
               <p>Hospitals</p>
             </div>
