@@ -124,6 +124,64 @@ exports.getUsers = async (req, res) => {
   }
 };
 
+exports.updateMe = async (req, res) => {
+  try {
+    const { name, phone } = req.body;
+    const data = {};
+    if (name !== undefined) {
+      const trimmed = String(name).trim();
+      if (!trimmed) return res.status(400).json({ message: 'Name cannot be empty' });
+      data.name = trimmed;
+    }
+    if (phone !== undefined) {
+      const trimmed = String(phone).trim();
+      if (!isValidPhone(trimmed)) {
+        return res.status(400).json({ message: 'Enter a valid 10-digit Indian mobile number (starts with 6-9)' });
+      }
+      const conflict = await prisma.user.findFirst({
+        where: { phone: trimmed, NOT: { id: req.user.id } },
+        select: { id: true },
+      });
+      if (conflict) return res.status(400).json({ message: 'Phone number already in use by another user' });
+      data.phone = trimmed;
+    }
+    if (!Object.keys(data).length) {
+      return res.status(400).json({ message: 'No changes to save' });
+    }
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data,
+      include: userInclude,
+    });
+    res.json(formatUser(updated));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new password are required' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    }
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) return res.status(400).json({ message: 'Current password is incorrect' });
+    const same = await bcrypt.compare(newPassword, user.password);
+    if (same) return res.status(400).json({ message: 'New password must be different from current password' });
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({ where: { id: req.user.id }, data: { password: hashed } });
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.updateUser = async (req, res) => {
   try {
     const { name, email, role, hospital, phone, isActive, password } = req.body;

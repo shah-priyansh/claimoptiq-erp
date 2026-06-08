@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { loginAPI, getPublicStatsAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { isValidIdentifier, inputCls } from '../../utils/validators';
+import { HiOutlineEye, HiOutlineEyeOff } from 'react-icons/hi';
 
 const Login = () => {
   const { user, login } = useAuth();
@@ -11,6 +12,7 @@ const Login = () => {
   const [form, setForm] = useState({ identifier: '', password: '' });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [stats, setStats] = useState({});
 
   useEffect(() => {
@@ -111,13 +113,25 @@ const Login = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => set('password', e.target.value)}
-                  className={`px-4 py-2.5 text-sm ${inputCls(!!errors.password)}`}
-                  placeholder="Enter your password"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={(e) => set('password', e.target.value)}
+                    className={`px-4 py-2.5 pr-11 text-sm ${inputCls(!!errors.password)}`}
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(s => !s)}
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                  >
+                    {showPassword ? <HiOutlineEyeOff className="w-4.5 h-4.5" /> : <HiOutlineEye className="w-4.5 h-4.5" />}
+                  </button>
+                </div>
                 {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
               </div>
 

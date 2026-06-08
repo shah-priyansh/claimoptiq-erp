@@ -34,6 +34,14 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const updateUser = (updates) => {
+    setUser(prev => prev ? { ...prev, ...updates } : prev);
+    try {
+      const stored = JSON.parse(localStorage.getItem('user') || 'null');
+      if (stored) localStorage.setItem('user', JSON.stringify({ ...stored, ...updates }));
+    } catch { /* ignore */ }
+  };
+
   // Dynamic permission check: can('claims', 'create')
   const can = (moduleName, action = 'view') => {
     if (!user?.role) return false;
@@ -65,7 +73,7 @@ export const AuthProvider = ({ children }) => {
   const roleSlug = user?.role?.slug || '';
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, can, canViewModule, canManageModule, roleSlug }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateUser, can, canViewModule, canManageModule, roleSlug }}>
       {children}
     </AuthContext.Provider>
   );

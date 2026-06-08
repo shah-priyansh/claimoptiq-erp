@@ -1,5 +1,5 @@
 import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { HiOutlineMenu, HiOutlineLogout } from 'react-icons/hi';
 import NotificationBell from './NotificationBell';
@@ -25,6 +25,7 @@ const STATIC_TITLES = {
   '/documents/inbox':        'Document Inbox',
   '/staff':                  'Staff',
   '/settings':               'Settings',
+  '/profile':                'My Profile',
 };
 
 const getPageTitle = (pathname) => {
@@ -41,6 +42,7 @@ const Header = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
   const confirm = useConfirm();
   const location = useLocation();
+  const navigate = useNavigate();
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U';
   const pageTitle = getPageTitle(location.pathname);
   const welcomeText = user?.hospital?.name
@@ -87,12 +89,16 @@ const Header = ({ onMenuClick }) => {
 
           <div className="w-px h-6 bg-gray-200 mx-2 hidden sm:block" />
 
-          <div className="flex items-center gap-2" title={user?.name}>
+          <button
+            onClick={() => navigate('/profile')}
+            title={`${user?.name} — View profile`}
+            className="flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+          >
             <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center shadow-sm flex-shrink-0">
               <span className="text-white text-xs font-bold">{initials}</span>
             </div>
             <span className="hidden md:block text-xs font-semibold text-gray-700">{user?.name}</span>
-          </div>
+          </button>
 
           <button
             onClick={handleLogout}
