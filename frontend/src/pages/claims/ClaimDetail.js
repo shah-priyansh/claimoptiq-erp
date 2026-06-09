@@ -649,6 +649,13 @@ const ClaimDetail = () => {
   const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white transition-colors';
   const labelCls = 'block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5';
 
+  const hospitalOptions  = hospitals.map(h => ({ value: h._id, label: h.name }));
+  const insuranceOptions = insurances.map(i => ({ value: i._id, label: i.name }));
+  const tpaOptions       = tpas.map(t => ({ value: t._id, label: t.name }));
+  const selectedAdmissionHospital = hospitals.find(h => h._id === admissionForm.hospital);
+  const admissionDoctorOptions = (selectedAdmissionHospital?.doctors ?? []).map(d => ({ value: d.name, label: d.name }));
+  const CLAIM_TYPES = ['cashless', 'reimbursement', 'grievance'];
+
   // Shared documents subsection used in Discharge / File&Submit / Settlement tabs
   const DocsSubsection = ({ category, pendingKey, uploadLabel }) => (
     <div className="mt-6 pt-5 border-t border-gray-100">
@@ -961,6 +968,142 @@ const ClaimDetail = () => {
                 ].map(([l, v]) => <InfoRow key={l} label={l} value={v} />)}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Admission ── */}
+        {activeTab === 'admission' && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <SectionHeader icon={HiOutlineUser} title="Admission Details" />
+
+            {isEditable ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="md:col-span-2 lg:col-span-3">
+                  <label className={labelCls}>Claim Type</label>
+                  <div className="flex gap-3 mt-1">
+                    {CLAIM_TYPES.map(t => (
+                      <button key={t} type="button"
+                        onClick={() => setAdmissionForm(f => ({ ...f, claimType: t }))}
+                        className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all capitalize ${
+                          admissionForm.claimType === t
+                            ? 'bg-primary-600 border-primary-600 text-white shadow-sm'
+                            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                        }`}>{t}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className={labelCls}>Hospital *</label>
+                  <SearchableSelect
+                    value={admissionForm.hospital}
+                    onChange={v => setAdmissionForm(f => ({ ...f, hospital: v, doctorName: '' }))}
+                    options={hospitalOptions}
+                    placeholder="Select hospital" />
+                </div>
+
+                <div>
+                  <label className={labelCls}>Patient Name *</label>
+                  <input type="text" value={admissionForm.patientName || ''}
+                    onChange={e => setAdmissionForm(f => ({ ...f, patientName: e.target.value }))}
+                    className={inputCls} />
+                </div>
+
+                <div>
+                  <label className={labelCls}>Patient Mobile</label>
+                  <input type="text" value={admissionForm.patientMobile || ''}
+                    onChange={e => {
+                      const val = onPhoneInput(e.target.value);
+                      setAdmissionForm(f => ({ ...f, patientMobile: val }));
+                      setMobileError(val && !isValidPhone(val) ? 'Enter a valid 10-digit Indian mobile number (starts with 6-9)' : '');
+                    }}
+                    className={`${inputCls} ${mobileError ? 'border-red-400 focus:ring-red-200 focus:border-red-400' : ''}`} />
+                  {mobileError && <p className="mt-1 text-xs text-red-500">{mobileError}</p>}
+                </div>
+
+                <div>
+                  <label className={labelCls}>Doctor</label>
+                  <SearchableSelect
+                    value={admissionForm.doctorName}
+                    onChange={v => setAdmissionForm(f => ({ ...f, doctorName: v }))}
+                    options={admissionDoctorOptions}
+                    placeholder={selectedAdmissionHospital ? 'Select doctor' : 'Select hospital first'} />
+                </div>
+
+                <div>
+                  <label className={labelCls}>Date of Admit</label>
+                  <DateInput type="date" value={admissionForm.dateOfAdmit || ''}
+                    onChange={e => setAdmissionForm(f => ({ ...f, dateOfAdmit: e.target.value }))}
+                    className={inputCls} />
+                </div>
+
+                <div>
+                  <label className={labelCls}>Insurance Company *</label>
+                  <SearchableSelect
+                    value={admissionForm.insuranceCompany}
+                    onChange={v => setAdmissionForm(f => ({ ...f, insuranceCompany: v }))}
+                    options={insuranceOptions}
+                    placeholder="Select insurance" />
+                </div>
+
+                <div>
+                  <label className={labelCls}>TPA</label>
+                  <SearchableSelect
+                    value={admissionForm.tpa}
+                    onChange={v => setAdmissionForm(f => ({ ...f, tpa: v }))}
+                    options={tpaOptions}
+                    placeholder="Select TPA (optional)" />
+                </div>
+
+                <div>
+                  <label className={labelCls}>Policy No</label>
+                  <input type="text" value={admissionForm.policyNo || ''}
+                    onChange={e => setAdmissionForm(f => ({ ...f, policyNo: e.target.value }))}
+                    className={inputCls} />
+                </div>
+
+                <div>
+                  <label className={labelCls}>Client ID</label>
+                  <input type="text" value={admissionForm.clientId || ''}
+                    onChange={e => setAdmissionForm(f => ({ ...f, clientId: e.target.value }))}
+                    className={inputCls} />
+                </div>
+
+                <div>
+                  <label className={labelCls}>CCN No</label>
+                  <input type="text" value={admissionForm.ccnNo || ''}
+                    onChange={e => setAdmissionForm(f => ({ ...f, ccnNo: e.target.value }))}
+                    className={inputCls} />
+                </div>
+
+                <div>
+                  <label className={labelCls}>Month Claim #</label>
+                  <input type="text" value={admissionForm.monthClaimNo || ''}
+                    onChange={e => setAdmissionForm(f => ({ ...f, monthClaimNo: e.target.value }))}
+                    className={inputCls} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {[
+                  ['Claim Type',         claim.claimType],
+                  ['Hospital',           claim.hospital?.name || '—'],
+                  ['Patient Name',       claim.patientName],
+                  ['Patient Mobile',     claim.patientMobile || '—'],
+                  ['Doctor',             claim.doctorName || '—'],
+                  ['Date of Admit',      formatDate(claim.dateOfAdmit)],
+                  ['Insurance',          claim.insuranceCompany?.name || '—'],
+                  ['TPA',                claim.tpa?.name || '—'],
+                  ['Policy No',          claim.policyNo || '—'],
+                  ['Client ID',          claim.clientId || '—'],
+                  ['CCN No',             claim.ccnNo || '—'],
+                  ['Month Claim #',      claim.monthClaimNo || '—'],
+                ].map(([l, v]) => <StatCard key={l} label={l} value={v} />)}
+              </div>
+            )}
+
+            <DocsSubsection category="admission" pendingKey="admission" uploadLabel="Add Files" />
+            <SaveFooter onSave={handleSaveAdmission} label="Save Admission" />
           </div>
         )}
 
