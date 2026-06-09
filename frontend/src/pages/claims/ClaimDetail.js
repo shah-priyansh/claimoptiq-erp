@@ -744,7 +744,8 @@ const ClaimDetail = () => {
                 </span>
               )}
               {isEditable && (
-                <button onClick={() => navigate(`/claims/${id}/edit`)}
+                <button onClick={() => changeTab('admission')}
+                  title="Edit admission details"
                   className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-colors">
                   <HiOutlinePencil className="w-4 h-4" />
                 </button>
