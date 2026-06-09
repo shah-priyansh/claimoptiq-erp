@@ -1285,7 +1285,7 @@ const ClaimList = () => {
                 }`}
               >
                 <HiOutlineDownload className="w-4 h-4" />
-                {fieldModal.pendingFormat === 'pdf' ? 'Download PDF' : 'Download Excel'}
+                {fieldModal.pendingFormat === 'pdf' ? 'PDF' : 'Excel'}
               </button>
             </div>
           </div>
