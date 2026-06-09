@@ -972,7 +972,8 @@ const ClaimList = () => {
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <StatusBadge c={c} loading={filtersLoading} />
                       {can('claims', 'edit') && (
-                        <button onClick={(e) => { e.stopPropagation(); navigate(`/claims/${c._id}/edit`); }}
+                        <button onClick={(e) => { e.stopPropagation(); navigate(`/claims/${c._id}?tab=admission`); }}
+                          title="Edit admission details"
                           className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
                           <HiOutlinePencil className="w-4 h-4" />
                         </button>
@@ -1042,7 +1043,8 @@ const ClaimList = () => {
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       {can('claims', 'edit') && (
-                        <button onClick={() => navigate(`/claims/${c._id}/edit`)}
+                        <button onClick={() => navigate(`/claims/${c._id}?tab=admission`)}
+                          title="Edit admission details"
                           className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
                           <HiOutlinePencil className="w-4 h-4" />
                         </button>
