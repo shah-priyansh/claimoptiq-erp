@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -29,6 +29,11 @@ import StaffModule from './pages/staff/StaffModule';
 import SiteSettings from './pages/settings/SiteSettings';
 import Profile from './pages/profile/Profile';
 
+const ClaimEditRedirect = () => {
+  const { id } = useParams();
+  return <Navigate to={`/claims/${id}?tab=admission`} replace />;
+};
+
 function App() {
   return (
     <AuthProvider>
@@ -47,7 +52,7 @@ function App() {
             <Route path="/users" element={<ProtectedRoute module="users" requireManage><UserList /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute module="claims"><ClaimList /></ProtectedRoute>} />
             <Route path="/claims/new" element={<ProtectedRoute module="claims"><ClaimForm /></ProtectedRoute>} />
-            <Route path="/claims/:id/edit" element={<ProtectedRoute module="claims"><ClaimForm /></ProtectedRoute>} />
+            <Route path="/claims/:id/edit" element={<ProtectedRoute module="claims"><ClaimEditRedirect /></ProtectedRoute>} />
             <Route path="/claims/:id" element={<ProtectedRoute module="claims"><ClaimDetail /></ProtectedRoute>} />
             <Route path="/roles" element={<ProtectedRoute module="roles" requireManage><RoleList /></ProtectedRoute>} />
             <Route path="/roles/new" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />
