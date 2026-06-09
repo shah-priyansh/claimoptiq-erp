@@ -12,14 +12,15 @@ const claimInclude = {
   hospital: {
     select: {
       id: true, name: true, referenceBy: true,
+      address: true, phone: true,
       billingServices: {
         where: { isActive: true },
         include: { slabs: { orderBy: { rangeStart: 'asc' } } },
       },
     },
   },
-  insuranceCompany: { select: { id: true, name: true } },
-  tpa: { select: { id: true, name: true } },
+  insuranceCompany: { select: { id: true, name: true, address: true, mobile: true } },
+  tpa: { select: { id: true, name: true, address: true, mobile: true } },
 };
 
 const claimFullInclude = {
@@ -384,6 +385,17 @@ exports.bulkUpdateStatus = async (req, res) => {
 const CLAIM_TYPES = ['cashless', 'reimbursement', 'grievance'];
 const SUBMIT_MODES = ['', 'courier', 'online'];
 
+// Treat placeholders ("-", "—", "N/A", "NA", "null") as blank.
+const PLACEHOLDER_RE = /^(-+|—+|n\/a|na|null|none|n\.a\.?)$/i;
+const cleanCell = (val) => {
+  if (val === undefined || val === null) return '';
+  const s = String(val).trim();
+  if (!s || PLACEHOLDER_RE.test(s)) return '';
+  return s;
+};
+
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
+
 const parseDate = (val) => {
   if (val === undefined || val === null || val === '') return null;
   if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
@@ -394,16 +406,46 @@ const parseDate = (val) => {
     return isNaN(d.getTime()) ? null : d;
   }
 
-  const s = String(val).trim();
+  const s = cleanCell(val);
   if (!s) return null;
 
-  // DD/MM/YYYY or DD-MM-YYYY
+  // Excel serial date number stored as text (e.g. "44186" or "44186.00")
+  if (/^\d{5,}(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (n > 25569) {
+      const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  // Mon-YY / Mon-YYYY  (e.g. "Dec-20")
+  const monMatch = s.match(/^([A-Za-z]{3,9})[\/\-.\s](\d{2,4})$/);
+  if (monMatch) {
+    const [, monStr, yyyy] = monMatch;
+    const mIdx = MONTHS[monStr.slice(0, 3).toLowerCase()];
+    if (mIdx !== undefined) {
+      const year = yyyy.length === 2 ? 2000 + Number(yyyy) : Number(yyyy);
+      return new Date(year, mIdx, 1);
+    }
+  }
+
+  // DD/MM/YYYY  or  MM/DD/YYYY (auto-detect)
   const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
   if (m) {
-    let [, dd, mm, yyyy] = m;
+    let [, a, b, yyyy] = m;
     if (yyyy.length === 2) yyyy = '20' + yyyy;
-    const d = new Date(`${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}T00:00:00`);
-    return isNaN(d.getTime()) ? null : d;
+    let day = Number(a), month = Number(b);
+    // Heuristic: if part 1 > 12 → DD/MM; if part 2 > 12 → MM/DD
+    if (day > 12 && month <= 12) {
+      // DD/MM
+    } else if (month > 12 && day <= 12) {
+      [day, month] = [month, day]; // swap
+    }
+    // Reject placeholder/invalid dates (e.g. "1/0/00")
+    if (!day || !month || day > 31 || month > 12) return null;
+    const d = new Date(Number(yyyy), month - 1, day);
+    if (isNaN(d.getTime()) || d.getMonth() !== month - 1) return null;
+    return d;
   }
 
   const d = new Date(s);
@@ -413,7 +455,7 @@ const parseDate = (val) => {
 const parseNum = (val) => {
   if (val === undefined || val === null || val === '') return 0;
   if (typeof val === 'number') return val;
-  const cleaned = String(val).replace(/[,\s₹$]/g, '').trim();
+  const cleaned = String(val).replace(/[,\s₹$]/g, '').replace(/^-+$/, '').trim();
   if (!cleaned) return 0;
   const n = Number(cleaned);
   return isNaN(n) ? 0 : n;
@@ -421,30 +463,206 @@ const parseNum = (val) => {
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 
+// Canonicalise a company / hospital name for tolerant matching:
+//   - lowercase
+//   - strip punctuation
+//   - drop common business suffixes ("limited", "ltd", "co", "company", "private", "pvt", etc.)
+// "Care Health Insurance Co. Ltd"  →  "care health insurance"
+// "CARE HEALTH INSURANCE LIMITED"  →  "care health insurance"
+const STOPWORDS = new Set([
+  'ltd', 'limited', 'pvt', 'private', 'co', 'company', 'corp', 'corporation',
+  'inc', 'incorporated', 'the', 'and', 'of', '&',
+]);
+const canonical = (s) => {
+  if (!s) return '';
+  return String(s)
+    .toLowerCase()
+    .replace(/[.,()/\-_'"]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w && !STOPWORDS.has(w))
+    .join(' ');
+};
+
+// Suggest closest matches by word-overlap; used in import error messages.
+const suggestMatches = (input, list, limit = 3) => {
+  const target = norm(input);
+  if (!target) return [];
+  const targetWords = target.split(/\s+/).filter(w => w.length > 2);
+  const scored = list.map(item => {
+    const name = item.name || '';
+    const n = norm(name);
+    if (!n) return { name, score: 0 };
+    if (n === target) return { name, score: 1000 };
+    if (n.includes(target) || target.includes(n)) return { name, score: 500 };
+    const overlap = targetWords.filter(w => n.includes(w)).length;
+    return { name, score: overlap * 10 };
+  });
+  return scored
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(s => s.name);
+};
+
 exports.importClaims = async (req, res) => {
   try {
-    const { rows } = req.body;
+    const { rows, autoCreateMasters } = req.body;
     if (!Array.isArray(rows) || !rows.length) {
       return res.status(400).json({ message: 'rows (non-empty array) is required' });
     }
     if (rows.length > 2000) {
       return res.status(400).json({ message: 'Maximum 2000 rows per import' });
     }
+    const isSuperAdminFlag = req.user?.role?.slug === 'super_admin';
+    const shouldAutoCreate = !!autoCreateMasters && isSuperAdminFlag;
 
     // Resolve hospital/insurance/TPA by name (case-insensitive). Pre-load lookups once.
-    const [hospitals, insurers, tpas, statuses] = await Promise.all([
-      prisma.hospital.findMany({ select: { id: true, name: true, isActive: true } }),
+    let [hospitals, insurers, tpas, statuses] = await Promise.all([
+      prisma.hospital.findMany({ select: { id: true, name: true, isActive: true, referenceBy: true } }),
       prisma.insuranceCompany.findMany({ select: { id: true, name: true, isActive: true } }),
       prisma.tPA.findMany({ select: { id: true, name: true, isActive: true } }),
       prisma.claimStatus.findMany({ select: { slug: true, superAdminOnly: true } }),
     ]);
+
+    // ── Auto-create missing masters (super-admin opt-in) ───────────────
+    const autoCreated = { hospitals: [], insurers: [], tpas: [] };
+    if (shouldAutoCreate) {
+      const existingHospCanon  = new Set(hospitals.map(h => canonical(h.name)).filter(Boolean));
+      const existingInsCanon   = new Set(insurers.map(i  => canonical(i.name)).filter(Boolean));
+      const existingTpaCanon   = new Set(tpas.map(t  => canonical(t.name)).filter(Boolean));
+      const existingHospNorm   = new Set(hospitals.map(h => norm(h.name)));
+      const existingInsNorm    = new Set(insurers.map(i  => norm(i.name)));
+      const existingTpaNorm    = new Set(tpas.map(t  => norm(t.name)));
+
+      const newHosp = new Map(); // canonical → original-case name
+      const newIns  = new Map();
+      const newTpa  = new Map();
+      for (const r of rows) {
+        const hName = cleanCell(r?.hospital);
+        if (hName) {
+          const c = canonical(hName);
+          if (!existingHospNorm.has(norm(hName)) && (!c || !existingHospCanon.has(c)) && !newHosp.has(c || norm(hName))) {
+            newHosp.set(c || norm(hName), hName);
+          }
+        }
+        const iName = cleanCell(r?.insuranceCompany);
+        if (iName) {
+          const c = canonical(iName);
+          if (!existingInsNorm.has(norm(iName)) && (!c || !existingInsCanon.has(c)) && !newIns.has(c || norm(iName))) {
+            newIns.set(c || norm(iName), iName);
+          }
+        }
+        const tName = cleanCell(r?.tpa);
+        if (tName) {
+          const c = canonical(tName);
+          if (!existingTpaNorm.has(norm(tName)) && (!c || !existingTpaCanon.has(c)) && !newTpa.has(c || norm(tName))) {
+            newTpa.set(c || norm(tName), tName);
+          }
+        }
+      }
+      if (newHosp.size) {
+        const names = [...newHosp.values()];
+        await prisma.hospital.createMany({ data: names.map(name => ({ name })), skipDuplicates: true });
+        const created = await prisma.hospital.findMany({
+          where: { name: { in: names } },
+          select: { id: true, name: true, isActive: true, referenceBy: true },
+        });
+        hospitals = hospitals.concat(created);
+        autoCreated.hospitals = created.map(c => c.name);
+      }
+      if (newIns.size) {
+        const names = [...newIns.values()];
+        await prisma.insuranceCompany.createMany({ data: names.map(name => ({ name })), skipDuplicates: true });
+        const created = await prisma.insuranceCompany.findMany({
+          where: { name: { in: names } },
+          select: { id: true, name: true, isActive: true },
+        });
+        insurers = insurers.concat(created);
+        autoCreated.insurers = created.map(c => c.name);
+      }
+      if (newTpa.size) {
+        const names = [...newTpa.values()];
+        await prisma.tPA.createMany({ data: names.map(name => ({ name })), skipDuplicates: true });
+        const created = await prisma.tPA.findMany({
+          where: { name: { in: names } },
+          select: { id: true, name: true, isActive: true },
+        });
+        tpas = tpas.concat(created);
+        autoCreated.tpas = created.map(c => c.name);
+      }
+    }
     const hospitalMap = new Map(hospitals.map(h => [norm(h.name), h]));
     const insurerMap  = new Map(insurers.map(i => [norm(i.name), i]));
     const tpaMap      = new Map(tpas.map(t => [norm(t.name), t]));
     const statusMap   = new Map(statuses.map(s => [s.slug, s]));
+    // Canonical fallback maps — only register names whose canonical form is unique.
+    const buildCanonicalMap = (list) => {
+      const counts = new Map();
+      list.forEach(x => {
+        const c = canonical(x.name);
+        if (c) counts.set(c, (counts.get(c) || 0) + 1);
+      });
+      const map = new Map();
+      list.forEach(x => {
+        const c = canonical(x.name);
+        if (c && counts.get(c) === 1) map.set(c, x);
+      });
+      return map;
+    };
+    const hospitalCanonMap = buildCanonicalMap(hospitals);
+    const insurerCanonMap  = buildCanonicalMap(insurers);
+    const tpaCanonMap      = buildCanonicalMap(tpas);
+
+    // ── Pre-fetch existing claims that could collide with the incoming rows,
+    //    so we can skip duplicates (re-upload of the same file).
+    const incomingCcns = [...new Set(
+      rows.map(r => cleanCell(r?.ccnNo)).filter(Boolean)
+    )];
+    const incomingPatientNames = [...new Set(
+      rows.map(r => cleanCell(r?.patientName)).filter(Boolean)
+    )];
+    const existingClaims = (incomingCcns.length || incomingPatientNames.length)
+      ? await prisma.claim.findMany({
+          where: {
+            OR: [
+              ...(incomingCcns.length         ? [{ ccnNo:       { in: incomingCcns } }]         : []),
+              ...(incomingPatientNames.length ? [{ patientName: { in: incomingPatientNames } }] : []),
+            ],
+          },
+          select: { ccnNo: true, patientName: true, hospitalId: true, dateOfAdmit: true },
+        })
+      : [];
+    const dateKey = (d) => d ? new Date(d).toISOString().slice(0, 10) : '';
+    const dbCcnKeys       = new Set();
+    const dbCompositeKeys = new Set();
+    existingClaims.forEach(c => {
+      const ccn = (c.ccnNo || '').trim().toLowerCase();
+      if (ccn) dbCcnKeys.add(ccn);
+      dbCompositeKeys.add(`${norm(c.patientName)}|${c.hospitalId || ''}|${dateKey(c.dateOfAdmit)}`);
+    });
+    // Track keys we create within this very batch so a file with duplicates inside it also dedups.
+    const batchCcnKeys       = new Set();
+    const batchCompositeKeys = new Set();
+    let duplicateCount = 0;
+
+    // Track which inputs were resolved via canonical fallback so we can report them to the client.
+    const fuzzyResolutions = { hospitals: new Map(), insurers: new Map(), tpas: new Map() };
+    const lookupFuzzy = (input, exactMap, canonMap, bucket) => {
+      const exact = exactMap.get(norm(input));
+      if (exact) return exact;
+      const c = canonical(input);
+      const match = c && canonMap.get(c);
+      if (match) {
+        if (!fuzzyResolutions[bucket].has(input)) {
+          fuzzyResolutions[bucket].set(input, match.name);
+        }
+        return match;
+      }
+      return null;
+    };
 
     const userHospitalId = getUserHospitalId(req.user);
-    const isSuperAdmin = req.user?.role?.slug === 'super_admin';
+    const isSuperAdmin = isSuperAdminFlag;
 
     // Pre-compute monthly counters so srNo within each month is sequential
     const monthCounters = new Map();
@@ -459,21 +677,22 @@ exports.importClaims = async (req, res) => {
       const rowErrors = [];
 
       // ── Required fields ─────────────────────────────────────────────
-      const patientName = String(row.patientName || '').trim();
+      const patientName = cleanCell(row.patientName);
       if (!patientName) rowErrors.push('Patient Name is required');
 
-      const claimType = norm(row.claimType);
+      const claimType = norm(cleanCell(row.claimType));
       if (!claimType) rowErrors.push('Claim Type is required');
-      else if (!CLAIM_TYPES.includes(claimType)) rowErrors.push(`Claim Type must be one of: ${CLAIM_TYPES.join(', ')}`);
+      else if (!CLAIM_TYPES.includes(claimType)) rowErrors.push(`Claim Type "${row.claimType}" is invalid — must be one of: ${CLAIM_TYPES.join(', ')}`);
 
       const dateOfAdmit = parseDate(row.dateOfAdmit);
-      if (!dateOfAdmit) rowErrors.push('Date of Admit is required (use YYYY-MM-DD or DD/MM/YYYY)');
+      if (!dateOfAdmit) rowErrors.push(`Date of Admit "${row.dateOfAdmit || ''}" could not be parsed — use YYYY-MM-DD, DD/MM/YYYY or MM/DD/YYYY`);
 
       // ── Hospital / Direct Patient ───────────────────────────────────
       let hospitalId = null;
       let isDirectPatient = false;
-      const hospitalName = String(row.hospital || '').trim();
-      const directFlag = String(row.isDirectPatient || '').trim().toLowerCase();
+      const hospitalName = cleanCell(row.hospital);
+      const directFlag = cleanCell(row.isDirectPatient).toLowerCase();
+      const referenceByInput = cleanCell(row.referenceBy);
 
       if (userHospitalId) {
         hospitalId = userHospitalId;
@@ -481,37 +700,56 @@ exports.importClaims = async (req, res) => {
       } else if (['yes', 'true', '1', 'direct'].includes(directFlag)) {
         isDirectPatient = true;
       } else if (hospitalName) {
-        const h = hospitalMap.get(norm(hospitalName));
-        if (!h) rowErrors.push(`Hospital "${hospitalName}" not found`);
-        else if (!h.isActive) rowErrors.push(`Hospital "${hospitalName}" is inactive`);
-        else hospitalId = h.id;
+        const h = lookupFuzzy(hospitalName, hospitalMap, hospitalCanonMap, 'hospitals');
+        if (!h) {
+          const sugg = suggestMatches(hospitalName, hospitals);
+          rowErrors.push(`Hospital "${hospitalName}" not found${sugg.length ? `. Did you mean: ${sugg.map(s => `"${s}"`).join(', ')}?` : ''}`);
+        } else if (!h.isActive) {
+          rowErrors.push(`Hospital "${hospitalName}" is inactive`);
+        } else {
+          hospitalId = h.id;
+          if (referenceByInput && norm(h.referenceBy) !== norm(referenceByInput)) {
+            rowErrors.push(`Reference By "${referenceByInput}" does not match hospital "${hospitalName}" (expected "${h.referenceBy || '(blank)'}")`);
+          }
+        }
       } else {
         rowErrors.push('Hospital is required (or set "Is Direct Patient" to Yes)');
       }
 
       // ── Insurance / TPA ─────────────────────────────────────────────
       let insuranceCompanyId = null;
-      const insuranceName = String(row.insuranceCompany || '').trim();
+      const insuranceName = cleanCell(row.insuranceCompany);
       if (insuranceName) {
-        const ins = insurerMap.get(norm(insuranceName));
-        if (!ins) rowErrors.push(`Insurance Company "${insuranceName}" not found`);
-        else if (!ins.isActive) rowErrors.push(`Insurance Company "${insuranceName}" is inactive`);
-        else insuranceCompanyId = ins.id;
+        const ins = lookupFuzzy(insuranceName, insurerMap, insurerCanonMap, 'insurers');
+        if (!ins) {
+          const sugg = suggestMatches(insuranceName, insurers);
+          rowErrors.push(`Insurance Company "${insuranceName}" not found${sugg.length ? `. Did you mean: ${sugg.map(s => `"${s}"`).join(', ')}?` : ' — add it under Masters → Insurance Companies first.'}`);
+        } else if (!ins.isActive) {
+          rowErrors.push(`Insurance Company "${insuranceName}" is inactive — activate it under Masters → Insurance Companies.`);
+        } else {
+          insuranceCompanyId = ins.id;
+        }
       }
 
       let tpaId = null;
-      const tpaName = String(row.tpa || '').trim();
+      const tpaName = cleanCell(row.tpa);
       if (tpaName) {
-        const tp = tpaMap.get(norm(tpaName));
-        if (!tp) rowErrors.push(`TPA "${tpaName}" not found`);
-        else if (!tp.isActive) rowErrors.push(`TPA "${tpaName}" is inactive`);
-        else tpaId = tp.id;
+        const tp = lookupFuzzy(tpaName, tpaMap, tpaCanonMap, 'tpas');
+        if (!tp) {
+          const sugg = suggestMatches(tpaName, tpas);
+          rowErrors.push(`TPA "${tpaName}" not found${sugg.length ? `. Did you mean: ${sugg.map(s => `"${s}"`).join(', ')}?` : ' — add it under Masters → TPAs first.'}`);
+        } else if (!tp.isActive) {
+          rowErrors.push(`TPA "${tpaName}" is inactive — activate it under Masters → TPAs.`);
+        } else {
+          tpaId = tp.id;
+        }
       }
 
       // ── Status ──────────────────────────────────────────────────────
-      let status = norm(row.status) || 'admitted';
+      const statusInput = cleanCell(row.status);
+      let status = norm(statusInput) || 'admitted';
       if (!statusMap.has(status)) {
-        rowErrors.push(`Status "${row.status}" is not a valid claim status slug`);
+        rowErrors.push(`Status "${statusInput}" is not a valid claim status slug — see the Statuses sheet for valid values.`);
       } else if (statusMap.get(status).superAdminOnly && !isSuperAdmin) {
         rowErrors.push(`Status "${status}" can only be set by super admin`);
       }
@@ -526,12 +764,30 @@ exports.importClaims = async (req, res) => {
       const monthVal          = parseDate(row.month) || dateOfAdmit;
 
       // ── Submit mode ─────────────────────────────────────────────────
-      const submitMode = norm(row.submitMode);
+      const submitMode = norm(cleanCell(row.submitMode));
       if (submitMode && !['courier', 'online'].includes(submitMode)) {
-        rowErrors.push('Submit Mode must be "courier" or "online" (or leave blank)');
+        rowErrors.push(`Submit Mode "${row.submitMode}" is invalid — must be "courier" or "online" (or leave blank)`);
+      }
+
+      // ── Duplicate detection ─────────────────────────────────────────
+      //   Match if (a) same CCN already exists, or
+      //   (b) same patient + hospital + date-of-admit already exists.
+      const ccnVal       = cleanCell(row.ccnNo);
+      const ccnKey       = ccnVal ? ccnVal.toLowerCase() : null;
+      const compositeKey = patientName && dateOfAdmit
+        ? `${norm(patientName)}|${hospitalId || ''}|${dateKey(dateOfAdmit)}`
+        : null;
+      let isDuplicate = false;
+      if (ccnKey && (dbCcnKeys.has(ccnKey) || batchCcnKeys.has(ccnKey))) {
+        rowErrors.push(`Duplicate — a claim with CCN "${ccnVal}" already exists; skipped`);
+        isDuplicate = true;
+      } else if (compositeKey && (dbCompositeKeys.has(compositeKey) || batchCompositeKeys.has(compositeKey))) {
+        rowErrors.push(`Duplicate — "${patientName}" was already imported for this hospital + admit date; skipped`);
+        isDuplicate = true;
       }
 
       if (rowErrors.length) {
+        if (isDuplicate) duplicateCount += 1;
         errors.push({ row: rowNum, patientName, errors: rowErrors });
         continue;
       }
@@ -547,6 +803,8 @@ exports.importClaims = async (req, res) => {
         const nextNo = monthCounters.get(mk) + 1;
         monthCounters.set(mk, nextNo);
 
+        const filePriceVal = isSuperAdmin ? parseNum(row.filePrice) : 0;
+
         const claim = await prisma.claim.create({
           data: {
             monthClaimNo: nextNo,
@@ -555,14 +813,14 @@ exports.importClaims = async (req, res) => {
             isDirectPatient,
             month: monthVal,
             patientName,
-            patientMobile: String(row.patientMobile || '').trim(),
-            doctorName: String(row.doctorName || '').trim(),
+            patientMobile: cleanCell(row.patientMobile),
+            doctorName: cleanCell(row.doctorName),
             claimType,
             insuranceCompanyId,
             tpaId,
-            policyNo: String(row.policyNo || '').trim(),
-            clientId: String(row.clientId || '').trim(),
-            ccnNo: String(row.ccnNo || '').trim(),
+            policyNo: cleanCell(row.policyNo),
+            clientId: cleanCell(row.clientId),
+            ccnNo: cleanCell(row.ccnNo),
             dateOfAdmit,
             dateOfDischarge,
             hospitalFinalBill: parseNum(row.hospitalFinalBill),
@@ -574,20 +832,22 @@ exports.importClaims = async (req, res) => {
             submitMode,
             courierSubmitDate,
             onlineSubmitDate,
-            courierCompanyName: String(row.courierCompanyName || '').trim(),
-            podNumber: String(row.podNumber || '').trim(),
+            courierCompanyName: cleanCell(row.courierCompanyName),
+            podNumber: cleanCell(row.podNumber),
             settlementAmount: parseNum(row.settlementAmount),
             settlementAmountDeduction: parseNum(row.settlementAmountDeduction),
             mouDiscountOnSettlement: parseNum(row.mouDiscountOnSettlement),
             tds: parseNum(row.tds),
             bankTransferAmount: parseNum(row.bankTransferAmount),
             settlementDate,
-            neftNo: String(row.neftNo || '').trim(),
-            treatmentType: String(row.treatmentType || '').trim(),
-            diagnosis: String(row.diagnosis || '').trim(),
-            surgeryName: String(row.surgeryName || '').trim(),
-            remarks: String(row.remarks || '').trim(),
-            rejectedReason: String(row.rejectedReason || '').trim(),
+            neftNo: cleanCell(row.neftNo),
+            treatmentType: cleanCell(row.treatmentType),
+            diagnosis: cleanCell(row.diagnosis),
+            surgeryName: cleanCell(row.surgeryName),
+            remarks: cleanCell(row.remarks),
+            rejectedReason: cleanCell(row.rejectedReason),
+            filePrice: filePriceVal,
+            filePriceOverridden: filePriceVal > 0,
             createdById: req.user.id,
             updatedById: req.user.id,
             statusHistory: {
@@ -597,18 +857,29 @@ exports.importClaims = async (req, res) => {
           select: { id: true, patientName: true, srNo: true },
         });
         created.push({ row: rowNum, id: claim.id, srNo: claim.srNo, patientName: claim.patientName });
+        if (ccnKey)       batchCcnKeys.add(ccnKey);
+        if (compositeKey) batchCompositeKeys.add(compositeKey);
       } catch (e) {
         errors.push({ row: rowNum, patientName, errors: [e.message || 'Failed to save'] });
       }
     }
 
+    const fuzzy = {
+      hospitals: [...fuzzyResolutions.hospitals.entries()].map(([from, to]) => ({ from, to })),
+      insurers:  [...fuzzyResolutions.insurers.entries()].map(([from, to]) => ({ from, to })),
+      tpas:      [...fuzzyResolutions.tpas.entries()].map(([from, to]) => ({ from, to })),
+    };
+
     res.status(errors.length && !created.length ? 400 : 200).json({
-      message: `Imported ${created.length} of ${rows.length} claim(s)`,
+      message: `Imported ${created.length} of ${rows.length} claim(s)${duplicateCount ? ` (${duplicateCount} duplicate(s) skipped)` : ''}`,
       created,
       errors,
+      fuzzyMatches: fuzzy,
+      autoCreated,
       totalRows: rows.length,
       successCount: created.length,
       errorCount: errors.length,
+      duplicateCount,
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

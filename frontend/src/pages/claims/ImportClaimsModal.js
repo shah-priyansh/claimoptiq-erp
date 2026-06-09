@@ -4,7 +4,7 @@ import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx-js-style';
 import {
   HiOutlineX, HiOutlineDownload, HiOutlineUpload, HiOutlineDocumentText,
-  HiOutlineCheckCircle, HiOutlineExclamationCircle, HiOutlineInformationCircle,
+  HiOutlineCheckCircle, HiOutlineInformationCircle,
 } from 'react-icons/hi';
 import {
   importClaimsAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, getClaimStatusesAPI,
@@ -17,6 +17,7 @@ const COLUMNS = [
   { key: 'patientName',         label: 'Patient Name *',                width: 22, required: true },
   { key: 'patientMobile',       label: 'Patient Mobile',                width: 14 },
   { key: 'hospital',            label: 'Hospital Name *',               width: 24, note: 'Must match exactly (see Hospitals sheet). Leave blank if "Is Direct Patient" = Yes.' },
+  { key: 'referenceBy',         label: 'Reference By',                  width: 18, note: 'Optional — must match the hospital\'s reference (see Hospitals sheet)', superAdminOnly: true },
   { key: 'isDirectPatient',     label: 'Is Direct Patient (Yes/No)',    width: 12 },
   { key: 'doctorName',          label: 'Doctor Name',                   width: 18 },
   { key: 'claimType',           label: 'Claim Type *',                  width: 14, note: 'cashless / reimbursement / grievance', required: true },
@@ -52,6 +53,7 @@ const COLUMNS = [
   { key: 'surgeryName',         label: 'Surgery Name',                  width: 20 },
   { key: 'remarks',             label: 'Remarks',                       width: 24 },
   { key: 'rejectedReason',      label: 'Rejected Reason',               width: 22 },
+  { key: 'filePrice',           label: 'File Price',                    width: 14, note: 'Optional — overrides hospital\'s default billing for this claim', superAdminOnly: true },
 ];
 
 // Strip trailing '*' / spaces from header → use to match xlsx columns to data keys
@@ -61,9 +63,82 @@ const labelToKey = (label) => {
   return col?.key || null;
 };
 
+// ── Shared parsing/matching helpers (mirror backend so preview is honest) ──
+const PLACEHOLDER_RE = /^(-+|—+|n\/a|na|null|none|n\.a\.?)$/i;
+const cleanCell = (val) => {
+  if (val === undefined || val === null) return '';
+  const s = String(val).trim();
+  if (!s || PLACEHOLDER_RE.test(s)) return '';
+  return s;
+};
+const norm = (s) => String(s || '').trim().toLowerCase();
+const STOPWORDS = new Set(['ltd', 'limited', 'pvt', 'private', 'co', 'company', 'corp', 'corporation', 'inc', 'incorporated', 'the', 'and', 'of', '&']);
+const canonical = (s) => {
+  if (!s) return '';
+  return String(s)
+    .toLowerCase()
+    .replace(/[.,()/\-_'"]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w && !STOPWORDS.has(w))
+    .join(' ');
+};
+const MONTHS_MAP = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
+const parseDateLoose = (val) => {
+  if (val === undefined || val === null || val === '') return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (typeof val === 'number' && val > 25569) {
+    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const s = cleanCell(val);
+  if (!s) return null;
+  if (/^\d{5,}(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (n > 25569) {
+      const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+  const mon = s.match(/^([A-Za-z]{3,9})[\/\-.\s](\d{2,4})$/);
+  if (mon) {
+    const idx = MONTHS_MAP[mon[1].slice(0, 3).toLowerCase()];
+    if (idx !== undefined) {
+      const yr = mon[2].length === 2 ? 2000 + Number(mon[2]) : Number(mon[2]);
+      return new Date(yr, idx, 1);
+    }
+  }
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let [, a, b, yy] = m;
+    if (yy.length === 2) yy = '20' + yy;
+    let day = Number(a), month = Number(b);
+    if (month > 12 && day <= 12) { [day, month] = [month, day]; }
+    if (!day || !month || day > 31 || month > 12) return null;
+    const d = new Date(Number(yy), month - 1, day);
+    return isNaN(d.getTime()) || d.getMonth() !== month - 1 ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+const buildLookup = (list) => {
+  const exact = new Map(), canon = new Map(), canonCount = new Map();
+  list.forEach(x => {
+    exact.set(norm(x.name), x);
+    const c = canonical(x.name);
+    if (c) canonCount.set(c, (canonCount.get(c) || 0) + 1);
+  });
+  list.forEach(x => {
+    const c = canonical(x.name);
+    if (c && canonCount.get(c) === 1) canon.set(c, x);
+  });
+  return { find: (input) => exact.get(norm(input)) || canon.get(canonical(input)) || null };
+};
+const VALID_CLAIM_TYPES = ['cashless', 'reimbursement', 'grievance'];
+
 const ImportClaimsModal = ({ open, onClose, onImported }) => {
-  const { user } = useAuth();
+  const { user, roleSlug } = useAuth();
   const isHospitalUser = !!user?.hospital;
+  const isSuperAdmin = roleSlug === 'super_admin';
   const fileInputRef = useRef(null);
 
   const [step, setStep] = useState('upload'); // upload | preview | result
@@ -77,6 +152,11 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
   const [fileName, setFileName] = useState('');
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null);
+  const [previewLimit, setPreviewLimit] = useState(200);
+  const [onlyIssues, setOnlyIssues] = useState(false);
+  const [autoCreateMasters, setAutoCreateMasters] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0, batch: 0, batches: 0, imported: 0, failed: 0, etaSec: null });
+  const cancelRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -96,15 +176,71 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
 
   useEffect(() => {
     if (!open) {
-      setStep('upload'); setRows([]); setFileName(''); setResult(null);
+      setStep('upload'); setRows([]); setFileName(''); setResult(null); setPreviewLimit(200); setOnlyIssues(false); setAutoCreateMasters(false);
     }
   }, [open]);
 
+  // ── Pre-validate rows against loaded masters (mirrors backend logic) ──
+  const validation = React.useMemo(() => {
+    if (!rows.length) return { rowIssues: [], summary: { ok: 0, badRows: 0, byType: {} } };
+    const hLookup = buildLookup(hospitals);
+    const iLookup = buildLookup(insurers);
+    const tLookup = buildLookup(tpas);
+    const statusSet = new Set(statuses.map(s => s.slug));
+    const summary = { ok: 0, badRows: 0, byType: {} };
+    const bump = (k) => { summary.byType[k] = (summary.byType[k] || 0) + 1; };
+
+    const rowIssues = rows.map(r => {
+      const issues = [];
+      const fuzzy  = [];
+      if (!cleanCell(r.patientName)) { issues.push({ type: 'patient',    label: 'Patient name missing' }); bump('patient'); }
+      if (!parseDateLoose(r.dateOfAdmit)) {
+        issues.push({ type: 'date', label: `Date of Admit invalid${r.dateOfAdmit ? `: "${r.dateOfAdmit}"` : ''}` });
+        bump('date');
+      }
+      const ct = norm(cleanCell(r.claimType));
+      if (!ct) { issues.push({ type: 'type', label: 'Claim type missing' }); bump('type'); }
+      else if (!VALID_CLAIM_TYPES.includes(ct)) { issues.push({ type: 'type', label: `Claim type invalid: "${r.claimType}"` }); bump('type'); }
+
+      const direct = ['yes', 'true', '1', 'direct'].includes(cleanCell(r.isDirectPatient).toLowerCase());
+      const hName = cleanCell(r.hospital);
+      if (!isHospitalUser && !direct) {
+        if (!hName) { issues.push({ type: 'hospital', label: 'Hospital missing' }); bump('hospital'); }
+        else {
+          const h = hLookup.find(hName);
+          if (!h) { issues.push({ type: 'hospital', label: `Hospital not found: "${hName}"` }); bump('hospital'); }
+          else if (norm(h.name) !== norm(hName)) fuzzy.push({ type: 'hospital', label: `Hospital auto-matched: "${hName}" → "${h.name}"` });
+        }
+      }
+      const insName = cleanCell(r.insuranceCompany);
+      if (insName) {
+        const ins = iLookup.find(insName);
+        if (!ins) { issues.push({ type: 'insurance', label: `Insurance not found: "${insName}"` }); bump('insurance'); }
+        else if (norm(ins.name) !== norm(insName)) fuzzy.push({ type: 'insurance', label: `Insurance auto-matched: "${insName}" → "${ins.name}"` });
+      }
+      const tName = cleanCell(r.tpa);
+      if (tName) {
+        const tp = tLookup.find(tName);
+        if (!tp) { issues.push({ type: 'tpa', label: `TPA not found: "${tName}"` }); bump('tpa'); }
+        else if (norm(tp.name) !== norm(tName)) fuzzy.push({ type: 'tpa', label: `TPA auto-matched: "${tName}" → "${tp.name}"` });
+      }
+      const sName = norm(cleanCell(r.status));
+      if (sName && !statusSet.has(sName)) { issues.push({ type: 'status', label: `Status invalid: "${r.status}"` }); bump('status'); }
+
+      if (issues.length) summary.badRows += 1;
+      else summary.ok += 1;
+      return { issues, fuzzy };
+    });
+    return { rowIssues, summary };
+  }, [rows, hospitals, insurers, tpas, statuses, isHospitalUser]);
+
   // ── Build & download the sample template ─────────────────────────────────
   const downloadTemplate = () => {
-    const visibleCols = isHospitalUser
-      ? COLUMNS.filter(c => c.key !== 'hospital' && c.key !== 'isDirectPatient')
-      : COLUMNS;
+    const visibleCols = COLUMNS.filter(c => {
+      if (isHospitalUser && (c.key === 'hospital' || c.key === 'isDirectPatient')) return false;
+      if (c.superAdminOnly && !isSuperAdmin) return false;
+      return true;
+    });
 
     const wb = XLSX.utils.book_new();
 
@@ -115,10 +251,12 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
     const exampleInsurer  = insurers[0]?.name || 'Star Health Insurance';
     const exampleTpa      = tpas[0]?.name || 'MediAssist TPA';
 
+    const exampleReference = !isHospitalUser ? (hospitals[0]?.referenceBy || '') : '';
     const sample1 = {
       patientName: 'Rahul Sharma',
       patientMobile: '9876543210',
       hospital: exampleHospital,
+      referenceBy: exampleReference,
       isDirectPatient: 'No',
       doctorName: 'Dr. Mehta',
       claimType: 'cashless',
@@ -154,6 +292,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       surgeryName: 'Appendectomy',
       remarks: 'Routine case',
       rejectedReason: '',
+      filePrice: 1500,
     };
     const sample2 = {
       patientName: 'Priya Patel',
@@ -268,7 +407,13 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
     };
 
     if (!isHospitalUser) {
-      addRefSheet('Hospitals', hospitals.length ? hospitals : [{ name: 'No active hospitals — add hospitals first' }], [{ key: 'name', label: 'Hospital Name', width: 36 }]);
+      addRefSheet(
+        'Hospitals',
+        hospitals.length ? hospitals : [{ name: 'No active hospitals — add hospitals first' }],
+        isSuperAdmin && hospitals.length
+          ? [{ key: 'name', label: 'Hospital Name (use this in import)', width: 36 }, { key: 'referenceBy', label: 'Reference By', width: 22 }]
+          : [{ key: 'name', label: 'Hospital Name', width: 36 }]
+      );
     }
     const contactCols = [
       { key: 'name', label: 'Name (use this in import)', width: 36 },
@@ -343,23 +488,92 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
   };
 
   const handleImport = async () => {
+    const BATCH_SIZE = 100;
+    const batches = [];
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) batches.push(rows.slice(i, i + BATCH_SIZE));
+
+    cancelRef.current = false;
     setImporting(true);
+    setProgress({ done: 0, total: rows.length, batch: 0, batches: batches.length, imported: 0, failed: 0, etaSec: null });
+
+    const aggregated = {
+      message: '',
+      created: [],
+      errors: [],
+      fuzzyMatches: { hospitals: [], insurers: [], tpas: [] },
+      autoCreated:  { hospitals: [], insurers: [], tpas: [] },
+      totalRows:    rows.length,
+      successCount: 0,
+      errorCount:   0,
+      duplicateCount: 0,
+    };
+    const mergeFuzzy = (target, incoming) => {
+      const seen = new Set(target.map(x => x.from));
+      incoming.forEach(x => { if (!seen.has(x.from)) { target.push(x); seen.add(x.from); } });
+    };
+    const mergeAuto = (target, incoming) => {
+      const seen = new Set(target);
+      incoming.forEach(n => { if (!seen.has(n)) { target.push(n); seen.add(n); } });
+    };
+
+    const start = Date.now();
     try {
-      const { data } = await importClaimsAPI(rows);
-      setResult(data);
+      for (let i = 0; i < batches.length; i++) {
+        if (cancelRef.current) break;
+        const batch = batches[i];
+        // Auto-create flag only meaningful first time — subsequent batches will see masters already present.
+        const { data } = await importClaimsAPI(batch, { autoCreateMasters: isSuperAdmin && autoCreateMasters });
+        aggregated.created.push(...(data.created || []));
+        aggregated.errors.push(...(data.errors  || []));
+        aggregated.successCount   += data.successCount   || 0;
+        aggregated.errorCount     += data.errorCount     || 0;
+        aggregated.duplicateCount += data.duplicateCount || 0;
+        if (data.fuzzyMatches) {
+          mergeFuzzy(aggregated.fuzzyMatches.hospitals, data.fuzzyMatches.hospitals || []);
+          mergeFuzzy(aggregated.fuzzyMatches.insurers,  data.fuzzyMatches.insurers  || []);
+          mergeFuzzy(aggregated.fuzzyMatches.tpas,      data.fuzzyMatches.tpas      || []);
+        }
+        if (data.autoCreated) {
+          mergeAuto(aggregated.autoCreated.hospitals, data.autoCreated.hospitals || []);
+          mergeAuto(aggregated.autoCreated.insurers,  data.autoCreated.insurers  || []);
+          mergeAuto(aggregated.autoCreated.tpas,      data.autoCreated.tpas      || []);
+        }
+
+        const done = (i + 1) * BATCH_SIZE > rows.length ? rows.length : (i + 1) * BATCH_SIZE;
+        const elapsedSec = (Date.now() - start) / 1000;
+        const etaSec = done > 0 ? Math.round((elapsedSec / done) * (rows.length - done)) : null;
+        setProgress({
+          done, total: rows.length, batch: i + 1, batches: batches.length,
+          imported: aggregated.successCount, failed: aggregated.errorCount, etaSec,
+        });
+      }
+
+      aggregated.message = cancelRef.current
+        ? `Cancelled at ${aggregated.successCount} of ${rows.length} claim(s)`
+        : `Imported ${aggregated.successCount} of ${rows.length} claim(s)`;
+      setResult(aggregated);
       setStep('result');
-      if (data.successCount > 0) {
-        toast.success(`Imported ${data.successCount} of ${data.totalRows} claim(s)`);
+      if (aggregated.successCount > 0) {
+        toast.success(aggregated.message);
         onImported?.();
       } else {
         toast.error('No claims were imported — check the error list');
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Import failed');
+      aggregated.message = err.response?.data?.message || 'Import failed';
+      // Still surface what we got so far
+      if (aggregated.successCount + aggregated.errorCount > 0) {
+        setResult(aggregated);
+        setStep('result');
+      }
+      toast.error(aggregated.message);
     } finally {
       setImporting(false);
+      cancelRef.current = false;
     }
   };
+
+  const cancelImport = () => { cancelRef.current = true; };
 
   const resetAndUploadAgain = () => {
     setStep('upload'); setRows([]); setFileName(''); setResult(null);
@@ -368,7 +582,50 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
   if (!open) return null;
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <>
+      {importing && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center px-6">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-sm text-center shadow-xl">
+            <div className="w-14 h-14 border-4 border-primary-100 border-t-primary-600 rounded-full animate-spin mx-auto mb-5" />
+            <p className="text-base font-bold text-gray-800">Importing…</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {progress.done.toLocaleString()} of {progress.total.toLocaleString()} claim{progress.total > 1 ? 's' : ''}
+            </p>
+            <div className="mt-4 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-primary-600 rounded-full transition-all duration-500"
+                style={{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }} />
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-4 text-[11px]">
+              <div className="bg-gray-50 rounded-md py-1.5">
+                <p className="text-gray-500">Batch</p>
+                <p className="font-bold text-gray-800">{progress.batch}/{progress.batches}</p>
+              </div>
+              <div className="bg-emerald-50 rounded-md py-1.5">
+                <p className="text-emerald-600">Imported</p>
+                <p className="font-bold text-emerald-700">{progress.imported.toLocaleString()}</p>
+              </div>
+              <div className="bg-rose-50 rounded-md py-1.5">
+                <p className="text-rose-600">Failed</p>
+                <p className="font-bold text-rose-700">{progress.failed.toLocaleString()}</p>
+              </div>
+            </div>
+            {progress.etaSec !== null && progress.etaSec > 0 && (
+              <p className="text-xs text-gray-500 mt-3">
+                ~{progress.etaSec >= 60 ? `${Math.floor(progress.etaSec / 60)}m ${progress.etaSec % 60}s` : `${progress.etaSec}s`} remaining
+              </p>
+            )}
+            <p className="text-xs text-gray-400 mt-3">Please don't close this page</p>
+            <button
+              onClick={cancelImport}
+              disabled={cancelRef.current}
+              className="mt-4 w-full px-4 py-2 text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-semibold disabled:opacity-50"
+            >
+              {cancelRef.current ? 'Stopping…' : 'Cancel import'}
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
@@ -384,7 +641,8 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+          <button onClick={onClose} disabled={importing} title={importing ? 'Use Cancel button below to stop import' : 'Close'}
+            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed">
             <HiOutlineX className="w-5 h-5" />
           </button>
         </div>
@@ -445,53 +703,159 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
             </div>
           )}
 
-          {step === 'preview' && (
-            <div className="space-y-3">
-              <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-900 flex gap-2">
-                <HiOutlineExclamationCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>This is a preview. Validation runs on the server when you click Import. Invalid rows will be reported and skipped.</span>
-              </div>
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <div className="overflow-x-auto max-h-[50vh]">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
-                      <tr>
-                        <th className="px-2 py-2 text-left font-semibold text-gray-500">#</th>
-                        <th className="px-2 py-2 text-left font-semibold text-gray-500">Patient</th>
-                        <th className="px-2 py-2 text-left font-semibold text-gray-500">Hospital</th>
-                        <th className="px-2 py-2 text-left font-semibold text-gray-500">Type</th>
-                        <th className="px-2 py-2 text-left font-semibold text-gray-500">DOA</th>
-                        <th className="px-2 py-2 text-left font-semibold text-gray-500">Bill</th>
-                        <th className="px-2 py-2 text-left font-semibold text-gray-500">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {rows.slice(0, 100).map((r, i) => (
-                        <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-2 py-1.5 text-gray-400">{i + 1}</td>
-                          <td className="px-2 py-1.5 text-gray-800 font-medium">{r.patientName || <span className="text-red-500">missing</span>}</td>
-                          <td className="px-2 py-1.5 text-gray-600">{r.hospital || (String(r.isDirectPatient || '').toLowerCase().startsWith('y') ? <span className="italic text-purple-600">Direct</span> : '-')}</td>
-                          <td className="px-2 py-1.5 text-gray-600 capitalize">{r.claimType || '-'}</td>
-                          <td className="px-2 py-1.5 text-gray-600">{r.dateOfAdmit || '-'}</td>
-                          <td className="px-2 py-1.5 text-gray-600">{r.hospitalFinalBill || '-'}</td>
-                          <td className="px-2 py-1.5 text-gray-600">{r.status || 'admitted'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {step === 'preview' && !importing && (() => {
+            const { rowIssues, summary } = validation;
+            const typeColor = {
+              patient:   'bg-rose-100 text-rose-700',
+              date:      'bg-orange-100 text-orange-700',
+              type:      'bg-amber-100 text-amber-700',
+              hospital:  'bg-emerald-100 text-emerald-700',
+              insurance: 'bg-blue-100 text-blue-700',
+              tpa:       'bg-purple-100 text-purple-700',
+              status:    'bg-cyan-100 text-cyan-700',
+            };
+            const fuzzyColor = 'bg-indigo-50 text-indigo-700 border border-indigo-100';
+            const visibleRows = rows
+              .map((r, i) => ({ r, i, issues: rowIssues[i]?.issues || [], fuzzy: rowIssues[i]?.fuzzy || [] }))
+              .filter(x => !onlyIssues || x.issues.length > 0);
+            const shown = visibleRows.slice(0, previewLimit);
+
+            return (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3">
+                    <p className="text-emerald-700 font-semibold">Ready to import</p>
+                    <p className="text-2xl font-bold text-emerald-700 mt-0.5">{summary.ok}</p>
+                  </div>
+                  <div className="bg-rose-50 border border-rose-100 rounded-lg p-3">
+                    <p className="text-rose-700 font-semibold">Need fixes</p>
+                    <p className="text-2xl font-bold text-rose-700 mt-0.5">{summary.badRows}</p>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <p className="text-gray-600 font-semibold">Total rows</p>
+                    <p className="text-2xl font-bold text-gray-800 mt-0.5">{rows.length}</p>
+                  </div>
                 </div>
-                {rows.length > 100 && (
-                  <div className="bg-gray-50 px-3 py-2 text-xs text-gray-500 border-t border-gray-200 text-center">
-                    Showing first 100 of {rows.length} rows
+
+                {summary.badRows > 0 && (
+                  <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-900 space-y-1.5">
+                    <p className="font-semibold">{summary.badRows} row(s) need updates before they can import:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(summary.byType).map(([t, n]) => (
+                        <span key={t} className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${typeColor[t] || 'bg-gray-100 text-gray-700'}`}>
+                          {t}: {n}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-amber-700">Valid rows will still be imported when you click Import — invalid rows are skipped and listed in the result.</p>
                   </div>
                 )}
+
+                {isSuperAdmin && (() => {
+                  const missing = { hospitals: new Set(), insurers: new Set(), tpas: new Set() };
+                  rowIssues.forEach((ri, i) => {
+                    ri.issues.forEach(it => {
+                      if (it.type === 'hospital' && it.label.startsWith('Hospital not found:')) missing.hospitals.add(cleanCell(rows[i].hospital));
+                      if (it.type === 'insurance')                                                 missing.insurers.add(cleanCell(rows[i].insuranceCompany));
+                      if (it.type === 'tpa')                                                       missing.tpas.add(cleanCell(rows[i].tpa));
+                    });
+                  });
+                  missing.hospitals.delete(''); missing.insurers.delete(''); missing.tpas.delete('');
+                  const total = missing.hospitals.size + missing.insurers.size + missing.tpas.size;
+                  if (total === 0) return null;
+                  return (
+                    <div className={`border rounded-lg p-3 text-xs space-y-2 ${autoCreateMasters ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-200'}`}>
+                      <label className="flex items-start gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoCreateMasters}
+                          onChange={e => setAutoCreateMasters(e.target.checked)}
+                          className="rounded mt-0.5"
+                        />
+                        <div className="flex-1">
+                          <p className="font-semibold text-gray-800">Auto-create {total} missing master record(s) on import</p>
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {missing.hospitals.size > 0 && <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[11px]">{missing.hospitals.size} new hospital(s)</span>}
+                            {missing.insurers.size  > 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px]">{missing.insurers.size} new insurer(s)</span>}
+                            {missing.tpas.size      > 0 && <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px]">{missing.tpas.size} new TPA(s)</span>}
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-1.5">⚠ This creates master records exactly as written in your file. Typos become duplicates — verify spellings first.</p>
+                        </div>
+                      </label>
+                    </div>
+                  );
+                })()}
+
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+                    <input type="checkbox" checked={onlyIssues} onChange={e => { setOnlyIssues(e.target.checked); setPreviewLimit(200); }} className="rounded" />
+                    Show only rows with issues
+                  </label>
+                  <span className="text-[11px] text-gray-400">Auto-matched names (close variants) are imported as-is — see indigo chips.</span>
+                </div>
+
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto max-h-[50vh]">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500">#</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500">Patient</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500">Hospital</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500">Type</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500">DOA</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500">Bill</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500 min-w-[240px]">What needs updating</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {shown.map(({ r, i, issues, fuzzy }) => (
+                          <tr key={i} className={`hover:bg-gray-50 ${issues.length ? 'bg-rose-50/40' : ''}`}>
+                            <td className="px-2 py-1.5 text-gray-400">{i + 1}</td>
+                            <td className="px-2 py-1.5 text-gray-800 font-medium">{r.patientName || <span className="text-red-500">missing</span>}</td>
+                            <td className="px-2 py-1.5 text-gray-600">{r.hospital || (String(r.isDirectPatient || '').toLowerCase().startsWith('y') ? <span className="italic text-purple-600">Direct</span> : '-')}</td>
+                            <td className="px-2 py-1.5 text-gray-600 capitalize">{r.claimType || '-'}</td>
+                            <td className="px-2 py-1.5 text-gray-600">{r.dateOfAdmit || '-'}</td>
+                            <td className="px-2 py-1.5 text-gray-600">{r.hospitalFinalBill || '-'}</td>
+                            <td className="px-2 py-1.5">
+                              {issues.length === 0 && fuzzy.length === 0 && <span className="text-emerald-600 text-[11px]">✓ OK</span>}
+                              <div className="flex flex-wrap gap-1">
+                                {issues.map((it, j) => (
+                                  <span key={`i${j}`} className={`px-1.5 py-0.5 rounded text-[10.5px] font-medium ${typeColor[it.type] || 'bg-gray-100 text-gray-700'}`} title={it.label}>
+                                    {it.label}
+                                  </span>
+                                ))}
+                                {fuzzy.map((it, j) => (
+                                  <span key={`f${j}`} className={`px-1.5 py-0.5 rounded text-[10.5px] font-medium ${fuzzyColor}`} title={it.label}>
+                                    ↪ {it.label}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {visibleRows.length > previewLimit && (
+                    <div className="bg-gray-50 px-3 py-2 text-xs text-gray-500 border-t border-gray-200 flex items-center justify-between">
+                      <span>Showing first {previewLimit} of {visibleRows.length}{onlyIssues ? ' rows with issues' : ' rows'}</span>
+                      <button
+                        onClick={() => setPreviewLimit(visibleRows.length)}
+                        className="px-2.5 py-1 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 font-medium"
+                      >
+                        Show all {visibleRows.length}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {step === 'result' && result && (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <div className="bg-gray-50 rounded-lg p-3 text-center">
                   <p className="text-xs text-gray-500">Total Rows</p>
                   <p className="text-2xl font-bold text-gray-800 mt-1">{result.totalRows}</p>
@@ -500,29 +864,125 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
                   <p className="text-xs text-emerald-700">Imported</p>
                   <p className="text-2xl font-bold text-emerald-700 mt-1">{result.successCount}</p>
                 </div>
+                <div className="bg-slate-50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-slate-600">Duplicates skipped</p>
+                  <p className="text-2xl font-bold text-slate-700 mt-1">{result.duplicateCount || 0}</p>
+                </div>
                 <div className="bg-red-50 rounded-lg p-3 text-center">
-                  <p className="text-xs text-red-700">Failed</p>
-                  <p className="text-2xl font-bold text-red-700 mt-1">{result.errorCount}</p>
+                  <p className="text-xs text-red-700">Other errors</p>
+                  <p className="text-2xl font-bold text-red-700 mt-1">{Math.max(0, (result.errorCount || 0) - (result.duplicateCount || 0))}</p>
                 </div>
               </div>
 
-              {result.errors?.length > 0 && (
-                <div className="border border-red-100 rounded-lg overflow-hidden">
-                  <div className="bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 border-b border-red-100">
-                    Rows with errors ({result.errors.length})
-                  </div>
-                  <div className="max-h-64 overflow-y-auto divide-y divide-red-50">
-                    {result.errors.map((e, i) => (
-                      <div key={i} className="px-3 py-2 text-xs">
-                        <p className="font-medium text-gray-800">Row {e.row}: {e.patientName || '(no name)'}</p>
-                        <ul className="list-disc pl-4 mt-1 text-red-600 space-y-0.5">
-                          {e.errors.map((msg, j) => <li key={j}>{msg}</li>)}
+              {result.autoCreated && (result.autoCreated.hospitals.length + result.autoCreated.insurers.length + result.autoCreated.tpas.length) > 0 && (
+                <details open className="border border-emerald-100 rounded-lg overflow-hidden">
+                  <summary className="bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 cursor-pointer hover:bg-emerald-100">
+                    Auto-created master records ({result.autoCreated.hospitals.length + result.autoCreated.insurers.length + result.autoCreated.tpas.length})
+                  </summary>
+                  <div className="max-h-48 overflow-y-auto px-3 py-2 space-y-2 text-xs">
+                    {[
+                      ['Hospitals',           result.autoCreated.hospitals],
+                      ['Insurance Companies', result.autoCreated.insurers],
+                      ['TPAs',                result.autoCreated.tpas],
+                    ].filter(([, arr]) => arr.length).map(([label, arr]) => (
+                      <div key={label}>
+                        <p className="font-semibold text-gray-700">{label} ({arr.length})</p>
+                        <ul className="list-disc pl-4 mt-0.5 text-gray-600 space-y-0.5">
+                          {arr.map((name, i) => <li key={i}>{name}</li>)}
                         </ul>
                       </div>
                     ))}
                   </div>
-                </div>
+                </details>
               )}
+
+              {result.fuzzyMatches && (result.fuzzyMatches.hospitals.length + result.fuzzyMatches.insurers.length + result.fuzzyMatches.tpas.length) > 0 && (
+                <details className="border border-indigo-100 rounded-lg overflow-hidden">
+                  <summary className="bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 cursor-pointer hover:bg-indigo-100">
+                    Auto-matched names ({result.fuzzyMatches.hospitals.length + result.fuzzyMatches.insurers.length + result.fuzzyMatches.tpas.length})
+                  </summary>
+                  <div className="max-h-48 overflow-y-auto px-3 py-2 space-y-2 text-xs">
+                    {[
+                      ['Hospitals',           result.fuzzyMatches.hospitals],
+                      ['Insurance Companies', result.fuzzyMatches.insurers],
+                      ['TPAs',                result.fuzzyMatches.tpas],
+                    ].filter(([, arr]) => arr.length).map(([label, arr]) => (
+                      <div key={label}>
+                        <p className="font-semibold text-gray-700">{label}</p>
+                        <ul className="list-disc pl-4 mt-0.5 text-gray-600 space-y-0.5">
+                          {arr.map((m, i) => <li key={i}><span className="font-mono">{m.from}</span> → <span className="font-mono text-indigo-700">{m.to}</span></li>)}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {result.errors?.length > 0 && (() => {
+                const classifyError = (msg) => {
+                  const m = String(msg);
+                  if (/^Duplicate/i.test(m))          return { type: 'Duplicate', color: 'bg-slate-100 text-slate-700' };
+                  if (/^Insurance Company/i.test(m)) return { type: 'Insurance', color: 'bg-blue-100 text-blue-700' };
+                  if (/^TPA/i.test(m))                return { type: 'TPA',       color: 'bg-purple-100 text-purple-700' };
+                  if (/^Hospital/i.test(m))           return { type: 'Hospital',  color: 'bg-emerald-100 text-emerald-700' };
+                  if (/^Reference By/i.test(m))       return { type: 'Reference', color: 'bg-amber-100 text-amber-700' };
+                  if (/Date of Admit|Submit Mode|Claim Type|Patient Name/i.test(m)) return { type: 'Required', color: 'bg-rose-100 text-rose-700' };
+                  if (/^Status/i.test(m))             return { type: 'Status',    color: 'bg-cyan-100 text-cyan-700' };
+                  return { type: 'Other', color: 'bg-gray-100 text-gray-700' };
+                };
+                const grouped = new Map();
+                result.errors.forEach(e => {
+                  e.errors.forEach(msg => {
+                    if (!grouped.has(msg)) grouped.set(msg, []);
+                    grouped.get(msg).push({ row: e.row, patientName: e.patientName });
+                  });
+                });
+                const summary = Array.from(grouped.entries()).sort((a, b) => b[1].length - a[1].length);
+
+                return (
+                  <div className="space-y-3">
+                    <div className="border border-red-100 rounded-lg overflow-hidden">
+                      <div className="bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 border-b border-red-100 flex items-center justify-between">
+                        <span>Issues to fix ({summary.length} unique, {result.errors.length} row(s) affected)</span>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto divide-y divide-red-50">
+                        {summary.map(([msg, rows], i) => {
+                          const cls = classifyError(msg);
+                          return (
+                            <div key={i} className="px-3 py-2.5 text-xs">
+                              <div className="flex items-start gap-2">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide uppercase flex-shrink-0 ${cls.color}`}>{cls.type}</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-gray-800 break-words">{msg}</p>
+                                  <p className="text-[11px] text-gray-500 mt-1">
+                                    {rows.length} row{rows.length > 1 ? 's' : ''}: {rows.slice(0, 5).map(r => `#${r.row}${r.patientName ? ` (${r.patientName})` : ''}`).join(', ')}
+                                    {rows.length > 5 && ` + ${rows.length - 5} more`}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <details className="border border-gray-200 rounded-lg overflow-hidden">
+                      <summary className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 cursor-pointer hover:bg-gray-100">
+                        Show full per-row list ({result.errors.length})
+                      </summary>
+                      <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+                        {result.errors.map((e, i) => (
+                          <div key={i} className="px-3 py-2 text-xs">
+                            <p className="font-medium text-gray-800">Row {e.row}: {e.patientName || '(no name)'}</p>
+                            <ul className="list-disc pl-4 mt-1 text-red-600 space-y-0.5">
+                              {e.errors.map((msg, j) => <li key={j}>{msg}</li>)}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                );
+              })()}
 
               {result.successCount > 0 && (
                 <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex gap-2 text-xs text-emerald-800">
@@ -540,19 +1000,15 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
               Cancel
             </button>
           )}
-          {step === 'preview' && (
+          {step === 'preview' && !importing && (
             <>
-              <button onClick={resetAndUploadAgain} disabled={importing}
-                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium disabled:opacity-50">
+              <button onClick={resetAndUploadAgain}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">
                 Back
               </button>
-              <button onClick={handleImport} disabled={importing}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-semibold disabled:opacity-50">
-                {importing ? (
-                  <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Importing…</>
-                ) : (
-                  <><HiOutlineUpload className="w-4 h-4" /> Import {rows.length} claim(s)</>
-                )}
+              <button onClick={handleImport}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-semibold">
+                <HiOutlineUpload className="w-4 h-4" /> Import {rows.length} claim(s)
               </button>
             </>
           )}
@@ -570,7 +1026,8 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
           )}
         </div>
       </div>
-    </div>,
+    </div>
+    </>,
     document.body
   );
 };

@@ -1,10 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getHospitalsAPI, deleteHospitalAPI } from '../../services/api';
+import { getHospitalsAPI, deleteHospitalAPI, importHospitalsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding, HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding, HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineUpload } from 'react-icons/hi';
+import MasterImportModal from '../../components/master/MasterImportModal';
+
+const HOSPITAL_IMPORT_CONFIG = {
+  title: 'Import Hospitals',
+  entityLabel: 'hospital',
+  templateName: 'hospital-import-template.xlsx',
+  columns: [
+    { key: 'name',        label: 'Name *',       width: 30, required: true, note: 'Hospital name (required)' },
+    { key: 'referenceBy', label: 'Reference By', width: 18 },
+    { key: 'contact',     label: 'Contact Person', width: 22 },
+    { key: 'phone',       label: 'Phone',        width: 14, note: '10-digit Indian mobile (starts 6-9)' },
+    { key: 'email',       label: 'Email',        width: 26 },
+    { key: 'address',     label: 'Address',      width: 30 },
+    { key: 'city',        label: 'City',         width: 14 },
+    { key: 'state',       label: 'State',        width: 14 },
+    { key: 'pincode',     label: 'Pincode',      width: 12, note: '6-digit Indian pincode' },
+  ],
+  sampleRow1: { name: 'City Hospital', referenceBy: 'Dr. Mehta', contact: 'Mr. Rao', phone: '9876543210', email: 'admin@cityhospital.in', address: 'Ring Road', city: 'Surat', state: 'Gujarat', pincode: '395003' },
+  sampleRow2: { name: 'Aastha Hospital', referenceBy: '', contact: '', phone: '', email: '', address: '', city: '', state: '', pincode: '' },
+  uploadAPI:  importHospitalsAPI,
+};
 
 const PAGE_SIZE = 25;
 
@@ -18,6 +39,7 @@ const HospitalList = () => {
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
 
   const fetchHospitals = useCallback(async () => {
     setLoading(true);
@@ -55,12 +77,20 @@ const HospitalList = () => {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 mb-6">
         {can('hospitals', 'create') && (
-          <button
-            onClick={() => navigate('/hospitals/new')}
-            className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg text-sm font-medium transition-colors"
-          >
-            <HiOutlinePlus className="w-5 h-5" /> Add Hospital
-          </button>
+          <>
+            <button
+              onClick={() => setImportOpen(true)}
+              className="flex items-center justify-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlineUpload className="w-5 h-5" /> Import
+            </button>
+            <button
+              onClick={() => navigate('/hospitals/new')}
+              className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlinePlus className="w-5 h-5" /> Add Hospital
+            </button>
+          </>
         )}
       </div>
 
@@ -230,6 +260,13 @@ const HospitalList = () => {
           </div>
         )}
       </div>
+
+      <MasterImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={fetchHospitals}
+        config={HOSPITAL_IMPORT_CONFIG}
+      />
     </div>
   );
 };
