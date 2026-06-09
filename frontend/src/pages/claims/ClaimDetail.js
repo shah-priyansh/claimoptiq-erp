@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { getClaimAPI, updateClaimAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI } from '../../services/api';
+import { getClaimAPI, updateClaimAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -18,6 +18,7 @@ import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import { isValidPhone, onPhoneInput } from '../../utils/validators';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const CATEGORY_LABELS = {
@@ -226,10 +227,15 @@ const ClaimDetail = () => {
   const [rejectionInput, setRejectionInput] = useState('');
   const statusBtnRef = useRef(null);
   const [previewIdx, setPreviewIdx] = useState(null);
-  const [pendingFiles, setPendingFiles] = useState({ discharge: [], pod: [], settlement_proof: [], other: [] });
+  const [pendingFiles, setPendingFiles] = useState({ admission: [], discharge: [], pod: [], settlement_proof: [], other: [] });
   const [pendingPreview, setPendingPreview] = useState(null);
 
+  const [hospitals, setHospitals] = useState([]);
+  const [insurances, setInsurances] = useState([]);
+  const [tpas, setTPAs] = useState([]);
   const [dischargeForm, setDischargeForm] = useState({});
+  const [admissionForm, setAdmissionForm] = useState({});
+  const [mobileError, setMobileError] = useState('');
   const [fileForm, setFileForm] = useState({});
   const [settlementForm, setSettlementForm] = useState({});
   const [filePriceManual, setFilePriceManual] = useState(false);
@@ -290,6 +296,15 @@ const ClaimDetail = () => {
     getClaimDocumentTypesAPI()
       .then(({ data }) => setDocTypes(Array.isArray(data) ? data.filter(d => d.isActive !== false) : []))
       .catch(() => toast.error('Failed to load document types'));
+    Promise.all([
+      getHospitalsAPI({ active: 'true' }),
+      getInsuranceAPI(),
+      getTPAAPI(),
+    ]).then(([h, i, t]) => {
+      setHospitals(h.data);
+      setInsurances(i.data);
+      setTPAs(t.data);
+    }).catch(() => toast.error('Failed to load hospitals/insurance/TPA list'));
   }, []);
 
   const fetchClaim = useCallback(async (isRefresh = false) => {
@@ -297,6 +312,22 @@ const ClaimDetail = () => {
     try {
       const { data } = await getClaimAPI(id);
       setClaim(data);
+      setAdmissionForm({
+        hospital: data.hospital?._id || data.hospital || '',
+        isDirectPatient: !!data.isDirectPatient,
+        patientName: data.patientName || '',
+        patientMobile: data.patientMobile || '',
+        doctorName: data.doctorName || '',
+        claimType: data.claimType || 'cashless',
+        insuranceCompany: data.insuranceCompany?._id || data.insuranceCompany || '',
+        tpa: data.tpa?._id || data.tpa || '',
+        policyNo: data.policyNo || '',
+        clientId: data.clientId || '',
+        ccnNo: data.ccnNo || '',
+        monthClaimNo: data.monthClaimNo || '',
+        dateOfAdmit: data.dateOfAdmit ? data.dateOfAdmit.slice(0, 10) : '',
+      });
+      setMobileError('');
       setDischargeForm({
         dateOfAdmit: data.dateOfAdmit?.slice(0, 10) || '',
         dateOfDischarge: data.dateOfDischarge?.slice(0, 10) || '',
