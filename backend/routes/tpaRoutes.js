@@ -9,6 +9,8 @@ router.route('/')
   .get(checkPermission('tpa', 'view'), ctrl.getAll)
   .post(checkPermission('tpa', 'create'), ctrl.create);
 
+router.post('/import', checkPermission('tpa', 'create'), ctrl.bulkImport);
+
 router.route('/:id')
   .put(checkPermission('tpa', 'edit'), ctrl.update)
   .delete(checkPermission('tpa', 'delete'), ctrl.remove);

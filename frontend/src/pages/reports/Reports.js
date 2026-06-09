@@ -20,7 +20,8 @@ const BASE_FIELD_DEFS = [
   { key: 'isDirectPatient',          label: 'DIRECT PATIENT',         width: 12, pdfW: 14, defaultOn: false, getValue: c => c.isDirectPatient ? 'Yes' : 'No' },
   { key: 'doctorName',               label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
   { key: 'claimType',                label: 'CLAIM TYPE',             width: 14, pdfW: 18, defaultOn: true,  getValue: c => c.claimType || '' },
-  { key: 'companyTpa',               label: 'COMPANY/TPA',            width: 30, pdfW: 35, defaultOn: true,  getValue: c => [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ') },
+  { key: 'insuranceCompany',         label: 'COMPANY',                width: 22, pdfW: 26, defaultOn: true,  getValue: c => c.insuranceCompany?.name || '' },
+  { key: 'tpa',                      label: 'TPA',                    width: 18, pdfW: 22, defaultOn: true,  getValue: c => c.tpa?.name || '' },
   { key: 'ccnNo',                    label: 'CCN NO',                 width: 13, pdfW: 14, defaultOn: true,  getValue: c => c.ccnNo || '' },
   { key: 'policyNo',                 label: 'POLICY NO',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.policyNo || '' },
   { key: 'clientId',                 label: 'CLIENT ID',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.clientId || '' },
@@ -632,7 +633,7 @@ const Reports = () => {
 
   const FIELD_GROUPS = [
     { label: 'Patient Info', keys: ['patientName', 'patientMobile', 'isDirectPatient', 'doctorName', 'claimType', 'policyNo', 'clientId'] },
-    { label: 'Payor', keys: ['companyTpa', 'ccnNo'] },
+    { label: 'Payor', keys: ['insuranceCompany', 'tpa', 'ccnNo'] },
     { label: 'Treatment', keys: ['treatmentType', 'diagnosis', 'surgeryName'] },
     { label: 'Dates', keys: ['dateOfAdmit', 'dateOfDischarge', 'month', 'fileReceivedDate', 'finalApprovalDate', 'settlementDate'] },
     { label: 'Submission', keys: ['submitMode', 'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber'] },

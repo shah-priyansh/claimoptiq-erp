@@ -9,6 +9,8 @@ router.route('/')
   .get(checkPermission('insurance', 'view'), ctrl.getAll)
   .post(checkPermission('insurance', 'create'), ctrl.create);
 
+router.post('/import', checkPermission('insurance', 'create'), ctrl.bulkImport);
+
 router.route('/:id')
   .put(checkPermission('insurance', 'edit'), ctrl.update)
   .delete(checkPermission('insurance', 'delete'), ctrl.remove);

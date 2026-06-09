@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createHospital, getHospitals, getHospital, updateHospital, deleteHospital } = require('../controllers/hospitalController');
+const { createHospital, getHospitals, getHospital, updateHospital, deleteHospital, bulkImportHospitals } = require('../controllers/hospitalController');
 const { protect, checkPermission } = require('../middleware/auth');
 
 router.use(protect);
@@ -8,6 +8,8 @@ router.use(protect);
 router.route('/')
   .get(checkPermission('hospitals', 'view'), getHospitals)
   .post(checkPermission('hospitals', 'create'), createHospital);
+
+router.post('/import', checkPermission('hospitals', 'create'), bulkImportHospitals);
 
 router.route('/:id')
   .get(checkPermission('hospitals', 'view'), getHospital)

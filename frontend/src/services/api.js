@@ -42,18 +42,21 @@ export const getHospitalAPI = (id) => API.get(`/hospitals/${id}`);
 export const createHospitalAPI = (data) => API.post('/hospitals', data);
 export const updateHospitalAPI = (id, data) => API.put(`/hospitals/${id}`, data);
 export const deleteHospitalAPI = (id) => API.delete(`/hospitals/${id}`);
+export const importHospitalsAPI = (rows) => API.post('/hospitals/import', { rows });
 
 // Insurance
 export const getInsuranceAPI = () => API.get('/insurance');
 export const createInsuranceAPI = (data) => API.post('/insurance', data);
 export const updateInsuranceAPI = (id, data) => API.put(`/insurance/${id}`, data);
 export const deleteInsuranceAPI = (id) => API.delete(`/insurance/${id}`);
+export const importInsuranceAPI = (rows) => API.post('/insurance/import', { rows });
 
 // TPA
 export const getTPAAPI = () => API.get('/tpa');
 export const createTPAAPI = (data) => API.post('/tpa', data);
 export const updateTPAAPI = (id, data) => API.put(`/tpa/${id}`, data);
 export const deleteTPAAPI = (id) => API.delete(`/tpa/${id}`);
+export const importTPAAPI = (rows) => API.post('/tpa/import', { rows });
 
 // Billing Service Names
 export const getBillingServiceNamesAPI = () => API.get('/billing-service-names');
@@ -64,7 +67,7 @@ export const deleteBillingServiceNameAPI = (id) => API.delete(`/billing-service-
 // Claims
 export const getClaimsAPI = (params) => API.get('/claims', { params });
 export const exportClaimsAPI = (params) => API.get('/claims/export', { params });
-export const importClaimsAPI = (rows) => API.post('/claims/import', { rows });
+export const importClaimsAPI = (rows, opts = {}) => API.post('/claims/import', { rows, ...opts });
 export const getClaimAPI = (id) => API.get(`/claims/${id}`);
 export const createClaimAPI = (data) => API.post('/claims', data);
 export const updateClaimAPI = (id, data) => API.put(`/claims/${id}`, data);

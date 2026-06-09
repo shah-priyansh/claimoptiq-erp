@@ -1,10 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI } from '../../services/api';
+import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI, importInsuranceAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineUpload } from 'react-icons/hi';
 import MasterContactFormModal from '../../components/common/MasterContactFormModal';
+import MasterImportModal from '../../components/master/MasterImportModal';
+
+const INSURANCE_IMPORT_CONFIG = {
+  title: 'Import Insurance Companies',
+  entityLabel: 'insurance company',
+  templateName: 'insurance-import-template.xlsx',
+  columns: [
+    { key: 'name',          label: 'Name *',          width: 36, required: true, note: 'Insurance company name (required)' },
+    { key: 'contactPerson', label: 'Contact Person',  width: 22 },
+    { key: 'mobile',        label: 'Mobile',          width: 14 },
+    { key: 'email',         label: 'Email',           width: 26 },
+    { key: 'address',       label: 'Address',         width: 30 },
+  ],
+  sampleRow1: { name: 'Care Health Insurance Co. Ltd', contactPerson: 'Ravi Patel', mobile: '9876543210', email: 'support@carehealth.in', address: 'Mumbai' },
+  sampleRow2: { name: 'HDFC ERGO General Insurance Co. Ltd', contactPerson: '', mobile: '', email: '', address: '' },
+  uploadAPI:  importInsuranceAPI,
+};
 
 const InsuranceList = () => {
   const confirm = useConfirm();
@@ -16,6 +33,7 @@ const InsuranceList = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
+  const [importOpen, setImportOpen] = useState(false);
 
   const fetchItems = async () => {
     try {
@@ -56,7 +74,13 @@ const InsuranceList = () => {
   return (
     <div>
       {canCreate && (
-        <div className="flex justify-end mb-4">
+        <div className="flex justify-end mb-4 gap-2">
+          <button
+            onClick={() => setImportOpen(true)}
+            className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+          >
+            <HiOutlineUpload className="w-4 h-4" /> Import
+          </button>
           <button
             onClick={() => setModal({ open: true, item: null })}
             className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
@@ -122,6 +146,13 @@ const InsuranceList = () => {
         onClose={() => setModal({ open: false, item: null })}
         onSave={handleSave}
         entityLabel="Insurance Company"
+      />
+
+      <MasterImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={fetchItems}
+        config={INSURANCE_IMPORT_CONFIG}
       />
     </div>
   );

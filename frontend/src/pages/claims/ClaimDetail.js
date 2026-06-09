@@ -12,7 +12,7 @@ import {
   HiOutlineX, HiOutlineChevronLeft, HiOutlineChevronRight,
   HiOutlineUser, HiOutlineCash, HiOutlineTruck,
   HiOutlineShieldCheck, HiOutlinePencil, HiOutlineCalendar,
-  HiOutlineClipboardList,
+  HiOutlineClipboardList, HiOutlinePrinter,
 } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
@@ -233,6 +233,7 @@ const ClaimDetail = () => {
   const [hospitals, setHospitals] = useState([]);
   const [insurances, setInsurances] = useState([]);
   const [tpas, setTPAs] = useState([]);
+  const [stickerOpen, setStickerOpen] = useState(false);
   const [dischargeForm, setDischargeForm] = useState({});
   const [admissionForm, setAdmissionForm] = useState({});
   const [mobileError, setMobileError] = useState('');
@@ -743,6 +744,11 @@ const ClaimDetail = () => {
                   {claim.isBilled ? 'Billed' : 'Unbilled'}
                 </span>
               )}
+              <button onClick={() => setStickerOpen(true)}
+                title="Print courier sticker"
+                className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-colors">
+                <HiOutlinePrinter className="w-4 h-4" />
+              </button>
               {isEditable && (
                 <button onClick={() => changeTab('admission')}
                   title="Edit admission details"
@@ -1681,6 +1687,103 @@ const ClaimDetail = () => {
         </div>,
         document.body
       )}
+
+      {stickerOpen && (() => {
+        const recipient = claim.tpa?.name
+          ? { label: 'TPA', name: claim.tpa.name, address: claim.tpa.address, mobile: claim.tpa.mobile }
+          : { label: 'Insurance Company', name: claim.insuranceCompany?.name, address: claim.insuranceCompany?.address, mobile: claim.insuranceCompany?.mobile };
+        const sender = claim.isDirectPatient
+          ? { name: 'Direct Patient', address: '', phone: '' }
+          : { name: claim.hospital?.name, address: claim.hospital?.address, phone: claim.hospital?.phone };
+        const claimNo = claim.ccnNo || (claim.monthClaimNo ? `M${claim.monthClaimNo}` : claim._id?.slice(-8).toUpperCase() || '');
+        return ReactDOM.createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
+            <style>{`
+              @media print {
+                @page { size: A4 portrait; margin: 10mm; }
+                body * { visibility: hidden !important; }
+                #courier-sticker-print, #courier-sticker-print * { visibility: visible !important; }
+                #courier-sticker-print {
+                  position: absolute !important;
+                  left: 0 !important; top: 0 !important;
+                  width: 100% !important;
+                  padding: 0 !important;
+                  background: white !important;
+                }
+                #courier-sticker-print .sticker-card {
+                  width: 100% !important;
+                  box-sizing: border-box !important;
+                  box-shadow: none !important;
+                  border: 2px solid #111 !important;
+                  border-radius: 4px !important;
+                  background: white !important;
+                }
+              }
+            `}</style>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] print:rounded-none print:shadow-none print:max-w-full print:max-h-full">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 print:hidden">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">Courier Sticker</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">A4 portrait · prints at top of page</p>
+                </div>
+                <button onClick={() => setStickerOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                  <HiOutlineX className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div id="courier-sticker-print" className="p-6 overflow-y-auto flex-1 font-sans text-gray-900 bg-gray-100">
+                <div className="sticker-card bg-white border-2 border-gray-900 rounded-lg shadow-sm overflow-hidden">
+                  <div className="p-4 space-y-3">
+                    <div>
+                      <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">TO · {recipient.label}</p>
+                      <p className="text-lg font-extrabold leading-tight text-gray-900">{recipient.name || '—'}</p>
+                      {recipient.address && (
+                        <p className="mt-1 text-sm leading-snug whitespace-pre-line text-gray-700">{recipient.address}</p>
+                      )}
+                      {recipient.mobile && (
+                        <p className="mt-1 text-sm text-gray-700"><span className="font-semibold">Mobile:</span> {recipient.mobile}</p>
+                      )}
+                    </div>
+
+                    <div className="border-t-2 border-dashed border-gray-400" />
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">FROM</p>
+                        <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
+                        {sender.address && (
+                          <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
+                        )}
+                        {sender.phone && (
+                          <p className="mt-0.5 text-xs text-gray-600">M: {sender.phone}</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">CLAIM</p>
+                        <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {claim.patientName || '—'}</p>
+                        <p className="mt-0.5 text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl print:hidden">
+                <button onClick={() => setStickerOpen(false)}
+                  className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-white font-medium">
+                  Close
+                </button>
+                <button onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium shadow-sm">
+                  <HiOutlinePrinter className="w-4 h-4" /> Print
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
     </div>
   );
 };

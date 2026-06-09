@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -21,7 +21,8 @@ const BASE_FIELD_DEFS = [
   { key: 'isDirectPatient',          label: 'DIRECT PATIENT',         width: 12, pdfW: 14, defaultOn: false, getValue: c => c.isDirectPatient ? 'Yes' : 'No' },
   { key: 'doctorName',               label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
   { key: 'claimType',                label: 'CLAIM TYPE',             width: 14, pdfW: 18, defaultOn: true,  getValue: c => c.claimType || '' },
-  { key: 'companyTpa',               label: 'COMPANY/TPA',            width: 30, pdfW: 35, defaultOn: true,  getValue: c => [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ') },
+  { key: 'insuranceCompany',         label: 'COMPANY',                width: 22, pdfW: 26, defaultOn: true,  getValue: c => c.insuranceCompany?.name || '' },
+  { key: 'tpa',                      label: 'TPA',                    width: 18, pdfW: 22, defaultOn: true,  getValue: c => c.tpa?.name || '' },
   { key: 'ccnNo',                    label: 'CCN NO',                 width: 13, pdfW: 14, defaultOn: true,  getValue: c => c.ccnNo || '' },
   { key: 'policyNo',                 label: 'POLICY NO',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.policyNo || '' },
   { key: 'clientId',                 label: 'CLIENT ID',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.clientId || '' },
@@ -64,7 +65,7 @@ const NON_HOSPITAL_FIELD_DEFS = [
 const FIELD_GROUPS = [
   { label: 'Patient Info', keys: ['patientName', 'patientMobile', 'isDirectPatient', 'doctorName', 'claimType', 'policyNo', 'clientId'] },
   { label: 'Hospital',     keys: ['hospital'] },
-  { label: 'Payor',        keys: ['companyTpa', 'ccnNo'] },
+  { label: 'Payor',        keys: ['insuranceCompany', 'tpa', 'ccnNo'] },
   { label: 'Treatment',    keys: ['treatmentType', 'diagnosis', 'surgeryName'] },
   { label: 'Dates',        keys: ['dateOfAdmit', 'dateOfDischarge', 'month', 'fileReceivedDate', 'finalApprovalDate', 'settlementDate'] },
   { label: 'Submission',   keys: ['submitMode', 'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber'] },
@@ -118,6 +119,9 @@ const ClaimList = () => {
   const [fieldModal, setFieldModal] = useState({ open: false, pendingFormat: null });
   const [fieldSearch, setFieldSearch] = useState('');
   const [importOpen, setImportOpen] = useState(false);
+  const [stickerMode, setStickerMode] = useState(false);
+  const [stickerSelectedIds, setStickerSelectedIds] = useState([]);
+  const [stickerPreviewClaims, setStickerPreviewClaims] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const allFieldDefs = (() => {
@@ -143,6 +147,10 @@ const ClaimList = () => {
   const selectGroupKeys = (keys) => setSelectedFields(prev => Array.from(new Set([...prev, ...keys])));
   const deselectGroupKeys = (keys) => setSelectedFields(prev => prev.filter(k => !keys.includes(k)));
   const closeFieldModal = () => { setFieldModal({ open: false, pendingFormat: null }); setFieldSearch(''); };
+
+  const toggleStickerSelect = (id) => setStickerSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const openStickerPreview = (claimsToPrint) => setStickerPreviewClaims(claimsToPrint);
+  const closeStickerPreview = () => setStickerPreviewClaims(null);
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -907,6 +915,22 @@ const ClaimList = () => {
               )}
             </div>
           )}
+          <button
+            onClick={() => {
+              setStickerMode(m => {
+                if (m) setStickerSelectedIds([]);
+                return !m;
+              });
+            }}
+            className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors border ${
+              stickerMode
+                ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+                : 'bg-white border-indigo-600 text-indigo-700 hover:bg-indigo-50'
+            }`}
+          >
+            <HiOutlinePrinter className="w-5 h-5" />
+            {stickerMode ? 'Done' : 'Print Stickers'}
+          </button>
           {can('claims', 'create') && (
             <button onClick={() => navigate('/claims/new')}
               className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg text-sm font-medium">
@@ -1001,14 +1025,28 @@ const ClaimList = () => {
           ) : (
             <div className="divide-y divide-gray-100">
               {claims.map((c) => (
-                <div key={c._id} className="p-4 active:bg-gray-50 cursor-pointer" onClick={() => navigate(`/claims/${c._id}`)}>
+                <div key={c._id}
+                  className={`p-4 active:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50' : ''}`}
+                  onClick={() => stickerMode ? toggleStickerSelect(c._id) : navigate(`/claims/${c._id}`)}>
                   <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-gray-800 truncate">{c.patientName}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{c.policyNo || 'No policy number'}</p>
+                    <div className="flex items-start gap-2 min-w-0">
+                      {stickerMode && (
+                        <input type="checkbox" checked={stickerSelectedIds.includes(c._id)} onChange={() => toggleStickerSelect(c._id)}
+                          onClick={e => e.stopPropagation()}
+                          className="mt-1 w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-800 truncate">{c.patientName}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{c.policyNo || 'No policy number'}</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <StatusBadge c={c} loading={filtersLoading} />
+                      <button onClick={(e) => { e.stopPropagation(); openStickerPreview([c]); }}
+                        title="Print courier sticker"
+                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                        <HiOutlinePrinter className="w-4 h-4" />
+                      </button>
                       {can('claims', 'edit') && (
                         <button onClick={(e) => { e.stopPropagation(); navigate(`/claims/${c._id}?tab=admission`); }}
                           title="Edit admission details"
@@ -1058,8 +1096,16 @@ const ClaimList = () => {
               ) : claims.length === 0 ? (
                 <tr><td colSpan={isHospitalUser ? 7 : 8} className="py-8 text-center text-gray-400">No claims found</td></tr>
               ) : claims.map((c) => (
-                <tr key={c._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/claims/${c._id}`)}>
-                  <td className="py-3 px-3 text-sm text-gray-500">{c.srNo}</td>
+                <tr key={c._id}
+                  className={`hover:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
+                  onClick={() => stickerMode ? toggleStickerSelect(c._id) : navigate(`/claims/${c._id}`)}>
+                  <td className="py-3 px-3 text-sm text-gray-500">
+                    {stickerMode ? (
+                      <input type="checkbox" checked={stickerSelectedIds.includes(c._id)}
+                        onChange={() => toggleStickerSelect(c._id)} onClick={e => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    ) : c.srNo}
+                  </td>
                   <td className="py-3 px-3">
                     <p className="text-sm font-medium text-gray-800">{c.patientName}</p>
                     <p className="text-xs text-gray-400">{c.policyNo || '-'}</p>
@@ -1080,6 +1126,11 @@ const ClaimList = () => {
                   <td className="py-3 px-3"><StatusBadge c={c} loading={filtersLoading} /></td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => openStickerPreview([c])}
+                        title="Print courier sticker"
+                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                        <HiOutlinePrinter className="w-4 h-4" />
+                      </button>
                       {can('claims', 'edit') && (
                         <button onClick={() => navigate(`/claims/${c._id}?tab=admission`)}
                           title="Edit admission details"
@@ -1292,6 +1343,139 @@ const ClaimList = () => {
         </div>
         );
       })()}
+
+      {/* Sticker mode hint banner */}
+      {stickerMode && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40 bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-2 rounded-full shadow-md text-sm font-medium flex items-center gap-2">
+          <HiOutlinePrinter className="w-4 h-4" />
+          {stickerSelectedIds.length === 0
+            ? 'Tap rows to select claims, then click Print at the bottom.'
+            : `${stickerSelectedIds.length} claim${stickerSelectedIds.length > 1 ? 's' : ''} selected.`}
+        </div>
+      )}
+
+      {/* Sticker mode floating action bar */}
+      {stickerMode && stickerSelectedIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900 text-white rounded-xl shadow-2xl px-5 py-3 flex items-center gap-4">
+          <span className="text-sm font-medium">{stickerSelectedIds.length} selected</span>
+          <button onClick={() => setStickerSelectedIds([])}
+            className="text-xs text-gray-300 hover:text-white">Clear</button>
+          <div className="h-5 w-px bg-gray-700" />
+          <button onClick={() => openStickerPreview(claims.filter(c => stickerSelectedIds.includes(c._id)))}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium">
+            <HiOutlinePrinter className="w-4 h-4" /> Print {stickerSelectedIds.length} Sticker{stickerSelectedIds.length > 1 ? 's' : ''}
+          </button>
+        </div>
+      )}
+
+      {/* Courier sticker preview / print modal */}
+      {stickerPreviewClaims && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
+          <style>{`
+            @media print {
+              @page { size: A4 portrait; margin: 10mm; }
+              body * { visibility: hidden !important; }
+              #courier-stickers-print, #courier-stickers-print * { visibility: visible !important; }
+              #courier-stickers-print {
+                position: absolute !important;
+                left: 0 !important; top: 0 !important;
+                width: 100% !important;
+                max-height: none !important;
+                overflow: visible !important;
+                padding: 0 !important;
+                background: white !important;
+              }
+              #courier-stickers-print .sticker-stack { gap: 6mm !important; padding: 0 !important; background: white !important; }
+              #courier-stickers-print .sticker-card {
+                width: 100% !important;
+                box-sizing: border-box !important;
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+                box-shadow: none !important;
+                border: 2px solid #111 !important;
+                border-radius: 4px !important;
+                background: white !important;
+              }
+            }
+          `}</style>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] print:rounded-none print:shadow-none print:max-w-full print:max-h-full">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 print:hidden">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Courier Stickers</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {stickerPreviewClaims.length} sticker{stickerPreviewClaims.length > 1 ? 's' : ''} · A4 portrait · stacked vertically
+                </p>
+              </div>
+              <button onClick={closeStickerPreview}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                <HiOutlineX className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div id="courier-stickers-print" className="overflow-y-auto flex-1 px-6 py-5 font-sans text-gray-900 bg-gray-100">
+              <div className="sticker-stack flex flex-col gap-5">
+                {stickerPreviewClaims.map((c) => {
+                  const recipient = c.tpa?.name
+                    ? { label: 'TPA', name: c.tpa.name, address: c.tpa.address, mobile: c.tpa.mobile }
+                    : { label: 'Insurance Company', name: c.insuranceCompany?.name, address: c.insuranceCompany?.address, mobile: c.insuranceCompany?.mobile };
+                  const sender = c.isDirectPatient
+                    ? { name: 'Direct Patient', address: '', phone: '' }
+                    : { name: c.hospital?.name, address: c.hospital?.address, phone: c.hospital?.phone };
+                  const claimNo = c.ccnNo || (c.monthClaimNo ? `M${c.monthClaimNo}` : (c._id?.slice(-8).toUpperCase() || ''));
+                  return (
+                    <div key={c._id} className="sticker-card bg-white border-2 border-gray-900 rounded-lg shadow-sm overflow-hidden">
+                      <div className="p-4 space-y-3">
+                        <div>
+                          <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">TO · {recipient.label}</p>
+                          <p className="text-lg font-extrabold leading-tight text-gray-900">{recipient.name || '—'}</p>
+                          {recipient.address && (
+                            <p className="mt-1 text-sm leading-snug whitespace-pre-line text-gray-700">{recipient.address}</p>
+                          )}
+                          {recipient.mobile && (
+                            <p className="mt-1 text-sm text-gray-700"><span className="font-semibold">Mobile:</span> {recipient.mobile}</p>
+                          )}
+                        </div>
+
+                        <div className="border-t-2 border-dashed border-gray-400" />
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">FROM</p>
+                            <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
+                            {sender.address && (
+                              <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
+                            )}
+                            {sender.phone && (
+                              <p className="mt-0.5 text-xs text-gray-600">M: {sender.phone}</p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">CLAIM</p>
+                            <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {c.patientName || '—'}</p>
+                            <p className="mt-0.5 text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl print:hidden">
+              <button onClick={closeStickerPreview}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-white font-medium">
+                Close
+              </button>
+              <button onClick={() => window.print()}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium shadow-sm">
+                <HiOutlinePrinter className="w-4 h-4" /> Print
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

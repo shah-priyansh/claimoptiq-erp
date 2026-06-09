@@ -78,6 +78,55 @@ const buildDoctors = (doctors) =>
     email: d.email || '',
   }));
 
+exports.bulkImportHospitals = async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || !rows.length) {
+      return res.status(400).json({ message: 'rows (non-empty array) is required' });
+    }
+    if (rows.length > 2000) return res.status(400).json({ message: 'Maximum 2000 rows per import' });
+
+    const existing = await prisma.hospital.findMany({ select: { name: true } });
+    const existingNames = new Set(existing.map(x => x.name.trim().toLowerCase()));
+
+    const seenInBatch = new Set();
+    const created = [];
+    const errors = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      const rowNum = i + 2;
+      const name = String(row.name || '').trim();
+      const rowErrors = [];
+      if (!name) rowErrors.push('Name is required');
+      else if (existingNames.has(name.toLowerCase())) rowErrors.push(`"${name}" already exists`);
+      else if (seenInBatch.has(name.toLowerCase())) rowErrors.push(`"${name}" is duplicated in the file`);
+      const fieldErr = validateHospitalFields({ phone: row.phone, email: row.email, pincode: row.pincode });
+      if (fieldErr) rowErrors.push(fieldErr);
+
+      if (rowErrors.length) { errors.push({ row: rowNum, name, errors: rowErrors }); continue; }
+      try {
+        const hospital = await prisma.hospital.create({
+          data: buildHospitalData({
+            name, contact: row.contact, email: row.email, phone: row.phone, address: row.address,
+            city: row.city, state: row.state, pincode: row.pincode, referenceBy: row.referenceBy,
+          }),
+          select: { id: true, name: true },
+        });
+        seenInBatch.add(name.toLowerCase());
+        created.push({ row: rowNum, id: hospital.id, name: hospital.name });
+      } catch (e) {
+        errors.push({ row: rowNum, name, errors: [e.message || 'Failed to save'] });
+      }
+    }
+    res.status(errors.length && !created.length ? 400 : 200).json({
+      message: `Imported ${created.length} of ${rows.length} hospital(s)`,
+      created, errors, totalRows: rows.length, successCount: created.length, errorCount: errors.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.createHospital = async (req, res) => {
   try {
     const err = validateHospitalFields(req.body);
