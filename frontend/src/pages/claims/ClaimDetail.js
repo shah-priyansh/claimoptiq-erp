@@ -463,6 +463,37 @@ const ClaimDetail = () => {
     setPendingFiles(p => ({ ...p, [category]: [] }));
   };
 
+  const handleSaveAdmission = async () => {
+    if (admissionForm.patientMobile && !isValidPhone(admissionForm.patientMobile)) {
+      setMobileError('Enter a valid 10-digit Indian mobile number (starts with 6-9)');
+      toast.error('Please fix the mobile number before saving');
+      return;
+    }
+    if (!admissionForm.patientName?.trim()) {
+      toast.error('Patient name is required');
+      return;
+    }
+    if (!admissionForm.hospital) {
+      toast.error('Hospital is required');
+      return;
+    }
+    if (!admissionForm.insuranceCompany) {
+      toast.error('Insurance company is required');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { ...admissionForm };
+      if (!payload.tpa) delete payload.tpa;
+      await updateClaimAPI(id, payload);
+      await uploadPendingFiles('admission', pendingFiles.admission);
+      toast.success('Admission details saved');
+      await fetchClaim(true);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to save');
+    } finally { setSaving(false); }
+  };
+
   const handleSaveDischarge = async () => {
     setSaving(true);
     try {
