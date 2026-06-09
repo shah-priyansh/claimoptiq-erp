@@ -220,7 +220,6 @@ const Reports = () => {
     const COLS = [{ key: '_sr', label: 'SR', width: 5 }, ...fields];
     const N = COLS.length;
     const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
-    const nonAmountCount = COLS.filter(f => !f.isAmount).length;
 
     const thin = { style: 'thin', color: { auto: 1 } };
     const border = { top: thin, bottom: thin, left: thin, right: thin };
@@ -230,6 +229,7 @@ const Reports = () => {
 
     const grandTotals = {};
     amountIndices.forEach(i => { grandTotals[i] = 0; });
+    const firstAmtIdx = amountIndices.length > 0 ? amountIndices[0] : N;
 
     groups.forEach(({ hospital, monthGroups }) => {
       const hospTotals = {};
@@ -273,7 +273,7 @@ const Reports = () => {
         const totalRow = Array(N).fill('');
         totalRow[0] = 'TOTAL';
         amountIndices.forEach(i => { totalRow[i] = monthTotals[i]; });
-        merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: nonAmountCount - 1 } });
+        if (firstAmtIdx > 1) merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: firstAmtIdx - 1 } });
         rowMeta.push({ row: rTotal, type: 'total' });
         wsData.push(totalRow);
         wsData.push(Array(N).fill(''));
@@ -284,7 +284,7 @@ const Reports = () => {
         const subtotalRow = Array(N).fill('');
         subtotalRow[0] = `${hospital.toUpperCase()} SUBTOTAL`;
         amountIndices.forEach(i => { subtotalRow[i] = hospTotals[i]; });
-        merges.push({ s: { r: rSubtotal, c: 0 }, e: { r: rSubtotal, c: nonAmountCount - 1 } });
+        if (firstAmtIdx > 1) merges.push({ s: { r: rSubtotal, c: 0 }, e: { r: rSubtotal, c: firstAmtIdx - 1 } });
         rowMeta.push({ row: rSubtotal, type: 'subtotal' });
         wsData.push(subtotalRow);
         wsData.push(Array(N).fill(''));
@@ -298,7 +298,7 @@ const Reports = () => {
       const grandRow = Array(N).fill('');
       grandRow[0] = 'GRAND TOTAL';
       amountIndices.forEach(i => { grandRow[i] = grandTotals[i]; });
-      merges.push({ s: { r: rGrand, c: 0 }, e: { r: rGrand, c: nonAmountCount - 1 } });
+      if (firstAmtIdx > 1) merges.push({ s: { r: rGrand, c: 0 }, e: { r: rGrand, c: firstAmtIdx - 1 } });
       rowMeta.push({ row: rGrand, type: 'grandtotal' });
       wsData.push(grandRow);
       wsData.push(Array(N).fill(''));
@@ -352,7 +352,6 @@ const Reports = () => {
   const buildPDFDoc = (groups, fields = activeFieldDefs) => {
     const COLS = [{ key: '_sr', label: 'SR', pdfW: 8 }, ...fields];
     const amountIndices = COLS.map((f, i) => f.isAmount ? i : -1).filter(i => i >= 0);
-    const nonAmountCount = COLS.filter(f => !f.isAmount).length;
 
     // Auto-promote to A3 landscape when the column-width sum would overflow A4.
     // Only proportionally scale (and shrink font) if A3 still isn't enough.
@@ -395,20 +394,16 @@ const Reports = () => {
     const grandTotals = {};
     amountIndices.forEach(i => { grandTotals[i] = 0; });
 
+    const firstAmtIdx = amountIndices.length > 0 ? amountIndices[0] : COLS.length;
     const renderSummaryRow = (label, totalsMap, palette) => {
       if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
       const base = { fillColor: palette.fill, textColor: palette.text, fontStyle: 'bold', fontSize: palette.fontSize, lineColor: palette.line || [156, 163, 175], lineWidth: palette.lineWidth || 0.3, cellPadding: 2 };
-      const row = COLS.map((f, i) => {
-        if (i === 0) return { content: label, colSpan: nonAmountCount, styles: { ...base, halign: 'right' } };
-        if (f.isAmount) return { content: fmtAmt(totalsMap[i] || 0), styles: { ...base, halign: 'right' } };
-        return null;
-      }).filter(Boolean);
-
-      // rebuild: first cell spans non-amount cols, then each amount col
-      const summaryRow = [
-        { content: label, colSpan: nonAmountCount, styles: { ...base, halign: 'right' } },
-        ...amountIndices.map(i => ({ content: fmtAmt(totalsMap[i] || 0), styles: { ...base, halign: 'right' } })),
-      ];
+      const summaryRow = [{ content: label, colSpan: Math.max(firstAmtIdx, 1), styles: { ...base, halign: 'right' } }];
+      for (let i = firstAmtIdx; i < COLS.length; i++) {
+        summaryRow.push(amountIndices.includes(i)
+          ? { content: fmtAmt(totalsMap[i] || 0), styles: { ...base, halign: 'right' } }
+          : { content: '', styles: { ...base } });
+      }
 
       autoTable(doc, {
         startY,
@@ -462,10 +457,13 @@ const Reports = () => {
         amountIndices.forEach(i => { hospTotals[i] += monthTotals[i]; });
 
         const totalFill = [243, 244, 246];
-        const totalRowObj = [
-          { content: 'TOTAL', colSpan: nonAmountCount, styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } },
-          ...amountIndices.map(i => ({ content: fmtAmt(monthTotals[i]), styles: { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] } })),
-        ];
+        const totalStyles = { halign: 'right', fillColor: totalFill, fontStyle: 'bold', textColor: [17, 24, 39] };
+        const totalRowObj = [{ content: 'TOTAL', colSpan: Math.max(firstAmtIdx, 1), styles: totalStyles }];
+        for (let i = firstAmtIdx; i < COLS.length; i++) {
+          totalRowObj.push(amountIndices.includes(i)
+            ? { content: fmtAmt(monthTotals[i]), styles: totalStyles }
+            : { content: '', styles: totalStyles });
+        }
         bodyRows.push(totalRowObj);
 
         autoTable(doc, {
