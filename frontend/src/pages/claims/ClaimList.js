@@ -116,6 +116,7 @@ const ClaimList = () => {
   const exportMenuRef = useRef(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [fieldModal, setFieldModal] = useState({ open: false, pendingFormat: null });
+  const [fieldSearch, setFieldSearch] = useState('');
   const [importOpen, setImportOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -139,6 +140,9 @@ const ClaimList = () => {
   const toggleField = (key) => setSelectedFields(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   const selectAllFields = () => setSelectedFields(allFieldDefs.map(f => f.key));
   const deselectAllFields = () => setSelectedFields([]);
+  const selectGroupKeys = (keys) => setSelectedFields(prev => Array.from(new Set([...prev, ...keys])));
+  const deselectGroupKeys = (keys) => setSelectedFields(prev => prev.filter(k => !keys.includes(k)));
+  const closeFieldModal = () => { setFieldModal({ open: false, pendingFormat: null }); setFieldSearch(''); };
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -1162,35 +1166,85 @@ const ClaimList = () => {
       />
 
       {/* Field Selection Modal */}
-      {fieldModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">Select Export Fields</h3>
-                <p className="text-xs text-gray-400 mt-0.5">{selectedFields.length} of {allFieldDefs.length} fields selected</p>
+      {fieldModal.open && (() => {
+        const searchLower = fieldSearch.trim().toLowerCase();
+        const matches = (f) => !searchLower || f.label.toLowerCase().includes(searchLower);
+        const visibleGroups = FIELD_GROUPS.map(group => {
+          const groupFields = allFieldDefs.filter(f => group.keys.includes(f.key));
+          const filtered = groupFields.filter(matches);
+          return { ...group, groupFields, filtered };
+        }).filter(g => g.filtered.length > 0);
+        const noResults = !visibleGroups.length;
+        return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-gray-100">
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-gray-900">Select Export Fields</h3>
+                <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-primary-50 text-primary-700 text-xs font-semibold">
+                    {selectedFields.length} / {allFieldDefs.length} selected
+                  </span>
+                  <button onClick={selectAllFields} className="text-xs text-primary-600 hover:text-primary-700 font-medium">Select all</button>
+                  <span className="text-gray-300 text-xs">·</span>
+                  <button onClick={deselectAllFields} className="text-xs text-gray-500 hover:text-gray-700 font-medium">Clear all</button>
+                </div>
               </div>
-              <button onClick={() => setFieldModal({ open: false, pendingFormat: null })}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+              <button onClick={closeFieldModal}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 shrink-0">
                 <HiOutlineX className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex items-center gap-2 px-5 py-2.5 border-b border-gray-50">
-              <button onClick={selectAllFields} className="text-xs text-primary-600 hover:underline font-medium">Select all</button>
-              <span className="text-gray-300">·</span>
-              <button onClick={deselectAllFields} className="text-xs text-gray-500 hover:underline font-medium">Deselect all</button>
+            {/* Search */}
+            <div className="px-6 py-3 border-b border-gray-100">
+              <div className="relative">
+                <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={fieldSearch}
+                  onChange={e => setFieldSearch(e.target.value)}
+                  placeholder="Search fields..."
+                  className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-gray-50 focus:bg-white transition-colors"
+                />
+                {fieldSearch && (
+                  <button onClick={() => setFieldSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+                    <HiOutlineX className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="overflow-y-auto flex-1 px-5 py-3 space-y-4">
-              {FIELD_GROUPS.map(group => {
-                const groupFields = allFieldDefs.filter(f => group.keys.includes(f.key));
-                if (!groupFields.length) return null;
+            {/* Field groups */}
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-5">
+              {noResults && (
+                <div className="text-center py-12 text-sm text-gray-500">
+                  No fields match "<span className="font-medium text-gray-700">{fieldSearch}</span>"
+                </div>
+              )}
+              {visibleGroups.map(({ label, groupFields, filtered }) => {
+                const groupKeys = groupFields.map(f => f.key);
+                const selectedInGroup = groupKeys.filter(k => selectedFields.includes(k)).length;
+                const allInGroup = selectedInGroup === groupKeys.length && groupKeys.length > 0;
+                const toggleGroup = () => allInGroup ? deselectGroupKeys(groupKeys) : selectGroupKeys(groupKeys);
                 return (
-                  <div key={group.label}>
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">{group.label}</p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {groupFields.map(field => (
+                  <div key={label}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-500">{label}</p>
+                        <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                          {selectedInGroup}/{groupKeys.length}
+                        </span>
+                      </div>
+                      <button onClick={toggleGroup}
+                        className="text-[11px] font-semibold text-primary-600 hover:text-primary-700 uppercase tracking-wide">
+                        {allInGroup ? 'Clear group' : 'Select group'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5">
+                      {filtered.map(field => (
                         <label key={field.key}
                           className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${
                             selectedFields.includes(field.key)
@@ -1204,7 +1258,7 @@ const ClaimList = () => {
                             onChange={() => toggleField(field.key)}
                             className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-3.5 h-3.5"
                           />
-                          <span className={`text-xs font-medium ${selectedFields.includes(field.key) ? 'text-primary-700' : 'text-gray-600'}`}>
+                          <span className={`text-xs font-medium truncate ${selectedFields.includes(field.key) ? 'text-primary-700' : 'text-gray-600'}`}>
                             {field.label}
                           </span>
                         </label>
@@ -1215,15 +1269,16 @@ const ClaimList = () => {
               })}
             </div>
 
-            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100">
-              <button onClick={() => setFieldModal({ open: false, pendingFormat: null })}
-                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+              <button onClick={closeFieldModal}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-white font-medium">
                 Cancel
               </button>
               <button
                 onClick={() => handleModalExport(fieldModal.pendingFormat)}
                 disabled={!selectedFields.length}
-                className={`flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-lg font-medium disabled:opacity-50 ${
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-lg font-medium disabled:opacity-50 shadow-sm ${
                   fieldModal.pendingFormat === 'pdf'
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : 'bg-emerald-600 hover:bg-emerald-700'
@@ -1235,7 +1290,8 @@ const ClaimList = () => {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
