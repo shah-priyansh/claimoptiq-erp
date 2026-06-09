@@ -13,22 +13,44 @@ import autoTable from 'jspdf-autotable';
 import JSZip from 'jszip';
 
 // ─── Field definitions ────────────────────────────────────────────────────────
+const fmtDateCell = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '';
 const BASE_FIELD_DEFS = [
-  { key: 'patientName',   label: 'PATIENT NAME',           width: 22, pdfW: 28, defaultOn: true,  getValue: c => c.patientName || '' },
-  { key: 'doctorName',    label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
-  { key: 'claimType',     label: 'CLAIM TYPE',             width: 14, pdfW: 18, defaultOn: true,  getValue: c => c.claimType || '' },
-  { key: 'companyTpa',    label: 'COMPANY/TPA',            width: 30, pdfW: 35, defaultOn: true,  getValue: c => [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ') },
-  { key: 'ccnNo',         label: 'CCN NO',                 width: 13, pdfW: 14, defaultOn: true,  getValue: c => c.ccnNo || '' },
-  { key: 'policyNo',      label: 'POLICY NO',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.policyNo || '' },
-  { key: 'clientId',      label: 'CLIENT ID',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.clientId || '' },
-  { key: 'dateOfAdmit',   label: 'D.O.A.',                 width: 13, pdfW: 16, defaultOn: true,  getValue: c => c.dateOfAdmit ? new Date(c.dateOfAdmit).toLocaleDateString('en-IN') : '' },
-  { key: 'dateOfDischarge',label: 'D.O.D.',                width: 13, pdfW: 16, defaultOn: true,  getValue: c => c.dateOfDischarge ? new Date(c.dateOfDischarge).toLocaleDateString('en-IN') : '' },
-  { key: 'hospitalBill',  label: 'HOSPITAL BILL',          width: 14, pdfW: 22, defaultOn: true,  isAmount: true, getValue: c => c.hospitalFinalBill || 0 },
-  { key: 'approvalAmt',   label: 'FINAL APPROVAL AMOUNT',  width: 20, pdfW: 26, defaultOn: true,  isAmount: true, getValue: c => c.finalApprovalAmount || 0 },
-  { key: 'settlement',    label: 'SETTLEMENT AMOUNT',      width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.settlementAmount || 0 },
-  { key: 'tds',           label: 'TDS',                    width: 12, pdfW: 14, defaultOn: false, isAmount: true, getValue: c => c.tds || 0 },
-  { key: 'bankTransfer',  label: 'BANK TRANSFER AMOUNT',   width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.bankTransferAmount || 0 },
-  { key: 'status',        label: 'STATUS',                 width: 18, pdfW: 22, defaultOn: false, getValue: c => (c.status || '').replace(/_/g, ' ') },
+  { key: 'patientName',              label: 'PATIENT NAME',           width: 22, pdfW: 28, defaultOn: true,  getValue: c => c.patientName || '' },
+  { key: 'patientMobile',            label: 'PATIENT MOBILE',         width: 14, pdfW: 18, defaultOn: false, getValue: c => c.patientMobile || '' },
+  { key: 'isDirectPatient',          label: 'DIRECT PATIENT',         width: 12, pdfW: 14, defaultOn: false, getValue: c => c.isDirectPatient ? 'Yes' : 'No' },
+  { key: 'doctorName',               label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
+  { key: 'claimType',                label: 'CLAIM TYPE',             width: 14, pdfW: 18, defaultOn: true,  getValue: c => c.claimType || '' },
+  { key: 'companyTpa',               label: 'COMPANY/TPA',            width: 30, pdfW: 35, defaultOn: true,  getValue: c => [c.insuranceCompany?.name, c.tpa?.name].filter(Boolean).join(' / ') },
+  { key: 'ccnNo',                    label: 'CCN NO',                 width: 13, pdfW: 14, defaultOn: true,  getValue: c => c.ccnNo || '' },
+  { key: 'policyNo',                 label: 'POLICY NO',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.policyNo || '' },
+  { key: 'clientId',                 label: 'CLIENT ID',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.clientId || '' },
+  { key: 'treatmentType',            label: 'TREATMENT TYPE',         width: 14, pdfW: 18, defaultOn: false, getValue: c => c.treatmentType || '' },
+  { key: 'diagnosis',                label: 'DIAGNOSIS',              width: 22, pdfW: 28, defaultOn: false, getValue: c => c.diagnosis || '' },
+  { key: 'surgeryName',              label: 'SURGERY NAME',           width: 20, pdfW: 24, defaultOn: false, getValue: c => c.surgeryName || '' },
+  { key: 'dateOfAdmit',              label: 'D.O.A.',                 width: 13, pdfW: 16, defaultOn: true,  getValue: c => fmtDateCell(c.dateOfAdmit) },
+  { key: 'dateOfDischarge',          label: 'D.O.D.',                 width: 13, pdfW: 16, defaultOn: true,  getValue: c => fmtDateCell(c.dateOfDischarge) },
+  { key: 'month',                    label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => c.month || '' },
+  { key: 'fileReceivedDate',         label: 'FILE RECEIVED DATE',     width: 14, pdfW: 18, defaultOn: false, getValue: c => fmtDateCell(c.fileReceivedDate) },
+  { key: 'submitMode',               label: 'SUBMIT MODE',            width: 12, pdfW: 14, defaultOn: false, getValue: c => c.submitMode || '' },
+  { key: 'courierSubmitDate',        label: 'COURIER SUBMIT DATE',    width: 14, pdfW: 18, defaultOn: false, getValue: c => fmtDateCell(c.courierSubmitDate) },
+  { key: 'onlineSubmitDate',         label: 'ONLINE SUBMIT DATE',     width: 14, pdfW: 18, defaultOn: false, getValue: c => fmtDateCell(c.onlineSubmitDate) },
+  { key: 'courierCompanyName',       label: 'COURIER COMPANY',        width: 16, pdfW: 20, defaultOn: false, getValue: c => c.courierCompanyName || '' },
+  { key: 'podNumber',                label: 'POD NUMBER',             width: 14, pdfW: 16, defaultOn: false, getValue: c => c.podNumber || '' },
+  { key: 'hospitalBill',             label: 'HOSPITAL BILL',          width: 14, pdfW: 22, defaultOn: true,  isAmount: true, getValue: c => c.hospitalFinalBill || 0 },
+  { key: 'mouDiscount',              label: 'MOU DISCOUNT',           width: 14, pdfW: 18, defaultOn: false, isAmount: true, getValue: c => c.mouDiscount || 0 },
+  { key: 'deduction',                label: 'DEDUCTION',              width: 12, pdfW: 16, defaultOn: false, isAmount: true, getValue: c => c.deduction || 0 },
+  { key: 'approvalAmt',              label: 'FINAL APPROVAL AMOUNT',  width: 20, pdfW: 26, defaultOn: true,  isAmount: true, getValue: c => c.finalApprovalAmount || 0 },
+  { key: 'finalApprovalDate',        label: 'FINAL APPROVAL DATE',    width: 14, pdfW: 18, defaultOn: false, getValue: c => fmtDateCell(c.finalApprovalDate) },
+  { key: 'settlement',               label: 'SETTLEMENT AMOUNT',      width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.settlementAmount || 0 },
+  { key: 'settlementAmountDeduction', label: 'SETTLEMENT DEDUCTION',  width: 16, pdfW: 20, defaultOn: false, isAmount: true, getValue: c => c.settlementAmountDeduction || 0 },
+  { key: 'mouDiscountOnSettlement',  label: 'MOU DISC ON SETTLEMENT', width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.mouDiscountOnSettlement || 0 },
+  { key: 'tds',                      label: 'TDS',                    width: 12, pdfW: 14, defaultOn: false, isAmount: true, getValue: c => c.tds || 0 },
+  { key: 'bankTransfer',             label: 'BANK TRANSFER AMOUNT',   width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.bankTransferAmount || 0 },
+  { key: 'settlementDate',           label: 'SETTLEMENT DATE',        width: 14, pdfW: 18, defaultOn: false, getValue: c => fmtDateCell(c.settlementDate) },
+  { key: 'neftNo',                   label: 'NEFT NO',                width: 14, pdfW: 16, defaultOn: false, getValue: c => c.neftNo || '' },
+  { key: 'remarks',                  label: 'REMARKS',                width: 22, pdfW: 28, defaultOn: false, getValue: c => c.remarks || '' },
+  { key: 'rejectedReason',           label: 'REJECTED REASON',        width: 20, pdfW: 26, defaultOn: false, getValue: c => c.rejectedReason || '' },
+  { key: 'status',                   label: 'STATUS',                 width: 18, pdfW: 22, defaultOn: false, getValue: c => (c.status || '').replace(/_/g, ' ') },
 ];
 const SA_FIELD_DEFS = [
   { key: 'referenceBy',   label: 'REFERENCE BY',           width: 18, pdfW: 28, defaultOn: true,  superAdminOnly: true, getValue: c => c.hospital?.referenceBy || '' },
@@ -605,11 +627,13 @@ const Reports = () => {
   const deselectAllFields = () => setSelectedFields([]);
 
   const FIELD_GROUPS = [
-    { label: 'Patient Info', keys: ['patientName', 'doctorName', 'claimType', 'policyNo', 'clientId'] },
+    { label: 'Patient Info', keys: ['patientName', 'patientMobile', 'isDirectPatient', 'doctorName', 'claimType', 'policyNo', 'clientId'] },
     { label: 'Payor', keys: ['companyTpa', 'ccnNo'] },
-    { label: 'Dates', keys: ['dateOfAdmit', 'dateOfDischarge'] },
-    { label: 'Financials', keys: ['hospitalBill', 'approvalAmt', 'settlement', 'tds', 'bankTransfer'] },
-    { label: 'Other', keys: ['status', ...(isSuperAdmin ? ['referenceBy', 'filePrice'] : [])] },
+    { label: 'Treatment', keys: ['treatmentType', 'diagnosis', 'surgeryName'] },
+    { label: 'Dates', keys: ['dateOfAdmit', 'dateOfDischarge', 'month', 'fileReceivedDate', 'finalApprovalDate', 'settlementDate'] },
+    { label: 'Submission', keys: ['submitMode', 'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber'] },
+    { label: 'Financials', keys: ['hospitalBill', 'mouDiscount', 'deduction', 'approvalAmt', 'settlement', 'settlementAmountDeduction', 'mouDiscountOnSettlement', 'tds', 'bankTransfer'] },
+    { label: 'Other', keys: ['status', 'neftNo', 'remarks', 'rejectedReason', ...(isSuperAdmin ? ['referenceBy', 'filePrice'] : [])] },
   ];
 
   // ── Render ────────────────────────────────────────────────────────────────
