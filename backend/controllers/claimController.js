@@ -23,6 +23,17 @@ const claimInclude = {
   tpa: { select: { id: true, name: true, address: true, mobile: true } },
 };
 
+// Lean include used for list views — drops billingServices/slabs which are only
+// needed by super-admins for filePrice calculation, and are stripped from the
+// response for everyone else anyway.
+const claimListInclude = {
+  hospital: {
+    select: { id: true, name: true, referenceBy: true, address: true, phone: true },
+  },
+  insuranceCompany: { select: { id: true, name: true } },
+  tpa: { select: { id: true, name: true } },
+};
+
 const claimFullInclude = {
   ...claimInclude,
   createdBy: { select: { id: true, name: true } },
@@ -165,11 +176,12 @@ exports.getClaims = async (req, res) => {
       ];
     }
 
+    const isSuperAdmin = req.user?.role?.slug === 'super_admin';
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const [claims, total] = await Promise.all([
       prisma.claim.findMany({
         where,
-        include: claimInclude,
+        include: isSuperAdmin ? claimInclude : claimListInclude,
         orderBy: { createdAt: 'desc' },
         skip,
         take: parseInt(limit),
@@ -177,7 +189,6 @@ exports.getClaims = async (req, res) => {
       prisma.claim.count({ where }),
     ]);
 
-    const isSuperAdmin = req.user?.role?.slug === 'super_admin';
     const claimsData = toResponse(claims);
     const stripped = isSuperAdmin
       ? claimsData
