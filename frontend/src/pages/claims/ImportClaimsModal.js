@@ -56,6 +56,17 @@ const COLUMNS = [
   { key: 'filePrice',           label: 'File Price',                    width: 14, note: 'Optional — overrides hospital\'s default billing for this claim', superAdminOnly: true },
 ];
 
+// Persist the import result to localStorage so the user can return after
+// closing the modal or refreshing the page and still download the failed rows.
+const persistResult = (result, failedSourceRows, fileName) => {
+  try {
+    localStorage.setItem(
+      'claimImportResult_v1',
+      JSON.stringify({ result, failedSourceRows, fileName, savedAt: Date.now() }),
+    );
+  } catch { /* quota exceeded — silently drop */ }
+};
+
 // Strip trailing '*' / spaces from header → use to match xlsx columns to data keys
 const labelToKey = (label) => {
   const cleaned = String(label || '').replace(/\*/g, '').trim().toLowerCase();
@@ -153,11 +164,38 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
   const [fileName, setFileName] = useState('');
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null);
+  // Source row data for the rows that failed, keyed by source-file row number.
+  // Persisted so the user can download the failed-rows xlsx after closing the
+  // modal or refreshing the page.
+  const [failedSourceRows, setFailedSourceRows] = useState({});
   const [previewLimit, setPreviewLimit] = useState(200);
   const [onlyIssues, setOnlyIssues] = useState(false);
   const [autoCreateMasters, setAutoCreateMasters] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, batch: 0, batches: 0, imported: 0, failed: 0, etaSec: null });
+  // `cancelRef` is the synchronous source of truth read inside the import loop.
+  // `cancelling` mirrors it as React state so the UI can re-render the button
+  // immediately (refs don't trigger re-renders).
   const cancelRef = useRef(false);
+  const [cancelling, setCancelling] = useState(false);
+  // Holds the AbortController for the in-flight batch request, so the user
+  // doesn't have to wait for the current batch to finish before cancel takes effect.
+  const inFlightAbortRef = useRef(null);
+
+  // Hydrate the last import result from localStorage on first mount, so the
+  // failed rows survive modal close / page refresh until the user clears them.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('claimImportResult_v1');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed?.result) {
+        setResult(parsed.result);
+        setFailedSourceRows(parsed.failedSourceRows || {});
+        setFileName(parsed.fileName || '');
+        setStep('result');
+      }
+    } catch { /* ignore — corrupt entry */ }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -176,10 +214,13 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
   }, [open, isHospitalUser]);
 
   useEffect(() => {
-    if (!open) {
-      setStep('upload'); setRows([]); setFileName(''); setResult(null); setPreviewLimit(200); setOnlyIssues(false); setAutoCreateMasters(false);
-    }
-  }, [open]);
+    if (open) return;
+    // Reset upload/preview state when the modal closes — but keep `result` and
+    // `failedSourceRows` so the user can come back and download the failed rows.
+    // If a result is currently shown, leave step on 'result' so reopening shows it.
+    setRows([]); setPreviewLimit(200); setOnlyIssues(false); setAutoCreateMasters(false);
+    if (!result) { setStep('upload'); setFileName(''); }
+  }, [open, result]);
 
   // ── Pre-validate rows against loaded masters (mirrors backend logic) ──
   const validation = React.useMemo(() => {
@@ -494,6 +535,8 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
     for (let i = 0; i < rows.length; i += BATCH_SIZE) batches.push(rows.slice(i, i + BATCH_SIZE));
 
     cancelRef.current = false;
+    setCancelling(false);
+    inFlightAbortRef.current = null;
     setImporting(true);
     setProgress({ done: 0, total: rows.length, batch: 0, batches: batches.length, imported: 0, failed: 0, etaSec: null });
 
@@ -522,10 +565,31 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       for (let i = 0; i < batches.length; i++) {
         if (cancelRef.current) break;
         const batch = batches[i];
+        // Backend numbers each batch starting at row 2 (it doesn't know about
+        // batching). Shift the row numbers back into the source file's coordinate
+        // system so error reports and the failed-rows export point at the right rows.
+        const rowOffset = i * BATCH_SIZE;
+        // Per-batch AbortController so Cancel can interrupt the in-flight request
+        // instead of having to wait for it to finish.
+        const controller = new AbortController();
+        inFlightAbortRef.current = controller;
         // Auto-create flag only meaningful first time — subsequent batches will see masters already present.
-        const { data } = await importClaimsAPI(batch, { autoCreateMasters: isSuperAdmin && autoCreateMasters });
-        aggregated.created.push(...(data.created || []));
-        aggregated.errors.push(...(data.errors  || []));
+        let data;
+        try {
+          ({ data } = await importClaimsAPI(
+            batch,
+            { autoCreateMasters: isSuperAdmin && autoCreateMasters },
+            { signal: controller.signal },
+          ));
+        } catch (err) {
+          if (cancelRef.current && (err.code === 'ERR_CANCELED' || err.name === 'CanceledError' || err.name === 'AbortError')) break;
+          throw err;
+        } finally {
+          inFlightAbortRef.current = null;
+        }
+        const shifted = (arr) => (arr || []).map(e => ({ ...e, row: (e.row || 0) + rowOffset }));
+        aggregated.created.push(...shifted(data.created));
+        aggregated.errors.push(...shifted(data.errors));
         aggregated.successCount   += data.successCount   || 0;
         aggregated.errorCount     += data.errorCount     || 0;
         aggregated.duplicateCount += data.duplicateCount || 0;
@@ -552,7 +616,14 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       aggregated.message = cancelRef.current
         ? `Cancelled at ${aggregated.successCount} of ${rows.length} claim(s)`
         : `Imported ${aggregated.successCount} of ${rows.length} claim(s)`;
+      const failedMap = {};
+      aggregated.errors.forEach(e => {
+        const src = rows[e.row - 2];
+        if (src) failedMap[e.row] = src;
+      });
       setResult(aggregated);
+      setFailedSourceRows(failedMap);
+      persistResult(aggregated, failedMap, fileName);
       setStep('result');
       if (aggregated.successCount > 0) {
         toast.success(aggregated.message);
@@ -564,20 +635,73 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       aggregated.message = err.response?.data?.message || 'Import failed';
       // Still surface what we got so far
       if (aggregated.successCount + aggregated.errorCount > 0) {
+        const failedMap = {};
+        aggregated.errors.forEach(e => {
+          const src = rows[e.row - 2];
+          if (src) failedMap[e.row] = src;
+        });
         setResult(aggregated);
+        setFailedSourceRows(failedMap);
+        persistResult(aggregated, failedMap, fileName);
         setStep('result');
       }
       toast.error(aggregated.message);
     } finally {
       setImporting(false);
       cancelRef.current = false;
+      setCancelling(false);
+      inFlightAbortRef.current = null;
     }
   };
 
-  const cancelImport = () => { cancelRef.current = true; };
+  const cancelImport = () => {
+    cancelRef.current = true;
+    setCancelling(true);
+    // Abort the current batch so the user doesn't wait for it to complete.
+    inFlightAbortRef.current?.abort();
+  };
 
+  // Keep the prior result around (it's persisted) — user can still find it by
+  // reopening; "Import Another File" just navigates back to the upload step.
   const resetAndUploadAgain = () => {
-    setStep('upload'); setRows([]); setFileName(''); setResult(null);
+    setStep('upload'); setRows([]); setFileName('');
+  };
+
+  // Wipes the persisted result — used by the "Clear" button on the result step.
+  const clearImportResult = () => {
+    setResult(null); setFailedSourceRows({});
+    setStep('upload'); setRows([]); setFileName('');
+    try { localStorage.removeItem('claimImportResult_v1'); } catch { /* ignore */ }
+  };
+
+  // Build an xlsx containing only the rows that failed, prefixed with an Errors
+  // column so the user can fix them and re-upload. Column order matches the
+  // import template.
+  const downloadFailedRows = () => {
+    if (!result?.errors?.length) return;
+    const cols = COLUMNS.filter(c => isSuperAdmin || !c.superAdminOnly);
+    const headers = ['Errors', ...cols.map(c => c.label)];
+    const data = result.errors.map(e => {
+      const src = failedSourceRows[e.row] || {};
+      return [
+        (e.errors || []).join(' | '),
+        ...cols.map(c => {
+          const v = src[c.key];
+          return v === null || v === undefined ? '' : v;
+        }),
+      ];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    ws['!cols'] = [{ wch: 50 }, ...cols.map(c => ({ wch: c.width || 16 }))];
+    const headerStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE2E2' } } };
+    headers.forEach((_, idx) => {
+      const addr = XLSX.utils.encode_cell({ r: 0, c: idx });
+      if (ws[addr]) ws[addr].s = headerStyle;
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Failed Rows');
+    const stamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `claim-import-failed-${stamp}.xlsx`);
   };
 
   if (!open) return null;
@@ -618,10 +742,10 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
             <p className="text-xs text-gray-400 mt-3">Please don't close this page</p>
             <button
               onClick={cancelImport}
-              disabled={cancelRef.current}
-              className="mt-4 w-full px-4 py-2 text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-semibold disabled:opacity-50"
+              disabled={cancelling}
+              className="mt-4 w-full px-4 py-2 text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {cancelRef.current ? 'Stopping…' : 'Cancel import'}
+              {cancelling ? 'Stopping…' : 'Cancel import'}
             </button>
           </div>
         </div>
@@ -1013,6 +1137,17 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
           )}
           {step === 'result' && (
             <>
+              {result?.errors?.length > 0 && (
+                <button onClick={downloadFailedRows}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-medium">
+                  <HiOutlineDownload className="w-4 h-4" />
+                  Download Failed Rows ({result.errors.length})
+                </button>
+              )}
+              <button onClick={clearImportResult}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">
+                Clear
+              </button>
               <button onClick={resetAndUploadAgain}
                 className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">
                 Import Another File
