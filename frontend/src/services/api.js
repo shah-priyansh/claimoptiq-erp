@@ -67,7 +67,7 @@ export const deleteBillingServiceNameAPI = (id) => API.delete(`/billing-service-
 // Claims
 export const getClaimsAPI = (params) => API.get('/claims', { params });
 export const exportClaimsAPI = (params) => API.get('/claims/export', { params });
-export const importClaimsAPI = (rows, opts = {}) => API.post('/claims/import', { rows, ...opts });
+export const importClaimsAPI = (rows, opts = {}, config = {}) => API.post('/claims/import', { rows, ...opts }, config);
 export const getClaimAPI = (id) => API.get(`/claims/${id}`);
 export const createClaimAPI = (data) => API.post('/claims', data);
 export const updateClaimAPI = (id, data) => API.put(`/claims/${id}`, data);
