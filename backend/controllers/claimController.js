@@ -121,7 +121,7 @@ exports.createClaim = async (req, res) => {
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, page = 1, limit = 25 } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, page = 1, limit = 25, skipCount } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
@@ -177,17 +177,18 @@ exports.getClaims = async (req, res) => {
     }
 
     const isSuperAdmin = req.user?.role?.slug === 'super_admin';
+    const skipTotal = skipCount === 'true' || skipCount === '1';
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const [claims, total] = await Promise.all([
-      prisma.claim.findMany({
-        where,
-        include: isSuperAdmin ? claimInclude : claimListInclude,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: parseInt(limit),
-      }),
-      prisma.claim.count({ where }),
-    ]);
+    const findManyP = prisma.claim.findMany({
+      where,
+      include: isSuperAdmin ? claimInclude : claimListInclude,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: parseInt(limit),
+    });
+    const [claims, total] = skipTotal
+      ? [await findManyP, null]
+      : await Promise.all([findManyP, prisma.claim.count({ where })]);
 
     const claimsData = toResponse(claims);
     const stripped = isSuperAdmin
@@ -200,7 +201,7 @@ exports.getClaims = async (req, res) => {
       claims: stripped,
       total,
       page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit)),
+      pages: total === null ? null : Math.ceil(total / parseInt(limit)),
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
