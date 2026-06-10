@@ -261,6 +261,12 @@ model Claim {
   submissions               DocumentSubmission[]
   statusHistory             ClaimStatusHistory[]
 
+  @@index([createdAt(sort: Desc)])
+  @@index([hospitalId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([month])
+  @@index([ccnNo])
+  @@index([patientName])
   @@map("claims")
 }
 
