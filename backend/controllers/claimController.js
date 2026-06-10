@@ -684,6 +684,11 @@ exports.importClaims = async (req, res) => {
 
     const created = [];
     const errors = [];
+    // Hospitals whose blank `referenceBy` should be back-filled from the import.
+    // Persisted in a single batch after the row loop so old hospitals adopt the
+    // row's value the first time it's seen, and subsequent rows for the same
+    // hospital validate against it (rather than each row tripping the mismatch).
+    const pendingHospitalReferenceBy = new Map();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] || {};
@@ -722,8 +727,18 @@ exports.importClaims = async (req, res) => {
           rowErrors.push(`Hospital "${hospitalName}" is inactive`);
         } else {
           hospitalId = h.id;
-          if (referenceByInput && norm(h.referenceBy) !== norm(referenceByInput)) {
-            rowErrors.push(`Reference By "${referenceByInput}" does not match hospital "${hospitalName}" (expected "${h.referenceBy || '(blank)'}")`);
+          if (referenceByInput) {
+            const existingRef = norm(h.referenceBy);
+            if (!existingRef) {
+              // Hospital has no reference set yet — adopt the row's value as the
+              // canonical reference, both in-memory (so subsequent rows for the
+              // same hospital validate against it) and queued for a single DB
+              // update after the loop.
+              h.referenceBy = referenceByInput;
+              pendingHospitalReferenceBy.set(h.id, referenceByInput);
+            } else if (existingRef !== norm(referenceByInput)) {
+              rowErrors.push(`Reference By "${referenceByInput}" does not match hospital "${hospitalName}" (expected "${h.referenceBy}")`);
+            }
           }
         }
       } else {
@@ -876,6 +891,14 @@ exports.importClaims = async (req, res) => {
       } catch (e) {
         errors.push({ row: rowNum, patientName, errors: [e.message || 'Failed to save'] });
       }
+    }
+
+    if (pendingHospitalReferenceBy.size) {
+      await Promise.all(
+        [...pendingHospitalReferenceBy.entries()].map(([id, referenceBy]) =>
+          prisma.hospital.update({ where: { id }, data: { referenceBy } }),
+        ),
+      );
     }
 
     const fuzzy = {
