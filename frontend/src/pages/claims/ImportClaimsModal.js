@@ -583,7 +583,25 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
           ));
         } catch (err) {
           if (cancelRef.current && (err.code === 'ERR_CANCELED' || err.name === 'CanceledError' || err.name === 'AbortError')) break;
-          throw err;
+          // Don't abort the whole import just because one batch failed (network
+          // blip, 4xx, 5xx). Record every row in the batch as failed and move
+          // on so the remaining batches still upload.
+          const batchMsg = err.response?.data?.message || err.message || 'Batch failed';
+          // Use batch-local row numbers; the `shifted()` call below adds rowOffset.
+          const batchErrors = batch.map((r, idx) => ({
+            row: idx + 2,
+            patientName: r?.patientName || '',
+            errors: [batchMsg],
+          }));
+          data = {
+            created: [],
+            errors: batchErrors,
+            successCount: 0,
+            errorCount: batch.length,
+            duplicateCount: 0,
+            fuzzyMatches: { hospitals: [], insurers: [], tpas: [] },
+            autoCreated:  { hospitals: [], insurers: [], tpas: [] },
+          };
         } finally {
           inFlightAbortRef.current = null;
         }
