@@ -65,6 +65,7 @@ const ClaimForm = () => {
     policyNo: '', clientId: '', ccnNo: '',
     dateOfAdmit: new Date().toISOString().slice(0, 10),
     dateOfDischarge: '',
+    treatmentType: '', diagnosis: '', surgeryName: '',
   });
 
   useEffect(() => {
@@ -95,6 +96,9 @@ const ClaimForm = () => {
           ccnNo: data.ccnNo || '',
           dateOfAdmit: data.dateOfAdmit ? new Date(data.dateOfAdmit).toISOString().slice(0, 10) : '',
           dateOfDischarge: data.dateOfDischarge ? new Date(data.dateOfDischarge).toISOString().slice(0, 10) : '',
+          treatmentType: data.treatmentType || '',
+          diagnosis: data.diagnosis || '',
+          surgeryName: data.surgeryName || '',
         });
         setExistingAdmissionDocs(
           (data.documents || []).filter(d => d.category === 'admission')
@@ -381,6 +385,44 @@ const ClaimForm = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Date of Discharge</label>
               <DateInput type="date" name="dateOfDischarge" value={form.dateOfDischarge} onChange={handleChange} />
             </div>
+          </div>
+        </div>
+
+        {/* Treatment Details */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
+          <h2 className="text-base font-semibold text-gray-800 mb-4">Treatment Details</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="md:col-span-2 lg:col-span-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Treatment Type</label>
+              <div className="flex gap-4 mt-1">
+                {['Medical', 'Surgical'].map(t => (
+                  <label key={t} className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="treatmentType" value={t}
+                      checked={form.treatmentType === t}
+                      onChange={() => setForm(f => ({ ...f, treatmentType: t, surgeryName: t === 'Medical' ? '' : f.surgeryName }))}
+                      className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500" />
+                    <span className="text-sm text-gray-700">{t}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Diagnosis</label>
+              <input name="diagnosis" value={form.diagnosis} onChange={handleChange}
+                minLength={3} placeholder="Enter diagnosis (min. 3 letters)"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              {form.diagnosis && form.diagnosis.length < 3 && (
+                <p className="text-xs text-red-500 mt-0.5">Minimum 3 characters required</p>
+              )}
+            </div>
+            {form.treatmentType === 'Surgical' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Surgery Name</label>
+                <input name="surgeryName" value={form.surgeryName} onChange={handleChange}
+                  placeholder="Enter surgery name"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+            )}
           </div>
         </div>
 
