@@ -385,8 +385,10 @@ exports.bulkUpdateStatus = async (req, res) => {
 const CLAIM_TYPES = ['cashless', 'reimbursement', 'grievance'];
 const SUBMIT_MODES = ['', 'courier', 'online'];
 
-// Treat placeholders ("-", "—", "N/A", "NA", "null") as blank.
-const PLACEHOLDER_RE = /^(-+|—+|n\/a|na|null|none|n\.a\.?)$/i;
+// Treat placeholders ("-", "—", "N/A", "NA", "null", "0", "0.00") as blank.
+// "0" comes up constantly in Excel exports where empty cells were filled with zeros.
+// Safe to treat as blank here: only text fields use cleanCell — amounts go through parseNum.
+const PLACEHOLDER_RE = /^(-+|—+|n\/a|na|null|none|n\.a\.?|0+(\.0+)?)$/i;
 const cleanCell = (val) => {
   if (val === undefined || val === null) return '';
   const s = String(val).trim();

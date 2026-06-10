@@ -4,10 +4,11 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineChevronLeft, HiOutlineChevronRight, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import PaginationBar from '../../components/ui/PaginationBar';
 import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -95,7 +96,7 @@ const ClaimList = () => {
   const initStatus = new URLSearchParams(location.search).get('status') || '';
   const [filters, setFilters] = useState({
     search: '', hospital: '', status: initStatus, claimType: '', month: '',
-    dateFrom: '', dateTo: '', directPatient: '', reference: '', page: 1,
+    dateFrom: '', dateTo: '', directPatient: '', reference: '', page: 1, limit: 25,
   });
 
   // Distinct, sorted referenceBy values from active hospitals (for super-admin filter dropdown)
@@ -1151,23 +1152,15 @@ const ClaimList = () => {
         </div>
 
         {/* Pagination */}
-        {pages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-            <p className="text-sm text-gray-500">Page {filters.page} of {pages} ({total} claims)</p>
-            <div className="flex gap-2">
-              <button onClick={() => setFilters({ ...filters, page: filters.page - 1 })}
-                disabled={filters.page <= 1}
-                className="p-2.5 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50">
-                <HiOutlineChevronLeft className="w-4 h-4" />
-              </button>
-              <button onClick={() => setFilters({ ...filters, page: filters.page + 1 })}
-                disabled={filters.page >= pages}
-                className="p-2.5 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50">
-                <HiOutlineChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        <PaginationBar
+          page={filters.page}
+          pages={pages}
+          total={total}
+          pageSize={filters.limit}
+          onPageChange={p => setFilters({ ...filters, page: p })}
+          onPageSizeChange={n => setFilters({ ...filters, limit: n, page: 1 })}
+          label="claims"
+        />
       </div>
 
       {/* Rejection Reason Modal */}
