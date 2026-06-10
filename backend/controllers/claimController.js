@@ -907,7 +907,12 @@ exports.importClaims = async (req, res) => {
       tpas:      [...fuzzyResolutions.tpas.entries()].map(([from, to]) => ({ from, to })),
     };
 
-    res.status(errors.length && !created.length ? 400 : 200).json({
+    // Always 200 — per-row errors are reported in the body. Returning 4xx for
+    // an all-error batch makes the frontend abort the import loop, so a single
+    // bad batch (e.g. one made entirely of duplicates) would stop the remaining
+    // batches from uploading. 5xx is still reserved for real server failures
+    // (handled by the outer catch).
+    res.status(200).json({
       message: `Imported ${created.length} of ${rows.length} claim(s)${duplicateCount ? ` (${duplicateCount} duplicate(s) skipped)` : ''}`,
       created,
       errors,
