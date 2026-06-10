@@ -163,14 +163,39 @@ const ClaimList = () => {
     }).finally(() => setFiltersLoading(false));
   }, [isHospitalUser, isSuperAdmin]);
 
+  // Skip the count query on page/limit changes — total only changes when actual
+  // filters change. Tracks the last filter-key for which a count was fetched.
+  // Falling back to count when total is still 0 keeps the initial load correct
+  // even when React strict mode fires the effect twice.
+  const filterKey = JSON.stringify({
+    search: filters.search, hospital: filters.hospital, status: filters.status,
+    claimType: filters.claimType, month: filters.month, dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo, directPatient: filters.directPatient, reference: filters.reference,
+  });
+  const lastCountedKeyRef = useRef(null);
+
   useEffect(() => {
     setLoading(true);
+    const needsCount = total === 0 || lastCountedKeyRef.current !== filterKey;
+
     const params = {};
     Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
+    if (!needsCount) params.skipCount = 'true';
+
     getClaimsAPI(params)
-      .then(({ data }) => { setClaims(data.claims); setTotal(data.total); setPages(data.pages); })
+      .then(({ data }) => {
+        setClaims(data.claims);
+        if (data.total !== null && data.total !== undefined) {
+          setTotal(data.total);
+          setPages(data.pages);
+          lastCountedKeyRef.current = filterKey;
+        } else {
+          setPages(prev => Math.max(1, Math.ceil(total / (filters.limit || 25)) || prev));
+        }
+      })
       .catch(() => toast.error('Failed to fetch claims'))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, refreshKey]);
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '-';
