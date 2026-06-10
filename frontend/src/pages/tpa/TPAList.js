@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getTPAAPI, createTPAAPI, updateTPAAPI, deleteTPAAPI, importTPAAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useAuth } from '../../context/AuthContext';
@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineUpload } from 'react-icons/hi';
 import MasterContactFormModal from '../../components/common/MasterContactFormModal';
 import MasterImportModal from '../../components/master/MasterImportModal';
+import PaginationBar from '../../components/ui/PaginationBar';
 
 const TPA_IMPORT_CONFIG = {
   title: 'Import TPAs',
@@ -34,6 +35,18 @@ const TPAList = () => {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
   const [importOpen, setImportOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.min(page, pages);
+  const visibleItems = useMemo(
+    () => items.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [items, currentPage, pageSize],
+  );
+
+  useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
 
   const fetchItems = async () => {
     try {
@@ -109,9 +122,9 @@ const TPAList = () => {
                 <tr><td colSpan={7} className="py-8 text-center text-gray-400">Loading...</td></tr>
               ) : items.length === 0 ? (
                 <tr><td colSpan={7} className="py-8 text-center text-gray-400">No TPAs added yet</td></tr>
-              ) : items.map((item, idx) => (
+              ) : visibleItems.map((item, idx) => (
                 <tr key={item._id} className="hover:bg-gray-50">
-                  <td className="py-3 px-4 text-sm text-gray-500">{idx + 1}</td>
+                  <td className="py-3 px-4 text-sm text-gray-500">{(currentPage - 1) * pageSize + idx + 1}</td>
                   <td className="py-3 px-4 text-sm font-medium text-gray-800">{item.name}</td>
                   <td className="py-3 px-4 text-sm text-gray-600">{item.contactPerson || '-'}</td>
                   <td className="py-3 px-4 text-sm text-gray-600">{item.mobile || '-'}</td>
@@ -138,6 +151,16 @@ const TPAList = () => {
             </tbody>
           </table>
         </div>
+
+        <PaginationBar
+          page={currentPage}
+          pages={pages}
+          total={total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={n => { setPageSize(n); setPage(1); }}
+          label="TPAs"
+        />
       </div>
 
       <MasterContactFormModal

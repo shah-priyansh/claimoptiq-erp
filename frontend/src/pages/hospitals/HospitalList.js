@@ -4,8 +4,9 @@ import { getHospitalsAPI, deleteHospitalAPI, importHospitalsAPI } from '../../se
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding, HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineUpload } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding, HiOutlineUpload } from 'react-icons/hi';
 import MasterImportModal from '../../components/master/MasterImportModal';
+import PaginationBar from '../../components/ui/PaginationBar';
 
 const HOSPITAL_IMPORT_CONFIG = {
   title: 'Import Hospitals',
@@ -27,8 +28,6 @@ const HOSPITAL_IMPORT_CONFIG = {
   uploadAPI:  importHospitalsAPI,
 };
 
-const PAGE_SIZE = 25;
-
 const HospitalList = () => {
   const navigate = useNavigate();
   const { can } = useAuth();
@@ -37,6 +36,7 @@ const HospitalList = () => {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
@@ -44,7 +44,7 @@ const HospitalList = () => {
   const fetchHospitals = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await getHospitalsAPI({ search, active: 'true', page, limit: PAGE_SIZE });
+      const { data } = await getHospitalsAPI({ search, active: 'true', page, limit: pageSize });
       setHospitals(data.hospitals);
       setTotal(data.total);
       setPages(data.pages);
@@ -53,7 +53,7 @@ const HospitalList = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, page]);
+  }, [search, page, pageSize]);
 
   useEffect(() => { fetchHospitals(); }, [fetchHospitals]);
 
@@ -208,7 +208,7 @@ const HospitalList = () => {
                     className={`hover:bg-gray-50 ${can('hospitals', 'edit') ? 'cursor-pointer' : ''}`}
                     onClick={can('hospitals', 'edit') ? () => navigate(`/hospitals/${h._id}/edit`) : undefined}
                   >
-                    <td className="py-3 px-4 text-sm text-gray-500">{(page - 1) * PAGE_SIZE + idx + 1}</td>
+                    <td className="py-3 px-4 text-sm text-gray-500">{(page - 1) * pageSize + idx + 1}</td>
                     <td className="py-3 px-4 text-sm font-medium text-gray-800">{h.name}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.phone || h.contact || '-'}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.city || '-'}</td>
@@ -242,23 +242,15 @@ const HospitalList = () => {
         </div>
 
         {/* Pagination */}
-        {pages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-            <p className="text-sm text-gray-500">
-              Page {page} of {pages} ({total} hospitals)
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => setPage(p => p - 1)} disabled={page <= 1}
-                className="p-2.5 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50">
-                <HiOutlineChevronLeft className="w-4 h-4" />
-              </button>
-              <button onClick={() => setPage(p => p + 1)} disabled={page >= pages}
-                className="p-2.5 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50">
-                <HiOutlineChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        <PaginationBar
+          page={page}
+          pages={pages}
+          total={total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={n => { setPageSize(n); setPage(1); }}
+          label="hospitals"
+        />
       </div>
 
       <MasterImportModal
