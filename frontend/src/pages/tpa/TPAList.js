@@ -90,9 +90,9 @@ const TPAList = () => {
         <div className="flex justify-end mb-4 gap-2">
           <button
             onClick={() => setImportOpen(true)}
-            className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 bg-white border border-primary-600 text-primary-700 hover:bg-primary-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
           >
-            <HiOutlineUpload className="w-4 h-4" /> Import
+            <HiOutlineUpload className="w-5 h-5" /> Import
           </button>
           <button
             onClick={() => setModal({ open: true, item: null })}

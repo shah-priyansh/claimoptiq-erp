@@ -690,6 +690,13 @@ exports.importClaims = async (req, res) => {
     // hospital validate against it (rather than each row tripping the mismatch).
     const pendingHospitalReferenceBy = new Map();
 
+    // Soft-deleted masters referenced by claim rows are reactivated automatically
+    // (the UI hides inactive masters, so users have no other path to revive them).
+    const reactivateHospitalIds = new Set();
+    const reactivateInsurerIds  = new Set();
+    const reactivateTpaIds      = new Set();
+    const reactivated = { hospitals: [], insurers: [], tpas: [] };
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] || {};
       const rowNum = i + 2; // assume header row 1 in the source file
@@ -723,9 +730,14 @@ exports.importClaims = async (req, res) => {
         if (!h) {
           const sugg = suggestMatches(hospitalName, hospitals);
           rowErrors.push(`Hospital "${hospitalName}" not found${sugg.length ? `. Did you mean: ${sugg.map(s => `"${s}"`).join(', ')}?` : ''}`);
-        } else if (!h.isActive) {
-          rowErrors.push(`Hospital "${hospitalName}" is inactive`);
         } else {
+          if (!h.isActive) {
+            if (!reactivateHospitalIds.has(h.id)) {
+              reactivateHospitalIds.add(h.id);
+              reactivated.hospitals.push(h.name);
+            }
+            h.isActive = true;
+          }
           hospitalId = h.id;
           if (referenceByInput) {
             const existingRef = norm(h.referenceBy);
@@ -753,9 +765,14 @@ exports.importClaims = async (req, res) => {
         if (!ins) {
           const sugg = suggestMatches(insuranceName, insurers);
           rowErrors.push(`Insurance Company "${insuranceName}" not found${sugg.length ? `. Did you mean: ${sugg.map(s => `"${s}"`).join(', ')}?` : ' — add it under Masters → Insurance Companies first.'}`);
-        } else if (!ins.isActive) {
-          rowErrors.push(`Insurance Company "${insuranceName}" is inactive — activate it under Masters → Insurance Companies.`);
         } else {
+          if (!ins.isActive) {
+            if (!reactivateInsurerIds.has(ins.id)) {
+              reactivateInsurerIds.add(ins.id);
+              reactivated.insurers.push(ins.name);
+            }
+            ins.isActive = true;
+          }
           insuranceCompanyId = ins.id;
         }
       }
@@ -767,9 +784,14 @@ exports.importClaims = async (req, res) => {
         if (!tp) {
           const sugg = suggestMatches(tpaName, tpas);
           rowErrors.push(`TPA "${tpaName}" not found${sugg.length ? `. Did you mean: ${sugg.map(s => `"${s}"`).join(', ')}?` : ' — add it under Masters → TPAs first.'}`);
-        } else if (!tp.isActive) {
-          rowErrors.push(`TPA "${tpaName}" is inactive — activate it under Masters → TPAs.`);
         } else {
+          if (!tp.isActive) {
+            if (!reactivateTpaIds.has(tp.id)) {
+              reactivateTpaIds.add(tp.id);
+              reactivated.tpas.push(tp.name);
+            }
+            tp.isActive = true;
+          }
           tpaId = tp.id;
         }
       }
@@ -901,6 +923,16 @@ exports.importClaims = async (req, res) => {
       );
     }
 
+    if (reactivateHospitalIds.size) {
+      await prisma.hospital.updateMany({ where: { id: { in: [...reactivateHospitalIds] } }, data: { isActive: true } });
+    }
+    if (reactivateInsurerIds.size) {
+      await prisma.insuranceCompany.updateMany({ where: { id: { in: [...reactivateInsurerIds] } }, data: { isActive: true } });
+    }
+    if (reactivateTpaIds.size) {
+      await prisma.tPA.updateMany({ where: { id: { in: [...reactivateTpaIds] } }, data: { isActive: true } });
+    }
+
     const fuzzy = {
       hospitals: [...fuzzyResolutions.hospitals.entries()].map(([from, to]) => ({ from, to })),
       insurers:  [...fuzzyResolutions.insurers.entries()].map(([from, to]) => ({ from, to })),
@@ -918,6 +950,7 @@ exports.importClaims = async (req, res) => {
       errors,
       fuzzyMatches: fuzzy,
       autoCreated,
+      reactivated,
       totalRows: rows.length,
       successCount: created.length,
       errorCount: errors.length,
