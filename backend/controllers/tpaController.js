@@ -59,8 +59,13 @@ exports.bulkImport = async (req, res) => {
     }
     if (rows.length > 2000) return res.status(400).json({ message: 'Maximum 2000 rows per import' });
 
-    const existing = await prisma.tPA.findMany({ select: { name: true } });
-    const existingNames = new Set(existing.map(x => x.name.trim().toLowerCase()));
+    const existing = await prisma.tPA.findMany({ select: { id: true, name: true, isActive: true } });
+    const activeMap = new Map();
+    const inactiveMap = new Map();
+    for (const e of existing) {
+      const key = e.name.trim().toLowerCase();
+      (e.isActive ? activeMap : inactiveMap).set(key, e);
+    }
 
     const seenInBatch = new Set();
     const created = [];
@@ -69,18 +74,24 @@ exports.bulkImport = async (req, res) => {
       const row = rows[i] || {};
       const rowNum = i + 2;
       const name = String(row.name || '').trim();
+      const key = name.toLowerCase();
       const rowErrors = [];
       if (!name) rowErrors.push('Name is required');
-      else if (existingNames.has(name.toLowerCase())) rowErrors.push(`"${name}" already exists`);
-      else if (seenInBatch.has(name.toLowerCase())) rowErrors.push(`"${name}" is duplicated in the file`);
+      else if (activeMap.has(key)) rowErrors.push(`"${name}" already exists`);
+      else if (seenInBatch.has(key)) rowErrors.push(`"${name}" is duplicated in the file`);
 
       if (rowErrors.length) { errors.push({ row: rowNum, name, errors: rowErrors }); continue; }
       try {
-        const item = await prisma.tPA.create({
-          data: pickFields({ name, address: row.address, contactPerson: row.contactPerson, mobile: row.mobile, email: row.email }),
-          select: { id: true, name: true },
-        });
-        seenInBatch.add(name.toLowerCase());
+        const data = pickFields({ name, address: row.address, contactPerson: row.contactPerson, mobile: row.mobile, email: row.email });
+        const inactive = inactiveMap.get(key);
+        const item = inactive
+          ? await prisma.tPA.update({
+              where: { id: inactive.id },
+              data: { ...data, isActive: true },
+              select: { id: true, name: true },
+            })
+          : await prisma.tPA.create({ data, select: { id: true, name: true } });
+        seenInBatch.add(key);
         created.push({ row: rowNum, id: item.id, name: item.name });
       } catch (e) {
         errors.push({ row: rowNum, name, errors: [e.message || 'Failed to save'] });

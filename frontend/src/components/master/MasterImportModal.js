@@ -182,19 +182,17 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
                 <div className="relative flex justify-center text-xs"><span className="px-2 bg-white text-gray-400">then upload your file</span></div>
               </div>
 
-              <label className="block">
-                <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv"
-                  onChange={(e) => handleFile(e.target.files?.[0])} className="hidden" />
-                <div onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-primary-400', 'bg-primary-50'); }}
-                  onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-primary-400', 'bg-primary-50'); }}
-                  onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-primary-400', 'bg-primary-50'); handleFile(e.dataTransfer.files?.[0]); }}
-                  className="border-2 border-dashed border-gray-300 rounded-xl px-6 py-10 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-colors">
-                  <HiOutlineDocumentText className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-                  <p className="text-sm font-medium text-gray-700">Click to choose a file, or drag &amp; drop</p>
-                  <p className="text-xs text-gray-400 mt-1">.xlsx, .xls, or .csv</p>
-                </div>
-              </label>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv"
+                onChange={(e) => { handleFile(e.target.files?.[0]); e.target.value = ''; }} className="hidden" />
+              <div onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-primary-400', 'bg-primary-50'); }}
+                onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-primary-400', 'bg-primary-50'); }}
+                onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-primary-400', 'bg-primary-50'); handleFile(e.dataTransfer.files?.[0]); }}
+                className="border-2 border-dashed border-gray-300 rounded-xl px-6 py-10 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-colors">
+                <HiOutlineDocumentText className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm font-medium text-gray-700">Click to choose a file, or drag &amp; drop</p>
+                <p className="text-xs text-gray-400 mt-1">.xlsx, .xls, or .csv</p>
+              </div>
             </div>
           )}
 

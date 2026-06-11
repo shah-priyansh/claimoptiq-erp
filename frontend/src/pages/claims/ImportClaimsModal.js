@@ -546,6 +546,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       errors: [],
       fuzzyMatches: { hospitals: [], insurers: [], tpas: [] },
       autoCreated:  { hospitals: [], insurers: [], tpas: [] },
+      reactivated:  { hospitals: [], insurers: [], tpas: [] },
       totalRows:    rows.length,
       successCount: 0,
       errorCount:   0,
@@ -601,6 +602,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
             duplicateCount: 0,
             fuzzyMatches: { hospitals: [], insurers: [], tpas: [] },
             autoCreated:  { hospitals: [], insurers: [], tpas: [] },
+            reactivated:  { hospitals: [], insurers: [], tpas: [] },
           };
         } finally {
           inFlightAbortRef.current = null;
@@ -620,6 +622,11 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
           mergeAuto(aggregated.autoCreated.hospitals, data.autoCreated.hospitals || []);
           mergeAuto(aggregated.autoCreated.insurers,  data.autoCreated.insurers  || []);
           mergeAuto(aggregated.autoCreated.tpas,      data.autoCreated.tpas      || []);
+        }
+        if (data.reactivated) {
+          mergeAuto(aggregated.reactivated.hospitals, data.reactivated.hospitals || []);
+          mergeAuto(aggregated.reactivated.insurers,  data.reactivated.insurers  || []);
+          mergeAuto(aggregated.reactivated.tpas,      data.reactivated.tpas      || []);
         }
 
         const done = (i + 1) * BATCH_SIZE > rows.length ? rows.length : (i + 1) * BATCH_SIZE;
@@ -1025,6 +1032,28 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
                       ['Hospitals',           result.autoCreated.hospitals],
                       ['Insurance Companies', result.autoCreated.insurers],
                       ['TPAs',                result.autoCreated.tpas],
+                    ].filter(([, arr]) => arr.length).map(([label, arr]) => (
+                      <div key={label}>
+                        <p className="font-semibold text-gray-700">{label} ({arr.length})</p>
+                        <ul className="list-disc pl-4 mt-0.5 text-gray-600 space-y-0.5">
+                          {arr.map((name, i) => <li key={i}>{name}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {result.reactivated && (result.reactivated.hospitals.length + result.reactivated.insurers.length + result.reactivated.tpas.length) > 0 && (
+                <details open className="border border-amber-100 rounded-lg overflow-hidden">
+                  <summary className="bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 cursor-pointer hover:bg-amber-100">
+                    Reactivated master records ({result.reactivated.hospitals.length + result.reactivated.insurers.length + result.reactivated.tpas.length})
+                  </summary>
+                  <div className="max-h-48 overflow-y-auto px-3 py-2 space-y-2 text-xs">
+                    {[
+                      ['Hospitals',           result.reactivated.hospitals],
+                      ['Insurance Companies', result.reactivated.insurers],
+                      ['TPAs',                result.reactivated.tpas],
                     ].filter(([, arr]) => arr.length).map(([label, arr]) => (
                       <div key={label}>
                         <p className="font-semibold text-gray-700">{label} ({arr.length})</p>
