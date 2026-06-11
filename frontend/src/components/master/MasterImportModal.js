@@ -133,6 +133,44 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
   };
 
   const resetAndUploadAgain = () => { setStep('upload'); setRows([]); setFileName(''); setResult(null); };
+  const clearImportResult = () => { setResult(null); setStep('upload'); setRows([]); setFileName(''); };
+
+  const classifyError = (msg) => {
+    const m = String(msg);
+    if (/already exists/i.test(m))             return { type: 'Duplicate', color: 'bg-slate-100 text-slate-700' };
+    if (/duplicated in the file/i.test(m))     return { type: 'In-file dup', color: 'bg-amber-100 text-amber-700' };
+    if (/is required/i.test(m))                return { type: 'Required', color: 'bg-rose-100 text-rose-700' };
+    if (/valid 10-digit|valid email|valid 6-digit/i.test(m)) return { type: 'Invalid', color: 'bg-orange-100 text-orange-700' };
+    return { type: 'Other', color: 'bg-gray-100 text-gray-700' };
+  };
+
+  const downloadFailedRows = () => {
+    if (!result?.errors?.length) return;
+    const cols = config.columns;
+    const headers = ['Errors', ...cols.map(c => c.label.replace(/\*/g, '').trim())];
+    const data = result.errors.map(e => {
+      const src = rows[e.row - 2] || {};
+      return [
+        (e.errors || []).join(' | '),
+        ...cols.map(c => {
+          const v = src[c.key];
+          return v === null || v === undefined ? '' : v;
+        }),
+      ];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    ws['!cols'] = [{ wch: 50 }, ...cols.map(c => ({ wch: c.width || 16 }))];
+    const headerStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE2E2' } } };
+    headers.forEach((_, idx) => {
+      const addr = XLSX.utils.encode_cell({ r: 0, c: idx });
+      if (ws[addr]) ws[addr].s = headerStyle;
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Failed Rows');
+    const stamp = new Date().toISOString().slice(0, 10);
+    const slug = (config.entityLabel || 'master').replace(/\s+/g, '-').toLowerCase();
+    XLSX.writeFile(wb, `${slug}-import-failed-${stamp}.xlsx`);
+  };
 
   if (!open) return null;
   return ReactDOM.createPortal(
@@ -251,23 +289,59 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
                 </div>
               </div>
 
-              {result.errors?.length > 0 && (
-                <div className="border border-red-100 rounded-lg overflow-hidden">
-                  <div className="bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 border-b border-red-100">
-                    Rows with errors ({result.errors.length})
-                  </div>
-                  <div className="max-h-64 overflow-y-auto divide-y divide-red-50">
-                    {result.errors.map((e, i) => (
-                      <div key={i} className="px-3 py-2 text-xs">
-                        <p className="font-medium text-gray-800">Row {e.row}: {e.name || '(no name)'}</p>
-                        <ul className="list-disc pl-4 mt-1 text-red-600 space-y-0.5">
-                          {e.errors.map((msg, j) => <li key={j}>{msg}</li>)}
-                        </ul>
+              {result.errors?.length > 0 && (() => {
+                const grouped = new Map();
+                result.errors.forEach(e => {
+                  e.errors.forEach(msg => {
+                    if (!grouped.has(msg)) grouped.set(msg, []);
+                    grouped.get(msg).push({ row: e.row, name: e.name });
+                  });
+                });
+                const summary = Array.from(grouped.entries()).sort((a, b) => b[1].length - a[1].length);
+                return (
+                  <div className="space-y-3">
+                    <div className="border border-red-100 rounded-lg overflow-hidden">
+                      <div className="bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 border-b border-red-100">
+                        Issues to fix ({summary.length} unique, {result.errors.length} row(s) affected)
                       </div>
-                    ))}
+                      <div className="max-h-64 overflow-y-auto divide-y divide-red-50">
+                        {summary.map(([msg, errRows], i) => {
+                          const cls = classifyError(msg);
+                          return (
+                            <div key={i} className="px-3 py-2.5 text-xs">
+                              <div className="flex items-start gap-2">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide uppercase flex-shrink-0 ${cls.color}`}>{cls.type}</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-gray-800 break-words">{msg}</p>
+                                  <p className="text-[11px] text-gray-500 mt-1">
+                                    {errRows.length} row{errRows.length > 1 ? 's' : ''}: {errRows.slice(0, 5).map(r => `#${r.row}${r.name ? ` (${r.name})` : ''}`).join(', ')}
+                                    {errRows.length > 5 && ` + ${errRows.length - 5} more`}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <details className="border border-gray-200 rounded-lg overflow-hidden">
+                      <summary className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 cursor-pointer hover:bg-gray-100">
+                        Show full per-row list ({result.errors.length})
+                      </summary>
+                      <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+                        {result.errors.map((e, i) => (
+                          <div key={i} className="px-3 py-2 text-xs">
+                            <p className="font-medium text-gray-800">Row {e.row}: {e.name || '(no name)'}</p>
+                            <ul className="list-disc pl-4 mt-1 text-red-600 space-y-0.5">
+                              {e.errors.map((msg, j) => <li key={j}>{msg}</li>)}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {result.successCount > 0 && (
                 <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex gap-2 text-xs text-emerald-800">
@@ -299,6 +373,15 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
           )}
           {step === 'result' && (
             <>
+              {result?.errors?.length > 0 && (
+                <button onClick={downloadFailedRows}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-medium">
+                  <HiOutlineDownload className="w-4 h-4" />
+                  Download Failed Rows ({result.errors.length})
+                </button>
+              )}
+              <button onClick={clearImportResult}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">Clear</button>
               <button onClick={resetAndUploadAgain}
                 className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">Import Another File</button>
               <button onClick={onClose}
