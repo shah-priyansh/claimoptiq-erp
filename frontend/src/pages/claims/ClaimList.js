@@ -14,6 +14,17 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ImportClaimsModal from './ImportClaimsModal';
 
+// Claim-type display config — keeps badge color, label, and filter option in sync.
+export const CLAIM_TYPE_CONFIG = {
+  cashless:          { label: 'Cashless',          badgeClass: 'bg-green-50 text-green-700 ring-1 ring-green-200' },
+  cashless_anywhere: { label: 'Cashless Anywhere', badgeClass: 'bg-teal-50 text-teal-700 ring-1 ring-teal-200' },
+  reimbursement:     { label: 'Reimbursement',     badgeClass: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
+  grievance:         { label: 'Grievance',         badgeClass: 'bg-orange-50 text-orange-700 ring-1 ring-orange-200' },
+};
+const CLAIM_TYPE_OPTIONS = Object.entries(CLAIM_TYPE_CONFIG).map(([value, c]) => ({
+  value, label: c.label, badgeClass: c.badgeClass,
+}));
+
 // ─── Field definitions (shared with Reports) ─────────────────────────────────
 // Order here drives the export sequence (Excel + PDF), and matches the columns
 // in the operations team's reference workbook so imports/exports stay aligned.
@@ -1054,12 +1065,7 @@ const ClaimList = () => {
             allowClear
           />
           <SearchableSelect
-            options={[
-              { value: 'cashless', label: 'Cashless' },
-              { value: 'cashless_anywhere', label: 'Cashless Anywhere' },
-              { value: 'reimbursement', label: 'Reimbursement' },
-              { value: 'grievance', label: 'Grievance' },
-            ]}
+            options={CLAIM_TYPE_OPTIONS}
             value={filters.claimType}
             onChange={val => setFilters({ ...filters, claimType: val, page: 1 })}
             placeholder="All Types"
@@ -1139,7 +1145,12 @@ const ClaimList = () => {
                         <span>·</span>
                       </>
                     )}
-                    <span className="capitalize">{(c.claimType || '').replace(/_/g, ' ')}</span>
+                    {(() => {
+                      const cfg = CLAIM_TYPE_CONFIG[c.claimType];
+                      return cfg
+                        ? <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${cfg.badgeClass}`}>{cfg.label}</span>
+                        : <span className="capitalize">{(c.claimType || '').replace(/_/g, ' ')}</span>;
+                    })()}
                     <span>·</span>
                     <span>{formatDate(c.dateOfAdmit)}</span>
                     {c.hospitalFinalBill && (<><span>·</span><span className="font-medium">{formatAmount(c.hospitalFinalBill)}</span></>)}
@@ -1207,7 +1218,14 @@ const ClaimList = () => {
                       )}
                     </td>
                   )}
-                  <td className="py-3 px-3"><span className="text-xs font-medium capitalize">{(c.claimType || '').replace(/_/g, ' ')}</span></td>
+                  <td className="py-3 px-3">
+                    {(() => {
+                      const cfg = CLAIM_TYPE_CONFIG[c.claimType];
+                      return cfg
+                        ? <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${cfg.badgeClass}`}>{cfg.label}</span>
+                        : <span className="text-xs font-medium capitalize">{(c.claimType || '').replace(/_/g, ' ')}</span>;
+                    })()}
+                  </td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
                   <td className="py-3 px-3"><StatusBadge c={c} loading={filtersLoading} /></td>
