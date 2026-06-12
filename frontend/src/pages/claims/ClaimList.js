@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI, deleteClaimAPI, deleteAllClaimsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -14,15 +14,36 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ImportClaimsModal from './ImportClaimsModal';
 
-// Claim-type display config — keeps badge color, label, and filter option in sync.
+// Claim-type display config — keeps label, dot color, and outlined-tag style in sync.
+// Type uses an outlined tag (border + colored dot) so it visually contrasts with
+// the solid-filled Status pill that sits in the next column.
 export const CLAIM_TYPE_CONFIG = {
-  cashless:          { label: 'Cashless',          badgeClass: 'bg-green-50 text-green-700 ring-1 ring-green-200' },
-  cashless_anywhere: { label: 'Cashless Anywhere', badgeClass: 'bg-teal-50 text-teal-700 ring-1 ring-teal-200' },
-  reimbursement:     { label: 'Reimbursement',     badgeClass: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
-  grievance:         { label: 'Grievance',         badgeClass: 'bg-orange-50 text-orange-700 ring-1 ring-orange-200' },
+  cashless:          { label: 'Cashless',          dotClass: 'bg-green-500',  textClass: 'text-green-700',  borderClass: 'border-green-200'  },
+  cashless_anywhere: { label: 'Cashless Anywhere', dotClass: 'bg-teal-500',   textClass: 'text-teal-700',   borderClass: 'border-teal-200'   },
+  reimbursement:     { label: 'Reimbursement',     dotClass: 'bg-blue-500',   textClass: 'text-blue-700',   borderClass: 'border-blue-200'   },
+  grievance:         { label: 'Grievance',         dotClass: 'bg-orange-500', textClass: 'text-orange-700', borderClass: 'border-orange-200' },
+};
+
+const ClaimTypeTag = ({ slug }) => {
+  const cfg = CLAIM_TYPE_CONFIG[slug];
+  if (!cfg) return <span className="text-xs text-gray-500 capitalize">{(slug || '').replace(/_/g, ' ')}</span>;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border ${cfg.borderClass} ${cfg.textClass}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dotClass}`} />
+      {cfg.label}
+    </span>
+  );
+};
+// Soft-pill style for the filter dropdown only — solid status pills sit far
+// from this dropdown, so a coloured fill here doesn't clash with anything.
+const CLAIM_TYPE_DROPDOWN_BADGE = {
+  cashless:          'bg-green-50 text-green-700',
+  cashless_anywhere: 'bg-teal-50 text-teal-700',
+  reimbursement:     'bg-blue-50 text-blue-700',
+  grievance:         'bg-orange-50 text-orange-700',
 };
 const CLAIM_TYPE_OPTIONS = Object.entries(CLAIM_TYPE_CONFIG).map(([value, c]) => ({
-  value, label: c.label, badgeClass: c.badgeClass,
+  value, label: c.label, badgeClass: CLAIM_TYPE_DROPDOWN_BADGE[value],
 }));
 
 // ─── Field definitions (shared with Reports) ─────────────────────────────────
@@ -136,6 +157,44 @@ const ClaimList = () => {
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [actionMenu, setActionMenu] = useState(null); // { id, top?, bottom?, left } | null
+  const actionMenuRef = useRef(null);
+
+  const openActionMenu = (e, id) => {
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    const r = btn.getBoundingClientRect();
+    const menuWidth = 180;
+    const estimatedMenuHeight = 160; // upper bound; only used to pick direction
+    const spaceBelow = window.innerHeight - r.bottom;
+    const openUp = spaceBelow < estimatedMenuHeight && r.top > spaceBelow;
+    const left = Math.max(8, Math.min(r.right - menuWidth, window.innerWidth - menuWidth - 8));
+    // Anchor with `top` when opening down, `bottom` when opening up — that way
+    // the menu's actual rendered height doesn't shift the alignment.
+    setActionMenu(
+      openUp
+        ? { id, bottom: window.innerHeight - r.top + 4, left }
+        : { id, top: r.bottom + 4, left }
+    );
+  };
+
+  useEffect(() => {
+    if (!actionMenu) return;
+    const close = (e) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target)) {
+        setActionMenu(null);
+      }
+    };
+    const onScroll = () => setActionMenu(null);
+    document.addEventListener('mousedown', close);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [actionMenu]);
 
   const allFieldDefs = BASE_FIELD_DEFS
     .filter(f => (!f.superAdminOnly || isSuperAdmin) && (!f.nonHospitalOnly || !isHospitalUser))
@@ -1114,27 +1173,14 @@ const ClaimList = () => {
                         <p className="text-xs text-gray-400 mt-0.5">{c.policyNo || 'No policy number'}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                       <StatusBadge c={c} loading={filtersLoading} />
-                      <button onClick={(e) => { e.stopPropagation(); openStickerPreview([c]); }}
-                        title="Print courier sticker"
-                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                        <HiOutlinePrinter className="w-4 h-4" />
+                      <button
+                        onClick={(e) => openActionMenu(e, c._id)}
+                        title="More actions"
+                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                        <HiOutlineDotsVertical className="w-4 h-4" />
                       </button>
-                      {can('claims', 'edit') && (
-                        <button onClick={(e) => { e.stopPropagation(); navigate(`/claims/${c._id}?tab=admission`); }}
-                          title="Edit admission details"
-                          className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
-                          <HiOutlinePencil className="w-4 h-4" />
-                        </button>
-                      )}
-                      {can('claims', 'delete') && (
-                        <button onClick={(e) => { e.stopPropagation(); setDeleteTarget(c); }}
-                          title="Delete claim"
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                          <HiOutlineTrash className="w-4 h-4" />
-                        </button>
-                      )}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
@@ -1145,12 +1191,7 @@ const ClaimList = () => {
                         <span>·</span>
                       </>
                     )}
-                    {(() => {
-                      const cfg = CLAIM_TYPE_CONFIG[c.claimType];
-                      return cfg
-                        ? <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${cfg.badgeClass}`}>{cfg.label}</span>
-                        : <span className="capitalize">{(c.claimType || '').replace(/_/g, ' ')}</span>;
-                    })()}
+                    <ClaimTypeTag slug={c.claimType} />
                     <span>·</span>
                     <span>{formatDate(c.dateOfAdmit)}</span>
                     {c.hospitalFinalBill && (<><span>·</span><span className="font-medium">{formatAmount(c.hospitalFinalBill)}</span></>)}
@@ -1218,42 +1259,23 @@ const ClaimList = () => {
                       )}
                     </td>
                   )}
-                  <td className="py-3 px-3">
-                    {(() => {
-                      const cfg = CLAIM_TYPE_CONFIG[c.claimType];
-                      return cfg
-                        ? <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${cfg.badgeClass}`}>{cfg.label}</span>
-                        : <span className="text-xs font-medium capitalize">{(c.claimType || '').replace(/_/g, ' ')}</span>;
-                    })()}
-                  </td>
+                  <td className="py-3 px-3"><ClaimTypeTag slug={c.claimType} /></td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
                   <td className="py-3 px-3"><StatusBadge c={c} loading={filtersLoading} /></td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => openStickerPreview([c])}
-                        title="Print courier sticker"
-                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                        <HiOutlinePrinter className="w-4 h-4" />
-                      </button>
-                      {can('claims', 'edit') && (
-                        <button onClick={() => navigate(`/claims/${c._id}?tab=admission`)}
-                          title="Edit admission details"
-                          className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
-                          <HiOutlinePencil className="w-4 h-4" />
-                        </button>
-                      )}
                       <button onClick={() => navigate(`/claims/${c._id}`)}
+                        title="View claim"
                         className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
                         <HiOutlineEye className="w-4 h-4" />
                       </button>
-                      {can('claims', 'delete') && (
-                        <button onClick={() => setDeleteTarget(c)}
-                          title="Delete claim"
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                          <HiOutlineTrash className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => openActionMenu(e, c._id)}
+                        title="More actions"
+                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                        <HiOutlineDotsVertical className="w-4 h-4" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1273,6 +1295,53 @@ const ClaimList = () => {
           label="claims"
         />
       </div>
+
+      {/* Row Actions Portal Menu — escapes table overflow */}
+      {actionMenu && ReactDOM.createPortal(
+        (() => {
+          const c = claims.find(x => x._id === actionMenu.id);
+          if (!c) return null;
+          return (
+            <div
+              ref={actionMenuRef}
+              style={{
+                position: 'fixed',
+                left: actionMenu.left,
+                width: 180,
+                ...(actionMenu.top !== undefined ? { top: actionMenu.top } : { bottom: actionMenu.bottom }),
+              }}
+              className="bg-white border border-gray-200 rounded-lg shadow-lg z-[60] py-1"
+            >
+              <button
+                onClick={() => { setActionMenu(null); openStickerPreview([c]); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <HiOutlinePrinter className="w-4 h-4 text-indigo-600" />
+                Print Sticker
+              </button>
+              {can('claims', 'edit') && (
+                <button
+                  onClick={() => { setActionMenu(null); navigate(`/claims/${c._id}?tab=admission`); }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                  <HiOutlinePencil className="w-4 h-4 text-primary-600" />
+                  Edit Admission
+                </button>
+              )}
+              {can('claims', 'delete') && (
+                <>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button
+                    onClick={() => { setActionMenu(null); setDeleteTarget(c); }}
+                    className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                    <HiOutlineTrash className="w-4 h-4" />
+                    Delete Claim
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })(),
+        document.body
+      )}
 
       {/* Rejection Reason Modal */}
       {rejectionPending && ReactDOM.createPortal(
