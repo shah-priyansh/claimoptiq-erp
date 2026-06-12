@@ -1196,10 +1196,9 @@ const ClaimList = () => {
                     <span>{formatDate(c.dateOfAdmit)}</span>
                     {c.hospitalFinalBill && (<><span>·</span><span className="font-medium">{formatAmount(c.hospitalFinalBill)}</span></>)}
                   </div>
-                  {(c.insuranceCompany?.name || c.tpa?.name) && (
+                  {(c.tpa?.name || c.insuranceCompany?.name) && (
                     <p className="text-[11px] text-gray-400 mt-1 truncate">
-                      {c.insuranceCompany?.name || '-'}
-                      {c.tpa?.name ? ` / ${c.tpa.name}` : ''}
+                      {c.tpa?.name || c.insuranceCompany?.name}
                     </p>
                   )}
                 </div>
@@ -1251,10 +1250,9 @@ const ClaimList = () => {
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
                         )}
                       </div>
-                      {(c.insuranceCompany?.name || c.tpa?.name) && (
+                      {(c.tpa?.name || c.insuranceCompany?.name) && (
                         <p className="text-xs text-gray-400 mt-0.5 truncate">
-                          {c.insuranceCompany?.name || '-'}
-                          {c.tpa?.name ? ` / ${c.tpa.name}` : ''}
+                          {c.tpa?.name || c.insuranceCompany?.name}
                         </p>
                       )}
                     </td>
