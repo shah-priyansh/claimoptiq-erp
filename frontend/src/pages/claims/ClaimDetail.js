@@ -70,6 +70,22 @@ const InfoRow = ({ label, value }) => (
   </div>
 );
 
+const CLAIM_TYPE_BADGE_CLASS = {
+  cashless:          'bg-green-50 text-green-700 ring-green-200',
+  cashless_anywhere: 'bg-teal-50 text-teal-700 ring-teal-200',
+  reimbursement:     'bg-blue-50 text-blue-700 ring-blue-200',
+  grievance:         'bg-orange-50 text-orange-700 ring-orange-200',
+};
+const ClaimTypeBadge = ({ slug, label }) => {
+  if (!slug) return <>—</>;
+  const cls = CLAIM_TYPE_BADGE_CLASS[slug] || 'bg-gray-50 text-gray-700 ring-gray-200';
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${cls}`}>
+      {label || slug}
+    </span>
+  );
+};
+
 const StatCard = ({ label, value, highlight }) => (
   <div className={`rounded-xl p-4 ${highlight ? 'bg-primary-50 border border-primary-100' : 'bg-gray-50 border border-gray-100'}`}>
     <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1.5 ${highlight ? 'text-primary-500' : 'text-gray-400'}`}>{label}</p>
@@ -720,11 +736,11 @@ const ClaimDetail = () => {
               <div className="flex items-center gap-2 mb-0.5">
                 <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Claim #{claim.srNo}</span>
                 <span className="text-gray-200">·</span>
-                <span className={`text-[11px] font-semibold capitalize px-2 py-0.5 rounded-full ${
-                  claim.claimType === 'cashless' ? 'bg-green-50 text-green-600' :
-                  claim.claimType === 'cashless_anywhere' ? 'bg-teal-50 text-teal-600' :
-                  claim.claimType === 'reimbursement' ? 'bg-primary-50 text-primary-600' :
-                  'bg-orange-50 text-orange-600'}`}>
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ${
+                  claim.claimType === 'cashless' ? 'bg-green-50 text-green-700 ring-green-200' :
+                  claim.claimType === 'cashless_anywhere' ? 'bg-teal-50 text-teal-700 ring-teal-200' :
+                  claim.claimType === 'reimbursement' ? 'bg-blue-50 text-blue-700 ring-blue-200' :
+                  'bg-orange-50 text-orange-700 ring-orange-200'}`}>
                   {CLAIM_TYPE_LABELS[claim.claimType] || claim.claimType}
                 </span>
               </div>
@@ -936,7 +952,7 @@ const ClaimDetail = () => {
                   ['Patient Name',     claim.patientName],
                   ['Mobile',           claim.patientMobile || '—'],
                   ['Doctor',           claim.doctorName || '—'],
-                  ['Claim Type',       CLAIM_TYPE_LABELS[claim.claimType] || claim.claimType],
+                  ['Claim Type',       <ClaimTypeBadge slug={claim.claimType} label={CLAIM_TYPE_LABELS[claim.claimType]} />],
                   ['Date of Admit',    formatDate(claim.dateOfAdmit)],
                   ['Date of Discharge',formatDate(claim.dateOfDischarge)],
                   ['Month',            formatMonth(claim.month)],
@@ -1144,7 +1160,7 @@ const ClaimDetail = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {[
-                  ['Claim Type',         CLAIM_TYPE_LABELS[claim.claimType] || claim.claimType],
+                  ['Claim Type',         <ClaimTypeBadge slug={claim.claimType} label={CLAIM_TYPE_LABELS[claim.claimType]} />],
                   ['Hospital',           claim.hospital?.name || '—'],
                   ['Patient Name',       claim.patientName],
                   ['Patient Mobile',     claim.patientMobile || '—'],
