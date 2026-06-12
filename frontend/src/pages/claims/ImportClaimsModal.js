@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 // ── Column definitions for the template ────────────────────────────────────
 // Order matters: this is the column order in the downloaded xlsx.
 const COLUMNS = [
+  { key: 'srNo',                label: 'SR No',                         width: 8,  note: 'Optional — uses this exact number as the claim # in the database. Gaps from failed rows are preserved.' },
   { key: 'patientName',         label: 'Patient Name *',                width: 22, required: true },
   { key: 'patientMobile',       label: 'Patient Mobile',                width: 14 },
   { key: 'hospital',            label: 'Hospital Name *',               width: 24, note: 'Must match exactly (see Hospitals sheet). Leave blank if "Is Direct Patient" = Yes.' },
@@ -232,9 +233,31 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
     const summary = { ok: 0, badRows: 0, byType: {} };
     const bump = (k) => { summary.byType[k] = (summary.byType[k] || 0) + 1; };
 
-    const rowIssues = rows.map(r => {
+    const seenSrNos = new Map();
+    rows.forEach((r, idx) => {
+      const raw = cleanCell(r.srNo);
+      if (!raw) return;
+      const n = Number(raw);
+      if (Number.isInteger(n) && n > 0) {
+        if (!seenSrNos.has(n)) seenSrNos.set(n, []);
+        seenSrNos.get(n).push(idx);
+      }
+    });
+
+    const rowIssues = rows.map((r, idx) => {
       const issues = [];
       const fuzzy  = [];
+      const srRaw = cleanCell(r.srNo);
+      if (srRaw) {
+        const n = Number(srRaw);
+        if (!Number.isInteger(n) || n <= 0) {
+          issues.push({ type: 'srNo', label: `SR No invalid: "${r.srNo}" — must be a positive integer` });
+          bump('srNo');
+        } else if ((seenSrNos.get(n) || []).length > 1) {
+          issues.push({ type: 'srNo', label: `SR No ${n} appears in multiple rows` });
+          bump('srNo');
+        }
+      }
       if (!cleanCell(r.patientName)) { issues.push({ type: 'patient',    label: 'Patient name missing' }); bump('patient'); }
       if (!parseDateLoose(r.dateOfAdmit)) {
         issues.push({ type: 'date', label: `Date of Admit invalid${r.dateOfAdmit ? `: "${r.dateOfAdmit}"` : ''}` });
@@ -295,6 +318,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
 
     const exampleReference = !isHospitalUser ? (hospitals[0]?.referenceBy || '') : '';
     const sample1 = {
+      srNo: 500,
       patientName: 'Rahul Sharma',
       patientMobile: '9876543210',
       hospital: exampleHospital,
@@ -337,6 +361,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       filePrice: 1500,
     };
     const sample2 = {
+      srNo: 501,
       patientName: 'Priya Patel',
       patientMobile: '9123456780',
       hospital: '',

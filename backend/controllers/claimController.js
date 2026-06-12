@@ -751,6 +751,26 @@ exports.importClaims = async (req, res) => {
     const batchCompositeKeys = new Set();
     let duplicateCount = 0;
 
+    // ── SR No: pre-fetch existing srNos so we can detect collisions, and track
+    //    the max srNo we *attempt* to use in this batch (including failed rows)
+    //    so we can advance the Postgres sequence past it. This preserves the
+    //    "gap" — failed row 502 keeps srNo 502 unused in the DB forever.
+    const incomingSrNos = [...new Set(
+      rows.map(r => {
+        const raw = cleanCell(r?.srNo);
+        const n = raw === '' ? null : Number(raw);
+        return Number.isInteger(n) && n > 0 ? n : null;
+      }).filter(n => n !== null)
+    )];
+    const existingSrNos = incomingSrNos.length
+      ? new Set((await prisma.claim.findMany({
+          where: { srNo: { in: incomingSrNos } },
+          select: { srNo: true },
+        })).map(c => c.srNo))
+      : new Set();
+    const batchSrNos = new Set();
+    let maxAttemptedSrNo = 0;
+
     // Track which inputs were resolved via canonical fallback so we can report them to the client.
     const fuzzyResolutions = { hospitals: new Map(), insurers: new Map(), tpas: new Map() };
     const lookupFuzzy = (input, exactMap, canonMap, bucket) => {
@@ -793,6 +813,26 @@ exports.importClaims = async (req, res) => {
       const row = rows[i] || {};
       const rowNum = i + 2; // assume header row 1 in the source file
       const rowErrors = [];
+
+      // ── SR No (optional, but must be unique if provided) ────────────
+      let srNo = null;
+      const srRaw = cleanCell(row.srNo);
+      if (srRaw) {
+        const n = Number(srRaw);
+        if (!Number.isInteger(n) || n <= 0) {
+          rowErrors.push(`SR No "${row.srNo}" is invalid — must be a positive integer`);
+        } else if (existingSrNos.has(n)) {
+          rowErrors.push(`SR No ${n} already exists in the database`);
+        } else if (batchSrNos.has(n)) {
+          rowErrors.push(`SR No ${n} appears more than once in this import`);
+        } else {
+          srNo = n;
+          batchSrNos.add(n);
+        }
+        // Even on validation failure, count this srNo as "consumed" so the
+        // sequence advances past it and the gap stays visible.
+        if (Number.isInteger(n) && n > 0 && n > maxAttemptedSrNo) maxAttemptedSrNo = n;
+      }
 
       // ── Required fields ─────────────────────────────────────────────
       const patientName = cleanCell(row.patientName);
@@ -950,6 +990,7 @@ exports.importClaims = async (req, res) => {
 
         const claim = await prisma.claim.create({
           data: {
+            ...(srNo !== null ? { srNo } : {}),
             monthClaimNo: nextNo,
             status,
             hospitalId,
@@ -1012,6 +1053,18 @@ exports.importClaims = async (req, res) => {
         [...pendingHospitalReferenceBy.entries()].map(([id, referenceBy]) =>
           prisma.hospital.update({ where: { id }, data: { referenceBy } }),
         ),
+      );
+    }
+
+    // Advance the sr_no sequence past the highest number we touched so that
+    // subsequent auto-incremented claims don't collide with imported numbers
+    // and so failed-row gaps (e.g. 502) stay unused forever.
+    if (maxAttemptedSrNo > 0) {
+      await prisma.$executeRawUnsafe(
+        `SELECT setval(
+           pg_get_serial_sequence('claims', 'sr_no'),
+           GREATEST((SELECT COALESCE(MAX(sr_no), 0) FROM claims), ${maxAttemptedSrNo})
+         )`
       );
     }
 
