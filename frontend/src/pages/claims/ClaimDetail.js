@@ -270,7 +270,7 @@ const ClaimDetail = () => {
     setSettlementForm(prev => ({ ...prev, filePrice: computed }));
   }, [claim, dischargeForm.hospitalFinalBill, dischargeForm.finalApprovalAmount, filePriceManual]);
 
-  const showTds = claim && ['cashless', 'grievance'].includes(claim.claimType);
+  const showTds = claim && ['cashless', 'cashless_anywhere', 'grievance'].includes(claim.claimType);
 
   useEffect(() => {
     if (!showTds) return;
@@ -326,6 +326,7 @@ const ClaimDetail = () => {
         clientId: data.clientId || '',
         ccnNo: data.ccnNo || '',
         monthClaimNo: data.monthClaimNo || '',
+        month: data.month ? new Date(data.month).toISOString().slice(0, 7) : '',
         dateOfAdmit: data.dateOfAdmit ? data.dateOfAdmit.slice(0, 10) : '',
         treatmentType: data.treatmentType || '',
         diagnosis: data.diagnosis || '',
@@ -353,7 +354,7 @@ const ClaimDetail = () => {
         || ((data.finalApprovalAmount || 0) - (data.settlementAmountDeduction || 0) - (data.mouDiscountOnSettlement || 0))
         || 0;
       const initialTds = data.tds
-        || (['cashless', 'grievance'].includes(data.claimType) ? Math.round(initialSettlementAmount * 0.10) : 0);
+        || (['cashless', 'cashless_anywhere', 'grievance'].includes(data.claimType) ? Math.round(initialSettlementAmount * 0.10) : 0);
       const initialBank = data.bankTransferAmount
         || Math.max(0, initialSettlementAmount - initialTds);
       setSettlementForm({
@@ -486,6 +487,11 @@ const ClaimDetail = () => {
     try {
       const payload = { ...admissionForm };
       if (!payload.tpa) delete payload.tpa;
+      if (payload.month && payload.month.length === 7) {
+        payload.month = new Date(payload.month + '-01').toISOString();
+      } else if (!payload.month) {
+        delete payload.month;
+      }
       await updateClaimAPI(id, payload);
       await uploadPendingFiles('admission', pendingFiles.admission);
       toast.success('Admission details saved');
@@ -599,6 +605,7 @@ const ClaimDetail = () => {
   if (!claim) return null;
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+  const formatMonth = (d) => d ? new Date(d).toLocaleString('en-IN', { month: 'long', year: 'numeric' }) : '—';
   const formatAmount = (a) => formatCurrency(Number(a) || 0);
   // Build the actual journey from history (fallback to current status if history is missing)
   const statusMeta = (slug) => claimStatuses.find(s => s.slug === slug);
@@ -655,7 +662,8 @@ const ClaimDetail = () => {
   const tpaOptions       = tpas.map(t => ({ value: t._id, label: t.name }));
   const selectedAdmissionHospital = hospitals.find(h => h._id === admissionForm.hospital);
   const admissionDoctorOptions = (selectedAdmissionHospital?.doctors ?? []).map(d => ({ value: d.name, label: d.name }));
-  const CLAIM_TYPES = ['cashless', 'reimbursement', 'grievance'];
+  const CLAIM_TYPES = ['cashless', 'cashless_anywhere', 'reimbursement', 'grievance'];
+  const CLAIM_TYPE_LABELS = { cashless: 'Cashless', cashless_anywhere: 'Cashless Anywhere', reimbursement: 'Reimbursement', grievance: 'Grievance' };
 
   // Shared documents subsection used in Discharge / File&Submit / Settlement tabs
   const DocsSubsection = ({ category, pendingKey, uploadLabel }) => (
@@ -714,9 +722,10 @@ const ClaimDetail = () => {
                 <span className="text-gray-200">·</span>
                 <span className={`text-[11px] font-semibold capitalize px-2 py-0.5 rounded-full ${
                   claim.claimType === 'cashless' ? 'bg-green-50 text-green-600' :
+                  claim.claimType === 'cashless_anywhere' ? 'bg-teal-50 text-teal-600' :
                   claim.claimType === 'reimbursement' ? 'bg-primary-50 text-primary-600' :
                   'bg-orange-50 text-orange-600'}`}>
-                  {claim.claimType}
+                  {CLAIM_TYPE_LABELS[claim.claimType] || claim.claimType}
                 </span>
               </div>
               <h1 className="text-xl font-bold text-gray-900 truncate">{claim.patientName}</h1>
@@ -927,9 +936,10 @@ const ClaimDetail = () => {
                   ['Patient Name',     claim.patientName],
                   ['Mobile',           claim.patientMobile || '—'],
                   ['Doctor',           claim.doctorName || '—'],
-                  ['Claim Type',       claim.claimType],
+                  ['Claim Type',       CLAIM_TYPE_LABELS[claim.claimType] || claim.claimType],
                   ['Date of Admit',    formatDate(claim.dateOfAdmit)],
                   ['Date of Discharge',formatDate(claim.dateOfDischarge)],
+                  ['Month',            formatMonth(claim.month)],
                 ].map(([l, v]) => <InfoRow key={l} label={l} value={v} />)}
               </div>
 
@@ -987,15 +997,15 @@ const ClaimDetail = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="md:col-span-2 lg:col-span-3">
                   <label className={labelCls}>Claim Type</label>
-                  <div className="flex gap-3 mt-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
                     {CLAIM_TYPES.map(t => (
                       <button key={t} type="button"
                         onClick={() => setAdmissionForm(f => ({ ...f, claimType: t }))}
-                        className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all capitalize ${
+                        className={`py-2.5 px-3 rounded-lg text-sm font-medium border transition-all text-center whitespace-nowrap ${
                           admissionForm.claimType === t
                             ? 'bg-primary-600 border-primary-600 text-white shadow-sm'
-                            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-                        }`}>{t}</button>
+                            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                        }`}>{CLAIM_TYPE_LABELS[t] || t}</button>
                     ))}
                   </div>
                 </div>
@@ -1041,6 +1051,13 @@ const ClaimDetail = () => {
                   <label className={labelCls}>Date of Admit</label>
                   <DateInput type="date" value={admissionForm.dateOfAdmit || ''}
                     onChange={e => setAdmissionForm(f => ({ ...f, dateOfAdmit: e.target.value }))}
+                    className={inputCls} />
+                </div>
+
+                <div>
+                  <label className={labelCls}>Month</label>
+                  <DateInput type="month" value={admissionForm.month || ''}
+                    onChange={e => setAdmissionForm(f => ({ ...f, month: e.target.value }))}
                     className={inputCls} />
                 </div>
 
@@ -1127,12 +1144,13 @@ const ClaimDetail = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {[
-                  ['Claim Type',         claim.claimType],
+                  ['Claim Type',         CLAIM_TYPE_LABELS[claim.claimType] || claim.claimType],
                   ['Hospital',           claim.hospital?.name || '—'],
                   ['Patient Name',       claim.patientName],
                   ['Patient Mobile',     claim.patientMobile || '—'],
                   ['Doctor',             claim.doctorName || '—'],
                   ['Date of Admit',      formatDate(claim.dateOfAdmit)],
+                  ['Month',              formatMonth(claim.month)],
                   ['Insurance',          claim.insuranceCompany?.name || '—'],
                   ['TPA',                claim.tpa?.name || '—'],
                   ['Policy No',          claim.policyNo || '—'],

@@ -355,6 +355,98 @@ exports.deleteDocument = async (req, res) => {
   }
 };
 
+const removeClaimFiles = (filePaths) => {
+  const uploadsDir = path.join(__dirname, '..', 'uploads');
+  for (const filePath of filePaths) {
+    if (!filePath) continue;
+    const abs = path.isAbsolute(filePath) ? filePath : path.join(uploadsDir, path.basename(filePath));
+    try { if (fs.existsSync(abs)) fs.unlinkSync(abs); } catch { /* ignore */ }
+  }
+};
+
+exports.deleteClaim = async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    if (!claim) return res.status(404).json({ message: 'Claim not found' });
+
+    const userHospitalId = getUserHospitalId(req.user);
+    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+      return res.status(403).json({ message: "You can only delete your own hospital's claims" });
+    }
+
+    const docs = await prisma.claimDocument.findMany({
+      where: { claimId: claim.id },
+      select: { filePath: true },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.documentSubmission.updateMany({ where: { claimId: claim.id }, data: { claimId: null } });
+      await tx.notification.deleteMany({ where: { type: 'claim', referenceId: claim.id } });
+      await tx.claim.delete({ where: { id: claim.id } });
+    });
+
+    removeClaimFiles(docs.map(d => d.filePath));
+    res.json({ message: 'Claim deleted' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.deleteAllClaims = async (req, res) => {
+  try {
+    if (req.body?.confirm !== 'DELETE_ALL') {
+      return res.status(400).json({ message: 'Confirmation required' });
+    }
+
+    const userHospitalId = getUserHospitalId(req.user);
+    const where = {};
+    if (userHospitalId) {
+      where.hospitalId = userHospitalId;
+      where.isDirectPatient = false;
+    }
+
+    const isSuperAdmin = req.user?.role?.slug === 'super_admin';
+
+    const targets = await prisma.claim.findMany({ where, select: { id: true } });
+    if (targets.length === 0) {
+      return res.json({ message: 'No claims to delete', count: 0 });
+    }
+    const ids = targets.map(t => t.id);
+
+    const docs = await prisma.claimDocument.findMany({
+      where: { claimId: { in: ids } },
+      select: { filePath: true },
+    });
+
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.documentSubmission.updateMany({
+        where: { claimId: { in: ids } },
+        data: { claimId: null },
+      });
+      await tx.notification.deleteMany({
+        where: { type: 'claim', referenceId: { in: ids } },
+      });
+      const deleted = await tx.claim.deleteMany({ where: { id: { in: ids } } });
+
+      // Reset sr_no autoincrement only on a true full wipe.
+      if (isSuperAdmin && !userHospitalId) {
+        const remaining = await tx.claim.count();
+        if (remaining === 0) {
+          await tx.$executeRawUnsafe(
+            `SELECT setval(pg_get_serial_sequence('claims', 'sr_no'), 1, false)`
+          );
+        }
+      }
+      return deleted.count;
+    });
+
+    removeClaimFiles(docs.map(d => d.filePath));
+    res.json({ message: `${result} claim(s) deleted`, count: result });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.bulkUpdateStatus = async (req, res) => {
   try {
     if (req.user?.role?.slug !== 'super_admin') {
@@ -394,7 +486,7 @@ exports.bulkUpdateStatus = async (req, res) => {
 
 // ── Bulk Import ───────────────────────────────────────────────────────────
 
-const CLAIM_TYPES = ['cashless', 'reimbursement', 'grievance'];
+const CLAIM_TYPES = ['cashless', 'cashless_anywhere', 'reimbursement', 'grievance'];
 const SUBMIT_MODES = ['', 'courier', 'online'];
 
 // Treat placeholders ("-", "—", "N/A", "NA", "null", "0", "0.00") as blank.
@@ -706,7 +798,7 @@ exports.importClaims = async (req, res) => {
       const patientName = cleanCell(row.patientName);
       if (!patientName) rowErrors.push('Patient Name is required');
 
-      const claimType = norm(cleanCell(row.claimType));
+      const claimType = norm(cleanCell(row.claimType)).replace(/\s+/g, '_');
       if (!claimType) rowErrors.push('Claim Type is required');
       else if (!CLAIM_TYPES.includes(claimType)) rowErrors.push(`Claim Type "${row.claimType}" is invalid — must be one of: ${CLAIM_TYPES.join(', ')}`);
 

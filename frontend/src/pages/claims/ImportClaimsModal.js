@@ -20,7 +20,7 @@ const COLUMNS = [
   { key: 'referenceBy',         label: 'Reference By',                  width: 18, note: 'Optional — must match the hospital\'s reference (see Hospitals sheet)', superAdminOnly: true },
   { key: 'isDirectPatient',     label: 'Is Direct Patient (Yes/No)',    width: 12 },
   { key: 'doctorName',          label: 'Doctor Name',                   width: 18 },
-  { key: 'claimType',           label: 'Claim Type *',                  width: 14, note: 'cashless / reimbursement / grievance', required: true },
+  { key: 'claimType',           label: 'Claim Type *',                  width: 14, note: 'cashless / cashless anywhere / reimbursement / grievance', required: true },
   { key: 'insuranceCompany',    label: 'Insurance Company',             width: 24, note: 'Must match exactly (see Insurance sheet)' },
   { key: 'tpa',                 label: 'TPA',                           width: 24, note: 'Must match exactly (see TPA sheet)' },
   { key: 'policyNo',            label: 'Policy No',                     width: 16 },
@@ -145,7 +145,7 @@ const buildLookup = (list) => {
   });
   return { find: (input) => exact.get(norm(input)) || canon.get(canonical(input)) || null };
 };
-const VALID_CLAIM_TYPES = ['cashless', 'reimbursement', 'grievance'];
+const VALID_CLAIM_TYPES = ['cashless', 'cashless_anywhere', 'reimbursement', 'grievance'];
 
 const ImportClaimsModal = ({ open, onClose, onImported }) => {
   const { user, roleSlug } = useAuth();
@@ -240,7 +240,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
         issues.push({ type: 'date', label: `Date of Admit invalid${r.dateOfAdmit ? `: "${r.dateOfAdmit}"` : ''}` });
         bump('date');
       }
-      const ct = norm(cleanCell(r.claimType));
+      const ct = norm(cleanCell(r.claimType)).replace(/\s+/g, '_');
       if (!ct) { issues.push({ type: 'type', label: 'Claim type missing' }); bump('type'); }
       else if (!VALID_CLAIM_TYPES.includes(ct)) { issues.push({ type: 'type', label: `Claim type invalid: "${r.claimType}"` }); bump('type'); }
 
@@ -415,7 +415,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       [''],
       ['Required fields'],
       ['• Patient Name'],
-      ['• Claim Type (cashless / reimbursement / grievance)'],
+      ['• Claim Type (cashless / cashless anywhere / reimbursement / grievance)'],
       ['• Date of Admit'],
       ['• Hospital Name (unless "Is Direct Patient" = Yes — Super Admin only)'],
       [''],
