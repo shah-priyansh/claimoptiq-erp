@@ -77,6 +77,8 @@ export const uploadDocumentsAPI = (id, formData) => API.post(`/claims/${id}/docu
   headers: { 'Content-Type': 'multipart/form-data' }
 });
 export const deleteDocumentAPI = (claimId, docId) => API.delete(`/claims/${claimId}/documents/${docId}`);
+export const deleteClaimAPI = (id) => API.delete(`/claims/${id}`);
+export const deleteAllClaimsAPI = () => API.delete('/claims', { data: { confirm: 'DELETE_ALL' } });
 
 // Dashboard
 export const getDashboardAPI = () => API.get('/claims/dashboard');

@@ -24,10 +24,10 @@ const baseUrl = process.env.REACT_APP_API_URL === '/api'
   : (process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5001');
 
 const claimTypeCls = (active) =>
-  `flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all ${
+  `py-2.5 px-3 rounded-lg text-sm font-medium border transition-all text-center whitespace-nowrap ${
     active
       ? 'bg-primary-600 border-primary-600 text-white shadow-sm'
-      : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+      : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
   }`;
 
 const ClaimForm = () => {
@@ -261,13 +261,18 @@ const ClaimForm = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Month *</label>
               <DateInput type="month" name="month" value={form.month} onChange={handleChange} required />
             </div>
-            <div>
+            <div className="md:col-span-2 lg:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">Claim Type *</label>
-              <div className="flex gap-2">
-                {['cashless', 'reimbursement', 'grievance'].map(t => (
-                  <button key={t} type="button" onClick={() => set('claimType', t)}
-                    className={claimTypeCls(form.claimType === t)}>
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { value: 'cashless', label: 'Cashless' },
+                  { value: 'cashless_anywhere', label: 'Cashless Anywhere' },
+                  { value: 'reimbursement', label: 'Reimbursement' },
+                  { value: 'grievance', label: 'Grievance' },
+                ].map(t => (
+                  <button key={t.value} type="button" onClick={() => set('claimType', t.value)}
+                    className={claimTypeCls(form.claimType === t.value)}>
+                    {t.label}
                   </button>
                 ))}
               </div>

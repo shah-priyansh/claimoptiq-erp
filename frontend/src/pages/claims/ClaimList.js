@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI } from '../../services/api';
+import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI, deleteClaimAPI, deleteAllClaimsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -121,6 +121,10 @@ const ClaimList = () => {
   const [stickerSelectedIds, setStickerSelectedIds] = useState([]);
   const [stickerPreviewClaims, setStickerPreviewClaims] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const allFieldDefs = BASE_FIELD_DEFS
     .filter(f => (!f.superAdminOnly || isSuperAdmin) && (!f.nonHospitalOnly || !isHospitalUser))
@@ -236,6 +240,42 @@ const ClaimList = () => {
     const { claimId, currentStatus } = rejectionPending;
     setRejectionPending(null);
     handleStatusChange(claimId, 'rejected', currentStatus, rejectionInput.trim());
+  };
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+
+  const handleDeleteClaim = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteClaimAPI(deleteTarget._id);
+      toast.success('Claim deleted');
+      setDeleteTarget(null);
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete claim');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (deleteAllConfirm.trim() !== 'DELETE ALL') {
+      toast.error('Type DELETE ALL to confirm');
+      return;
+    }
+    setDeleting(true);
+    try {
+      const { data } = await deleteAllClaimsAPI();
+      toast.success(data?.message || 'All claims deleted');
+      setDeleteAllOpen(false);
+      setDeleteAllConfirm('');
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete claims');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // ── Export ────────────────────────────────────────────────────────────────
@@ -933,6 +973,15 @@ const ClaimList = () => {
               )}
             </div>
           )}
+          {can('claims', 'delete') && total > 0 && (
+            <button
+              onClick={() => { setDeleteAllConfirm(''); setDeleteAllOpen(true); }}
+              className="flex items-center gap-2 bg-white border border-red-600 text-red-700 hover:bg-red-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlineTrash className="w-5 h-5" />
+              Delete All
+            </button>
+          )}
           <button
             onClick={() => {
               setStickerMode(m => {
@@ -1007,6 +1056,7 @@ const ClaimList = () => {
           <SearchableSelect
             options={[
               { value: 'cashless', label: 'Cashless' },
+              { value: 'cashless_anywhere', label: 'Cashless Anywhere' },
               { value: 'reimbursement', label: 'Reimbursement' },
               { value: 'grievance', label: 'Grievance' },
             ]}
@@ -1072,6 +1122,13 @@ const ClaimList = () => {
                           <HiOutlinePencil className="w-4 h-4" />
                         </button>
                       )}
+                      {can('claims', 'delete') && (
+                        <button onClick={(e) => { e.stopPropagation(); setDeleteTarget(c); }}
+                          title="Delete claim"
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                          <HiOutlineTrash className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
@@ -1082,11 +1139,17 @@ const ClaimList = () => {
                         <span>·</span>
                       </>
                     )}
-                    <span className="capitalize">{c.claimType}</span>
+                    <span className="capitalize">{(c.claimType || '').replace(/_/g, ' ')}</span>
                     <span>·</span>
                     <span>{formatDate(c.dateOfAdmit)}</span>
                     {c.hospitalFinalBill && (<><span>·</span><span className="font-medium">{formatAmount(c.hospitalFinalBill)}</span></>)}
                   </div>
+                  {(c.insuranceCompany?.name || c.tpa?.name) && (
+                    <p className="text-[11px] text-gray-400 mt-1 truncate">
+                      {c.insuranceCompany?.name || '-'}
+                      {c.tpa?.name ? ` / ${c.tpa.name}` : ''}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -1136,9 +1199,15 @@ const ClaimList = () => {
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
                         )}
                       </div>
+                      {(c.insuranceCompany?.name || c.tpa?.name) && (
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">
+                          {c.insuranceCompany?.name || '-'}
+                          {c.tpa?.name ? ` / ${c.tpa.name}` : ''}
+                        </p>
+                      )}
                     </td>
                   )}
-                  <td className="py-3 px-3"><span className="text-xs font-medium capitalize">{c.claimType}</span></td>
+                  <td className="py-3 px-3"><span className="text-xs font-medium capitalize">{(c.claimType || '').replace(/_/g, ' ')}</span></td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
                   <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
                   <td className="py-3 px-3"><StatusBadge c={c} loading={filtersLoading} /></td>
@@ -1160,6 +1229,13 @@ const ClaimList = () => {
                         className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
                         <HiOutlineEye className="w-4 h-4" />
                       </button>
+                      {can('claims', 'delete') && (
+                        <button onClick={() => setDeleteTarget(c)}
+                          title="Delete claim"
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                          <HiOutlineTrash className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1211,6 +1287,88 @@ const ClaimList = () => {
                 <button onClick={handleConfirmRejection}
                   className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-colors">
                   Mark as Rejected
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Single claim delete confirmation */}
+      {deleteTarget && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-red-500 to-red-400" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <HiOutlineTrash className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Delete claim?</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">This permanently removes the claim and all its documents.</p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600">
+                Patient: <span className="font-semibold text-gray-900">{deleteTarget.patientName}</span>
+                {deleteTarget.policyNo ? <> · Policy: <span className="font-mono">{deleteTarget.policyNo}</span></> : null}
+              </p>
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  Cancel
+                </button>
+                <button onClick={handleDeleteClaim}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Delete all claims confirmation */}
+      {deleteAllOpen && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-red-600 to-red-500" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <HiOutlineTrash className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Delete all claims?</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    This wipes every claim {isHospitalUser ? "for your hospital" : "in the system"} along with documents, history, and notifications.
+                  </p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 mb-2">
+                Type <span className="font-mono font-bold text-red-600">DELETE ALL</span> to confirm:
+              </p>
+              <input
+                autoFocus
+                value={deleteAllConfirm}
+                onChange={e => setDeleteAllConfirm(e.target.value)}
+                placeholder="DELETE ALL"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-400"
+              />
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => { setDeleteAllOpen(false); setDeleteAllConfirm(''); }}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  Cancel
+                </button>
+                <button onClick={handleDeleteAll}
+                  disabled={deleting || deleteAllConfirm.trim() !== 'DELETE ALL'}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
+                  {deleting ? 'Deleting…' : 'Delete All'}
                 </button>
               </div>
             </div>
