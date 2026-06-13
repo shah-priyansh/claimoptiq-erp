@@ -4,6 +4,7 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
+  fetchLatestBaileysVersion,
   Browsers,
 } = require('baileys');
 const { Boom } = require('@hapi/boom');
@@ -40,11 +41,24 @@ async function connect() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     console.log('[whatsapp] connect: auth state loaded');
 
+    // Fetch latest WA Web protocol version with a 5s timeout — fall back to Baileys' built-in default.
+    let version;
+    try {
+      const result = await Promise.race([
+        fetchLatestBaileysVersion(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('version-fetch-timeout')), 5000)),
+      ]);
+      version = result.version;
+      console.log('[whatsapp] connect: using WA version', version);
+    } catch (err) {
+      console.log('[whatsapp] connect: version fetch failed, using Baileys default:', err.message);
+    }
+
     sock = makeWASocket({
+      ...(version ? { version } : {}),
       auth: state,
       logger: pino({ level: 'silent' }),
       browser: Browsers.macOS('Chrome'),
-      syncFullHistory: false,
       markOnlineOnConnect: true,
     });
     console.log('[whatsapp] connect: socket created, awaiting events');
