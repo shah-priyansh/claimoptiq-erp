@@ -59,13 +59,14 @@ const WhatsAppSettings = () => {
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!window.confirm('Disconnect WhatsApp? You will need to scan a new QR to reconnect.')) return;
+  const handleDisconnect = async (silent = false) => {
+    if (!silent && !window.confirm('Disconnect WhatsApp? You will need to scan a new QR to reconnect.')) return;
     setDisconnecting(true);
+    stopPolling();
     try {
       await disconnectWhatsAppAPI();
-      await fetchStatus();
-      toast.success('WhatsApp disconnected');
+      setStatus({ connected: false, qr: null, phoneNumber: null });
+      if (!silent) toast.success('WhatsApp disconnected');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to disconnect');
     } finally {
@@ -121,14 +122,24 @@ const WhatsAppSettings = () => {
         ) : (
           <div className="space-y-4">
             {status.qr ? (
-              <div className="flex flex-col items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <img src={status.qr} alt="WhatsApp QR" className="w-64 h-64" />
-                <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
-                  <li>Open WhatsApp on your phone</li>
-                  <li>Tap <span className="font-semibold">Settings → Linked Devices</span></li>
-                  <li>Tap <span className="font-semibold">Link a device</span> and scan this QR</li>
-                </ol>
-              </div>
+              <>
+                <div className="flex flex-col items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <img src={status.qr} alt="WhatsApp QR" className="w-64 h-64" />
+                  <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
+                    <li>Open WhatsApp on your phone</li>
+                    <li>Tap <span className="font-semibold">Settings → Linked Devices</span></li>
+                    <li>Tap <span className="font-semibold">Link a device</span> and scan this QR</li>
+                  </ol>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDisconnect(true)}
+                  disabled={disconnecting}
+                  className="text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50"
+                >
+                  {disconnecting ? 'Resetting...' : 'Cancel / reset connection'}
+                </button>
+              </>
             ) : (
               <button
                 type="button"

@@ -90,15 +90,23 @@ async function connect() {
 }
 
 async function disconnect() {
+  const currentSock = sock;
+  // Reset state first so /status flips immediately even if cleanup takes a moment.
+  sock = null;
+  isConnected = false;
+  latestQr = null;
+  phoneNumber = null;
+
   try {
-    if (sock) {
-      await sock.logout().catch(() => {});
+    if (currentSock) {
+      // Race logout against a 3s timeout — a half-paired socket can hang here.
+      await Promise.race([
+        currentSock.logout().catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
+      try { currentSock.end(undefined); } catch {}
     }
   } finally {
-    sock = null;
-    isConnected = false;
-    latestQr = null;
-    phoneNumber = null;
     wipeAuthDir();
   }
 }
