@@ -147,4 +147,11 @@ export const getNotificationsAPI = () => API.get('/notifications');
 export const markNotificationReadAPI = (id) => API.patch(`/notifications/${id}/read`);
 export const markAllNotificationsReadAPI = () => API.patch('/notifications/read-all');
 
+// WhatsApp
+export const getWhatsAppStatusAPI = () => API.get('/whatsapp/status');
+export const connectWhatsAppAPI = () => API.post('/whatsapp/connect');
+export const disconnectWhatsAppAPI = () => API.post('/whatsapp/disconnect');
+export const sendWhatsAppAPI = (payload) => API.post('/whatsapp/send', payload);
+export const checkWhatsAppNumberAPI = (number) => API.post('/whatsapp/check', { number });
+
 export default API;
