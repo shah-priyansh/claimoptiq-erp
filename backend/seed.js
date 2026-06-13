@@ -6,6 +6,7 @@ const allModules = [
   'dashboard', 'claims', 'hospitals', 'insurance', 'tpa',
   'users', 'roles', 'reports', 'claim_statuses',
   'claim_document_types', 'document_submissions', 'staff',
+  'whatsapp',
 ];
 
 const buildPermissions = (config) =>
@@ -35,6 +36,7 @@ const defaultRoles = [
       claim_statuses:       { view: true, create: true, edit: true, delete: true },
       claim_document_types: { view: true, create: true, edit: true, delete: true },
       document_submissions: { view: true, create: true, edit: true, delete: true },
+      whatsapp:             { view: true, create: true, edit: true },
     }),
   },
   {

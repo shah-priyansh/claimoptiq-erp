@@ -19,6 +19,7 @@ exports.getModules = async (req, res) => {
       { key: 'claim_document_types', label: 'Claim Document Types', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'document_submissions', label: 'Document Submissions', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'staff', label: 'Staff & Salary', actions: ['view', 'create', 'edit', 'delete'] },
+      { key: 'whatsapp', label: 'WhatsApp (Send = Create, Manage = Edit)', actions: ['view', 'create', 'edit'] },
     ];
     res.json(modules);
   } catch (error) {
