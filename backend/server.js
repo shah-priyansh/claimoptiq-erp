@@ -4,6 +4,7 @@ const path = require('path');
 require('dotenv').config();
 
 const prisma = require('./config/prisma');
+const whatsapp = require('./services/whatsapp');
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use('/api/document-submissions', require('./routes/documentSubmissionRoutes'
 app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/staff', require('./routes/staffRoutes'));
 app.use('/api/settings', require('./routes/siteSettingRoutes'));
+app.use('/api/whatsapp', require('./routes/whatsappRoutes'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'ClaimOptiq API is running' });
@@ -51,6 +53,11 @@ const PORT = process.env.PORT || 5001;
 async function main() {
   await prisma.$connect();
   console.log('PostgreSQL connected via Prisma');
+
+  if (whatsapp.hasStoredCreds()) {
+    whatsapp.connect().catch((err) => console.error('[whatsapp] boot connect failed', err));
+  }
+
   app.listen(PORT, () => {
     console.log(`ClaimOptiq Server running on port ${PORT}`);
   });
