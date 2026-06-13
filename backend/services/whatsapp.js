@@ -17,7 +17,8 @@ let connecting = false;
 let latestQr = null;
 let phoneNumber = null;
 let isConnected = false;
-let justRestartedAfterPair = false; // true between a 515 and the next connection.open
+let postPairRetries = 0; // counts 401s seen after a 515, resets on connection.open or fresh user-connect
+const POST_PAIR_MAX_RETRIES = 3;
 
 const extractPhoneNumber = (jid) => {
   if (!jid) return null;
@@ -81,7 +82,7 @@ async function connect() {
       if (connection === 'open') {
         isConnected = true;
         latestQr = null;
-        justRestartedAfterPair = false;
+        postPairRetries = 0;
         phoneNumber = extractPhoneNumber(sock?.user?.id);
         console.log('[whatsapp] connected as', phoneNumber);
       }
@@ -94,25 +95,27 @@ async function connect() {
         console.log('[whatsapp] connection closed, code:', code, 'loggedOut:', loggedOut, 'restartRequired:', restartRequired);
 
         // A 401 right after a 515 is almost always a race with creds-flush, not a real logout.
-        // Retry once instead of wiping creds.
-        if (loggedOut && justRestartedAfterPair) {
-          console.log('[whatsapp] 401 right after pairing — likely a creds race, retrying in 2s');
-          justRestartedAfterPair = false;
+        // Retry with exponential backoff before giving up on the freshly-paired creds.
+        if (loggedOut && postPairRetries < POST_PAIR_MAX_RETRIES) {
+          postPairRetries += 1;
+          const delayMs = 3000 * postPairRetries; // 3s, 6s, 9s
+          console.log(`[whatsapp] 401 after pairing — creds race retry ${postPairRetries}/${POST_PAIR_MAX_RETRIES} in ${delayMs}ms`);
           sock = null;
           connecting = false;
           setTimeout(() => {
             connect().catch((err) => console.error('[whatsapp] post-pair retry failed', err));
-          }, 2000);
+          }, delayMs);
         } else if (loggedOut) {
-          console.log('[whatsapp] logged out remotely; clearing auth dir');
+          console.log('[whatsapp] logged out remotely after exhausting retries; clearing auth dir');
           sock = null;
           phoneNumber = null;
           latestQr = null;
+          postPairRetries = 0;
           wipeAuthDir();
         } else {
-          // For 515 (restart required) wait 1.5s so saveCreds can flush before re-reading auth.
-          const delayMs = restartRequired ? 1500 : 1000;
-          if (restartRequired) justRestartedAfterPair = true;
+          // For 515 (restart required) wait 3s so saveCreds can flush all multi-step creds before reconnect.
+          const delayMs = restartRequired ? 3000 : 1000;
+          if (restartRequired) postPairRetries = 0; // start the retry window fresh
           console.log(`[whatsapp] reconnecting in ${delayMs}ms...`);
           sock = null;
           connecting = false;
@@ -138,6 +141,7 @@ async function disconnect() {
   isConnected = false;
   latestQr = null;
   phoneNumber = null;
+  postPairRetries = 0;
 
   try {
     if (currentSock) {
