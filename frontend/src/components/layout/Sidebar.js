@@ -15,6 +15,7 @@ import {
   HiOutlineChevronDown,
   HiOutlineInbox,
   HiOutlineCloudUpload,
+  HiOutlineChat,
 } from 'react-icons/hi';
 
 const adminItems = [
@@ -152,6 +153,12 @@ const Sidebar = ({ isOpen, onClose }) => {
             <NavLink to="/staff" className={linkClass} onClick={onClose}>
               <HiOutlineUserGroup className="w-5 h-5 flex-shrink-0" />
               Staff
+            </NavLink>
+          )}
+          {canViewModule('whatsapp') && (
+            <NavLink to="/settings/whatsapp" className={linkClass} onClick={onClose}>
+              <HiOutlineChat className="w-5 h-5 flex-shrink-0" />
+              WhatsApp
             </NavLink>
           )}
           {isSuperAdmin && (
