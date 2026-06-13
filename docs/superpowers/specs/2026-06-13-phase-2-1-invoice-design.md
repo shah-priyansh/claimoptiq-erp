@@ -10,6 +10,10 @@ Generate a monthly invoice per hospital that bundles:
 
 The user (operator) selects **month + hospital**, system computes everything, operator reviews, then issues. Issued invoices are immutable and printable.
 
+## Prerequisites
+
+- **Phase 2.0 Reference Master** must ship first. 2.1 itself does not compute commission, but every `InvoiceLineItem` must record `billingServiceNameId` (the global service-name FK, not just the hospital-specific service id) so the 2.2 commission engine can match against the reference's applicable-services list without joining through hospital configuration that may have changed since issue.
+
 ## Non-goals
 
 - E-invoicing / GSTN integration (out of scope)
@@ -73,11 +77,12 @@ model InvoiceLineItem {
   order             Int      @default(0)
 
   // Optional refs — kept loose to avoid hard FK churn if claim/service deleted
-  claimId           String?  @map("claim_id")
-  billingServiceId  String?  @map("billing_service_id")
+  claimId               String?  @map("claim_id")
+  billingServiceId      String?  @map("billing_service_id")        // HospitalBillingService.id (hospital-specific config)
+  billingServiceNameId  String?  @map("billing_service_name_id")   // BillingServiceName.id (global catalog) — used by 2.2 commission engine
 
   // Snapshot context for audit
-  meta              Json     @default("{}")                  // {hospitalFinalBill, finalApprovalAmount, slabMatched}
+  meta              Json     @default("{}")                  // {hospitalFinalBill, finalApprovalAmount, slabMatched, referenceIdAtIssue}
 
   invoice           Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
