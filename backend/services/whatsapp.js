@@ -17,6 +17,7 @@ let connecting = false;
 let latestQr = null;
 let phoneNumber = null;
 let isConnected = false;
+let justRestartedAfterPair = false; // true between a 515 and the next connection.open
 
 const extractPhoneNumber = (jid) => {
   if (!jid) return null;
@@ -76,6 +77,7 @@ async function connect() {
       if (connection === 'open') {
         isConnected = true;
         latestQr = null;
+        justRestartedAfterPair = false;
         phoneNumber = extractPhoneNumber(sock?.user?.id);
         console.log('[whatsapp] connected as', phoneNumber);
       }
@@ -84,19 +86,35 @@ async function connect() {
         isConnected = false;
         const code = new Boom(lastDisconnect?.error)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
-        console.log('[whatsapp] connection closed, code:', code, 'loggedOut:', loggedOut);
+        const restartRequired = code === DisconnectReason.restartRequired;
+        console.log('[whatsapp] connection closed, code:', code, 'loggedOut:', loggedOut, 'restartRequired:', restartRequired);
 
-        if (loggedOut) {
+        // A 401 right after a 515 is almost always a race with creds-flush, not a real logout.
+        // Retry once instead of wiping creds.
+        if (loggedOut && justRestartedAfterPair) {
+          console.log('[whatsapp] 401 right after pairing — likely a creds race, retrying in 2s');
+          justRestartedAfterPair = false;
+          sock = null;
+          connecting = false;
+          setTimeout(() => {
+            connect().catch((err) => console.error('[whatsapp] post-pair retry failed', err));
+          }, 2000);
+        } else if (loggedOut) {
           console.log('[whatsapp] logged out remotely; clearing auth dir');
           sock = null;
           phoneNumber = null;
           latestQr = null;
           wipeAuthDir();
         } else {
-          console.log('[whatsapp] reconnecting...');
+          // For 515 (restart required) wait 1.5s so saveCreds can flush before re-reading auth.
+          const delayMs = restartRequired ? 1500 : 1000;
+          if (restartRequired) justRestartedAfterPair = true;
+          console.log(`[whatsapp] reconnecting in ${delayMs}ms...`);
           sock = null;
           connecting = false;
-          connect().catch((err) => console.error('[whatsapp] reconnect failed', err));
+          setTimeout(() => {
+            connect().catch((err) => console.error('[whatsapp] reconnect failed', err));
+          }, delayMs);
         }
       }
     });
