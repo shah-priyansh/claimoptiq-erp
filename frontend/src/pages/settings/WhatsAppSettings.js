@@ -131,14 +131,20 @@ const WhatsAppSettings = () => {
                     <li>Tap <span className="font-semibold">Link a device</span> and scan this QR</li>
                   </ol>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleDisconnect(true)}
-                  disabled={disconnecting}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50"
-                >
-                  {disconnecting ? 'Resetting...' : 'Cancel / reset connection'}
-                </button>
+                <div className="pt-4 mt-2 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('Cancel and start over? This will discard the current QR.')) {
+                        handleDisconnect(true);
+                      }
+                    }}
+                    disabled={disconnecting}
+                    className="text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                  >
+                    {disconnecting ? 'Resetting...' : 'Stuck? Cancel and start over'}
+                  </button>
+                </div>
               </>
             ) : (
               <button

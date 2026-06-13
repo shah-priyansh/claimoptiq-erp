@@ -32,7 +32,10 @@ const wipeAuthDir = () => {
 };
 
 async function connect() {
-  if (isConnected || connecting) return;
+  if (sock || isConnected || connecting) {
+    console.log('[whatsapp] connect: already running, ignoring');
+    return;
+  }
   connecting = true;
   console.log('[whatsapp] connect: starting');
 
@@ -60,6 +63,7 @@ async function connect() {
       auth: state,
       logger: pino({ level: 'silent' }),
       browser: Browsers.macOS('Chrome'),
+      syncFullHistory: false,
       markOnlineOnConnect: true,
     });
     console.log('[whatsapp] connect: socket created, awaiting events');
