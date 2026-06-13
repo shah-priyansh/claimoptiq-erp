@@ -66,6 +66,9 @@ async function connect() {
       browser: Browsers.macOS('Chrome'),
       syncFullHistory: false,
       markOnlineOnConnect: true,
+      // Baileys uses this to retry decryption when a message can't be decrypted.
+      // We don't persist messages in V1, so return a stub — Baileys just needs it to be callable.
+      getMessage: async () => ({ conversation: '' }),
     });
     console.log('[whatsapp] connect: socket created, awaiting events');
 
