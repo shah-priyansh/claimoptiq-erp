@@ -4,7 +4,6 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion,
   Browsers,
 } = require('baileys');
 const { Boom } = require('@hapi/boom');
@@ -33,26 +32,28 @@ const wipeAuthDir = () => {
 async function connect() {
   if (isConnected || connecting) return;
   connecting = true;
+  console.log('[whatsapp] connect: starting');
 
   try {
     if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-    const { version } = await fetchLatestBaileysVersion();
+    console.log('[whatsapp] connect: auth state loaded');
 
     sock = makeWASocket({
-      version,
       auth: state,
       logger: pino({ level: 'silent' }),
-      browser: Browsers.macOS('ClaimOptiq'),
+      browser: Browsers.macOS('Chrome'),
       syncFullHistory: false,
       markOnlineOnConnect: true,
     });
+    console.log('[whatsapp] connect: socket created, awaiting events');
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect, qr } = update;
+      console.log('[whatsapp] connection.update:', { connection, hasQr: !!qr, err: lastDisconnect?.error?.message });
 
       if (qr) {
         latestQr = qr;
@@ -69,6 +70,7 @@ async function connect() {
         isConnected = false;
         const code = new Boom(lastDisconnect?.error)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
+        console.log('[whatsapp] connection closed, code:', code, 'loggedOut:', loggedOut);
 
         if (loggedOut) {
           console.log('[whatsapp] logged out remotely; clearing auth dir');
@@ -77,13 +79,17 @@ async function connect() {
           latestQr = null;
           wipeAuthDir();
         } else {
-          console.log('[whatsapp] connection closed, reconnecting...');
+          console.log('[whatsapp] reconnecting...');
           sock = null;
           connecting = false;
           connect().catch((err) => console.error('[whatsapp] reconnect failed', err));
         }
       }
     });
+  } catch (err) {
+    console.error('[whatsapp] connect threw:', err);
+    sock = null;
+    throw err;
   } finally {
     connecting = false;
   }
