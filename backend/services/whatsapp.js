@@ -5,6 +5,7 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  Browsers,
 } = require('baileys');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
@@ -43,6 +44,9 @@ async function connect() {
       version,
       auth: state,
       logger: pino({ level: 'silent' }),
+      browser: Browsers.macOS('ClaimOptiq'),
+      syncFullHistory: false,
+      markOnlineOnConnect: true,
     });
 
     sock.ev.on('creds.update', saveCreds);
