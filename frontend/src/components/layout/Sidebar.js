@@ -156,7 +156,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             </NavLink>
           )}
           {canViewModule('whatsapp') && (
-            <NavLink to="/settings/whatsapp" className={linkClass} onClick={onClose}>
+            <NavLink to="/whatsapp" className={linkClass} onClick={onClose}>
               <HiOutlineChat className="w-5 h-5 flex-shrink-0" />
               WhatsApp
             </NavLink>

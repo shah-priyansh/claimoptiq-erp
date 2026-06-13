@@ -66,7 +66,7 @@ function App() {
             <Route path="/documents/inbox" element={<ProtectedRoute module="document_submissions"><DocumentInbox /></ProtectedRoute>} />
             <Route path="/staff" element={<ProtectedRoute module="staff"><StaffModule /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute superAdminOnly><SiteSettings /></ProtectedRoute>} />
-            <Route path="/settings/whatsapp" element={<ProtectedRoute module="whatsapp"><WhatsAppSettings /></ProtectedRoute>} />
+            <Route path="/whatsapp" element={<ProtectedRoute module="whatsapp"><WhatsAppSettings /></ProtectedRoute>} />
             <Route path="/profile" element={<Profile />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
