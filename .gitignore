@@ -11,6 +11,9 @@ backend/.env
 backend/uploads/*
 !backend/uploads/.gitkeep
 
+# WhatsApp Baileys session
+backend/.wa-auth/
+
 # Build
 frontend/build/
 
