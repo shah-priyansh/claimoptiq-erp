@@ -30,8 +30,9 @@ Invoice must come first — it is the trigger for Reference Commission, the rece
 
 | # | Module | What ships | Depends on |
 |---|---|---|---|
-| **2.1** | **Invoice (FCC Bill)** | Generate monthly invoice per hospital from claims, with TPA Desk slabs + fixed services + GST/TDS + previous-balance roll-forward. Print/PDF. | Existing `HospitalBillingService` + `calculateFilePrice` util |
-| **2.2** | **Expense + Reference Commission auto-flow** | Expense CRUD (Salary, Reference Commission, Office, Travel). On invoice generation, auto-insert a "Reference Commission" expense per hospital reference. | 2.1 |
+| **2.0** | **Reference Master** | Promote `Hospital.referenceBy` from free string to a FK on a `Reference` master with name/mobile/address/commission %/applicable services (multi-select). | — |
+| **2.1** | **Invoice (FCC Bill)** | Generate monthly invoice per hospital from claims, with TPA Desk slabs + fixed services + GST/TDS + previous-balance roll-forward. Print/PDF. | 2.0, existing `HospitalBillingService` + `calculateFilePrice` util |
+| **2.2** | **Expense + Reference Commission auto-flow** | Expense CRUD (Salary, Reference Commission, Office, Travel). On invoice issue, walk line items, look up hospital → reference → applicable services, compute `lineAmount × commissionRate%` per matched line, auto-insert "Reference Commission" expense rows. | 2.0, 2.1 |
 | **2.3** | **Cash/Bank** | Payment IN/OUT ledger linked to Invoice or Expense. Mode = Cash/Bank/UPI. Updates invoice paid status. | 2.1, 2.2 |
 | **2.4** | **Accounting (lite)** | General Entry (Dr/Cr/remarks) + Contra (cash↔bank). Not full double-entry — just a manual ledger. | 2.3 (Contra moves cash↔bank balances) |
 | **2.5** | **Reports** | Sales (monthly / hospital / service), Expense (category / monthly), Profit = Sales − Expense, Reference (business given vs commission paid), Cash/Bank (balance, In vs Out). | 2.1–2.4 |
@@ -52,6 +53,7 @@ Invoice must come first — it is the trigger for Reference Commission, the rece
 ## What this document is not
 
 This is the decomposition + cross-cutting decisions. Each sub-project has its own design doc:
-- `2026-06-13-phase-2-1-invoice-design.md` (this turn)
+- `2026-06-13-phase-2-0-reference-master-design.md`
+- `2026-06-13-phase-2-1-invoice-design.md`
 - `2026-06-XX-phase-2-2-expense-design.md` (next cycle)
 - … etc.
