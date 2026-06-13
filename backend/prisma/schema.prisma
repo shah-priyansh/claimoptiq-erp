@@ -46,6 +46,8 @@ model Hospital {
   state           String                   @default("")
   pincode         String                   @default("")
   referenceBy     String                   @default("") @map("reference_by")
+  referenceId       String?    @map("reference_id")
+  reference         Reference? @relation(fields: [referenceId], references: [id])
   isActive        Boolean                  @default(true) @map("is_active")
   createdAt       DateTime                 @default(now()) @map("created_at")
   updatedAt       DateTime                 @updatedAt @map("updated_at")
@@ -65,7 +67,38 @@ model BillingServiceName {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  referenceApplicableTo ReferenceApplicableService[]
+
   @@map("billing_service_names")
+}
+
+model Reference {
+  id              String   @id @default(uuid())
+  name            String
+  mobile          String   @default("")
+  address         String   @default("")
+  commissionRate  Float    @default(0) @map("commission_rate")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  applicableServices ReferenceApplicableService[]
+  hospitals          Hospital[]
+
+  @@index([name])
+  @@map("references")
+}
+
+model ReferenceApplicableService {
+  id                   String @id @default(uuid())
+  referenceId          String @map("reference_id")
+  billingServiceNameId String @map("billing_service_name_id")
+
+  reference            Reference          @relation(fields: [referenceId], references: [id], onDelete: Cascade)
+  billingServiceName   BillingServiceName @relation(fields: [billingServiceNameId], references: [id], onDelete: Cascade)
+
+  @@unique([referenceId, billingServiceNameId])
+  @@map("reference_applicable_services")
 }
 
 model HospitalBillingService {
