@@ -60,6 +60,7 @@ model Hospital {
   claims          Claim[]
   submissions     DocumentSubmission[]
   invoices        Invoice[]
+  cashBankEntries CashBankEntry[]
 
   @@map("hospitals")
 }
@@ -145,6 +146,7 @@ model Invoice {
   issuedBy  User?    @relation("InvoiceIssuedBy", fields: [issuedById], references: [id])
   tdsRateMaster TdsRate? @relation(fields: [tdsRateId], references: [id])
   lineItems InvoiceLineItem[]
+  payments  CashBankEntry[]
 
   @@unique([hospitalId, month])
   @@index([status])
@@ -188,12 +190,44 @@ model Expense {
   reference    Reference?      @relation(fields: [referenceId], references: [id])
   createdBy    User?           @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
   updatedBy    User?           @relation("ExpenseUpdatedBy", fields: [updatedById], references: [id])
+  payments     CashBankEntry[]
 
   @@index([date(sort: Desc)])
   @@index([categoryId, date(sort: Desc)])
   @@index([referenceId])
   @@unique([sourceType, sourceLineId])
   @@map("expenses")
+}
+
+model CashBankEntry {
+  id            String   @id @default(uuid())
+  date          DateTime
+  direction     String                                        // 'in' | 'out'
+  mode          String                                        // 'cash' | 'bank' | 'upi'
+  amount        Float
+  notes         String   @default("")
+
+  invoiceId     String?  @map("invoice_id")
+  expenseId     String?  @map("expense_id")
+  hospitalId    String?  @map("hospital_id")
+
+  utrNumber     String   @default("") @map("utr_number")
+  chequeNumber  String   @default("") @map("cheque_number")
+
+  createdById   String?  @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
+  expense       Expense?  @relation(fields: [expenseId], references: [id])
+  hospital      Hospital? @relation(fields: [hospitalId], references: [id])
+  createdBy     User?     @relation("CashBankCreatedBy", fields: [createdById], references: [id])
+
+  @@index([date(sort: Desc)])
+  @@index([direction, mode, date(sort: Desc)])
+  @@index([invoiceId])
+  @@index([expenseId])
+  @@map("cash_bank_entries")
 }
 
 model TdsRate {
@@ -303,6 +337,7 @@ model User {
   invoicesIssued             Invoice[]            @relation("InvoiceIssuedBy")
   expensesCreated            Expense[]            @relation("ExpenseCreatedBy")
   expensesUpdated            Expense[]            @relation("ExpenseUpdatedBy")
+  cashBankCreated            CashBankEntry[]      @relation("CashBankCreatedBy")
 
   @@map("users")
 }
