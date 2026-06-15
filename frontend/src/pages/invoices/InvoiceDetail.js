@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
   getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, invoicePdfUrl,
-  getTdsRatesAPI,
+  getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI,
 } from '../../services/api';
 
 const STATUS_COLORS = {
@@ -46,6 +46,9 @@ const InvoiceDetail = () => {
   const [adjustments, setAdjustments] = useState([]);
   const [tdsRateId, setTdsRateId] = useState('');
   const [tdsRates, setTdsRates] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [payForm, setPayForm] = useState({ date: new Date().toISOString().slice(0,10), mode: 'cash', amount: 0, utrNumber: '', chequeNumber: '', notes: '' });
+  const [payingNow, setPayingNow] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -57,6 +60,12 @@ const InvoiceDetail = () => {
       setAdjustments((data.lineItems || []).filter((l) => l.lineType === 'adjustment').map((l) => ({
         description: l.description, amount: l.amount,
       })));
+      // Load payments for this invoice
+      try {
+        const pays = await getCashBankAPI({ invoiceId: id, limit: 200 });
+        setPayments(pays.data.entries || []);
+        setPayForm((f) => ({ ...f, amount: Math.max(0, (data.amountPending || 0)) }));
+      } catch { /* non-fatal */ }
     } catch {
       toast.error('Invoice not found');
       navigate('/invoices');
@@ -124,6 +133,43 @@ const InvoiceDetail = () => {
       toast.error(e.response?.data?.message || 'Void failed');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const recordPayment = async (e) => {
+    e.preventDefault();
+    if (!payForm.amount || Number(payForm.amount) <= 0) {
+      toast.error('Amount must be greater than zero');
+      return;
+    }
+    setPayingNow(true);
+    try {
+      await recordInvoicePaymentAPI(id, {
+        date: payForm.date,
+        mode: payForm.mode,
+        amount: Number(payForm.amount),
+        utrNumber: payForm.utrNumber,
+        chequeNumber: payForm.chequeNumber,
+        notes: payForm.notes,
+      });
+      toast.success('Payment recorded');
+      setPayForm((f) => ({ ...f, amount: 0, utrNumber: '', chequeNumber: '', notes: '' }));
+      reload();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record payment');
+    } finally {
+      setPayingNow(false);
+    }
+  };
+
+  const removePayment = async (entry) => {
+    if (!(await confirm(`Reverse this ${entry.mode.toUpperCase()} payment of ₹${entry.amount}?`, { title: 'Reverse Payment', confirmLabel: 'Reverse' }))) return;
+    try {
+      await deleteCashBankAPI(entry._id);
+      toast.success('Payment reversed');
+      reload();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reverse');
     }
   };
 
@@ -286,6 +332,94 @@ const InvoiceDetail = () => {
             <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           </div>
+        </div>
+      )}
+
+      {(isIssued || invoice.status === 'partially_paid' || invoice.status === 'paid') && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-800">Payments</h2>
+            <span className="text-sm text-gray-500">
+              Pending: <strong className={(invoice.amountPending || 0) > 0 ? 'text-amber-600' : 'text-green-700'}>{formatINR(invoice.amountPending)}</strong>
+            </span>
+          </div>
+
+          {payments.length === 0 ? (
+            <p className="text-sm text-gray-400 mb-4">No payments recorded yet.</p>
+          ) : (
+            <div className="overflow-x-auto mb-4 border border-gray-100 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="text-left py-2 px-3">Date</th>
+                    <th className="text-left py-2 px-3">Mode</th>
+                    <th className="text-left py-2 px-3">UTR / Cheque</th>
+                    <th className="text-left py-2 px-3">Notes</th>
+                    <th className="text-right py-2 px-3">Amount</th>
+                    <th className="text-right py-2 px-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {payments.map((p) => (
+                    <tr key={p._id} className="hover:bg-gray-50">
+                      <td className="py-2 px-3 text-gray-600">{formatDate(p.date)}</td>
+                      <td className="py-2 px-3 text-gray-700 text-xs uppercase font-medium">{p.mode}</td>
+                      <td className="py-2 px-3 text-gray-500 text-xs font-mono">{p.utrNumber || p.chequeNumber || '—'}</td>
+                      <td className="py-2 px-3 text-gray-600">{p.notes || '—'}</td>
+                      <td className="py-2 px-3 text-right text-green-700 font-medium">+{formatINR(p.amount)}</td>
+                      <td className="py-2 px-3 text-right">
+                        {canEdit && (
+                          <button onClick={() => removePayment(p)}
+                            className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
+                            <HiOutlineTrash className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {canEdit && invoice.status !== 'paid' && invoice.status !== 'void' && (
+            <form onSubmit={recordPayment} className="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+                <input type="date" required value={payForm.date}
+                  onChange={(e) => setPayForm((f) => ({ ...f, date: e.target.value }))}
+                  className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Mode</label>
+                <select value={payForm.mode}
+                  onChange={(e) => setPayForm((f) => ({ ...f, mode: e.target.value }))}
+                  className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm">
+                  <option value="cash">Cash</option>
+                  <option value="bank">Bank</option>
+                  <option value="upi">UPI</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Amount</label>
+                <input type="number" min="1" required value={payForm.amount}
+                  onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">UTR / Cheque</label>
+                <input value={payForm.utrNumber || payForm.chequeNumber}
+                  onChange={(e) => setPayForm((f) => ({ ...f, [payForm.mode === 'cash' ? 'chequeNumber' : 'utrNumber']: e.target.value }))}
+                  className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div className="flex items-end">
+                <button type="submit" disabled={payingNow || Number(payForm.amount) <= 0}
+                  className="w-full px-3 py-1.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
+                  {payingNow ? 'Saving...' : 'Record Payment'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
 
