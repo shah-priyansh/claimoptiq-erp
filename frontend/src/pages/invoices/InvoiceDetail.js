@@ -569,33 +569,47 @@ const InvoiceDetail = () => {
 
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Totals</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
           <div className="space-y-1 text-gray-600">
-            <div className="flex justify-between"><span>Subtotal — TPA Desk</span><span>{formatINR(invoice.subtotalTpaDesk)}</span></div>
-            <div className="flex justify-between"><span>Subtotal — Services</span><span>{formatINR(invoice.subtotalServices)}</span></div>
+            <div className="flex justify-between"><span>Subtotal — TPA Desk</span><span className="tabular-nums">{formatINR(invoice.subtotalTpaDesk)}</span></div>
+            <div className="flex justify-between"><span>Subtotal — Services</span><span className="tabular-nums">{formatINR(invoice.subtotalServices)}</span></div>
             {invoice.subtotalAdjust !== 0 && (
-              <div className="flex justify-between"><span>Adjustments</span><span>{formatINR(invoice.subtotalAdjust)}</span></div>
+              <div className="flex justify-between"><span>Adjustments</span><span className="tabular-nums">{formatINR(invoice.subtotalAdjust)}</span></div>
             )}
-            <div className="flex justify-between font-semibold text-gray-800"><span>Gross</span><span>{formatINR(invoice.gross)}</span></div>
+            <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-200 pt-1 mt-1">
+              <span>Gross</span><span className="tabular-nums">{formatINR(invoice.gross)}</span>
+            </div>
           </div>
           <div className="space-y-1 text-gray-600">
-            <div className="flex justify-between"><span>GST ({invoice.gstRate}%)</span><span>{formatINR(invoice.gstAmount)}</span></div>
-            <div className="flex justify-between"><span>TDS ({invoice.tdsRate}%)</span><span>− {formatINR(invoice.tdsAmount)}</span></div>
-            <div className="flex justify-between font-semibold text-gray-800"><span>Net Total</span><span>{formatINR(invoice.netTotal)}</span></div>
-            {invoice.previousBalance > 0 && (
-              <div className="flex justify-between"><span>Previous Balance</span><span>{formatINR(invoice.previousBalance)}</span></div>
+            <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(invoice.gross)}</span></div>
+            {invoice.gstAmount > 0 && (
+              <div className="flex justify-between"><span>GST ({invoice.gstRate}%)</span><span className="tabular-nums">{formatINR(invoice.gstAmount)}</span></div>
             )}
-            {invoice.roundOff !== 0 && (
-              <div className="flex justify-between"><span>Round Off</span><span>{formatINR(invoice.roundOff)}</span></div>
+            {invoice.tdsAmount > 0 && (
+              <div className="flex justify-between text-red-600">
+                <span>TDS@{invoice.tdsRate}%{invoice.tdsSection ? `(${invoice.tdsSection})` : ''}</span>
+                <span className="tabular-nums">{formatINR(invoice.tdsAmount)}</span>
+              </div>
             )}
-            <div className="flex justify-between text-base font-bold text-gray-900 border-t border-gray-200 pt-1">
-              <span>Grand Total</span><span>{formatINR(invoice.grandTotal)}</span>
+            <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1 mt-1">
+              <span>Total</span><span className="tabular-nums">{formatINR(invoice.netTotal)}</span>
             </div>
-            {invoice.amountPaid > 0 && (
-              <>
-                <div className="flex justify-between"><span>Amount Paid</span><span>{formatINR(invoice.amountPaid)}</span></div>
-                <div className="flex justify-between font-semibold text-amber-700"><span>Pending</span><span>{formatINR(invoice.amountPending)}</span></div>
-              </>
+            <div className="flex justify-between"><span>Received</span><span className="tabular-nums">{formatINR(invoice.amountPaid || 0)}</span></div>
+            <div className="flex justify-between">
+              <span>Balance</span>
+              <span className="tabular-nums">{formatINR((invoice.netTotal || 0) + (invoice.roundOff || 0) - (invoice.amountPaid || 0))}</span>
+            </div>
+            <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
+              <span>Previous Balance</span><span className="tabular-nums">{formatINR(invoice.previousBalance || 0)}</span>
+            </div>
+            <div className={`flex justify-between font-bold ${(invoice.amountPending || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              <span>Current Balance</span><span className="tabular-nums">{formatINR(invoice.amountPending || 0)}</span>
+            </div>
+            <div className="flex justify-between font-bold text-gray-900">
+              <span>Invoice Value Before TDS</span><span className="tabular-nums">{formatINR(invoice.gross)}</span>
+            </div>
+            {invoice.roundOff !== 0 && (
+              <div className="flex justify-between"><span>Round Off</span><span className="tabular-nums">{formatINR(invoice.roundOff)}</span></div>
             )}
           </div>
         </div>

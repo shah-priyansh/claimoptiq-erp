@@ -387,37 +387,31 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       // Light card background
       doc.roundedRect(totalsCardX, totalsStartY, totalsCardW, 0, 6); // ranged later
 
-      drawTotalRow('Sub Total', formatINR(invoice.gross), { faint: true });
-      if (invoice.gstAmount) drawTotalRow(`GST (${invoice.gstRate}%)`, formatINR(invoice.gstAmount), { faint: true });
-      if (invoice.tdsAmount) {
-        const sectionLabel = invoice.tdsSection ? ` ${invoice.tdsSection}` : '';
-        drawTotalRow(`TDS${sectionLabel} (${invoice.tdsRate}%)`, formatINR(-invoice.tdsAmount), { faint: true, valueColor: COLORS.red });
-      }
-      drawTotalRow('Net Total', formatINR(invoice.netTotal || invoice.gross), { bold: true, divider: true });
-      if (invoice.previousBalance) {
-        drawTotalRow('Previous Balance', formatINR(invoice.previousBalance), { faint: true });
-      }
-      if (invoice.roundOff) {
-        drawTotalRow('Round Off', formatINR(invoice.roundOff), { faint: true });
+      const gross = Number(invoice.gross) || 0;
+      const tdsAmt = Number(invoice.tdsAmount) || 0;
+      const gstAmt = Number(invoice.gstAmount) || 0;
+      const netTotal = Number(invoice.netTotal) || (gross + gstAmt - tdsAmt);
+      const amountPaid = Number(invoice.amountPaid) || 0;
+      const roundOff = Number(invoice.roundOff) || 0;
+      const previousBalance = Number(invoice.previousBalance) || 0;
+      const thisBalance = netTotal + roundOff - amountPaid;
+      const currentBalance = thisBalance + previousBalance;
+
+      drawTotalRow('Sub Total', formatINR(gross), { faint: true });
+      if (gstAmt) drawTotalRow(`GST (${invoice.gstRate}%)`, formatINR(gstAmt), { faint: true });
+      if (tdsAmt) {
+        const section = invoice.tdsSection ? `(${invoice.tdsSection})` : '';
+        drawTotalRow(`TDS@${invoice.tdsRate}%${section}`, formatINR(tdsAmt), { faint: true, valueColor: COLORS.red });
       }
 
-      // Grand Total emphasis: filled primary band
-      const grandY = rightY + 4;
-      const grandH = 42;
-      doc.rect(totalsCardX, grandY, totalsCardW, grandH).fill(COLORS.primary600);
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11)
-        .text('GRAND TOTAL', totalsCardX + 14, grandY + 16, { width: totalsCardW / 2 - 14, align: 'left' });
-      doc.fontSize(15)
-        .text(formatINR(invoice.grandTotal || invoice.netTotal), totalsCardX + totalsCardW / 2, grandY + 14, { width: totalsCardW / 2 - 14, align: 'right' });
-      rightY = grandY + grandH + 4;
+      drawTotalRow('Total', formatINR(netTotal), { bold: true, divider: true });
+      drawTotalRow('Received', formatINR(amountPaid), { faint: true, valueColor: amountPaid ? COLORS.green : undefined });
+      drawTotalRow('Balance', formatINR(thisBalance), { faint: true });
 
-      if (invoice.amountPaid) drawTotalRow('Received', formatINR(invoice.amountPaid), { faint: true, valueColor: COLORS.green });
-      drawTotalRow('Balance Due', formatINR(invoice.amountPending || 0), {
-        bold: true,
-        big: true,
-        valueColor: (invoice.amountPending || 0) > 0 ? COLORS.red : COLORS.green,
-        divider: true,
-      });
+      drawTotalRow('Previous Balance', formatINR(previousBalance), { faint: true, divider: true });
+      drawTotalRow('Current Balance', formatINR(currentBalance), { bold: true, valueColor: currentBalance > 0 ? COLORS.red : COLORS.green });
+      drawTotalRow('Invoice Value Before TDS', formatINR(gross), { bold: true });
+      if (roundOff) drawTotalRow('Round Off', formatINR(roundOff), { faint: true });
 
       // Frame the totals card after we know its height
       doc.lineWidth(1).strokeColor(COLORS.border)
