@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
   getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, invoicePdfUrl,
+  getTdsRatesAPI,
 } from '../../services/api';
 
 const STATUS_COLORS = {
@@ -43,6 +44,8 @@ const InvoiceDetail = () => {
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState('');
   const [adjustments, setAdjustments] = useState([]);
+  const [tdsRateId, setTdsRateId] = useState('');
+  const [tdsRates, setTdsRates] = useState([]);
 
   const reload = async () => {
     setLoading(true);
@@ -50,6 +53,7 @@ const InvoiceDetail = () => {
       const { data } = await getInvoiceAPI(id);
       setInvoice(data);
       setNotes(data.notes || '');
+      setTdsRateId(data.tdsRateId || '');
       setAdjustments((data.lineItems || []).filter((l) => l.lineType === 'adjustment').map((l) => ({
         description: l.description, amount: l.amount,
       })));
@@ -64,6 +68,10 @@ const InvoiceDetail = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, [id]);
 
+  useEffect(() => {
+    getTdsRatesAPI({ active: 'true' }).then(({ data }) => setTdsRates(data || [])).catch(() => setTdsRates([]));
+  }, []);
+
   if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
   if (!invoice) return null;
 
@@ -76,7 +84,7 @@ const InvoiceDetail = () => {
   const saveDraft = async () => {
     setSaving(true);
     try {
-      await updateInvoiceAPI(id, { notes, adjustments });
+      await updateInvoiceAPI(id, { notes, adjustments, tdsRateId: tdsRateId || null });
       toast.success('Draft saved');
       reload();
     } catch (e) {
@@ -259,6 +267,19 @@ const InvoiceDetail = () => {
               ))}
             </div>
           )}
+
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate</label>
+            <select value={tdsRateId} onChange={(e) => setTdsRateId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+              <option value="">— Use hospital default ({invoice.hospital?.tdsRate ?? 0}%) —</option>
+              {tdsRates.map((r) => (
+                <option key={r._id} value={r._id}>
+                  {r.taxName} — {r.rate}%{r.section ? ` (${r.section})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="mt-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>

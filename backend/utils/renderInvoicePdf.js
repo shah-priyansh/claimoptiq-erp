@@ -288,7 +288,11 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
 
       drawAmtRow('Sub Total', formatINR(invoice.gross));
       if (invoice.gstAmount) drawAmtRow(`GST (${invoice.gstRate}%)`, formatINR(invoice.gstAmount));
-      if (invoice.tdsAmount) drawAmtRow(`TDS (${invoice.tdsRate}%)`, formatINR(-invoice.tdsAmount), false, COLORS.red);
+      if (invoice.tdsAmount) {
+        const sectionLabel = invoice.tdsSection ? ` ${invoice.tdsSection}` : '';
+        const nameLabel = invoice.tdsName ? ` — ${invoice.tdsName}` : '';
+        drawAmtRow(`TDS${sectionLabel} (${invoice.tdsRate}%)${nameLabel}`, formatINR(-invoice.tdsAmount), false, COLORS.red);
+      }
       drawAmtRow('Total', formatINR(invoice.netTotal || invoice.gross), true);
       drawAmtRow('Received', formatINR(invoice.amountPaid));
       const thisInvoiceBalance = (invoice.netTotal || invoice.gross || 0) - (invoice.amountPaid || 0);

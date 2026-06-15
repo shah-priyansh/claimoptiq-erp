@@ -27,6 +27,7 @@ const adminItems = [
   { to: '/claim-statuses',        label: 'Claim Status Master',   icon: HiOutlineTag,          module: 'claim_statuses' },
   { to: '/claim-document-types',  label: 'Document Types',        icon: HiOutlineDocumentText, module: 'claim_document_types' },
   { to: '/billing-service-names', label: 'Billing Service Names', icon: HiOutlineCog,          module: 'billing_service_names' },
+  { to: '/tds-rates',             label: 'TDS Rates',             icon: HiOutlineTag,          module: 'tds_rates' },
 ];
 
 const Sidebar = ({ isOpen, onClose }) => {

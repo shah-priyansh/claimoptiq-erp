@@ -21,12 +21,24 @@ const invoiceInclude = {
   hospital: { select: { id: true, name: true, address: true, city: true, state: true, pincode: true, phone: true, gstRate: true, tdsRate: true, invoicePrefix: true } },
   createdBy: { select: { id: true, name: true, email: true } },
   issuedBy: { select: { id: true, name: true, email: true } },
+  tdsRateMaster: { select: { id: true, taxName: true, rate: true, section: true } },
   lineItems: { orderBy: { order: 'asc' } },
+};
+
+const resolveTdsRate = async (tdsRateId, fallbackRate) => {
+  if (!tdsRateId) return { rate: fallbackRate || 0, name: '', section: '' };
+  const r = await prisma.tdsRate.findUnique({ where: { id: tdsRateId } });
+  if (!r) {
+    const err = new Error('TDS rate not found');
+    err.status = 400;
+    throw err;
+  }
+  return { rate: r.rate || 0, name: r.taxName, section: r.section };
 };
 
 // Build the line items + totals for a (hospital, month) without persisting.
 // Returns { lines, totals, hospital, claims }.
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [] } = {}) => {
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId } = {}) => {
   const hospital = await prisma.hospital.findUnique({
     where: { id: hospitalId },
     include: {
@@ -143,12 +155,14 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [] } = {}) =
   });
   const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
 
+  const tds = await resolveTdsRate(tdsRateId, hospital.tdsRate);
+
   const totals = calculateInvoiceTotals({
     tpaDeskLines,
     fixedServiceLines,
     adjustmentLines,
     gstRate: hospital.gstRate || 0,
-    tdsRate: hospital.tdsRate || 0,
+    tdsRate: tds.rate,
     previousBalance,
   });
 
@@ -156,16 +170,16 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [] } = {}) =
     hospital,
     claims,
     lines: [...tpaDeskLines, ...fixedServiceLines, ...adjustmentLines],
-    totals: { ...totals, gstRate: hospital.gstRate || 0, tdsRate: hospital.tdsRate || 0 },
+    totals: { ...totals, gstRate: hospital.gstRate || 0, tdsRate: tds.rate, tdsName: tds.name, tdsSection: tds.section, tdsRateId: tdsRateId || null },
   };
 };
 
 exports.preview = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, adjustments } = req.body;
+    const { hospitalId, month: rawMonth, adjustments, tdsRateId } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId });
     res.json({
       hospital: toResponse(built.hospital),
       month,
@@ -181,7 +195,7 @@ exports.preview = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, notes, adjustments } = req.body;
+    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
@@ -196,7 +210,7 @@ exports.create = async (req, res) => {
       return res.status(200).json(toResponse(existing));
     }
 
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId });
     if (!built.lines.length) {
       return res.status(400).json({ message: 'No claims or fixed services found for this month. Nothing to invoice.' });
     }
@@ -212,6 +226,9 @@ exports.create = async (req, res) => {
           gstAmount: built.totals.gstAmount,
           tdsRate: built.totals.tdsRate,
           tdsAmount: built.totals.tdsAmount,
+          tdsRateId: built.totals.tdsRateId,
+          tdsName: built.totals.tdsName,
+          tdsSection: built.totals.tdsSection,
           subtotalTpaDesk: built.totals.subtotalTpaDesk,
           subtotalServices: built.totals.subtotalServices,
           subtotalAdjust: built.totals.subtotalAdjust,
@@ -285,11 +302,13 @@ exports.update = async (req, res) => {
     if (!invoice) return res.status(404).json({ message: 'Not found' });
     if (invoice.status !== 'draft') return res.status(400).json({ message: 'Only drafts can be edited' });
 
-    const { notes, adjustments } = req.body;
+    const { notes, adjustments, tdsRateId } = req.body;
+    const tdsChanged = tdsRateId !== undefined;
+    const tdsResolvedId = tdsChanged ? (tdsRateId || null) : invoice.tdsRateId;
+    const rebuildNeeded = Array.isArray(adjustments) || tdsChanged;
 
-    // If adjustments provided, rebuild the whole invoice (drift-safe).
-    if (Array.isArray(adjustments) || notes !== undefined) {
-      const built = await buildInvoiceLines(invoice.hospitalId, invoice.month, { adjustments });
+    if (rebuildNeeded || notes !== undefined) {
+      const built = await buildInvoiceLines(invoice.hospitalId, invoice.month, { adjustments, tdsRateId: tdsResolvedId });
       const updated = await prisma.$transaction(async (tx) => {
         if (Array.isArray(adjustments)) {
           await tx.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
@@ -298,7 +317,7 @@ exports.update = async (req, res) => {
           where: { id: invoice.id },
           data: {
             ...(notes !== undefined ? { notes: String(notes || '') } : {}),
-            ...(Array.isArray(adjustments)
+            ...(rebuildNeeded
               ? {
                   subtotalTpaDesk: built.totals.subtotalTpaDesk,
                   subtotalServices: built.totals.subtotalServices,
@@ -308,11 +327,14 @@ exports.update = async (req, res) => {
                   gstAmount: built.totals.gstAmount,
                   tdsRate: built.totals.tdsRate,
                   tdsAmount: built.totals.tdsAmount,
+                  tdsRateId: built.totals.tdsRateId,
+                  tdsName: built.totals.tdsName,
+                  tdsSection: built.totals.tdsSection,
                   netTotal: built.totals.netTotal,
                   previousBalance: built.totals.previousBalance,
                   grandTotal: built.totals.grandTotal,
                   amountPending: built.totals.grandTotal - (invoice.amountPaid || 0),
-                  lineItems: { create: built.lines },
+                  ...(Array.isArray(adjustments) ? { lineItems: { create: built.lines } } : {}),
                 }
               : {}),
           },
