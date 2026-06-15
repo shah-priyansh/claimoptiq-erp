@@ -397,6 +397,9 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       if (invoice.previousBalance) {
         drawTotalRow('Previous Balance', formatINR(invoice.previousBalance), { faint: true });
       }
+      if (invoice.roundOff) {
+        drawTotalRow('Round Off', formatINR(invoice.roundOff), { faint: true });
+      }
 
       // Grand Total emphasis: filled primary band
       const grandY = rightY + 4;

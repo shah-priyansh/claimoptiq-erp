@@ -303,28 +303,83 @@ exports.getOne = async (req, res) => {
   }
 };
 
+// Recompute and persist totals on an invoice from its current line items.
+// Applies tdsRate, gstRate, roundOff, previousBalance, amountPaid → grandTotal + amountPending.
+const recomputeInvoiceFromLines = async (tx, invoiceId) => {
+  const inv = await tx.invoice.findUnique({
+    where: { id: invoiceId },
+    select: {
+      id: true, hospitalId: true, gstRate: true, tdsRate: true, roundOff: true,
+      amountPaid: true, previousBalance: true,
+      lineItems: { select: { lineType: true, amount: true } },
+    },
+  });
+  if (!inv) return;
+  const sumBy = (type) => inv.lineItems.filter((l) => l.lineType === type).reduce((a, l) => a + (Number(l.amount) || 0), 0);
+  const tpa = sumBy('claim_tpa_desk') + sumBy('service_percentage');
+  const services = sumBy('service_fixed') + sumBy('manual');
+  const adjust = sumBy('adjustment');
+  const gross = Math.round(tpa + services + adjust);
+  const gstAmount = Math.round((gross * (inv.gstRate || 0)) / 100);
+  const tdsAmount = Math.round((gross * (inv.tdsRate || 0)) / 100);
+  const netTotal = gross + gstAmount - tdsAmount;
+  const grandTotal = netTotal + (inv.previousBalance || 0) + (inv.roundOff || 0);
+  const amountPending = Math.round(grandTotal - (inv.amountPaid || 0));
+  await tx.invoice.update({
+    where: { id: invoiceId },
+    data: {
+      subtotalTpaDesk: Math.round(tpa),
+      subtotalServices: Math.round(services),
+      subtotalAdjust: Math.round(adjust),
+      gross,
+      gstAmount,
+      tdsAmount,
+      netTotal,
+      grandTotal,
+      amountPending,
+    },
+  });
+};
+
 exports.update = async (req, res) => {
   try {
-    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+      include: { lineItems: true },
+    });
     if (!invoice) return res.status(404).json({ message: 'Not found' });
     if (invoice.status !== 'draft') return res.status(400).json({ message: 'Only drafts can be edited' });
 
-    const { notes, adjustments, tdsRateId } = req.body;
-    const tdsChanged = tdsRateId !== undefined;
-    const tdsResolvedId = tdsChanged ? (tdsRateId || null) : invoice.tdsRateId;
-    const rebuildNeeded = Array.isArray(adjustments) || tdsChanged;
+    const {
+      notes, adjustments, tdsRateId,
+      lineEdits, manualItems, removedLineIds,
+      roundOff,
+    } = req.body;
 
-    if (rebuildNeeded || notes !== undefined) {
+    const tdsChanged = tdsRateId !== undefined;
+    const fullRebuild = Array.isArray(adjustments);
+    const tdsResolvedId = tdsChanged ? (tdsRateId || null) : invoice.tdsRateId;
+    const partialEdit =
+      Array.isArray(lineEdits) ||
+      Array.isArray(manualItems) ||
+      Array.isArray(removedLineIds) ||
+      roundOff !== undefined;
+
+    // --- Path 1: a full rebuild (adjustments[] sent) ---
+    // Keeps the existing behaviour for the original 'Save Draft' flow that
+    // wipes the line items and regenerates them from the source claims.
+    if (fullRebuild || tdsChanged || notes !== undefined) {
       const built = await buildInvoiceLines(invoice.hospitalId, invoice.month, { adjustments, tdsRateId: tdsResolvedId });
       const updated = await prisma.$transaction(async (tx) => {
-        if (Array.isArray(adjustments)) {
+        if (fullRebuild) {
           await tx.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
         }
-        return tx.invoice.update({
+        await tx.invoice.update({
           where: { id: invoice.id },
           data: {
             ...(notes !== undefined ? { notes: String(notes || '') } : {}),
-            ...(rebuildNeeded
+            ...(roundOff !== undefined ? { roundOff: Math.round(Number(roundOff) || 0) } : {}),
+            ...((fullRebuild || tdsChanged)
               ? {
                   subtotalTpaDesk: built.totals.subtotalTpaDesk,
                   subtotalServices: built.totals.subtotalServices,
@@ -341,17 +396,74 @@ exports.update = async (req, res) => {
                   previousBalance: built.totals.previousBalance,
                   grandTotal: built.totals.grandTotal,
                   amountPending: built.totals.grandTotal - (invoice.amountPaid || 0),
-                  ...(Array.isArray(adjustments) ? { lineItems: { create: built.lines } } : {}),
+                  ...(fullRebuild ? { lineItems: { create: built.lines } } : {}),
                 }
               : {}),
           },
-          include: invoiceInclude,
         });
+        // Round-off makes the persisted grandTotal drift from built.totals; recompute
+        // from the actual line items to keep it consistent.
+        if (roundOff !== undefined && !fullRebuild && !tdsChanged) {
+          await recomputeInvoiceFromLines(tx, invoice.id);
+        }
+        return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude });
       });
       return res.json(toResponse(updated));
     }
 
-    res.json(toResponse(invoice));
+    // --- Path 2: partial edits on existing line items + round-off ---
+    if (!partialEdit) return res.json(toResponse(invoice));
+
+    const validIds = new Set(invoice.lineItems.map((l) => l.id));
+    const updated = await prisma.$transaction(async (tx) => {
+      if (Array.isArray(removedLineIds)) {
+        const toRemove = removedLineIds.filter((id) => validIds.has(id));
+        if (toRemove.length) await tx.invoiceLineItem.deleteMany({ where: { id: { in: toRemove } } });
+      }
+      if (Array.isArray(lineEdits)) {
+        for (const edit of lineEdits) {
+          if (!edit?.id || !validIds.has(edit.id)) continue;
+          const data = {};
+          if (edit.description !== undefined) data.description = String(edit.description).slice(0, 300);
+          if (edit.amount !== undefined) {
+            const n = Math.round(Number(edit.amount));
+            if (Number.isFinite(n)) data.amount = n;
+          }
+          if (Object.keys(data).length) {
+            await tx.invoiceLineItem.update({ where: { id: edit.id }, data });
+          }
+        }
+      }
+      if (Array.isArray(manualItems)) {
+        const baseOrder = Math.max(0, ...invoice.lineItems.map((l) => l.order || 0));
+        for (let i = 0; i < manualItems.length; i++) {
+          const m = manualItems[i];
+          if (!m) continue;
+          const description = String(m.description || '').slice(0, 300).trim();
+          const amount = Math.round(Number(m.amount) || 0);
+          if (!description) continue;
+          await tx.invoiceLineItem.create({
+            data: {
+              invoiceId: invoice.id,
+              lineType: 'manual',
+              description,
+              amount,
+              order: baseOrder + 1 + i,
+              meta: { addedManually: true },
+            },
+          });
+        }
+      }
+      if (roundOff !== undefined) {
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: { roundOff: Math.round(Number(roundOff) || 0) },
+        });
+      }
+      await recomputeInvoiceFromLines(tx, invoice.id);
+      return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude });
+    });
+    res.json(toResponse(updated));
   } catch (error) {
     const status = error.status || 500;
     res.status(status).json({ message: error.message || 'Server error' });

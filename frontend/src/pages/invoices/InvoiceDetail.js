@@ -23,10 +23,11 @@ const STATUS_COLORS = {
 };
 
 const LINE_TYPE_LABEL = {
-  claim_tpa_desk: 'TPA Desk Fees',
-  service_fixed: 'Fixed Services',
-  service_percentage: 'Variable Services',
-  adjustment: 'Adjustments',
+  claim_tpa_desk: 'TPA Desk',
+  service_fixed: 'Fixed',
+  service_percentage: 'Variable',
+  adjustment: 'Adjustment',
+  manual: 'Manual',
 };
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
@@ -46,6 +47,9 @@ const InvoiceDetail = () => {
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState('');
   const [adjustments, setAdjustments] = useState([]);
+  const [editLines, setEditLines] = useState([]);
+  const [originalLines, setOriginalLines] = useState([]);
+  const [roundOff, setRoundOff] = useState(0);
   const [tdsRateId, setTdsRateId] = useState('');
   const [tdsRates, setTdsRates] = useState([]);
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
@@ -61,9 +65,21 @@ const InvoiceDetail = () => {
       setInvoice(data);
       setNotes(data.notes || '');
       setTdsRateId(data.tdsRateId || '');
+      setRoundOff(data.roundOff || 0);
       setAdjustments((data.lineItems || []).filter((l) => l.lineType === 'adjustment').map((l) => ({
         description: l.description, amount: l.amount,
       })));
+      // Seed the per-row editor with everything currently on the invoice.
+      // `_origId` is kept so we can diff vs the server later and send lineEdits + removedLineIds.
+      const items = (data.lineItems || []).map((l) => ({
+        _origId: l._id || l.id,
+        description: l.description || '',
+        amount: l.amount,
+        lineType: l.lineType,
+        claimId: l.claimId || null,
+      }));
+      setEditLines(items);
+      setOriginalLines(items.map((x) => ({ ...x })));
       // Load payments for this invoice
       try {
         const pays = await getCashBankAPI({ invoiceId: id, limit: 200 });
@@ -97,7 +113,37 @@ const InvoiceDetail = () => {
   const saveDraft = async () => {
     setSaving(true);
     try {
-      await updateInvoiceAPI(id, { notes, adjustments, tdsRateId: tdsRateId || null });
+      // Diff editLines vs originalLines so the backend only patches what changed.
+      const origById = new Map(originalLines.map((l) => [l._origId, l]));
+      const seen = new Set();
+      const lineEdits = [];
+      const manualItems = [];
+      editLines.forEach((row) => {
+        if (row._origId) {
+          seen.add(row._origId);
+          const orig = origById.get(row._origId);
+          if (!orig) return;
+          const descChanged = (row.description || '') !== (orig.description || '');
+          const amtChanged = Math.round(Number(row.amount) || 0) !== Math.round(Number(orig.amount) || 0);
+          if (descChanged || amtChanged) {
+            lineEdits.push({ id: row._origId, description: row.description, amount: Number(row.amount) || 0 });
+          }
+        } else if ((row.description || '').trim()) {
+          manualItems.push({ description: row.description, amount: Number(row.amount) || 0 });
+        }
+      });
+      const removedLineIds = originalLines.map((l) => l._origId).filter((id) => !seen.has(id));
+
+      const payload = {
+        notes,
+        tdsRateId: tdsRateId || null,
+        roundOff: Math.round(Number(roundOff) || 0),
+      };
+      if (lineEdits.length) payload.lineEdits = lineEdits;
+      if (manualItems.length) payload.manualItems = manualItems;
+      if (removedLineIds.length) payload.removedLineIds = removedLineIds;
+
+      await updateInvoiceAPI(id, payload);
       toast.success('Draft saved');
       reload();
     } catch (e) {
@@ -285,90 +331,154 @@ const InvoiceDetail = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">Line items</h2>
-        <div className="overflow-x-auto border border-gray-100 rounded-lg">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-              <tr>
-                <th className="text-left py-2 px-3">Description</th>
-                <th className="text-right py-2 px-3">Amount</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {orderedTypes.flatMap((t) => {
-                const rows = groupedLines[t];
-                if (!rows || !rows.length) return [];
-                return [
-                  <tr key={`${t}-h`} className="bg-gray-50/60">
-                    <td colSpan={2} className="py-2 px-3 text-xs font-semibold uppercase text-gray-500">{LINE_TYPE_LABEL[t] || t}</td>
-                  </tr>,
-                  ...rows.map((l) => (
-                    <tr key={l._id || l.id} className="hover:bg-gray-50">
-                      <td className="py-2 px-3 text-gray-700">{l.description}</td>
-                      <td className="py-2 px-3 text-right text-gray-700">{formatINR(l.amount)}</td>
-                    </tr>
-                  )),
-                ];
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {isDraft && canEdit && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-800">Adjustments</h2>
-            <button onClick={addAdjustment}
-              className="flex items-center gap-1 px-3 py-1 text-sm text-primary-600 hover:bg-primary-50 rounded">
-              <HiOutlinePlus className="w-4 h-4" /> Add row
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-gray-800">Line items</h2>
+          {isDraft && canEdit && (
+            <button
+              onClick={() => setEditLines((rows) => [...rows, { _origId: null, description: '', amount: 0, lineType: 'manual', claimId: null }])}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg border border-primary-200">
+              <HiOutlinePlus className="w-4 h-4" /> Add Item
             </button>
-          </div>
-          {adjustments.length === 0 ? (
-            <p className="text-sm text-gray-400">No adjustments. Use negative amounts for discounts.</p>
-          ) : (
-            <div className="space-y-2">
-              {adjustments.map((a, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input value={a.description} onChange={(e) => updateAdjustment(i, 'description', e.target.value)}
-                    placeholder="Description"
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-                  <input type="number" value={a.amount} onChange={(e) => updateAdjustment(i, 'amount', e.target.value)}
-                    placeholder="Amount"
-                    className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-                  <button onClick={() => removeAdjustment(i)}
-                    className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                    <HiOutlineTrash className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
           )}
-
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate</label>
-            <SearchableSelect
-              isLoading={loadingTdsRates}
-              value={tdsRateId}
-              onChange={setTdsRateId}
-              placeholder={`Use hospital default (${invoice.hospital?.tdsRate ?? 0}%)`}
-              searchPlaceholder="Search TDS rates..."
-              noneLabel={`— Use hospital default (${invoice.hospital?.tdsRate ?? 0}%) —`}
-              allowClear
-              options={tdsRates.map((r) => ({
-                value: r._id,
-                label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
-              }))}
-            />
-          </div>
-
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-          </div>
         </div>
-      )}
+
+        {isDraft && canEdit ? (
+          <>
+            <div className="overflow-x-auto border border-gray-100 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="text-left py-2 px-3 w-10">#</th>
+                    <th className="text-left py-2 px-3">Description</th>
+                    <th className="text-left py-2 px-3 w-28">Type</th>
+                    <th className="text-right py-2 px-3 w-32">Amount</th>
+                    <th className="py-2 px-3 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {editLines.length === 0 ? (
+                    <tr><td colSpan={5} className="py-6 text-center text-sm text-gray-400">No line items yet. Use "Add Item" to start.</td></tr>
+                  ) : editLines.map((row, idx) => (
+                    <tr key={row._origId || `new-${idx}`} className="hover:bg-gray-50">
+                      <td className="py-2 px-3 text-gray-400 text-xs">{idx + 1}</td>
+                      <td className="py-2 px-3">
+                        <input
+                          value={row.description}
+                          onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
+                          placeholder="Description"
+                          className="w-full px-2 py-1 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                      </td>
+                      <td className="py-2 px-3">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                          row.lineType === 'claim_tpa_desk' ? 'bg-primary-50 text-primary-700' :
+                          row.lineType === 'service_fixed' ? 'bg-amber-50 text-amber-700' :
+                          row.lineType === 'adjustment' ? 'bg-purple-50 text-purple-700' :
+                          row.lineType === 'manual' ? 'bg-emerald-50 text-emerald-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {LINE_TYPE_LABEL[row.lineType] || row.lineType}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3">
+                        <input
+                          type="number"
+                          value={row.amount}
+                          onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                          className="w-full px-2 py-1 border border-gray-200 rounded text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                      </td>
+                      <td className="py-2 px-3 text-right">
+                        <button
+                          onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
+                          title="Remove row"
+                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                          <HiOutlineTrash className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan={3} className="py-2 px-3 text-right text-xs uppercase text-gray-500 font-semibold">Subtotal</td>
+                    <td className="py-2 px-3 text-right font-semibold text-gray-800">
+                      {formatINR(editLines.reduce((a, r) => a + (Number(r.amount) || 0), 0))}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <p className="text-xs text-gray-400 mt-2">
+              Tip: use a negative amount for a discount, positive for an extra charge. Claim-linked rows update the claim's file price when the invoice is issued.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate</label>
+                <SearchableSelect
+                  isLoading={loadingTdsRates}
+                  value={tdsRateId}
+                  onChange={setTdsRateId}
+                  placeholder={`Use hospital default (${invoice.hospital?.tdsRate ?? 0}%)`}
+                  searchPlaceholder="Search TDS rates..."
+                  noneLabel={`— Use hospital default (${invoice.hospital?.tdsRate ?? 0}%) —`}
+                  allowClear
+                  options={tdsRates.map((r) => ({
+                    value: r._id,
+                    label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
+                  }))}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Round Off <span className="text-xs text-gray-400 font-normal">(+/- applied to Grand Total)</span>
+                </label>
+                <input
+                  type="number"
+                  value={roundOff}
+                  onChange={(e) => setRoundOff(e.target.value)}
+                  placeholder="0"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+              <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            </div>
+          </>
+        ) : (
+          <div className="overflow-x-auto border border-gray-100 rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                <tr>
+                  <th className="text-left py-2 px-3">Description</th>
+                  <th className="text-right py-2 px-3">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {orderedTypes.flatMap((t) => {
+                  const rows = groupedLines[t];
+                  if (!rows || !rows.length) return [];
+                  return [
+                    <tr key={`${t}-h`} className="bg-gray-50/60">
+                      <td colSpan={2} className="py-2 px-3 text-xs font-semibold uppercase text-gray-500">{LINE_TYPE_LABEL[t] || t}</td>
+                    </tr>,
+                    ...rows.map((l) => (
+                      <tr key={l._id || l.id} className="hover:bg-gray-50">
+                        <td className="py-2 px-3 text-gray-700">{l.description}</td>
+                        <td className="py-2 px-3 text-right text-gray-700">{formatINR(l.amount)}</td>
+                      </tr>
+                    )),
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {(isIssued || invoice.status === 'partially_paid' || invoice.status === 'paid') && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
@@ -475,6 +585,9 @@ const InvoiceDetail = () => {
             <div className="flex justify-between font-semibold text-gray-800"><span>Net Total</span><span>{formatINR(invoice.netTotal)}</span></div>
             {invoice.previousBalance > 0 && (
               <div className="flex justify-between"><span>Previous Balance</span><span>{formatINR(invoice.previousBalance)}</span></div>
+            )}
+            {invoice.roundOff !== 0 && (
+              <div className="flex justify-between"><span>Round Off</span><span>{formatINR(invoice.roundOff)}</span></div>
             )}
             <div className="flex justify-between text-base font-bold text-gray-900 border-t border-gray-200 pt-1">
               <span>Grand Total</span><span>{formatINR(invoice.grandTotal)}</span>

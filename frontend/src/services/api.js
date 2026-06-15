@@ -71,6 +71,7 @@ export const createInvoiceAPI  = (data) => API.post('/invoices', data);
 export const getInvoicesAPI    = (params) => API.get('/invoices', { params });
 export const getInvoiceAPI     = (id) => API.get(`/invoices/${id}`);
 export const updateInvoiceAPI  = (id, data) => API.patch(`/invoices/${id}`, data);
+export const editInvoiceLinesAPI = (id, payload) => API.patch(`/invoices/${id}`, payload);
 export const issueInvoiceAPI   = (id) => API.post(`/invoices/${id}/issue`);
 export const voidInvoiceAPI    = (id, data) => API.post(`/invoices/${id}/void`, data);
 export const deleteInvoiceAPI  = (id) => API.delete(`/invoices/${id}`);
