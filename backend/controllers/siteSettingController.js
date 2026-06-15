@@ -7,9 +7,25 @@ const DEFAULTS = {
   login_subtitle:       'AI ERP Suite',
   login_tagline:        'AI-Powered Healthcare Business Operating System by First Care Consultancy',
   login_disclaimer:     'First Care Consultancy is not registered and not regulated by the Insurance Regulatory and Development Authority of India and doesn\'t have any tie up with insurance companies and Third party administrators.',
+
+  // Invoice template (PDF branding) — editable from Settings → Invoice Template
+  invoice_company_name:           'First Care Consultancy',
+  invoice_company_address:        'G-13, Nishal Center, Near Nishal Circle, Pal RTO, Surat -395009',
+  invoice_company_phone:          '9376467973',
+  invoice_company_email:          'firstcareconsultancy.surat@gmail.com',
+  invoice_company_website:        'http://firstcareconsultancy.in',
+  invoice_logo_url:               '',
+  invoice_terms:                  'Payment should be settled before 7th date of Every Month.\nYou Can Pay Payment by Cash /UPI/Internet banking etc.\nThanks for doing business with us!',
+  invoice_bank_name:              'HDFC BANK, NANPURA',
+  invoice_bank_account_no:        '50200112657030',
+  invoice_bank_ifsc:              'HDFC0001026',
+  invoice_bank_account_holder:    'FIRST CARE CONSULTANCY',
+  invoice_upi_id:                 '',
+  invoice_authorized_signatory:   'First Care Consultancy',
 };
 
-// Public — no auth
+// Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them
+// but they're not sensitive — bank details on outgoing invoices are visible to the customer anyway.
 exports.getPublicSettings = async (req, res) => {
   try {
     const rows = await prisma.siteSetting.findMany({
@@ -41,4 +57,14 @@ exports.updateSettings = async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Failed to save settings', error: err.message });
   }
+};
+
+// Helper for invoice rendering — returns the invoice template subset with defaults applied.
+exports.getInvoiceTemplate = async () => {
+  const keys = Object.keys(DEFAULTS).filter((k) => k.startsWith('invoice_'));
+  const rows = await prisma.siteSetting.findMany({ where: { key: { in: keys } } });
+  const out = {};
+  for (const k of keys) out[k] = DEFAULTS[k];
+  for (const r of rows) out[r.key] = r.value;
+  return out;
 };

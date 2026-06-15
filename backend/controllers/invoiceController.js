@@ -4,6 +4,7 @@ const calculateFilePrice = require('../utils/calculateFilePrice');
 const calculateInvoiceTotals = require('../utils/calculateInvoiceTotals');
 const { reserveNextInvoiceNumber } = require('../utils/invoiceSequence');
 const renderInvoicePdf = require('../utils/renderInvoicePdf');
+const { getInvoiceTemplate } = require('./siteSettingController');
 
 const EXCLUDED_CLAIM_STATUSES = ['rejected', 'cancelled'];
 
@@ -447,7 +448,8 @@ exports.pdf = async (req, res) => {
       include: invoiceInclude,
     });
     if (!invoice) return res.status(404).json({ message: 'Not found' });
-    const buf = await renderInvoicePdf(invoice, invoice.hospital);
+    const template = await getInvoiceTemplate();
+    const buf = await renderInvoicePdf(invoice, invoice.hospital, template);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${invoice.invoiceNumber || 'draft-' + invoice.id.slice(0, 8)}.pdf"`);
     res.send(buf);
