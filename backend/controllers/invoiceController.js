@@ -397,15 +397,26 @@ exports.issue = async (req, res) => {
       // Reserve invoice number atomically
       const invoiceNumber = await reserveNextInvoiceNumber(tx, invoice.hospital.invoicePrefix || 'FCC', issuedAt);
 
-      // Flip linked claims
+      // Flip linked claims to 'billed' and record their prior status on the
+      // line item so a void can roll the claim back to where it was.
       if (claimIds.length) {
-        const claims = await tx.claim.findMany({ where: { id: { in: claimIds } }, select: { id: true, filePriceOverridden: true } });
+        const claims = await tx.claim.findMany({
+          where: { id: { in: claimIds } },
+          select: { id: true, status: true, filePriceOverridden: true },
+        });
         for (const c of claims) {
           const line = invoice.lineItems.find((l) => l.claimId === c.id);
+          if (line) {
+            await tx.invoiceLineItem.update({
+              where: { id: line.id },
+              data: { meta: { ...(line.meta || {}), priorStatus: c.status } },
+            });
+          }
           await tx.claim.update({
             where: { id: c.id },
             data: {
               isBilled: true,
+              status: 'billed',
               ...(c.filePriceOverridden ? {} : { filePrice: line ? line.amount : undefined }),
             },
           });
@@ -452,13 +463,19 @@ exports.void = async (req, res) => {
     if (invoice.status !== 'issued') return res.status(400).json({ message: `Cannot void from status '${invoice.status}'` });
     if ((invoice.amountPaid || 0) > 0) return res.status(400).json({ message: 'Cannot void an invoice with payments. Record a refund instead.' });
 
-    const claimIds = invoice.lineItems.filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId).map((l) => l.claimId);
+    const claimLines = invoice.lineItems.filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId);
     const reason = String(req.body?.reason || '').slice(0, 500);
 
     let commissionAutoFlow = { rowsRemoved: 0 };
     const result = await prisma.$transaction(async (tx) => {
-      if (claimIds.length) {
-        await tx.claim.updateMany({ where: { id: { in: claimIds } }, data: { isBilled: false } });
+      // Restore each claim's prior status (saved on the line item meta at issue time).
+      // Falls back to 'settled' for any line missing the meta (shouldn't happen post-fix).
+      for (const line of claimLines) {
+        const priorStatus = line.meta?.priorStatus || 'settled';
+        await tx.claim.update({
+          where: { id: line.claimId },
+          data: { isBilled: false, status: priorStatus },
+        });
       }
       // Remove any auto-flow expense rows tied to this invoice
       commissionAutoFlow = await clearReferenceCommissionFlow(tx, id);
