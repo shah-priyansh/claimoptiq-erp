@@ -108,6 +108,17 @@ const ExpenseCategoryList = () => {
     }
   };
 
+  const toggleActive = async (item) => {
+    if (!canEdit) return;
+    try {
+      await updateExpenseCategoryAPI(item._id, { isActive: !item.isActive });
+      toast.success(item.isActive ? 'Category deactivated' : 'Category activated');
+      fetchAll();
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to update');
+    }
+  };
+
   const handleDelete = async (item) => {
     if (item.isSystem) { toast.error('System categories cannot be deleted'); return; }
     if (!(await confirm(`Delete "${item.label}"?`, { title: 'Delete Category', confirmLabel: 'Delete' }))) return;
@@ -158,9 +169,13 @@ const ExpenseCategoryList = () => {
                     <td className="py-3 px-4 text-gray-500 font-mono text-xs">{c.slug}</td>
                     <td className="py-3 px-4 text-gray-600">{c.order}</td>
                     <td className="py-3 px-4">
-                      <span className={`text-xs px-2 py-0.5 rounded ${c.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <button
+                        onClick={() => toggleActive(c)}
+                        disabled={!canEdit}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${c.isActive ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'} ${!canEdit ? 'cursor-default opacity-70' : 'cursor-pointer'}`}
+                      >
                         {c.isActive ? 'Active' : 'Inactive'}
-                      </span>
+                      </button>
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex justify-end gap-1">

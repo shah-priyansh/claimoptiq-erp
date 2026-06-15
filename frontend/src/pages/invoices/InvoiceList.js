@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import { getInvoicesAPI, deleteInvoiceAPI, getHospitalsAPI } from '../../services/api';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -96,12 +97,15 @@ const InvoiceList = () => {
         <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Hospital</label>
-            <select value={filters.hospitalId}
-              onChange={(e) => { setFilters((f) => ({ ...f, hospitalId: e.target.value })); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">All hospitals</option>
-              {hospitals.map((h) => <option key={h._id} value={h._id}>{h.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={filters.hospitalId}
+              onChange={(v) => { setFilters((f) => ({ ...f, hospitalId: v })); setPage(1); }}
+              placeholder="All hospitals"
+              searchPlaceholder="Search hospitals..."
+              noneLabel="All hospitals"
+              allowClear
+              options={hospitals.map((h) => ({ value: h._id, label: h.name }))}
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>

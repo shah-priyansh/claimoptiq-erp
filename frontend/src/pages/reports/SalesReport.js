@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { HiOutlineArrowLeft, HiOutlineDownload } from 'react-icons/hi';
 import { getReportSalesAPI, getHospitalsAPI } from '../../services/api';
 import { formatINR, defaultRange, BarChart, exportRowsXlsx } from './reportUtils';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const GROUPS = [
   { v: 'month',    l: 'By Month' },
@@ -84,12 +85,15 @@ const SalesReport = () => {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Hospital</label>
-            <select value={filters.hospitalId}
-              onChange={(e) => setFilters((f) => ({ ...f, hospitalId: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-              <option value="">All hospitals</option>
-              {hospitals.map((h) => <option key={h._id} value={h._id}>{h.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={filters.hospitalId}
+              onChange={(v) => setFilters((f) => ({ ...f, hospitalId: v }))}
+              placeholder="All hospitals"
+              searchPlaceholder="Search hospitals..."
+              noneLabel="All hospitals"
+              allowClear
+              options={hospitals.map((h) => ({ value: h._id, label: h.name }))}
+            />
           </div>
           <div className="flex items-end">
             <button onClick={() => exportRowsXlsx(data?.rows || [], cols, `sales-${filters.groupBy}`)}
