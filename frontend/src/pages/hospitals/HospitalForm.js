@@ -254,19 +254,21 @@ const HospitalForm = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Reference By</label>
               {references.length > 0 ? (
                 <>
-                  <select
+                  <SearchableSelect
                     value={form.referenceId || ''}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      const ref = references.find(r => r._id === id);
-                      setForm(f => ({ ...f, referenceId: id, referenceBy: ref ? ref.name : '' }));
+                    onChange={(id) => {
+                      const ref = references.find((r) => r._id === id);
+                      setForm((f) => ({ ...f, referenceId: id, referenceBy: ref ? ref.name : '' }));
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                    <option value="">— Select reference —</option>
-                    {references.map(r => (
-                      <option key={r._id} value={r._id}>{r.name} ({r.commissionRate}%)</option>
-                    ))}
-                  </select>
+                    placeholder="Select reference"
+                    searchPlaceholder="Search references..."
+                    noneLabel="— No reference —"
+                    allowClear
+                    options={references.map((r) => ({
+                      value: r._id,
+                      label: `${r.name} (${r.commissionRate}%)`,
+                    }))}
+                  />
                   {!form.referenceId && form.referenceBy && (
                     <p className="text-xs text-gray-400 mt-1">Legacy text: "{form.referenceBy}" (saved as-is until you pick a reference)</p>
                   )}
