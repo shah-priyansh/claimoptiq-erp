@@ -58,6 +58,13 @@ export const updateTPAAPI = (id, data) => API.put(`/tpa/${id}`, data);
 export const deleteTPAAPI = (id) => API.delete(`/tpa/${id}`);
 export const importTPAAPI = (rows) => API.post('/tpa/import', { rows });
 
+// References (Commission Master)
+export const getReferencesAPI = (params) => API.get('/references', { params });
+export const getReferenceAPI = (id) => API.get(`/references/${id}`);
+export const createReferenceAPI = (data) => API.post('/references', data);
+export const updateReferenceAPI = (id, data) => API.put(`/references/${id}`, data);
+export const deleteReferenceAPI = (id) => API.delete(`/references/${id}`);
+
 // Billing Service Names
 export const getBillingServiceNamesAPI = () => API.get('/billing-service-names');
 export const createBillingServiceNameAPI = (data) => API.post('/billing-service-names', data);
