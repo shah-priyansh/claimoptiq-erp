@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { HiOutlineX } from 'react-icons/hi';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -73,28 +74,29 @@ const ExpenseFormModal = ({ open, initial, categories, references, onClose, onSa
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
-            <select required value={form.categoryId}
-              onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">— Select category —</option>
-              {categories.filter((c) => c.isActive).map((c) => (
-                <option key={c._id} value={c._id}>{c.label}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              required
+              value={form.categoryId}
+              onChange={(v) => setForm((f) => ({ ...f, categoryId: v }))}
+              placeholder="Select category"
+              searchPlaceholder="Search categories..."
+              options={categories.filter((c) => c.isActive).map((c) => ({ value: c._id, label: c.label }))}
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Reference (optional)
               {selectedSlug === 'reference_commission' && <span className="text-xs text-gray-400 ml-1">— attributing helps reports</span>}
             </label>
-            <select value={form.referenceId}
-              onChange={(e) => setForm((f) => ({ ...f, referenceId: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">— None —</option>
-              {references.map((r) => (
-                <option key={r._id} value={r._id}>{r.name}{r.commissionRate ? ` (${r.commissionRate}%)` : ''}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={form.referenceId}
+              onChange={(v) => setForm((f) => ({ ...f, referenceId: v }))}
+              placeholder="Pick a reference"
+              searchPlaceholder="Search references..."
+              noneLabel="— None —"
+              allowClear
+              options={references.map((r) => ({ value: r._id, label: `${r.name}${r.commissionRate ? ` (${r.commissionRate}%)` : ''}` }))}
+            />
             {showRefHint && (
               <p className="text-xs text-amber-600 mt-1">No reference picked — this row will show as "unattributed" in reports.</p>
             )}

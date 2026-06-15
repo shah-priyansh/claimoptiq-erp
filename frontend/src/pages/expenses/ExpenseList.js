@@ -8,6 +8,7 @@ import {
   getExpensesAPI, getExpenseSummaryAPI, getExpenseCategoriesAPI, createExpenseAPI,
   updateExpenseAPI, deleteExpenseAPI, getReferencesAPI,
 } from '../../services/api';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 import ExpenseFormModal from './ExpenseFormModal';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
@@ -165,12 +166,15 @@ const ExpenseList = () => {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Reference</label>
-            <select value={filters.referenceId}
-              onChange={(e) => { setFilters((f) => ({ ...f, referenceId: e.target.value })); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-              <option value="">All references</option>
-              {references.map((r) => <option key={r._id} value={r._id}>{r.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={filters.referenceId}
+              onChange={(v) => { setFilters((f) => ({ ...f, referenceId: v })); setPage(1); }}
+              placeholder="All references"
+              searchPlaceholder="Search references..."
+              noneLabel="All references"
+              allowClear
+              options={references.map((r) => ({ value: r._id, label: r.name }))}
+            />
           </div>
           <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Search notes</label>

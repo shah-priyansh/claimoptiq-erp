@@ -81,6 +81,17 @@ const ReferenceList = () => {
     }
   };
 
+  const toggleActive = async (item) => {
+    if (!canEdit) return;
+    try {
+      await updateReferenceAPI(item._id, { isActive: !item.isActive });
+      toast.success(item.isActive ? 'Reference deactivated' : 'Reference activated');
+      fetchAll();
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to update');
+    }
+  };
+
   const handleDelete = async (item) => {
     if (!(await confirm(`Delete "${item.name}"?`, { title: 'Delete Reference', confirmLabel: 'Delete' }))) return;
     try {
@@ -151,9 +162,13 @@ const ReferenceList = () => {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <span className={`text-xs px-2 py-0.5 rounded ${r.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <button
+                        onClick={() => toggleActive(r)}
+                        disabled={!canEdit}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${r.isActive ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'} ${!canEdit ? 'cursor-default opacity-70' : 'cursor-pointer'}`}
+                      >
                         {r.isActive ? 'Active' : 'Inactive'}
-                      </span>
+                      </button>
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex justify-end gap-1">

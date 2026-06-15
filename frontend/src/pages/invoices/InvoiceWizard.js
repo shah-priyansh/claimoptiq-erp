@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { HiOutlineArrowLeft, HiOutlineSearch, HiOutlineEye } from 'react-icons/hi';
 import { getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI, getTdsRatesAPI } from '../../services/api';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 
@@ -88,11 +89,14 @@ const InvoiceWizard = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
-            <select value={hospitalId} onChange={(e) => { setHospitalId(e.target.value); setPreview(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">— Select hospital —</option>
-              {hospitals.map((h) => <option key={h._id} value={h._id}>{h.name}</option>)}
-            </select>
+            <SearchableSelect
+              required
+              value={hospitalId}
+              onChange={(v) => { setHospitalId(v); setPreview(null); }}
+              placeholder="Select hospital"
+              searchPlaceholder="Search hospitals..."
+              options={hospitals.map((h) => ({ value: h._id, label: h.name }))}
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Month *</label>
@@ -111,15 +115,18 @@ const InvoiceWizard = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate (optional)</label>
-            <select value={tdsRateId} onChange={(e) => { setTdsRateId(e.target.value); setPreview(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">— Use hospital default —</option>
-              {tdsRates.map((r) => (
-                <option key={r._id} value={r._id}>
-                  {r.taxName} — {r.rate}%{r.section ? ` (${r.section})` : ''}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={tdsRateId}
+              onChange={(v) => { setTdsRateId(v); setPreview(null); }}
+              placeholder="Use hospital default"
+              searchPlaceholder="Search TDS rates..."
+              noneLabel="— Use hospital default —"
+              allowClear
+              options={tdsRates.map((r) => ({
+                value: r._id,
+                label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
+              }))}
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>

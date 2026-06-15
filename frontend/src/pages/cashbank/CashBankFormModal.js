@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { HiOutlineX } from 'react-icons/hi';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const blank = {
@@ -137,23 +138,33 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, onClose, onSave 
               {form.link === 'invoice' && (
                 <>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Invoice</label>
-                  <select value={form.invoiceId}
-                    onChange={(e) => setForm((f) => ({ ...f, invoiceId: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                    <option value="">— Select invoice —</option>
-                    {invoices.map((i) => <option key={i._id} value={i._id}>{i.invoiceNumber || `Draft-${i._id.slice(0,8)}`} • {i.hospital?.name}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={form.invoiceId}
+                    onChange={(v) => setForm((f) => ({ ...f, invoiceId: v }))}
+                    placeholder="Select invoice"
+                    searchPlaceholder="Search invoices..."
+                    allowClear
+                    options={invoices.map((i) => ({
+                      value: i._id,
+                      label: `${i.invoiceNumber || `Draft-${i._id.slice(0,8)}`} • ${i.hospital?.name || ''}`,
+                    }))}
+                  />
                 </>
               )}
               {form.link === 'expense' && (
                 <>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Expense</label>
-                  <select value={form.expenseId}
-                    onChange={(e) => setForm((f) => ({ ...f, expenseId: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                    <option value="">— Select expense —</option>
-                    {expenses.map((e) => <option key={e._id} value={e._id}>{e.category?.label} • ₹{e.amount} • {(e.date || '').slice(0,10)}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={form.expenseId}
+                    onChange={(v) => setForm((f) => ({ ...f, expenseId: v }))}
+                    placeholder="Select expense"
+                    searchPlaceholder="Search expenses..."
+                    allowClear
+                    options={expenses.map((e) => ({
+                      value: e._id,
+                      label: `${e.category?.label || ''} • ₹${e.amount} • ${(e.date || '').slice(0,10)}`,
+                    }))}
+                  />
                 </>
               )}
             </div>

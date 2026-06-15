@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { HiOutlineArrowLeft, HiOutlineDownload } from 'react-icons/hi';
 import { getReportExpensesAPI, getExpenseCategoriesAPI } from '../../services/api';
 import { formatINR, defaultRange, BarChart, exportRowsXlsx } from './reportUtils';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const ExpensesReport = () => {
   const [filters, setFilters] = useState({ ...defaultRange(), groupBy: 'category', categoryId: '' });
@@ -68,12 +69,15 @@ const ExpensesReport = () => {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
-            <select value={filters.categoryId}
-              onChange={(e) => setFilters((f) => ({ ...f, categoryId: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-              <option value="">All categories</option>
-              {categories.map((c) => <option key={c._id} value={c._id}>{c.label}</option>)}
-            </select>
+            <SearchableSelect
+              value={filters.categoryId}
+              onChange={(v) => setFilters((f) => ({ ...f, categoryId: v }))}
+              placeholder="All categories"
+              searchPlaceholder="Search categories..."
+              noneLabel="All categories"
+              allowClear
+              options={categories.map((c) => ({ value: c._id, label: c.label }))}
+            />
           </div>
           <div className="flex items-end">
             <button onClick={() => exportRowsXlsx(data?.rows || [], cols, `expenses-${filters.groupBy}`)}

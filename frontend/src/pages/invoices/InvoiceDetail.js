@@ -11,6 +11,7 @@ import {
   getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, invoicePdfUrl,
   getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI,
 } from '../../services/api';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -322,15 +323,18 @@ const InvoiceDetail = () => {
 
           <div className="mt-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate</label>
-            <select value={tdsRateId} onChange={(e) => setTdsRateId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">— Use hospital default ({invoice.hospital?.tdsRate ?? 0}%) —</option>
-              {tdsRates.map((r) => (
-                <option key={r._id} value={r._id}>
-                  {r.taxName} — {r.rate}%{r.section ? ` (${r.section})` : ''}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={tdsRateId}
+              onChange={setTdsRateId}
+              placeholder={`Use hospital default (${invoice.hospital?.tdsRate ?? 0}%)`}
+              searchPlaceholder="Search TDS rates..."
+              noneLabel={`— Use hospital default (${invoice.hospital?.tdsRate ?? 0}%) —`}
+              allowClear
+              options={tdsRates.map((r) => ({
+                value: r._id,
+                label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
+              }))}
+            />
           </div>
 
           <div className="mt-4">
