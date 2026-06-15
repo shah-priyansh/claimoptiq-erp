@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -8,53 +8,111 @@ import {
   HiOutlineUserGroup,
   HiOutlineShieldCheck,
   HiOutlineClipboardList,
-  HiOutlineChartBar,
   HiOutlineKey,
   HiOutlineTag,
   HiOutlineCog,
   HiOutlineChevronDown,
   HiOutlineInbox,
   HiOutlineCloudUpload,
+  HiOutlineCurrencyRupee,
+  HiOutlineCash,
+  HiOutlineCreditCard,
+  HiOutlineDocumentReport,
+  HiOutlineLibrary,
+  HiOutlineCalculator,
+  HiOutlineReceiptTax,
+  HiOutlineCollection,
 } from 'react-icons/hi';
 
-const adminItems = [
-  { to: '/hospitals',      label: 'Hospitals',           icon: HiOutlineOfficeBuilding, module: 'hospitals' },
-  { to: '/insurance',      label: 'Insurance Companies', icon: HiOutlineShieldCheck,    module: 'insurance' },
-  { to: '/tpa',            label: 'TPA',                 icon: HiOutlineClipboardList,  module: 'tpa' },
-  { to: '/references',     label: 'References',          icon: HiOutlineTag,            module: 'references' },
-  { to: '/users',          label: 'Users',               icon: HiOutlineUserGroup,      module: 'users' },
-  { to: '/roles',          label: 'Roles & Permissions', icon: HiOutlineKey,            module: 'roles' },
-  { to: '/claim-statuses',        label: 'Claim Status Master',   icon: HiOutlineTag,          module: 'claim_statuses' },
-  { to: '/claim-document-types',  label: 'Document Types',        icon: HiOutlineDocumentText, module: 'claim_document_types' },
-  { to: '/billing-service-names', label: 'Billing Service Names', icon: HiOutlineCog,          module: 'billing_service_names' },
-  { to: '/tds-rates',             label: 'TDS Rates',             icon: HiOutlineTag,          module: 'tds_rates' },
-  { to: '/expense-categories',    label: 'Expense Categories',    icon: HiOutlineTag,          module: 'expense_categories' },
+// Sub-nav items grouped under "Billing & Accounts".
+const billingItems = [
+  { to: '/invoices',         label: 'Invoices',        icon: HiOutlineCurrencyRupee,  module: 'invoices' },
+  { to: '/expenses',         label: 'Expenses',        icon: HiOutlineReceiptTax,     module: 'expenses' },
+  { to: '/cash-bank',        label: 'Cash / Bank',     icon: HiOutlineCash,           module: 'cash_bank' },
+  { to: '/account-entries',  label: 'Account Entries', icon: HiOutlineLibrary,        module: 'account_entries' },
+  { to: '/reports',          label: 'Reports',         icon: HiOutlineDocumentReport, module: 'reports' },
 ];
+
+// Sub-nav items grouped under "Administration".
+const adminItems = [
+  { to: '/hospitals',             label: 'Hospitals',           icon: HiOutlineOfficeBuilding, module: 'hospitals' },
+  { to: '/insurance',             label: 'Insurance Companies', icon: HiOutlineShieldCheck,    module: 'insurance' },
+  { to: '/tpa',                   label: 'TPA',                 icon: HiOutlineClipboardList,  module: 'tpa' },
+  { to: '/references',            label: 'References',          icon: HiOutlineTag,            module: 'references' },
+  { to: '/users',                 label: 'Users',               icon: HiOutlineUserGroup,      module: 'users' },
+  { to: '/roles',                 label: 'Roles & Permissions', icon: HiOutlineKey,            module: 'roles' },
+  { to: '/claim-statuses',        label: 'Claim Status Master', icon: HiOutlineTag,            module: 'claim_statuses' },
+  { to: '/claim-document-types',  label: 'Document Types',      icon: HiOutlineDocumentText,   module: 'claim_document_types' },
+  { to: '/billing-service-names', label: 'Billing Services',    icon: HiOutlineCollection,     module: 'billing_service_names' },
+  { to: '/tds-rates',             label: 'TDS Rates',           icon: HiOutlineCalculator,     module: 'tds_rates' },
+  { to: '/expense-categories',    label: 'Expense Categories',  icon: HiOutlineCollection,     module: 'expense_categories' },
+];
+
+const linkClass = ({ isActive }) =>
+  `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+    isActive
+      ? 'bg-primary-600 text-white shadow-sm shadow-primary-200'
+      : 'text-gray-600 hover:bg-primary-50 hover:text-primary-700'
+  }`;
+
+const subLinkClass = ({ isActive }) =>
+  `flex items-center gap-3 pl-4 pr-3 py-2 rounded-lg text-sm transition-colors ${
+    isActive
+      ? 'bg-primary-50 text-primary-700 font-semibold'
+      : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700 font-medium'
+  }`;
+
+// Generic collapsible section. Top-level component so its useState survives parent re-renders.
+const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick }) => {
+  const location = useLocation();
+  const visible = items.filter((it) => viewCheck(it.module));
+  const isActive = items.some((it) => location.pathname === it.to || location.pathname.startsWith(it.to + '/'));
+  const [open, setOpen] = useState(isActive);
+
+  // Auto-open when the route changes to one of the children (deep-link or NavLink follow).
+  useEffect(() => {
+    if (isActive) setOpen(true);
+  }, [isActive]);
+
+  if (!visible.length) return null;
+
+  return (
+    <div className="pt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+          isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
+        }`}
+      >
+        <Icon className="w-5 h-5 flex-shrink-0" />
+        <span className="flex-1 text-left">{label}</span>
+        <HiOutlineChevronDown className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="mt-0.5 ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5">
+          {visible.map((it) => (
+            <NavLink key={it.to} to={it.to} className={subLinkClass} onClick={onChildClick}>
+              <it.icon className="w-4 h-4 flex-shrink-0" />
+              {it.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Small uppercase section heading between groups.
+const SectionLabel = ({ children }) => (
+  <p className="px-3 pt-4 pb-1 text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+    {children}
+  </p>
+);
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { canViewModule, canManageModule, user, roleSlug } = useAuth();
   const isSuperAdmin = roleSlug === 'super_admin';
-  const location = useLocation();
-
-  const isAdminRoute = adminItems.some(item => location.pathname.startsWith(item.to));
-  const [adminOpen, setAdminOpen] = useState(isAdminRoute);
-
-  const visibleAdminItems = adminItems.filter(item => canManageModule(item.module));
-  const hasAdminAccess = visibleAdminItems.length > 0;
-
-  const linkClass = ({ isActive }) =>
-    `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-      isActive
-        ? 'bg-primary-600 text-white shadow-sm shadow-primary-200'
-        : 'text-gray-600 hover:bg-primary-50 hover:text-primary-700'
-    }`;
-
-  const subLinkClass = ({ isActive }) =>
-    `flex items-center gap-3 pl-4 pr-3 py-2 rounded-lg text-sm transition-colors ${
-      isActive
-        ? 'bg-primary-50 text-primary-700 font-semibold'
-        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700 font-medium'
-    }`;
 
   return (
     <>
@@ -86,7 +144,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto mt-2 px-3 pb-4 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto mt-2 px-3 pb-6 space-y-0.5">
 
           {canViewModule('dashboard') && (
             <NavLink to="/dashboard" className={linkClass} onClick={onClose}>
@@ -99,34 +157,6 @@ const Sidebar = ({ isOpen, onClose }) => {
             <NavLink to="/claims" className={linkClass} onClick={onClose}>
               <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
               Claims
-            </NavLink>
-          )}
-
-          {canViewModule('invoices') && (
-            <NavLink to="/invoices" className={linkClass} onClick={onClose}>
-              <HiOutlineClipboardList className="w-5 h-5 flex-shrink-0" />
-              Invoices
-            </NavLink>
-          )}
-
-          {canViewModule('expenses') && (
-            <NavLink to="/expenses" className={linkClass} onClick={onClose}>
-              <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
-              Expenses
-            </NavLink>
-          )}
-
-          {canViewModule('cash_bank') && (
-            <NavLink to="/cash-bank" className={linkClass} onClick={onClose}>
-              <HiOutlineChartBar className="w-5 h-5 flex-shrink-0" />
-              Cash / Bank
-            </NavLink>
-          )}
-
-          {canViewModule('account_entries') && (
-            <NavLink to="/account-entries" className={linkClass} onClick={onClose}>
-              <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
-              Account Entries
             </NavLink>
           )}
 
@@ -143,48 +173,33 @@ const Sidebar = ({ isOpen, onClose }) => {
             </NavLink>
           )}
 
-          {hasAdminAccess && (
-            <div className="pt-1">
-              <button
-                onClick={() => setAdminOpen(o => !o)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  isAdminRoute
-                    ? 'bg-primary-50 text-primary-700'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
-                }`}
-              >
-                <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
-                <span className="flex-1 text-left">Administration</span>
-                <HiOutlineChevronDown
-                  className={`w-4 h-4 transition-transform duration-200 ${adminOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
+          <SectionLabel>Workspace</SectionLabel>
 
-              {adminOpen && (
-                <div className="mt-0.5 ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5">
-                  {visibleAdminItems.map(item => (
-                    <NavLink key={item.to} to={item.to} className={subLinkClass} onClick={onClose}>
-                      <item.icon className="w-4 h-4 flex-shrink-0" />
-                      {item.label}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <CollapsibleSection
+            label="Billing & Accounts"
+            Icon={HiOutlineCreditCard}
+            items={billingItems}
+            viewCheck={canViewModule}
+            onChildClick={onClose}
+          />
 
-          {canViewModule('reports') && (
-            <NavLink to="/reports" className={linkClass} onClick={onClose}>
-              <HiOutlineChartBar className="w-5 h-5 flex-shrink-0" />
-              FCC Bill Generate
-            </NavLink>
-          )}
           {canViewModule('staff') && (
             <NavLink to="/staff" className={linkClass} onClick={onClose}>
               <HiOutlineUserGroup className="w-5 h-5 flex-shrink-0" />
               Staff
             </NavLink>
           )}
+
+          <SectionLabel>System</SectionLabel>
+
+          <CollapsibleSection
+            label="Administration"
+            Icon={HiOutlineCog}
+            items={adminItems}
+            viewCheck={canManageModule}
+            onChildClick={onClose}
+          />
+
           {isSuperAdmin && (
             <NavLink to="/settings" className={linkClass} onClick={onClose}>
               <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
