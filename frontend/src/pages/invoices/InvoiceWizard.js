@@ -1,18 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { HiOutlineArrowLeft, HiOutlineSearch, HiOutlineEye } from 'react-icons/hi';
-import { getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI, getTdsRatesAPI } from '../../services/api';
+import {
+  HiOutlineArrowLeft, HiOutlineSearch, HiOutlinePlus, HiOutlineTrash,
+} from 'react-icons/hi';
+import {
+  getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getInvoiceAPI, getTdsRatesAPI,
+} from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 
 const LINE_TYPE_LABEL = {
-  claim_tpa_desk: 'TPA Desk Fees',
-  service_fixed: 'Fixed Services',
-  service_percentage: 'Variable Services',
-  adjustment: 'Adjustments',
+  claim_tpa_desk: 'TPA Desk',
+  service_fixed: 'Fixed',
+  service_percentage: 'Variable',
+  adjustment: 'Adjustment',
+  manual: 'Manual',
 };
+
+const TYPE_PILL = (t) =>
+  t === 'claim_tpa_desk' ? 'bg-primary-50 text-primary-700' :
+  t === 'service_fixed' ? 'bg-amber-50 text-amber-700' :
+  t === 'adjustment' ? 'bg-purple-50 text-purple-700' :
+  t === 'manual' ? 'bg-emerald-50 text-emerald-700' :
+  'bg-gray-100 text-gray-600';
 
 const todayMonth = () => {
   const d = new Date();
@@ -29,7 +41,11 @@ const InvoiceWizard = () => {
   const [tdsRateId, setTdsRateId] = useState('');
   const [month, setMonth] = useState(todayMonth());
   const [notes, setNotes] = useState('');
+  const [roundOff, setRoundOff] = useState(0);
   const [preview, setPreview] = useState(null);
+  // Editable working copy of the preview lines. Each row carries:
+  //   description, amount, lineType, _isManual (true for rows the operator added)
+  const [editLines, setEditLines] = useState([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -51,10 +67,17 @@ const InvoiceWizard = () => {
     }
     setLoading(true);
     setPreview(null);
+    setEditLines([]);
     try {
       const { data } = await previewInvoiceAPI({ hospitalId, month: month + '-01', tdsRateId: tdsRateId || undefined });
       setPreview(data);
-      if (!data.hasContent) toast.info('No claims or fixed services found for this month');
+      setEditLines((data.lines || []).map((l) => ({
+        description: l.description || '',
+        amount: l.amount,
+        lineType: l.lineType,
+        _isManual: false,
+      })));
+      if (!data.hasContent) toast.info('No claims or fixed services found — add manual items below.');
     } catch (e) {
       toast.error(e.response?.data?.message || 'Preview failed');
     } finally {
@@ -62,13 +85,100 @@ const InvoiceWizard = () => {
     }
   };
 
+  // Live totals computed from the edited rows, applying the preview's GST/TDS rates + roundOff.
+  const liveTotals = useMemo(() => {
+    if (!preview) return null;
+    const sumBy = (types) => editLines.filter((r) => types.includes(r.lineType)).reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    const tpa = sumBy(['claim_tpa_desk', 'service_percentage']);
+    const services = sumBy(['service_fixed', 'manual']);
+    const adjust = sumBy(['adjustment']);
+    const gross = Math.round(tpa + services + adjust);
+    const gstAmount = Math.round((gross * (preview.totals.gstRate || 0)) / 100);
+    const tdsAmount = Math.round((gross * (preview.totals.tdsRate || 0)) / 100);
+    const netTotal = gross + gstAmount - tdsAmount;
+    const grandTotal = netTotal + (preview.totals.previousBalance || 0) + (Math.round(Number(roundOff) || 0));
+    return {
+      tpa: Math.round(tpa),
+      services: Math.round(services),
+      adjust: Math.round(adjust),
+      gross, gstAmount, tdsAmount, netTotal,
+      previousBalance: preview.totals.previousBalance || 0,
+      roundOff: Math.round(Number(roundOff) || 0),
+      grandTotal,
+    };
+  }, [editLines, preview, roundOff]);
+
   const create = async () => {
-    if (!preview || !preview.hasContent) return;
+    if (!preview) return;
+    if (editLines.length === 0) {
+      toast.error('Add at least one line item before saving.');
+      return;
+    }
     setCreating(true);
     try {
-      const { data } = await createInvoiceAPI({ hospitalId, month: month + '-01', notes, tdsRateId: tdsRateId || undefined });
+      // 1. Create the draft. The backend auto-builds line items from the source claims.
+      const { data: draft } = await createInvoiceAPI({
+        hospitalId,
+        month: month + '-01',
+        notes,
+        tdsRateId: tdsRateId || undefined,
+      });
+
+      // 2. Reconcile any operator edits / manual rows / round-off via PATCH.
+      const origDescByOrder = (preview.lines || []).map((l) => l.description);
+      const lineEdits = [];
+      const manualItems = [];
+      // Match server-created lines by description (they're created in the same order as preview).
+      // We can fetch the draft to get the line ids — re-read.
+      const { data: fresh } = await getInvoiceAPI(draft._id);
+      const serverLines = (fresh.lineItems || []).slice();
+      // Map by description for diffing — duplicates are ordered.
+      const idsByDesc = new Map();
+      serverLines.forEach((s) => {
+        const key = s.description;
+        if (!idsByDesc.has(key)) idsByDesc.set(key, []);
+        idsByDesc.get(key).push(s._id || s.id);
+      });
+
+      editLines.forEach((row) => {
+        if (row._isManual) {
+          manualItems.push({ description: row.description, amount: Number(row.amount) || 0 });
+          return;
+        }
+        // Find the server id for this row's original description (by position).
+        const origDesc = origDescByOrder.shift();
+        const queue = idsByDesc.get(origDesc);
+        const id = queue?.shift();
+        if (!id) return;
+        const newDesc = row.description || '';
+        const newAmt = Math.round(Number(row.amount) || 0);
+        const origAmt = Math.round(Number((preview.lines.find((l) => l.description === origDesc) || {}).amount) || 0);
+        if (newDesc !== origDesc || newAmt !== origAmt) {
+          lineEdits.push({ id, description: newDesc, amount: newAmt });
+        }
+      });
+
+      const removedLineIds = [];
+      // Rows the user trashed are simply missing from editLines; collect their ids.
+      const usedIds = new Set();
+      serverLines.forEach((s) => usedIds.add(s._id || s.id));
+      lineEdits.forEach((e) => usedIds.delete(e.id));
+      // Anything left in idsByDesc after editing represents trashed rows? Actually we don't track removed.
+      // Simpler: any server line whose id was NOT pulled from idsByDesc during the edit loop is removed.
+      idsByDesc.forEach((queue) => queue.forEach((id) => removedLineIds.push(id)));
+
+      const patchPayload = {};
+      if (lineEdits.length) patchPayload.lineEdits = lineEdits;
+      if (manualItems.length) patchPayload.manualItems = manualItems;
+      if (removedLineIds.length) patchPayload.removedLineIds = removedLineIds;
+      if (Number(roundOff) !== 0) patchPayload.roundOff = Math.round(Number(roundOff) || 0);
+
+      if (Object.keys(patchPayload).length) {
+        await updateInvoiceAPI(draft._id, patchPayload);
+      }
+
       toast.success('Draft invoice created');
-      navigate(`/invoices/${data._id}`);
+      navigate(`/invoices/${draft._id}`);
     } catch (e) {
       toast.error(e.response?.data?.message || 'Create failed');
     } finally {
@@ -76,12 +186,9 @@ const InvoiceWizard = () => {
     }
   };
 
-  const groupedLines = (preview?.lines || []).reduce((acc, l) => {
-    (acc[l.lineType] = acc[l.lineType] || []).push(l);
-    return acc;
-  }, {});
-
-  const orderedTypes = ['claim_tpa_desk', 'service_fixed', 'service_percentage', 'adjustment'];
+  const addManualRow = () => {
+    setEditLines((rows) => [...rows, { description: '', amount: 0, lineType: 'manual', _isManual: true }]);
+  };
 
   return (
     <div>
@@ -98,7 +205,7 @@ const InvoiceWizard = () => {
               required
               isLoading={loadingHospitals}
               value={hospitalId}
-              onChange={(v) => { setHospitalId(v); setPreview(null); }}
+              onChange={(v) => { setHospitalId(v); setPreview(null); setEditLines([]); }}
               placeholder="Select hospital"
               searchPlaceholder="Search hospitals..."
               options={hospitals.map((h) => ({ value: h._id, label: h.name }))}
@@ -106,14 +213,15 @@ const InvoiceWizard = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Month *</label>
-            <input type="month" value={month} onChange={(e) => { setMonth(e.target.value); setPreview(null); }}
+            <input type="month" value={month}
+              onChange={(e) => { setMonth(e.target.value); setPreview(null); setEditLines([]); }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           </div>
           <div className="flex items-end">
             <button onClick={runPreview} disabled={loading || !hospitalId || !month}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-900 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
               <HiOutlineSearch className="w-4 h-4" />
-              {loading ? 'Loading...' : 'Preview'}
+              {loading ? 'Loading...' : 'Load Lines'}
             </button>
           </div>
         </div>
@@ -124,7 +232,7 @@ const InvoiceWizard = () => {
             <SearchableSelect
               isLoading={loadingTdsRates}
               value={tdsRateId}
-              onChange={(v) => { setTdsRateId(v); setPreview(null); }}
+              onChange={(v) => { setTdsRateId(v); setPreview(null); setEditLines([]); }}
               placeholder="Use hospital default"
               searchPlaceholder="Search TDS rates..."
               noneLabel="— Use hospital default —"
@@ -147,76 +255,103 @@ const InvoiceWizard = () => {
       {preview && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 mt-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-              <HiOutlineEye className="w-5 h-5" /> Preview
-            </h2>
-            {preview.hasContent && (
-              <button onClick={create} disabled={creating}
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Line items</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Edit any row, add a manual item, then Save Draft.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={addManualRow}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg border border-primary-200">
+                <HiOutlinePlus className="w-4 h-4" /> Add Item
+              </button>
+              <button onClick={create} disabled={creating || editLines.length === 0}
                 className="px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
                 {creating ? 'Saving...' : 'Save Draft'}
               </button>
-            )}
+            </div>
           </div>
 
-          {!preview.hasContent ? (
-            <div className="p-6 text-center text-sm text-gray-500 bg-gray-50 rounded-lg">
-              No claims or fixed services found for this hospital + month.
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto border border-gray-100 rounded-lg">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                    <tr>
-                      <th className="text-left py-2 px-3">Description</th>
-                      <th className="text-right py-2 px-3">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {orderedTypes.flatMap((t) => {
-                      const rows = groupedLines[t];
-                      if (!rows || !rows.length) return [];
-                      return [
-                        <tr key={`${t}-header`} className="bg-gray-50/60">
-                          <td colSpan={2} className="py-2 px-3 text-xs font-semibold uppercase text-gray-500">
-                            {LINE_TYPE_LABEL[t] || t}
-                          </td>
-                        </tr>,
-                        ...rows.map((l, i) => (
-                          <tr key={`${t}-${i}`} className="hover:bg-gray-50">
-                            <td className="py-2 px-3 text-gray-700">{l.description}</td>
-                            <td className="py-2 px-3 text-right text-gray-700">{formatINR(l.amount)}</td>
-                          </tr>
-                        )),
-                      ];
-                    })}
-                  </tbody>
-                </table>
-              </div>
+          <div className="overflow-x-auto border border-gray-100 rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                <tr>
+                  <th className="text-left py-2 px-3 w-10">#</th>
+                  <th className="text-left py-2 px-3">Description</th>
+                  <th className="text-left py-2 px-3 w-28">Type</th>
+                  <th className="text-right py-2 px-3 w-32">Amount</th>
+                  <th className="py-2 px-3 w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {editLines.length === 0 ? (
+                  <tr><td colSpan={5} className="py-6 text-center text-sm text-gray-400">No items. Click "Add Item" to add a manual row.</td></tr>
+                ) : editLines.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="py-2 px-3 text-gray-400 text-xs">{idx + 1}</td>
+                    <td className="py-2 px-3">
+                      <input value={row.description}
+                        onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
+                        placeholder="Description"
+                        className="w-full px-2 py-1 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(row.lineType)}`}>
+                        {LINE_TYPE_LABEL[row.lineType] || row.lineType}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3">
+                      <input type="number" value={row.amount}
+                        onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                        className="w-full px-2 py-1 border border-gray-200 rounded text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                    </td>
+                    <td className="py-2 px-3 text-right">
+                      <button onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
+                        title="Remove row"
+                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                        <HiOutlineTrash className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td colSpan={3} className="py-2 px-3 text-right text-xs uppercase text-gray-500 font-semibold">Subtotal</td>
+                  <td className="py-2 px-3 text-right font-semibold text-gray-800">
+                    {formatINR(editLines.reduce((a, r) => a + (Number(r.amount) || 0), 0))}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
 
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                <div className="space-y-1 text-gray-600">
-                  <div className="flex justify-between"><span>Subtotal — TPA Desk</span><span>{formatINR(preview.totals.subtotalTpaDesk)}</span></div>
-                  <div className="flex justify-between"><span>Subtotal — Services</span><span>{formatINR(preview.totals.subtotalServices)}</span></div>
-                  {preview.totals.subtotalAdjust !== 0 && (
-                    <div className="flex justify-between"><span>Adjustments</span><span>{formatINR(preview.totals.subtotalAdjust)}</span></div>
-                  )}
-                  <div className="flex justify-between font-semibold text-gray-800"><span>Gross</span><span>{formatINR(preview.totals.gross)}</span></div>
-                </div>
-                <div className="space-y-1 text-gray-600">
-                  <div className="flex justify-between"><span>GST ({preview.totals.gstRate}%)</span><span>{formatINR(preview.totals.gstAmount)}</span></div>
-                  <div className="flex justify-between"><span>TDS ({preview.totals.tdsRate}%)</span><span>− {formatINR(preview.totals.tdsAmount)}</span></div>
-                  <div className="flex justify-between font-semibold text-gray-800"><span>Net Total</span><span>{formatINR(preview.totals.netTotal)}</span></div>
-                  {preview.totals.previousBalance > 0 && (
-                    <div className="flex justify-between"><span>Previous Balance</span><span>{formatINR(preview.totals.previousBalance)}</span></div>
-                  )}
-                  <div className="flex justify-between text-base font-bold text-gray-900 border-t border-gray-200 pt-1">
-                    <span>Grand Total</span><span>{formatINR(preview.totals.grandTotal)}</span>
-                  </div>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Round Off <span className="text-xs text-gray-400 font-normal">(+/- applied to Grand Total)</span>
+              </label>
+              <input type="number" value={roundOff}
+                onChange={(e) => setRoundOff(e.target.value)}
+                placeholder="0"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            </div>
+            <div className="space-y-1 text-sm text-gray-600">
+              <div className="flex justify-between"><span>Gross</span><span>{formatINR(liveTotals?.gross || 0)}</span></div>
+              <div className="flex justify-between"><span>GST ({preview.totals.gstRate}%)</span><span>{formatINR(liveTotals?.gstAmount || 0)}</span></div>
+              <div className="flex justify-between"><span>TDS ({preview.totals.tdsRate}%)</span><span>− {formatINR(liveTotals?.tdsAmount || 0)}</span></div>
+              <div className="flex justify-between font-semibold text-gray-800"><span>Net Total</span><span>{formatINR(liveTotals?.netTotal || 0)}</span></div>
+              {liveTotals?.previousBalance > 0 && (
+                <div className="flex justify-between"><span>Previous Balance</span><span>{formatINR(liveTotals.previousBalance)}</span></div>
+              )}
+              {liveTotals?.roundOff !== 0 && (
+                <div className="flex justify-between"><span>Round Off</span><span>{formatINR(liveTotals?.roundOff || 0)}</span></div>
+              )}
+              <div className="flex justify-between text-base font-bold text-gray-900 border-t border-gray-200 pt-1">
+                <span>Grand Total</span><span>{formatINR(liveTotals?.grandTotal || 0)}</span>
               </div>
-            </>
-          )}
+            </div>
+          </div>
         </div>
       )}
     </div>
