@@ -15,7 +15,7 @@ import {
   HiOutlineClipboardList, HiOutlinePrinter,
 } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency, calculateFilePrice } from '../../utils/format';
+import { formatCurrency, calculateFilePrice, formatDate as _formatDate } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { isValidPhone, onPhoneInput } from '../../utils/validators';
@@ -620,7 +620,7 @@ const ClaimDetail = () => {
   }
   if (!claim) return null;
 
-  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+  const formatDate = (d) => _formatDate(d, '—');
   const formatMonth = (d) => d ? new Date(d).toLocaleString('en-IN', { month: 'long', year: 'numeric' }) : '—';
   const formatAmount = (a) => formatCurrency(Number(a) || 0);
   // Build the actual journey from history (fallback to current status if history is missing)
@@ -886,7 +886,7 @@ const ClaimDetail = () => {
                         </span>
                         {dt && (
                           <div className="mt-2 pt-2 border-t border-gray-100">
-                            <p className="text-[11px] font-medium text-gray-700">{dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                            <p className="text-[11px] font-medium text-gray-700">{_formatDate(dt)}</p>
                             <p className="text-[10px] text-gray-400">{dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
                         )}
@@ -1533,7 +1533,7 @@ const ClaimDetail = () => {
                               <p className="text-xs font-medium text-gray-700 truncate mb-1.5" title={doc.originalName}>{doc.originalName}</p>
                               <div className="flex items-center justify-between gap-1">
                                 <span className="text-[10px] text-gray-400">
-                                  {(doc.fileSize / 1024).toFixed(0)} KB · {new Date(doc.uploadedAt).toLocaleDateString('en-IN')}
+                                  {(doc.fileSize / 1024).toFixed(0)} KB · {_formatDate(doc.uploadedAt)}
                                 </span>
                                 <div className="flex items-center gap-0.5 flex-shrink-0">
                                   <a href={doc._url} download={doc.originalName}

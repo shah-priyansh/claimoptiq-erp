@@ -12,6 +12,7 @@ import {
   getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import { formatDate as _formatDate } from '../../utils/format';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -30,7 +31,7 @@ const LINE_TYPE_LABEL = {
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const formatMonth = (d) => d ? new Date(d).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '-';
-const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+const formatDate = (d) => _formatDate(d);
 
 const InvoiceDetail = () => {
   const { id } = useParams();
