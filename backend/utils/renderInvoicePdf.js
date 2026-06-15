@@ -291,48 +291,38 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       // ----- LEFT column -----
       let leftY = leftStart;
 
-      // Small reusable section header: tiny uppercase label + 8pt primary tab on the left.
-      const drawSectionLabel = (label) => {
-        // 2pt-tall primary tab marker
-        doc.rect(PAD, leftY + 2, 3, 10).fill(COLORS.primary600);
-        doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(8.5)
-          .text(label, PAD + 9, leftY + 3, { characterSpacing: 1.2 });
-        leftY = doc.y + 6;
-      };
-
       // Amount in words
-      drawSectionLabel('INVOICE AMOUNT IN WORDS');
-      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(10)
+      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+        .text('INVOICE AMOUNT IN WORDS', PAD, leftY, { characterSpacing: 1 });
+      leftY = doc.y + 6;
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9.5)
         .text(amountInWords(invoice.gross), PAD, leftY, { width: colsBottomW });
       leftY = doc.y + 18;
 
       // Terms
       if (template.invoice_terms) {
-        drawSectionLabel('TERMS & CONDITIONS');
-        doc.fillColor(COLORS.body).font('Helvetica').fontSize(9);
+        doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+          .text('TERMS & CONDITIONS', PAD, leftY, { characterSpacing: 1 });
+        leftY = doc.y + 6;
+        doc.fillColor(COLORS.body).font('Helvetica').fontSize(8.5);
         const termsLines = template.invoice_terms.split('\n').filter((s) => s.trim());
         termsLines.forEach((line) => {
-          // Indent + colored bullet glyph for a touch of polish.
-          doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(9)
-            .text('•', PAD + 2, leftY, { width: 10 });
-          doc.fillColor(COLORS.body).font('Helvetica').fontSize(9)
-            .text(line.trim(), PAD + 14, leftY, { width: colsBottomW - 14 });
+          doc.text(`• ${line.trim()}`, PAD, leftY, { width: colsBottomW, lineGap: 2 });
           leftY = doc.y + 4;
         });
         leftY += 14;
       }
 
       // Bank Details
-      drawSectionLabel('BANK DETAILS');
+      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+        .text('BANK DETAILS', PAD, leftY, { characterSpacing: 1 });
+      leftY = doc.y + 6;
 
-      const bankCardH = 124;
-      doc.lineWidth(0.8).strokeColor(COLORS.border)
-        .roundedRect(PAD, leftY, colsBottomW, bankCardH, 8).fillAndStroke('#ffffff', COLORS.border);
+      const bankCardH = 110;
+      doc.roundedRect(PAD, leftY, colsBottomW, bankCardH, 6).fillAndStroke(COLORS.alt, COLORS.border);
 
-      // Vertical divider between QR and bank info text
-      const qrSize = 92;
-      const qrPadding = 14;
-      const qrX = PAD + qrPadding;
+      const qrSize = 84;
+      const qrX = PAD + 14;
       const qrY = leftY + (bankCardH - qrSize) / 2;
       if (qrDataUrl) {
         const base64 = qrDataUrl.split(',')[1];
@@ -340,18 +330,13 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         catch { /* skip */ }
       } else {
         doc.lineWidth(0.5).strokeColor(COLORS.border)
-          .roundedRect(qrX, qrY, qrSize, qrSize, 6).stroke();
-        doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(COLORS.faint)
-          .text('Scan to pay\n(UPI not\nconfigured)', qrX, qrY + 34, { width: qrSize, align: 'center' });
+          .roundedRect(qrX, qrY, qrSize, qrSize, 4).stroke();
+        doc.font('Helvetica-Oblique').fontSize(7).fillColor(COLORS.faint)
+          .text('Scan to pay\n(UPI not\nconfigured)', qrX, qrY + 30, { width: qrSize, align: 'center' });
       }
 
-      // Subtle divider line between QR and bank text
-      const dividerX = qrX + qrSize + 10;
-      doc.lineWidth(0.5).strokeColor(COLORS.border)
-        .moveTo(dividerX, leftY + 16).lineTo(dividerX, leftY + bankCardH - 16).stroke();
-
-      const bankTextX = dividerX + 12;
-      const bankTextW = colsBottomW - (qrPadding + qrSize + 10 + 12 + qrPadding);
+      const bankTextX = qrX + qrSize + 14;
+      const bankTextW = colsBottomW - (qrSize + 42);
       const bankFieldH = 22;
       const bankLines = [
         ['BANK',     template.invoice_bank_name],
@@ -369,7 +354,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         bankY += bankFieldH;
       });
 
-      leftY += bankCardH + 16;
+      leftY += bankCardH + 14;
 
       // ----- RIGHT column: totals card -----
       let rightY = leftStart;
