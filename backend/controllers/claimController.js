@@ -852,41 +852,47 @@ exports.importClaims = async (req, res) => {
       const directFlag = cleanCell(row.isDirectPatient).toLowerCase();
       const referenceByInput = cleanCell(row.referenceBy);
 
+      const directFlagOn = ['yes', 'true', '1', 'direct'].includes(directFlag);
       if (userHospitalId) {
         hospitalId = userHospitalId;
         isDirectPatient = false;
-      } else if (['yes', 'true', '1', 'direct'].includes(directFlag)) {
-        isDirectPatient = true;
-      } else if (hospitalName) {
-        const h = lookupFuzzy(hospitalName, hospitalMap, hospitalCanonMap, 'hospitals');
-        if (!h) {
-          const sugg = suggestMatches(hospitalName, hospitals);
-          rowErrors.push(`Hospital "${hospitalName}" not found${sugg.length ? `. Did you mean: ${sugg.map(s => `"${s}"`).join(', ')}?` : ''}`);
-        } else {
-          if (!h.isActive) {
-            if (!reactivateHospitalIds.has(h.id)) {
-              reactivateHospitalIds.add(h.id);
-              reactivated.hospitals.push(h.name);
-            }
-            h.isActive = true;
-          }
-          hospitalId = h.id;
-          if (referenceByInput) {
-            const existingRef = norm(h.referenceBy);
-            if (!existingRef) {
-              // Hospital has no reference set yet — adopt the row's value as the
-              // canonical reference, both in-memory (so subsequent rows for the
-              // same hospital validate against it) and queued for a single DB
-              // update after the loop.
-              h.referenceBy = referenceByInput;
-              pendingHospitalReferenceBy.set(h.id, referenceByInput);
-            } else if (existingRef !== norm(referenceByInput)) {
-              rowErrors.push(`Reference By "${referenceByInput}" does not match hospital "${hospitalName}" (expected "${h.referenceBy}")`);
-            }
-          }
-        }
       } else {
-        rowErrors.push('Hospital is required (or set "Is Direct Patient" to Yes)');
+        // Direct Patient flag is independent from the hospital column — both can
+        // be set, in which case the claim is flagged direct (so it stays out of
+        // hospital-side counts / billing) but the hospital is still recorded as
+        // a reference link visible on the listing.
+        isDirectPatient = directFlagOn;
+        if (hospitalName) {
+          const h = lookupFuzzy(hospitalName, hospitalMap, hospitalCanonMap, 'hospitals');
+          if (!h) {
+            const sugg = suggestMatches(hospitalName, hospitals);
+            rowErrors.push(`Hospital "${hospitalName}" not found${sugg.length ? `. Did you mean: ${sugg.map(s => `"${s}"`).join(', ')}?` : ''}`);
+          } else {
+            if (!h.isActive) {
+              if (!reactivateHospitalIds.has(h.id)) {
+                reactivateHospitalIds.add(h.id);
+                reactivated.hospitals.push(h.name);
+              }
+              h.isActive = true;
+            }
+            hospitalId = h.id;
+            if (referenceByInput) {
+              const existingRef = norm(h.referenceBy);
+              if (!existingRef) {
+                // Hospital has no reference set yet — adopt the row's value as the
+                // canonical reference, both in-memory (so subsequent rows for the
+                // same hospital validate against it) and queued for a single DB
+                // update after the loop.
+                h.referenceBy = referenceByInput;
+                pendingHospitalReferenceBy.set(h.id, referenceByInput);
+              } else if (existingRef !== norm(referenceByInput)) {
+                rowErrors.push(`Reference By "${referenceByInput}" does not match hospital "${hospitalName}" (expected "${h.referenceBy}")`);
+              }
+            }
+          }
+        } else if (!isDirectPatient) {
+          rowErrors.push('Hospital is required (or set "Is Direct Patient" to Yes)');
+        }
       }
 
       // ── Insurance / TPA ─────────────────────────────────────────────

@@ -241,7 +241,7 @@ const ClaimForm = () => {
                   onChange={e => setForm(f => ({ ...f, isDirectPatient: e.target.checked }))}
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4"
                 />
-                <span className="text-sm font-medium text-gray-700">Direct Patient (not linked to hospital)</span>
+                <span className="text-sm font-medium text-gray-700">Direct Patient (hospital optional, kept for reference only — stats won't count toward it)</span>
               </label>
             )}
           </div>
