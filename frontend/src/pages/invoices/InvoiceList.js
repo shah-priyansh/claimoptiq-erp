@@ -1,11 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload } from 'react-icons/hi';
+import {
+  HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
+  HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
+} from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
-import { getInvoicesAPI, deleteInvoiceAPI, getHospitalsAPI, openInvoicePdf } from '../../services/api';
+import {
+  getInvoicesAPI, deleteInvoiceAPI, getHospitalsAPI, openInvoicePdf,
+  recordInvoicePaymentAPI,
+} from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const STATUS_COLORS = {
@@ -39,8 +46,78 @@ const InvoiceList = () => {
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
+  const [actionMenu, setActionMenu] = useState(null); // { id, top?, bottom?, left }
+  const [markingPaidId, setMarkingPaidId] = useState(null);
+  const actionMenuRef = useRef(null);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
+
+  const openActionMenu = (e, id) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 200;
+    const estH = 180;
+    const spaceBelow = window.innerHeight - r.bottom;
+    const openUp = spaceBelow < estH && r.top > spaceBelow;
+    const left = Math.max(8, Math.min(r.right - menuWidth, window.innerWidth - menuWidth - 8));
+    setActionMenu(openUp
+      ? { id, bottom: window.innerHeight - r.top + 4, left }
+      : { id, top: r.bottom + 4, left });
+  };
+
+  useEffect(() => {
+    if (!actionMenu) return;
+    const close = (e) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target)) setActionMenu(null);
+    };
+    const onScroll = () => setActionMenu(null);
+    document.addEventListener('mousedown', close);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [actionMenu]);
+
+  const downloadPdf = async (inv) => {
+    setPdfLoadingId(inv._id);
+    try {
+      await openInvoicePdf(inv._id, inv.invoiceNumber || `draft-${(inv._id || '').slice(0, 8)}`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load PDF');
+    } finally {
+      setPdfLoadingId(null);
+    }
+  };
+
+  const markPaid = async (inv) => {
+    const pending = Math.max(0, Math.round(inv.amountPending || 0));
+    if (pending <= 0) {
+      toast.info('Invoice is already fully paid');
+      return;
+    }
+    if (!(await confirm(
+      `Record a full payment of ₹${pending.toLocaleString('en-IN')} (Cash) and mark this invoice as Paid?`,
+      { title: 'Mark as Paid', confirmLabel: 'Mark Paid' },
+    ))) return;
+    setMarkingPaidId(inv._id);
+    try {
+      await recordInvoicePaymentAPI(inv._id, {
+        date: new Date().toISOString().slice(0, 10),
+        mode: 'cash',
+        amount: pending,
+        notes: 'Marked as paid',
+      });
+      toast.success('Invoice marked as paid');
+      fetchInvoices();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to mark as paid');
+    } finally {
+      setMarkingPaidId(null);
+    }
+  };
 
   const fetchInvoices = async () => {
     setLoading(true);
@@ -182,38 +259,15 @@ const InvoiceList = () => {
                     <td className="py-3 px-4 text-right text-gray-600">{formatINR(inv.amountPaid)}</td>
                     <td className="py-3 px-4 text-right text-gray-600">{formatINR(inv.amountPending)}</td>
                     <td className="py-3 px-4 text-right">
-                      <div className="flex justify-end gap-1">
-                        <button onClick={() => navigate(`/invoices/${inv._id}`)}
-                          title="View"
-                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
-                          <HiOutlineEye className="w-4 h-4" />
-                        </button>
-                        <button
-                          disabled={pdfLoadingId === inv._id}
-                          onClick={async () => {
-                            setPdfLoadingId(inv._id);
-                            try {
-                              await openInvoicePdf(inv._id, inv.invoiceNumber || `draft-${(inv._id || '').slice(0, 8)}`);
-                            } catch (err) {
-                              toast.error(err.response?.data?.message || 'Failed to load PDF');
-                            } finally {
-                              setPdfLoadingId(null);
-                            }
-                          }}
-                          title={pdfLoadingId === inv._id ? 'Generating PDF…' : 'Download / Preview PDF'}
-                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 disabled:cursor-wait rounded">
-                          {pdfLoadingId === inv._id
-                            ? <span className="inline-block w-4 h-4 rounded-full border-2 border-gray-300 border-t-primary-600 animate-spin" />
-                            : <HiOutlineDownload className="w-4 h-4" />}
-                        </button>
-                        {canDelete && inv.status === 'draft' && (
-                          <button onClick={() => handleDelete(inv)}
-                            title="Delete draft"
-                            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                            <HiOutlineTrash className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
+                      <button
+                        onClick={(e) => openActionMenu(e, inv._id)}
+                        disabled={markingPaidId === inv._id || pdfLoadingId === inv._id}
+                        title="More actions"
+                        className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 disabled:cursor-wait rounded-lg">
+                        {(markingPaidId === inv._id || pdfLoadingId === inv._id)
+                          ? <span className="inline-block w-4 h-4 rounded-full border-2 border-gray-300 border-t-primary-600 animate-spin" />
+                          : <HiOutlineDotsVertical className="w-4 h-4" />}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -229,6 +283,64 @@ const InvoiceList = () => {
           />
         )}
       </div>
+
+      {actionMenu && ReactDOM.createPortal(
+        (() => {
+          const inv = items.find((x) => x._id === actionMenu.id);
+          if (!inv) return null;
+          const canMarkPaid =
+            (inv.status === 'issued' || inv.status === 'partially_paid')
+            && (inv.amountPending || 0) > 0;
+          return (
+            <div
+              ref={actionMenuRef}
+              style={{
+                position: 'fixed',
+                left: actionMenu.left,
+                width: 200,
+                ...(actionMenu.top !== undefined ? { top: actionMenu.top } : { bottom: actionMenu.bottom }),
+              }}
+              className="bg-white border border-gray-200 rounded-lg shadow-lg z-[60] py-1">
+              <button
+                onClick={() => { setActionMenu(null); navigate(`/invoices/${inv._id}`); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <HiOutlineEye className="w-4 h-4 text-primary-600" /> View
+              </button>
+              <button
+                onClick={() => { setActionMenu(null); downloadPdf(inv); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <HiOutlineDownload className="w-4 h-4 text-primary-600" /> Download PDF
+              </button>
+              <button
+                onClick={() => { setActionMenu(null); downloadPdf(inv); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <HiOutlinePrinter className="w-4 h-4 text-primary-600" /> Print
+              </button>
+              {canMarkPaid && (
+                <>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button
+                    onClick={() => { setActionMenu(null); markPaid(inv); }}
+                    className="w-full text-left px-3 py-2 text-sm text-green-700 hover:bg-green-50 flex items-center gap-2">
+                    <HiOutlineCheckCircle className="w-4 h-4" /> Mark as Paid
+                  </button>
+                </>
+              )}
+              {canDelete && inv.status === 'draft' && (
+                <>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button
+                    onClick={() => { setActionMenu(null); handleDelete(inv); }}
+                    className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                    <HiOutlineTrash className="w-4 h-4" /> Delete Draft
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })(),
+        document.body,
+      )}
     </div>
   );
 };
