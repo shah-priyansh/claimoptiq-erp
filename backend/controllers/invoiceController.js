@@ -39,7 +39,7 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 
 // Build the line items + totals for a (hospital, month) without persisting.
 // Returns { lines, totals, hospital, claims }.
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId } = {}) => {
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride } = {}) => {
   const hospital = await prisma.hospital.findUnique({
     where: { id: hospitalId },
     include: {
@@ -164,11 +164,23 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     ? await resolveTdsRate(effectiveTdsRateId, hospital.tdsRate)
     : { rate: hospital.tdsRate || 0, name: '', section: '' };
 
+  // Resolve GST: explicit override (from edit form) → hospital.gstRate → site default
+  // (invoice_default_gst_rate). Anything missing falls through to 0.
+  let effectiveGstRate = 0;
+  if (gstRateOverride !== undefined && gstRateOverride !== null && gstRateOverride !== '') {
+    effectiveGstRate = Number(gstRateOverride) || 0;
+  } else if (hospital.gstRate) {
+    effectiveGstRate = Number(hospital.gstRate) || 0;
+  } else {
+    const tpl = await getInvoiceTemplate();
+    effectiveGstRate = Number(tpl.invoice_default_gst_rate) || 0;
+  }
+
   const totals = calculateInvoiceTotals({
     tpaDeskLines,
     fixedServiceLines,
     adjustmentLines,
-    gstRate: hospital.gstRate || 0,
+    gstRate: effectiveGstRate,
     tdsRate: tds.rate,
     previousBalance,
   });
@@ -177,7 +189,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     hospital,
     claims,
     lines: [...tpaDeskLines, ...fixedServiceLines, ...adjustmentLines],
-    totals: { ...totals, gstRate: hospital.gstRate || 0, tdsRate: tds.rate, tdsName: tds.name, tdsSection: tds.section, tdsRateId: effectiveTdsRateId },
+    totals: { ...totals, gstRate: effectiveGstRate, tdsRate: tds.rate, tdsName: tds.name, tdsSection: tds.section, tdsRateId: effectiveTdsRateId },
   };
 };
 
@@ -351,25 +363,28 @@ exports.update = async (req, res) => {
     if (invoice.status !== 'draft') return res.status(400).json({ message: 'Only drafts can be edited' });
 
     const {
-      notes, adjustments, tdsRateId,
+      notes, adjustments, tdsRateId, gstRate,
       lineEdits, manualItems, removedLineIds,
       roundOff,
     } = req.body;
 
     const tdsChanged = tdsRateId !== undefined;
+    const gstChanged = gstRate !== undefined;
     const fullRebuild = Array.isArray(adjustments);
     const tdsResolvedId = tdsChanged ? (tdsRateId || null) : invoice.tdsRateId;
+    const gstResolved = gstChanged ? (Math.max(0, Number(gstRate) || 0)) : invoice.gstRate;
     const partialEdit =
       Array.isArray(lineEdits) ||
       Array.isArray(manualItems) ||
       Array.isArray(removedLineIds) ||
-      roundOff !== undefined;
+      roundOff !== undefined ||
+      gstChanged;
 
     // --- Path 1: a full rebuild (adjustments[] sent) ---
     // Keeps the existing behaviour for the original 'Save Draft' flow that
     // wipes the line items and regenerates them from the source claims.
     if (fullRebuild || tdsChanged || notes !== undefined) {
-      const built = await buildInvoiceLines(invoice.hospitalId, invoice.month, { adjustments, tdsRateId: tdsResolvedId });
+      const built = await buildInvoiceLines(invoice.hospitalId, invoice.month, { adjustments, tdsRateId: tdsResolvedId, gstRateOverride: gstResolved });
       const updated = await prisma.$transaction(async (tx) => {
         if (fullRebuild) {
           await tx.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
@@ -403,7 +418,7 @@ exports.update = async (req, res) => {
         });
         // Round-off makes the persisted grandTotal drift from built.totals; recompute
         // from the actual line items to keep it consistent.
-        if (roundOff !== undefined && !fullRebuild && !tdsChanged) {
+        if ((roundOff !== undefined || gstChanged) && !fullRebuild && !tdsChanged) {
           await recomputeInvoiceFromLines(tx, invoice.id);
         }
         return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude });
@@ -454,10 +469,13 @@ exports.update = async (req, res) => {
           });
         }
       }
-      if (roundOff !== undefined) {
+      if (roundOff !== undefined || gstChanged) {
         await tx.invoice.update({
           where: { id: invoice.id },
-          data: { roundOff: Math.round(Number(roundOff) || 0) },
+          data: {
+            ...(roundOff !== undefined ? { roundOff: Math.round(Number(roundOff) || 0) } : {}),
+            ...(gstChanged ? { gstRate: gstResolved } : {}),
+          },
         });
       }
       await recomputeInvoiceFromLines(tx, invoice.id);

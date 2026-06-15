@@ -25,6 +25,7 @@ const SiteSettings = () => {
     invoice_terms: '',
     invoice_bank_name: '', invoice_bank_account_no: '', invoice_bank_ifsc: '',
     invoice_bank_account_holder: '', invoice_upi_id: '', invoice_authorized_signatory: '',
+    invoice_default_gst_rate: '0',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -186,6 +187,26 @@ const SiteSettings = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Authorized Signatory</label>
                   <input value={form.invoice_authorized_signatory} onChange={set('invoice_authorized_signatory')} className={inputCls} />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h2 className="text-base font-semibold text-gray-700 mb-1">Tax Defaults</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Default GST applied to new invoices. A hospital-specific GST rate, when set, overrides this.
+                You can also edit the rate on each draft invoice before issuing it.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Default GST Rate (%)</label>
+                  <input
+                    type="number" min="0" max="100" step="0.01"
+                    value={form.invoice_default_gst_rate}
+                    onChange={set('invoice_default_gst_rate')}
+                    placeholder="e.g. 18"
+                    className={inputCls}
+                  />
                 </div>
               </div>
             </div>
