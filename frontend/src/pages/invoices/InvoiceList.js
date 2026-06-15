@@ -32,6 +32,7 @@ const InvoiceList = () => {
 
   const [items, setItems] = useState([]);
   const [hospitals, setHospitals] = useState([]);
+  const [loadingHospitals, setLoadingHospitals] = useState(true);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ hospitalId: '', status: '', month: '' });
   const [page, setPage] = useState(1);
@@ -62,7 +63,7 @@ const InvoiceList = () => {
     getHospitalsAPI().then(({ data }) => {
       const list = Array.isArray(data) ? data : data.hospitals;
       setHospitals((list || []).filter((h) => h.isActive !== false));
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setLoadingHospitals(false));
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,6 +100,7 @@ const InvoiceList = () => {
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Hospital</label>
             <SearchableSelect
+              isLoading={loadingHospitals}
               value={filters.hospitalId}
               onChange={(v) => { setFilters((f) => ({ ...f, hospitalId: v })); setPage(1); }}
               placeholder="All hospitals"

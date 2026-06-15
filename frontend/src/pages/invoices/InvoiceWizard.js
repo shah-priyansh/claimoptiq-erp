@@ -23,6 +23,8 @@ const InvoiceWizard = () => {
   const navigate = useNavigate();
   const [hospitals, setHospitals] = useState([]);
   const [tdsRates, setTdsRates] = useState([]);
+  const [loadingHospitals, setLoadingHospitals] = useState(true);
+  const [loadingTdsRates, setLoadingTdsRates] = useState(true);
   const [hospitalId, setHospitalId] = useState('');
   const [tdsRateId, setTdsRateId] = useState('');
   const [month, setMonth] = useState(todayMonth());
@@ -35,8 +37,11 @@ const InvoiceWizard = () => {
     getHospitalsAPI().then(({ data }) => {
       const list = Array.isArray(data) ? data : data.hospitals;
       setHospitals((list || []).filter((h) => h.isActive !== false));
-    }).catch(() => toast.error('Failed to load hospitals'));
-    getTdsRatesAPI({ active: 'true' }).then(({ data }) => setTdsRates(data || [])).catch(() => setTdsRates([]));
+    }).catch(() => toast.error('Failed to load hospitals')).finally(() => setLoadingHospitals(false));
+    getTdsRatesAPI({ active: 'true' })
+      .then(({ data }) => setTdsRates(data || []))
+      .catch(() => setTdsRates([]))
+      .finally(() => setLoadingTdsRates(false));
   }, []);
 
   const runPreview = async () => {
@@ -91,6 +96,7 @@ const InvoiceWizard = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
             <SearchableSelect
               required
+              isLoading={loadingHospitals}
               value={hospitalId}
               onChange={(v) => { setHospitalId(v); setPreview(null); }}
               placeholder="Select hospital"
@@ -116,6 +122,7 @@ const InvoiceWizard = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate (optional)</label>
             <SearchableSelect
+              isLoading={loadingTdsRates}
               value={tdsRateId}
               onChange={(v) => { setTdsRateId(v); setPreview(null); }}
               placeholder="Use hospital default"

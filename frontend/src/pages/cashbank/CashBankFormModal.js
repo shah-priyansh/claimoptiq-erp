@@ -16,7 +16,7 @@ const blank = {
   chequeNumber: '',
 };
 
-const CashBankFormModal = ({ open, initial, invoices, expenses, onClose, onSave }) => {
+const CashBankFormModal = ({ open, initial, invoices, expenses, loadingInvoices = false, loadingExpenses = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
@@ -139,6 +139,7 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, onClose, onSave 
                 <>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Invoice</label>
                   <SearchableSelect
+                    isLoading={loadingInvoices}
                     value={form.invoiceId}
                     onChange={(v) => setForm((f) => ({ ...f, invoiceId: v }))}
                     placeholder="Select invoice"
@@ -155,6 +156,7 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, onClose, onSave 
                 <>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Expense</label>
                   <SearchableSelect
+                    isLoading={loadingExpenses}
                     value={form.expenseId}
                     onChange={(v) => setForm((f) => ({ ...f, expenseId: v }))}
                     placeholder="Select expense"

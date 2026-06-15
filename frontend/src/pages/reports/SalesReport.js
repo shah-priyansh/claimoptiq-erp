@@ -16,12 +16,13 @@ const SalesReport = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hospitals, setHospitals] = useState([]);
+  const [loadingHospitals, setLoadingHospitals] = useState(true);
 
   useEffect(() => {
     getHospitalsAPI().then(({ data }) => {
       const list = Array.isArray(data) ? data : data.hospitals;
       setHospitals((list || []).filter((h) => h.isActive !== false));
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setLoadingHospitals(false));
   }, []);
 
   useEffect(() => {
@@ -86,6 +87,7 @@ const SalesReport = () => {
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Hospital</label>
             <SearchableSelect
+              isLoading={loadingHospitals}
               value={filters.hospitalId}
               onChange={(v) => setFilters((f) => ({ ...f, hospitalId: v }))}
               placeholder="All hospitals"
