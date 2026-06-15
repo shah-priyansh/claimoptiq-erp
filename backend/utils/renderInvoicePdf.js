@@ -2,7 +2,11 @@ const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 const https = require('https');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const amountInWords = require('./amountInWords');
+
+const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
 // Tailwind primary palette (matches frontend theme)
 const COLORS = {
@@ -34,9 +38,21 @@ const formatTime = (d) => {
   return dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 };
 
+// Resolve an image source to a Buffer. Accepts:
+//   - absolute http(s) URL → HTTP GET (timeout 2.5s)
+//   - relative "/uploads/..." path → direct filesystem read from backend/uploads
 const fetchBuffer = (url) =>
   new Promise((resolve) => {
     if (!url || typeof url !== 'string') return resolve(null);
+
+    // Local uploads — bypass HTTP and read from disk.
+    if (url.startsWith('/uploads/')) {
+      const filename = path.basename(url);
+      const abs = path.join(UPLOADS_DIR, filename);
+      fs.readFile(abs, (err, data) => resolve(err ? null : data));
+      return;
+    }
+
     const lib = url.startsWith('https') ? https : http;
     const req = lib.get(url, (res) => {
       if (res.statusCode !== 200) { res.resume(); return resolve(null); }
