@@ -106,6 +106,14 @@ export const uploadInvoiceLogoAPI = (file) => {
   return API.post('/settings/invoice-logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
 };
 
+// Reports (Phase 2.6)
+export const getReportDashboardAPI   = () => API.get('/reports/dashboard');
+export const getReportSalesAPI       = (params) => API.get('/reports/sales', { params });
+export const getReportExpensesAPI    = (params) => API.get('/reports/expenses', { params });
+export const getReportProfitAPI      = (params) => API.get('/reports/profit', { params });
+export const getReportReferencesAPI  = (params) => API.get('/reports/references', { params });
+export const getReportCashBankAPI    = (params) => API.get('/reports/cash-bank', { params });
+
 // Account entries (General + Contra)
 export const getAccountEntriesAPI       = (params) => API.get('/account-entries', { params });
 export const getAccountEntrySummaryAPI  = (params) => API.get('/account-entries/summary', { params });

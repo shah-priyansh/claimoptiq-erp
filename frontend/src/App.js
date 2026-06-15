@@ -27,6 +27,12 @@ import ClaimList from './pages/claims/ClaimList';
 import ClaimForm from './pages/claims/ClaimForm';
 import ClaimDetail from './pages/claims/ClaimDetail';
 import Reports from './pages/reports/Reports';
+import ReportsHub from './pages/reports/ReportsHub';
+import SalesReport from './pages/reports/SalesReport';
+import ExpensesReport from './pages/reports/ExpensesReport';
+import ProfitReport from './pages/reports/ProfitReport';
+import ReferencesReport from './pages/reports/ReferencesReport';
+import CashBankReport from './pages/reports/CashBankReport';
 import RoleList from './pages/roles/RoleList';
 import RoleForm from './pages/roles/RoleForm';
 import ClaimStatusMaster from './pages/claimstatus/ClaimStatusMaster';
@@ -75,7 +81,13 @@ function App() {
             <Route path="/expense-categories" element={<ProtectedRoute module="expense_categories" requireManage><ExpenseCategoryList /></ProtectedRoute>} />
             <Route path="/cash-bank" element={<ProtectedRoute module="cash_bank"><CashBankList /></ProtectedRoute>} />
             <Route path="/account-entries" element={<ProtectedRoute module="account_entries"><AccountEntryList /></ProtectedRoute>} />
-            <Route path="/reports" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
+            <Route path="/reports" element={<ProtectedRoute module="reports"><ReportsHub /></ProtectedRoute>} />
+            <Route path="/reports/claims" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
+            <Route path="/reports/sales" element={<ProtectedRoute module="reports"><SalesReport /></ProtectedRoute>} />
+            <Route path="/reports/expenses" element={<ProtectedRoute module="reports"><ExpensesReport /></ProtectedRoute>} />
+            <Route path="/reports/profit" element={<ProtectedRoute module="reports"><ProfitReport /></ProtectedRoute>} />
+            <Route path="/reports/references" element={<ProtectedRoute module="reports"><ReferencesReport /></ProtectedRoute>} />
+            <Route path="/reports/cash-bank" element={<ProtectedRoute module="reports"><CashBankReport /></ProtectedRoute>} />
             <Route path="/claim-statuses" element={<ProtectedRoute module="claim_statuses" requireManage><ClaimStatusMaster /></ProtectedRoute>} />
             <Route path="/claim-document-types" element={<ProtectedRoute module="claim_document_types" requireManage><ClaimDocumentTypeMaster /></ProtectedRoute>} />
             <Route path="/billing-service-names" element={<ProtectedRoute module="billing_service_names" requireManage><BillingServiceNameList /></ProtectedRoute>} />
