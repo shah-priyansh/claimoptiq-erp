@@ -8,11 +8,13 @@ const isValidPincode = (v) => /^[1-9][0-9]{5}$/.test((v || '').trim());
 const hospitalInclude = {
   billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
   doctors: true,
+  reference: { select: { id: true, name: true, commissionRate: true, isActive: true } },
 };
 
 const hospitalListInclude = {
   billingServices: { select: { id: true } },
   doctors: { select: { id: true } },
+  reference: { select: { id: true, name: true } },
 };
 
 const validateHospitalFields = (body) => {
@@ -30,18 +32,42 @@ const validateHospitalFields = (body) => {
   return null;
 };
 
-const buildHospitalData = (body) => ({
-  name: body.name,
-  contact: body.contact || '',
-  email: body.email || '',
-  phone: body.phone || '',
-  address: body.address || '',
-  city: body.city || '',
-  state: body.state || '',
-  pincode: body.pincode || '',
-  referenceBy: body.referenceBy || '',
-  isActive: body.isActive !== undefined ? body.isActive : true,
-});
+const buildHospitalData = async (body) => {
+  const referenceId =
+    body.referenceId === '' || body.referenceId === null
+      ? null
+      : body.referenceId === undefined
+        ? undefined
+        : body.referenceId;
+  let referenceByFromRef;
+  if (referenceId) {
+    const ref = await prisma.reference.findUnique({ where: { id: referenceId }, select: { name: true } });
+    if (!ref) {
+      const err = new Error('Reference not found');
+      err.status = 400;
+      throw err;
+    }
+    referenceByFromRef = ref.name;
+  } else if (referenceId === null) {
+    referenceByFromRef = '';
+  }
+  const data = {
+    name: body.name,
+    contact: body.contact || '',
+    email: body.email || '',
+    phone: body.phone || '',
+    address: body.address || '',
+    city: body.city || '',
+    state: body.state || '',
+    pincode: body.pincode || '',
+    isActive: body.isActive !== undefined ? body.isActive : true,
+  };
+  if (referenceId !== undefined) data.referenceId = referenceId;
+  if (body.referenceBy !== undefined) data.referenceBy = body.referenceBy || '';
+  else if (referenceByFromRef !== undefined) data.referenceBy = referenceByFromRef;
+  else data.referenceBy = '';
+  return data;
+};
 
 const buildBillingServices = (services) =>
   (services || []).map((s) => ({
@@ -111,7 +137,7 @@ exports.bulkImportHospitals = async (req, res) => {
 
       if (rowErrors.length) { errors.push({ row: rowNum, name, errors: rowErrors }); continue; }
       try {
-        const data = buildHospitalData({
+        const data = await buildHospitalData({
           name, contact: row.contact, email: row.email, phone: row.phone, address: row.address,
           city: row.city, state: row.state, pincode: row.pincode, referenceBy: row.referenceBy,
         });
@@ -145,7 +171,7 @@ exports.createHospital = async (req, res) => {
 
     const hospital = await prisma.hospital.create({
       data: {
-        ...buildHospitalData(req.body),
+        ...(await buildHospitalData(req.body)),
         billingServices: { create: buildBillingServices(req.body.billingServices) },
         doctors: { create: buildDoctors(req.body.doctors) },
       },
@@ -153,6 +179,7 @@ exports.createHospital = async (req, res) => {
     });
     res.status(201).json(toResponse(hospital));
   } catch (error) {
+    if (error.status === 400) return res.status(400).json({ message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -231,7 +258,7 @@ exports.updateHospital = async (req, res) => {
     const hospital = await prisma.hospital.update({
       where: { id: req.params.id },
       data: {
-        ...buildHospitalData(req.body),
+        ...(await buildHospitalData(req.body)),
         billingServices: { create: buildBillingServices(req.body.billingServices) },
         doctors: { create: buildDoctors(req.body.doctors) },
       },
@@ -239,6 +266,7 @@ exports.updateHospital = async (req, res) => {
     });
     res.json(toResponse(hospital));
   } catch (error) {
+    if (error.status === 400) return res.status(400).json({ message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
