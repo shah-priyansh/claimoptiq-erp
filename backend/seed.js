@@ -6,7 +6,7 @@ const allModules = [
   'dashboard', 'claims', 'hospitals', 'insurance', 'tpa',
   'users', 'roles', 'reports', 'claim_statuses',
   'claim_document_types', 'document_submissions', 'staff',
-  'references', 'invoices',
+  'references', 'invoices', 'tds_rates',
 ];
 
 const buildPermissions = (config) =>
@@ -32,6 +32,7 @@ const defaultRoles = [
       tpa:                  { view: true, create: true, edit: true, delete: true },
       references:           { view: true, create: true, edit: true, delete: true },
       invoices:             { view: true, create: true, edit: true, delete: true, export: true },
+      tds_rates:            { view: true, create: true, edit: true, delete: true },
       users:                { view: true, create: true, edit: true, delete: true },
       roles:                { view: true, create: true, edit: true, delete: true },
       reports:              { view: true, export: true },
@@ -53,6 +54,7 @@ const defaultRoles = [
       tpa:                  { view: true },
       references:           { view: true },
       invoices:             { view: true, create: true, edit: true },
+      tds_rates:            { view: true },
       reports:              { view: true },
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
@@ -113,6 +115,15 @@ const claimStatuses = [
   { slug: 'billed',        label: 'Billed',        color: 'teal',   order: 7, isSystem: true, superAdminOnly: true },
 ];
 
+// Common Indian TDS sections — operator can edit / extend from the master UI.
+const tdsRates = [
+  { taxName: 'Payment of salary',                        rate: 1,  section: '192' },
+  { taxName: 'Payment to contractors for HUF/Individuals', rate: 1,  section: '194C(a)' },
+  { taxName: 'Payment to contractors for Others',        rate: 2,  section: '194C(b)' },
+  { taxName: 'Fees for technical services',              rate: 2,  section: '194J(i)' },
+  { taxName: 'Fees for professional services (other sum)', rate: 10, section: '194J(iii)' },
+];
+
 const claimDocumentTypes = [
   { name: 'Discharge Summary',  isRequired: true,  order: 1, isSystem: true },
   { name: 'Hospital Bills',     isRequired: true,  order: 2, isSystem: true },
@@ -158,6 +169,13 @@ async function main() {
   await prisma.claimDocumentType.deleteMany();
   await prisma.claimDocumentType.createMany({ data: claimDocumentTypes });
   console.log(`  ✓ ${claimDocumentTypes.length} claim document types`);
+
+  // Idempotent TDS rate seed — won't wipe rates the operator added/edited.
+  for (const r of tdsRates) {
+    const existing = await prisma.tdsRate.findFirst({ where: { taxName: r.taxName, section: r.section } });
+    if (!existing) await prisma.tdsRate.create({ data: r });
+  }
+  console.log(`  ✓ ${tdsRates.length} TDS rates (idempotent)`);
 
   // Demo hospital for hospital-role users
   await prisma.hospital.deleteMany({ where: { name: 'Demo Hospital' } });

@@ -122,6 +122,9 @@ model Invoice {
   gstAmount         Float    @default(0) @map("gst_amount")
   tdsRate           Float    @default(0) @map("tds_rate")
   tdsAmount         Float    @default(0) @map("tds_amount")
+  tdsRateId         String?  @map("tds_rate_id")
+  tdsName           String   @default("") @map("tds_name")
+  tdsSection        String   @default("") @map("tds_section")
   netTotal          Float    @default(0) @map("net_total")
   previousBalance   Float    @default(0) @map("previous_balance")
   grandTotal        Float    @default(0) @map("grand_total")
@@ -139,12 +142,28 @@ model Invoice {
   hospital  Hospital @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
   createdBy User?    @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
   issuedBy  User?    @relation("InvoiceIssuedBy", fields: [issuedById], references: [id])
+  tdsRateMaster TdsRate? @relation(fields: [tdsRateId], references: [id])
   lineItems InvoiceLineItem[]
 
   @@unique([hospitalId, month])
   @@index([status])
   @@index([month])
   @@map("invoices")
+}
+
+model TdsRate {
+  id        String   @id @default(uuid())
+  taxName   String   @map("tax_name")
+  rate      Float    @default(0)
+  section   String   @default("")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  invoices  Invoice[]
+
+  @@index([taxName])
+  @@map("tds_rates")
 }
 
 model InvoiceLineItem {

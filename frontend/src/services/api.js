@@ -76,6 +76,12 @@ export const voidInvoiceAPI    = (id, data) => API.post(`/invoices/${id}/void`, 
 export const deleteInvoiceAPI  = (id) => API.delete(`/invoices/${id}`);
 export const invoicePdfUrl     = (id) => `${API.defaults.baseURL}/invoices/${id}/pdf`;
 
+// TDS Rates master
+export const getTdsRatesAPI    = (params) => API.get('/tds-rates', { params });
+export const createTdsRateAPI  = (data) => API.post('/tds-rates', data);
+export const updateTdsRateAPI  = (id, data) => API.put(`/tds-rates/${id}`, data);
+export const deleteTdsRateAPI  = (id) => API.delete(`/tds-rates/${id}`);
+
 // Billing Service Names
 export const getBillingServiceNamesAPI = () => API.get('/billing-service-names');
 export const createBillingServiceNameAPI = (data) => API.post('/billing-service-names', data);

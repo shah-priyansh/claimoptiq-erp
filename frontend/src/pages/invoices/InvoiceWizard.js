@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { HiOutlineArrowLeft, HiOutlineSearch, HiOutlineEye } from 'react-icons/hi';
-import { getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI } from '../../services/api';
+import { getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI, getTdsRatesAPI } from '../../services/api';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 
@@ -21,7 +21,9 @@ const todayMonth = () => {
 const InvoiceWizard = () => {
   const navigate = useNavigate();
   const [hospitals, setHospitals] = useState([]);
+  const [tdsRates, setTdsRates] = useState([]);
   const [hospitalId, setHospitalId] = useState('');
+  const [tdsRateId, setTdsRateId] = useState('');
   const [month, setMonth] = useState(todayMonth());
   const [notes, setNotes] = useState('');
   const [preview, setPreview] = useState(null);
@@ -33,6 +35,7 @@ const InvoiceWizard = () => {
       const list = Array.isArray(data) ? data : data.hospitals;
       setHospitals((list || []).filter((h) => h.isActive !== false));
     }).catch(() => toast.error('Failed to load hospitals'));
+    getTdsRatesAPI({ active: 'true' }).then(({ data }) => setTdsRates(data || [])).catch(() => setTdsRates([]));
   }, []);
 
   const runPreview = async () => {
@@ -43,7 +46,7 @@ const InvoiceWizard = () => {
     setLoading(true);
     setPreview(null);
     try {
-      const { data } = await previewInvoiceAPI({ hospitalId, month: month + '-01' });
+      const { data } = await previewInvoiceAPI({ hospitalId, month: month + '-01', tdsRateId: tdsRateId || undefined });
       setPreview(data);
       if (!data.hasContent) toast.info('No claims or fixed services found for this month');
     } catch (e) {
@@ -57,7 +60,7 @@ const InvoiceWizard = () => {
     if (!preview || !preview.hasContent) return;
     setCreating(true);
     try {
-      const { data } = await createInvoiceAPI({ hospitalId, month: month + '-01', notes });
+      const { data } = await createInvoiceAPI({ hospitalId, month: month + '-01', notes, tdsRateId: tdsRateId || undefined });
       toast.success('Draft invoice created');
       navigate(`/invoices/${data._id}`);
     } catch (e) {
@@ -108,11 +111,25 @@ const InvoiceWizard = () => {
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
-          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
-            placeholder="Internal note for this invoice"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate (optional)</label>
+            <select value={tdsRateId} onChange={(e) => { setTdsRateId(e.target.value); setPreview(null); }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+              <option value="">— Use hospital default —</option>
+              {tdsRates.map((r) => (
+                <option key={r._id} value={r._id}>
+                  {r.taxName} — {r.rate}%{r.section ? ` (${r.section})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+            <input value={notes} onChange={(e) => setNotes(e.target.value)}
+              placeholder="Internal note for this invoice"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+          </div>
         </div>
       </div>
 
