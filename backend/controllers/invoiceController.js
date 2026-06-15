@@ -164,16 +164,22 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     ? await resolveTdsRate(effectiveTdsRateId, hospital.tdsRate)
     : { rate: hospital.tdsRate || 0, name: '', section: '' };
 
-  // Resolve GST: explicit override (from edit form) → hospital.gstRate → site default
-  // (invoice_default_gst_rate). Anything missing falls through to 0.
+  // Resolve GST: explicit per-invoice override (operator typed it) wins, then
+  // the site-wide default from Settings → Invoice Template (the 'master'), then
+  // the legacy per-hospital gstRate field as a last resort, else 0.
+  // The site default sits ABOVE hospital.gstRate so that updating the master
+  // setting propagates to every new invoice without per-hospital cleanup.
   let effectiveGstRate = 0;
   if (gstRateOverride !== undefined && gstRateOverride !== null && gstRateOverride !== '') {
     effectiveGstRate = Number(gstRateOverride) || 0;
-  } else if (hospital.gstRate) {
-    effectiveGstRate = Number(hospital.gstRate) || 0;
   } else {
     const tpl = await getInvoiceTemplate();
-    effectiveGstRate = Number(tpl.invoice_default_gst_rate) || 0;
+    const siteDefault = Number(tpl.invoice_default_gst_rate) || 0;
+    if (siteDefault > 0) {
+      effectiveGstRate = siteDefault;
+    } else if (hospital.gstRate) {
+      effectiveGstRate = Number(hospital.gstRate) || 0;
+    }
   }
 
   const totals = calculateInvoiceTotals({

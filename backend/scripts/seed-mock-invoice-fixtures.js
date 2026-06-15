@@ -75,7 +75,7 @@ const seed = async (month) => {
       city: 'Surat',
       state: 'Gujarat',
       pincode: '395003',
-      gstRate: 18,
+      gstRate: 0,
       tdsRate: 0,
       invoicePrefix: 'FCC',
       billingServices: {
