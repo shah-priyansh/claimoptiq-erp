@@ -107,8 +107,13 @@ const InvoiceDetail = () => {
     if (!(await confirm('Issue this invoice? Once issued, it cannot be edited or deleted (only voided pre-payment).', { title: 'Issue Invoice', confirmLabel: 'Issue' }))) return;
     setSaving(true);
     try {
-      await issueInvoiceAPI(id);
-      toast.success('Invoice issued');
+      const { data } = await issueInvoiceAPI(id);
+      const flow = data?.commissionAutoFlow;
+      if (flow && !flow.skipped && flow.rowsCreated > 0) {
+        toast.success(`Invoice issued. ${flow.rowsCreated} commission ${flow.rowsCreated === 1 ? 'entry' : 'entries'} (₹${(flow.totalAmount || 0).toLocaleString('en-IN')}) auto-created.`);
+      } else {
+        toast.success('Invoice issued');
+      }
       reload();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Issue failed');
@@ -126,8 +131,9 @@ const InvoiceDetail = () => {
     }
     setSaving(true);
     try {
-      await voidInvoiceAPI(id, { reason });
-      toast.success('Invoice voided');
+      const { data } = await voidInvoiceAPI(id, { reason });
+      const removed = data?.commissionAutoFlow?.rowsRemoved || 0;
+      toast.success(removed ? `Invoice voided. ${removed} auto commission ${removed === 1 ? 'entry' : 'entries'} reversed.` : 'Invoice voided');
       reload();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Void failed');

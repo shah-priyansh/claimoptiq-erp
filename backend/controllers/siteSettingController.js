@@ -59,6 +59,22 @@ exports.updateSettings = async (req, res) => {
   }
 };
 
+// Multer middleware sets req.file. Saves the relative URL to invoice_logo_url and returns it.
+exports.uploadInvoiceLogo = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    const url = `/uploads/${req.file.filename}`;
+    await prisma.siteSetting.upsert({
+      where: { key: 'invoice_logo_url' },
+      update: { value: url },
+      create: { key: 'invoice_logo_url', value: url },
+    });
+    res.json({ message: 'Logo uploaded', invoice_logo_url: url });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to upload logo', error: err.message });
+  }
+};
+
 // Helper for invoice rendering — returns the invoice template subset with defaults applied.
 exports.getInvoiceTemplate = async () => {
   const keys = Object.keys(DEFAULTS).filter((k) => k.startsWith('invoice_'));

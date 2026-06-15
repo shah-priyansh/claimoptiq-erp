@@ -99,6 +99,13 @@ export const updateCashBankAPI      = (id, data) => API.patch(`/cash-bank/${id}`
 export const deleteCashBankAPI      = (id) => API.delete(`/cash-bank/${id}`);
 export const recordInvoicePaymentAPI = (invoiceId, data) => API.post(`/invoices/${invoiceId}/payments`, data);
 
+// Site settings — invoice logo upload (multipart/form-data)
+export const uploadInvoiceLogoAPI = (file) => {
+  const fd = new FormData();
+  fd.append('logo', file);
+  return API.post('/settings/invoice-logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
+
 // Account entries (General + Contra)
 export const getAccountEntriesAPI       = (params) => API.get('/account-entries', { params });
 export const getAccountEntrySummaryAPI  = (params) => API.get('/account-entries/summary', { params });

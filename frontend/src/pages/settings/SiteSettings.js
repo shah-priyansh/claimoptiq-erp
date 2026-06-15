@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { getPublicStatsAPI, updateSiteSettingsAPI } from '../../services/api';
+import { getPublicStatsAPI, updateSiteSettingsAPI, uploadInvoiceLogoAPI } from '../../services/api';
 import { toast } from 'react-toastify';
+
+const STATIC_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
+const resolveLogoSrc = (url) => {
+  if (!url) return null;
+  return url.startsWith('http') ? url : `${STATIC_BASE}${url}`;
+};
 
 const TABS = [
   { id: 'login', label: 'Login Page' },
@@ -22,6 +28,7 @@ const SiteSettings = () => {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   useEffect(() => {
     getPublicStatsAPI()
@@ -111,8 +118,54 @@ const SiteSettings = () => {
                   <input value={form.invoice_company_name} onChange={set('invoice_company_name')} className={inputCls} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Logo URL (optional)</label>
-                  <input value={form.invoice_logo_url} onChange={set('invoice_logo_url')} placeholder="https://..." className={inputCls} />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Logo</label>
+                  <div className="flex items-center gap-3">
+                    {form.invoice_logo_url ? (
+                      <img
+                        src={resolveLogoSrc(form.invoice_logo_url)}
+                        alt="Invoice logo"
+                        className="w-16 h-16 object-contain rounded-lg border border-gray-200 bg-white p-1"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg border border-dashed border-gray-300 flex items-center justify-center text-xs text-gray-400">No logo</div>
+                    )}
+                    <div className="flex-1 space-y-1">
+                      <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                          className="hidden"
+                          disabled={uploadingLogo}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setUploadingLogo(true);
+                            try {
+                              const { data } = await uploadInvoiceLogoAPI(file);
+                              setForm((f) => ({ ...f, invoice_logo_url: data.invoice_logo_url }));
+                              toast.success('Logo uploaded');
+                            } catch (err) {
+                              toast.error(err.response?.data?.message || 'Upload failed');
+                            } finally {
+                              setUploadingLogo(false);
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                        {uploadingLogo ? 'Uploading...' : 'Choose file'}
+                      </label>
+                      {form.invoice_logo_url && (
+                        <button
+                          type="button"
+                          onClick={() => setForm((f) => ({ ...f, invoice_logo_url: '' }))}
+                          className="ml-2 text-xs text-red-600 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                      <p className="text-xs text-gray-400">PNG / JPG / WEBP. Max 10MB.</p>
+                    </div>
+                  </div>
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
