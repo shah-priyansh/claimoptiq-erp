@@ -15,9 +15,13 @@ const COLORS = {
   primary50:  '#eff6ff',
   primary100: '#dbeafe',
   ink:        '#111827',
+  body:       '#374151',
   muted:      '#6b7280',
+  faint:      '#9ca3af',
   border:     '#e5e7eb',
+  alt:        '#f9fafb',
   red:        '#dc2626',
+  green:      '#16a34a',
 };
 
 const formatINR = (n) => {
@@ -38,21 +42,15 @@ const formatTime = (d) => {
   return dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 };
 
-// Resolve an image source to a Buffer. Accepts:
-//   - absolute http(s) URL → HTTP GET (timeout 2.5s)
-//   - relative "/uploads/..." path → direct filesystem read from backend/uploads
 const fetchBuffer = (url) =>
   new Promise((resolve) => {
     if (!url || typeof url !== 'string') return resolve(null);
-
-    // Local uploads — bypass HTTP and read from disk.
     if (url.startsWith('/uploads/')) {
       const filename = path.basename(url);
       const abs = path.join(UPLOADS_DIR, filename);
       fs.readFile(abs, (err, data) => resolve(err ? null : data));
       return;
     }
-
     const lib = url.startsWith('https') ? https : http;
     const req = lib.get(url, (res) => {
       if (res.statusCode !== 200) { res.resume(); return resolve(null); }
@@ -65,8 +63,15 @@ const fetchBuffer = (url) =>
     req.setTimeout(2500, () => { req.destroy(); resolve(null); });
   });
 
+// "TPA Desk — RAJESH PATEL (CCN 0001)" → "TPA Desk"
+// Tolerant of em-dash and ascii hyphen with surrounding spaces.
+const baseServiceName = (description, fallback) => {
+  if (!description) return fallback;
+  const parts = description.split(/\s+[—-]\s+/);
+  return (parts[0] || description).trim() || fallback;
+};
+
 const renderInvoicePdf = async (invoice, hospital, template = {}) => {
-  // Pre-fetch logo + QR (parallel)
   const upiId = template.invoice_upi_id || '';
   const upiPayload = upiId
     ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(template.invoice_company_name || '')}&am=${Math.round(invoice.amountPending || invoice.grandTotal || 0)}&cu=INR`
@@ -85,119 +90,146 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       doc.on('error', reject);
 
       const W = doc.page.width;       // 595
-      const PAD = 30;
+      const H = doc.page.height;      // 842
+      const PAD = 32;
       const RIGHT = W - PAD;
       let y = PAD;
 
-      // ===== Header band =====
-      const headerH = 90;
-      doc.rect(PAD, y, W - 2 * PAD, headerH).fillAndStroke(COLORS.primary500, COLORS.primary500);
+      // ===== Top accent bar =====
+      doc.rect(0, 0, W, 6).fill(COLORS.primary600);
 
-      // Logo (left) — white card if logo provided, else text initials in white card
-      const logoBoxX = PAD + 8;
-      const logoBoxY = y + 8;
-      const logoBoxW = 110;
-      const logoBoxH = headerH - 16;
-      doc.rect(logoBoxX, logoBoxY, logoBoxW, logoBoxH).fillAndStroke('#ffffff', '#ffffff');
+      // ===== Header: logo + company info (no big blue band) =====
+      y = 22;
+      const logoBoxX = PAD;
+      const logoBoxY = y;
+      const logoBoxW = 96;
+      const logoBoxH = 96;
       if (logoBuf) {
-        try { doc.image(logoBuf, logoBoxX + 8, logoBoxY + 8, { fit: [logoBoxW - 16, logoBoxH - 16], align: 'center', valign: 'center' }); }
-        catch { /* ignore broken image, fall back to text */ }
+        try {
+          doc.image(logoBuf, logoBoxX, logoBoxY, { fit: [logoBoxW, logoBoxH], align: 'center', valign: 'center' });
+        } catch { /* ignore */ }
       } else {
-        doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(11)
-          .text(template.invoice_company_name || 'First Care\nConsultancy', logoBoxX, logoBoxY + 25, { width: logoBoxW, align: 'center' });
+        // Fallback monogram pill
+        doc.roundedRect(logoBoxX, logoBoxY, logoBoxW, logoBoxH, 8).fillAndStroke(COLORS.primary500, COLORS.primary500);
+        const initials = (template.invoice_company_name || 'FCC')
+          .split(/\s+/).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(28)
+          .text(initials, logoBoxX, logoBoxY + 32, { width: logoBoxW, align: 'center' });
       }
 
-      // Right-side company address (white text on primary)
-      const rightX = logoBoxX + logoBoxW + 20;
-      const rightW = RIGHT - rightX - 6;
-      doc.fillColor('#ffffff').font('Helvetica').fontSize(9);
-      const headerLines = [
+      // Company info, top-left next to logo
+      const companyX = logoBoxX + logoBoxW + 16;
+      const companyW = (W / 2) - companyX;
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(15)
+        .text(template.invoice_company_name || 'Company', companyX, logoBoxY + 6, { width: companyW });
+      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5);
+      let cy = doc.y + 4;
+      const addrLines = [
         template.invoice_company_address,
-        template.invoice_company_phone ? `Phone no.: ${template.invoice_company_phone}` : '',
-        template.invoice_company_email ? `Email: ${template.invoice_company_email}` : '',
-        template.invoice_company_website ? `Website: ${template.invoice_company_website}` : '',
+        template.invoice_company_phone ? `Phone: ${template.invoice_company_phone}` : '',
+        template.invoice_company_email,
+        template.invoice_company_website,
       ].filter(Boolean);
-      let hy = y + 12;
-      for (const line of headerLines) {
-        doc.text(line, rightX, hy, { width: rightW, align: 'right' });
-        hy = doc.y + 2;
-      }
+      addrLines.forEach((line) => {
+        doc.text(line, companyX, cy, { width: companyW });
+        cy = doc.y + 1;
+      });
 
-      y += headerH + 8;
+      // ===== TAX INVOICE block on the right =====
+      const tiX = W / 2 + 8;
+      const tiW = RIGHT - tiX;
+      doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(28)
+        .text('TAX INVOICE', tiX, logoBoxY, { width: tiW, align: 'right' });
+      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(9);
+      const invoiceMeta = [
+        ['Invoice No.', invoice.invoiceNumber || `Draft-${(invoice.id || '').slice(0, 8)}`],
+        ['Date', formatDate(invoice.issuedAt || invoice.createdAt)],
+        ['Time', formatTime(invoice.issuedAt || invoice.createdAt)],
+        ['Due', invoice.dueDate ? formatDate(invoice.dueDate) : null],
+      ].filter(([, v]) => v);
+      let metaY = logoBoxY + 38;
+      invoiceMeta.forEach(([label, value]) => {
+        doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5)
+          .text(label, tiX, metaY, { width: tiW / 2 - 6, align: 'right' });
+        doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9.5)
+          .text(value, tiX + tiW / 2 - 6, metaY - 0.5, { width: tiW / 2 + 6, align: 'right' });
+        metaY = doc.y + 2;
+      });
 
-      // ===== Tax Invoice title =====
-      doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(15)
-        .text('Tax Invoice', PAD, y, { width: W - 2 * PAD, align: 'center' });
-      y += 24;
+      y = Math.max(logoBoxY + logoBoxH, metaY) + 14;
 
-      // ===== Bill To / Invoice Details =====
-      const colW = (W - 2 * PAD - 8) / 2;
-      const leftColX = PAD;
-      const rightColX = PAD + colW + 8;
+      // ===== Bill To card =====
+      const billH = 70;
+      doc.lineWidth(1).strokeColor(COLORS.border);
+      doc.roundedRect(PAD, y, W - 2 * PAD, billH, 6).fillAndStroke(COLORS.alt, COLORS.border);
 
-      const headerBarH = 18;
-      doc.rect(leftColX, y, colW, headerBarH).fill(COLORS.primary500);
-      doc.rect(rightColX, y, colW, headerBarH).fill(COLORS.primary500);
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9)
-        .text('Bill To', leftColX + 8, y + 5);
-      doc.text('Invoice Details', rightColX + 8, y + 5, { width: colW - 16, align: 'right' });
+      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+        .text('BILL TO', PAD + 14, y + 10, { characterSpacing: 1 });
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(13)
+        .text(hospital.name || '-', PAD + 14, y + 22, { width: (W - 2 * PAD) / 2 - 18 });
 
-      const billBoxY = y + headerBarH;
-      const billBoxH = 56;
-      doc.lineWidth(0.5).strokeColor(COLORS.border)
-        .rect(leftColX, billBoxY, colW, billBoxH).stroke()
-        .rect(rightColX, billBoxY, colW, billBoxH).stroke();
+      const addrPieces = [
+        hospital.address,
+        [hospital.city, hospital.state, hospital.pincode].filter(Boolean).join(', '),
+        hospital.phone ? `Phone: ${hospital.phone}` : '',
+      ].filter(Boolean);
+      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5);
+      let bly = doc.y + 2;
+      addrPieces.forEach((line) => {
+        doc.text(line, PAD + 14, bly, { width: (W - 2 * PAD) / 2 - 18 });
+        bly = doc.y + 1;
+      });
 
-      // Bill To content
-      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(11)
-        .text(hospital.name || '-', leftColX + 8, billBoxY + 7, { width: colW - 16 });
-      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted)
-        .text(hospital.phone ? `Contact No. : ${hospital.phone}` : '', leftColX + 8, doc.y + 4, { width: colW - 16 });
+      // Right side of Bill To — invoice status + balance due preview
+      const statusX = PAD + (W - 2 * PAD) / 2;
+      const statusW = (W - 2 * PAD) / 2 - 14;
+      const statusLabel = (invoice.status || 'draft').replace('_', ' ').toUpperCase();
+      const statusColor = invoice.status === 'paid' ? COLORS.green
+        : invoice.status === 'void' ? COLORS.red
+        : invoice.status === 'partially_paid' ? '#f59e0b'
+        : COLORS.primary600;
+      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+        .text('STATUS', statusX, y + 10, { width: statusW, align: 'right', characterSpacing: 1 });
+      doc.fillColor(statusColor).font('Helvetica-Bold').fontSize(13)
+        .text(statusLabel, statusX, y + 22, { width: statusW, align: 'right' });
+      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5)
+        .text('Balance due', statusX, y + 46, { width: statusW, align: 'right' });
+      doc.fillColor(invoice.amountPending > 0 ? COLORS.red : COLORS.green)
+        .font('Helvetica-Bold').fontSize(11)
+        .text(formatINR(invoice.amountPending), statusX, y + 56, { width: statusW, align: 'right' });
 
-      // Invoice Details content (right aligned)
-      const dRight = rightColX + colW - 8;
-      const labelOpts = { width: colW - 16, align: 'right' };
-      let detailY = billBoxY + 7;
-      doc.fillColor(COLORS.ink).font('Helvetica').fontSize(9);
-      doc.text(`Invoice No. : ${invoice.invoiceNumber || 'Draft'}`, rightColX + 8, detailY, labelOpts);
-      detailY = doc.y + 2;
-      doc.text(`Date : ${formatDate(invoice.issuedAt || invoice.createdAt)}`, rightColX + 8, detailY, labelOpts);
-      detailY = doc.y + 2;
-      const t = formatTime(invoice.issuedAt || invoice.createdAt);
-      if (t) doc.text(`Time : ${t}`, rightColX + 8, detailY, labelOpts);
-
-      y = billBoxY + billBoxH + 10;
+      y += billH + 14;
 
       // ===== Line items table =====
+      // Cleaner: no full blue header — instead a thin underline + light alt rows.
       const tableCols = [
-        { key: 'sr',   label: '#',         x: PAD,        w: 30,  align: 'center' },
-        { key: 'name', label: 'Item name', x: PAD + 30,   w: 240, align: 'left' },
-        { key: 'qty',  label: 'Quantity',  x: PAD + 270,  w: 70,  align: 'right' },
-        { key: 'rate', label: 'Price/ Unit', x: PAD + 340, w: 90, align: 'right' },
-        { key: 'amt',  label: 'Amount',    x: PAD + 430,  w: RIGHT - (PAD + 430), align: 'right' },
+        { key: 'sr',    label: '#',          x: PAD,       w: 26,  align: 'center' },
+        { key: 'name',  label: 'Description', x: PAD + 26,  w: 270, align: 'left'  },
+        { key: 'qty',   label: 'Qty',        x: PAD + 296, w: 50,  align: 'right' },
+        { key: 'rate',  label: 'Rate',       x: PAD + 346, w: 80,  align: 'right' },
+        { key: 'amt',   label: 'Amount',     x: PAD + 426, w: RIGHT - (PAD + 426), align: 'right' },
       ];
 
-      // Table header
-      doc.rect(PAD, y, W - 2 * PAD, headerBarH).fill(COLORS.primary500);
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9);
-      tableCols.forEach((c) => doc.text(c.label, c.x + 4, y + 5, { width: c.w - 8, align: c.align }));
-      y += headerBarH;
+      const thH = 22;
+      doc.rect(PAD, y, W - 2 * PAD, thH).fill(COLORS.primary50);
+      doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(9);
+      tableCols.forEach((c) => doc.text(c.label.toUpperCase(), c.x + 4, y + 7, { width: c.w - 8, align: c.align, characterSpacing: 0.5 }));
+      y += thH;
+      doc.lineWidth(0.5).strokeColor(COLORS.border)
+        .moveTo(PAD, y).lineTo(RIGHT, y).stroke();
 
-      // Body rows: collapse claim_tpa_desk + service_percentage lines that share
-      // a billingServiceNameId into one bucket per service ("TPA Desk × 6 claims"),
-      // so a hospital with 100 claims doesn't blow the invoice up to 10 pages.
-      // fixed and adjustment lines stay as individual rows.
+      // Group claim_tpa_desk + service_percentage by service so big imports stay compact.
       const allLines = invoice.lineItems || [];
       const groupableTypes = new Set(['claim_tpa_desk', 'service_percentage']);
-      const buckets = new Map(); // key -> { name, count, amount }
-      const standalone = [];      // service_fixed + adjustment
+      const buckets = new Map();
+      const standalone = [];
       for (const line of allLines) {
         if (!groupableTypes.has(line.lineType)) {
           standalone.push(line);
           continue;
         }
         const key = line.billingServiceNameId || line.lineType;
-        const label = (line.description || '').split(' — ')[0] || line.lineType.replace('_', ' ');
+        const label = baseServiceName(line.description, line.lineType.replace('_', ' '));
         const cur = buckets.get(key) || { name: label, count: 0, amount: 0 };
         cur.count += 1;
         cur.amount += Number(line.amount) || 0;
@@ -206,7 +238,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
 
       const bodyRows = [
         ...Array.from(buckets.values()).map((b) => ({
-          name: b.count > 1 ? `${b.name} — ${b.count} claims` : b.name,
+          name: b.count > 1 ? `${b.name} (${b.count} claims)` : b.name,
           qty:  String(b.count),
           rate: formatINR(b.amount / Math.max(b.count, 1)),
           amount: b.amount,
@@ -219,12 +251,13 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         })),
       ];
 
-      doc.font('Helvetica').fontSize(9).fillColor(COLORS.ink);
+      const rowH = 22;
       let srNo = 1;
-      const rowH = 20;
-      bodyRows.forEach((row) => {
-        if (y > 720) { doc.addPage(); y = PAD; }
-        const yStart = y;
+      bodyRows.forEach((row, i) => {
+        if (y > 700) { doc.addPage(); y = PAD; }
+        if (i % 2 === 1) {
+          doc.rect(PAD, y, W - 2 * PAD, rowH).fill(COLORS.alt);
+        }
         const data = {
           sr:   String(srNo++),
           name: row.name,
@@ -233,175 +266,218 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
           amt:  formatINR(row.amount),
         };
         tableCols.forEach((c) => {
-          if (c.key === 'name') doc.font('Helvetica-Bold');
-          else doc.font('Helvetica');
-          doc.fillColor(COLORS.ink).text(data[c.key], c.x + 4, yStart + 5, { width: c.w - 8, align: c.align });
+          const isAmt = c.key === 'amt';
+          const isName = c.key === 'name';
+          doc.fillColor(COLORS.ink)
+            .font(isName || isAmt ? 'Helvetica-Bold' : 'Helvetica')
+            .fontSize(9.5)
+            .text(data[c.key], c.x + 4, y + 7, { width: c.w - 8, align: c.align });
         });
-        doc.lineWidth(0.4).strokeColor(COLORS.border);
-        tableCols.forEach((c) => doc.rect(c.x, yStart, c.w, rowH).stroke());
         y += rowH;
       });
 
-      // Total row
-      doc.rect(PAD, y, W - 2 * PAD, rowH).fillAndStroke(COLORS.primary50, COLORS.border);
-      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(10);
-      doc.text('Total', PAD + 34, y + 5);
-      doc.text(formatINR(invoice.gross), tableCols[4].x + 4, y + 5, { width: tableCols[4].w - 8, align: 'right' });
-      y += rowH + 12;
+      // Subtotal line (just gross above the totals card)
+      doc.lineWidth(0.5).strokeColor(COLORS.border)
+        .moveTo(PAD, y).lineTo(RIGHT, y).stroke();
+      y += 16;
 
-      // ===== Two-column bottom area: Words+Terms on left, Amounts on right =====
-      const bottomY = y;
-      const colsBottomW = (W - 2 * PAD - 8) / 2;
+      // ===== Two columns: left = words/terms/bank ; right = totals card =====
+      const colsBottomW = (W - 2 * PAD - 14) / 2;
+      const leftStart = y;
+      const rightColXBottom = PAD + colsBottomW + 14;
 
-      // ----- LEFT: Amount in Words band + Terms band -----
-      let leftY = bottomY;
-      doc.rect(PAD, leftY, colsBottomW, headerBarH).fill(COLORS.primary500);
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9).text('Invoice Amount In Words', PAD + 8, leftY + 5);
-      leftY += headerBarH;
+      // ----- LEFT column -----
+      let leftY = leftStart;
 
-      doc.fillColor(COLORS.ink).font('Helvetica').fontSize(9);
-      doc.text(amountInWords(invoice.gross), PAD + 8, leftY + 6, { width: colsBottomW - 16 });
-      leftY = doc.y + 8;
+      // Amount in words
+      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+        .text('INVOICE AMOUNT IN WORDS', PAD, leftY, { characterSpacing: 1 });
+      leftY = doc.y + 3;
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9.5)
+        .text(amountInWords(invoice.gross), PAD, leftY, { width: colsBottomW });
+      leftY = doc.y + 12;
 
-      // Terms band
-      doc.rect(PAD, leftY, colsBottomW, headerBarH).fill(COLORS.primary500);
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9).text('Terms and Conditions', PAD + 8, leftY + 5);
-      leftY += headerBarH;
+      // Terms
+      if (template.invoice_terms) {
+        doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+          .text('TERMS & CONDITIONS', PAD, leftY, { characterSpacing: 1 });
+        leftY = doc.y + 3;
+        doc.fillColor(COLORS.body).font('Helvetica').fontSize(8.5);
+        const termsLines = template.invoice_terms.split('\n').filter((s) => s.trim());
+        termsLines.forEach((line) => {
+          doc.text(`• ${line.trim()}`, PAD, leftY, { width: colsBottomW });
+          leftY = doc.y + 1;
+        });
+        leftY += 8;
+      }
 
-      doc.fillColor(COLORS.ink).font('Helvetica').fontSize(9);
-      const termsLines = (template.invoice_terms || '').split('\n').filter((s) => s.trim());
-      termsLines.forEach((line) => {
-        doc.text(line.trim(), PAD + 8, leftY + 4, { width: colsBottomW - 16 });
-        leftY = doc.y + 2;
-      });
-      leftY += 8;
+      // Bank Details
+      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+        .text('BANK DETAILS', PAD, leftY, { characterSpacing: 1 });
+      leftY = doc.y + 4;
 
-      // Bank Details band
-      doc.rect(PAD, leftY, colsBottomW, headerBarH).fill(COLORS.primary500);
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9).text('Bank Details', PAD + 8, leftY + 5);
-      leftY += headerBarH;
+      const bankCardH = 90;
+      doc.roundedRect(PAD, leftY, colsBottomW, bankCardH, 6).fillAndStroke(COLORS.alt, COLORS.border);
 
-      const bankBoxY = leftY;
       const qrSize = 70;
-      // QR (left)
       if (qrDataUrl) {
         const base64 = qrDataUrl.split(',')[1];
-        try { doc.image(Buffer.from(base64, 'base64'), PAD + 8, bankBoxY + 8, { width: qrSize, height: qrSize }); }
+        try { doc.image(Buffer.from(base64, 'base64'), PAD + 10, leftY + 10, { width: qrSize, height: qrSize }); }
         catch { /* skip */ }
       } else {
         doc.lineWidth(0.5).strokeColor(COLORS.border)
-          .rect(PAD + 8, bankBoxY + 8, qrSize, qrSize).stroke();
-        doc.font('Helvetica-Oblique').fontSize(7).fillColor(COLORS.muted)
-          .text('QR not\nconfigured', PAD + 8, bankBoxY + 32, { width: qrSize, align: 'center' });
+          .roundedRect(PAD + 10, leftY + 10, qrSize, qrSize, 4).stroke();
+        doc.font('Helvetica-Oblique').fontSize(7).fillColor(COLORS.faint)
+          .text('Scan to pay\n(UPI not\nconfigured)', PAD + 10, leftY + 28, { width: qrSize, align: 'center' });
       }
 
-      // Bank text (right of QR)
-      doc.fillColor(COLORS.ink).font('Helvetica').fontSize(9);
-      const bankTextX = PAD + 8 + qrSize + 10;
-      const bankTextW = colsBottomW - (qrSize + 26);
-      let bankY = bankBoxY + 10;
+      const bankTextX = PAD + 10 + qrSize + 10;
+      const bankTextW = colsBottomW - (qrSize + 30);
+      let bankY = leftY + 12;
       const bankLines = [
-        ['Name', template.invoice_bank_name],
-        ['Account No.', template.invoice_bank_account_no],
-        ['IFSC code', template.invoice_bank_ifsc],
-        ["Account holder's name", template.invoice_bank_account_holder],
+        ['Bank', template.invoice_bank_name],
+        ['A/C No.', template.invoice_bank_account_no],
+        ['IFSC', template.invoice_bank_ifsc],
+        ['Holder', template.invoice_bank_account_holder],
       ];
       bankLines.forEach(([label, val]) => {
         if (!val) return;
-        doc.font('Helvetica').fillColor(COLORS.muted).text(`${label} : `, bankTextX, bankY, { continued: true, width: bankTextW });
-        doc.font('Helvetica-Bold').fillColor(COLORS.ink).text(val);
-        bankY = doc.y + 2;
+        doc.font('Helvetica').fontSize(8).fillColor(COLORS.muted)
+          .text(label, bankTextX, bankY, { width: bankTextW });
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.ink)
+          .text(val, bankTextX, bankY + 9, { width: bankTextW });
+        bankY += 22;
       });
-      leftY = bankBoxY + qrSize + 16;
 
-      // ----- RIGHT: Amounts band -----
-      let rightY = bottomY;
-      const rightColXBottom = PAD + colsBottomW + 8;
+      leftY += bankCardH + 12;
 
-      doc.rect(rightColXBottom, rightY, colsBottomW, headerBarH).fill(COLORS.primary500);
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9).text('Amounts', rightColXBottom + 8, rightY + 5);
-      rightY += headerBarH;
+      // ----- RIGHT column: totals card -----
+      let rightY = leftStart;
 
-      const drawAmtRow = (label, value, bold = false, valueColor) => {
-        const yy = rightY;
-        const labelOpts = { width: colsBottomW / 2 - 8, align: 'left' };
-        const valOpts = { width: colsBottomW / 2 - 8, align: 'right' };
-        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor(COLORS.ink)
-          .text(label, rightColXBottom + 8, yy + 5, labelOpts);
-        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fillColor(valueColor || COLORS.ink)
-          .text(value, rightColXBottom + colsBottomW / 2, yy + 5, valOpts);
-        doc.lineWidth(0.4).strokeColor(COLORS.border)
-          .moveTo(rightColXBottom, yy + rowH).lineTo(rightColXBottom + colsBottomW, yy + rowH).stroke();
-        rightY += rowH;
+      doc.roundedRect(rightColXBottom, rightY, colsBottomW, 0.1, 6); // placeholder for layout reasoning
+
+      const totalsCardX = rightColXBottom;
+      const totalsCardW = colsBottomW;
+      const totalsStartY = rightY;
+
+      const drawTotalRow = (label, value, opts = {}) => {
+        const { bold, valueColor, big, divider, faint } = opts;
+        const lineH = big ? 28 : 20;
+        if (divider) {
+          doc.lineWidth(0.5).strokeColor(COLORS.border)
+            .moveTo(totalsCardX + 6, rightY).lineTo(totalsCardX + totalsCardW - 6, rightY).stroke();
+        }
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
+          .fontSize(big ? 11 : 9.5)
+          .fillColor(faint ? COLORS.muted : COLORS.ink)
+          .text(label, totalsCardX + 12, rightY + (big ? 7 : 5), { width: totalsCardW / 2 - 14, align: 'left' });
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
+          .fillColor(valueColor || COLORS.ink)
+          .text(value, totalsCardX + totalsCardW / 2, rightY + (big ? 7 : 5), { width: totalsCardW / 2 - 12, align: 'right' });
+        rightY += lineH;
       };
 
-      drawAmtRow('Sub Total', formatINR(invoice.gross));
-      if (invoice.gstAmount) drawAmtRow(`GST (${invoice.gstRate}%)`, formatINR(invoice.gstAmount));
+      // Light card background
+      doc.roundedRect(totalsCardX, totalsStartY, totalsCardW, 0, 6); // ranged later
+
+      drawTotalRow('Sub Total', formatINR(invoice.gross), { faint: true });
+      if (invoice.gstAmount) drawTotalRow(`GST (${invoice.gstRate}%)`, formatINR(invoice.gstAmount), { faint: true });
       if (invoice.tdsAmount) {
-        // Keep the Amounts cell on ONE line — the long tax name would wrap into
-        // the next row. Section + rate is enough to identify it; the full name
-        // is already shown on the Invoice Detail page and the Line Items table.
         const sectionLabel = invoice.tdsSection ? ` ${invoice.tdsSection}` : '';
-        drawAmtRow(`TDS${sectionLabel} (${invoice.tdsRate}%)`, formatINR(-invoice.tdsAmount), false, COLORS.red);
+        drawTotalRow(`TDS${sectionLabel} (${invoice.tdsRate}%)`, formatINR(-invoice.tdsAmount), { faint: true, valueColor: COLORS.red });
       }
-      drawAmtRow('Total', formatINR(invoice.netTotal || invoice.gross), true);
-      drawAmtRow('Received', formatINR(invoice.amountPaid));
-      const thisInvoiceBalance = (invoice.netTotal || invoice.gross || 0) - (invoice.amountPaid || 0);
-      drawAmtRow('Balance', formatINR(thisInvoiceBalance));
+      drawTotalRow('Net Total', formatINR(invoice.netTotal || invoice.gross), { bold: true, divider: true });
       if (invoice.previousBalance) {
-        drawAmtRow('Previous Balance', formatINR(-invoice.previousBalance), false, COLORS.red);
+        drawTotalRow('Previous Balance', formatINR(invoice.previousBalance), { faint: true });
       }
-      drawAmtRow('Current Balance', formatINR(-(invoice.amountPending || 0)), true, COLORS.red);
 
-      // Signatory at bottom-right
-      rightY += 20;
-      doc.fillColor(COLORS.ink).font('Helvetica').fontSize(9)
-        .text(`For : ${template.invoice_company_name || 'Company'}`, rightColXBottom, rightY, { width: colsBottomW, align: 'center' });
-      rightY += 40;
-      doc.font('Helvetica-Bold').fontSize(10)
-        .text('Authorized Signatory', rightColXBottom, rightY, { width: colsBottomW, align: 'center' });
+      // Grand Total emphasis: filled primary band
+      const grandY = rightY;
+      const grandH = 36;
+      doc.rect(totalsCardX, grandY, totalsCardW, grandH).fill(COLORS.primary600);
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11)
+        .text('GRAND TOTAL', totalsCardX + 12, grandY + 12, { width: totalsCardW / 2 - 14, align: 'left' });
+      doc.fontSize(14)
+        .text(formatINR(invoice.grandTotal || invoice.netTotal), totalsCardX + totalsCardW / 2, grandY + 10, { width: totalsCardW / 2 - 12, align: 'right' });
+      rightY = grandY + grandH + 4;
 
-      // ===== Claim summary (new page when there are billed claims) ===========
+      if (invoice.amountPaid) drawTotalRow('Received', formatINR(invoice.amountPaid), { faint: true, valueColor: COLORS.green });
+      drawTotalRow('Balance Due', formatINR(invoice.amountPending || 0), {
+        bold: true,
+        big: true,
+        valueColor: (invoice.amountPending || 0) > 0 ? COLORS.red : COLORS.green,
+        divider: true,
+      });
+
+      // Frame the totals card after we know its height
+      doc.lineWidth(1).strokeColor(COLORS.border)
+        .roundedRect(totalsCardX, totalsStartY, totalsCardW, rightY - totalsStartY, 6).stroke();
+
+      // Signature block
+      rightY += 24;
+      const sigW = 160;
+      const sigX = totalsCardX + totalsCardW - sigW;
+      doc.lineWidth(0.8).strokeColor(COLORS.ink)
+        .moveTo(sigX, rightY).lineTo(sigX + sigW, rightY).stroke();
+      rightY += 4;
+      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8)
+        .text(`for ${template.invoice_company_name || 'Company'}`, sigX, rightY, { width: sigW, align: 'center' });
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9)
+        .text('Authorized Signatory', sigX, doc.y + 1, { width: sigW, align: 'center' });
+
+      // ===== Footer =====
+      const footerY = H - 24;
+      doc.lineWidth(0.5).strokeColor(COLORS.border)
+        .moveTo(PAD, footerY - 8).lineTo(RIGHT, footerY - 8).stroke();
+      doc.fillColor(COLORS.faint).font('Helvetica-Oblique').fontSize(7.5)
+        .text(
+          'This is a computer-generated invoice. No signature required when issued through the FCC ERP.',
+          PAD, footerY - 4, { width: W - 2 * PAD, align: 'center' },
+        );
+
+      // ===== Page 2: Claims Summary =====
       const claimLines = (invoice.lineItems || []).filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId);
       if (claimLines.length) {
         doc.addPage();
-        let cy = PAD;
+        doc.rect(0, 0, W, 6).fill(COLORS.primary600);
+        let cy = 24;
 
-        // Header band — same blue strip as the main page.
-        doc.rect(PAD, cy, W - 2 * PAD, headerBarH).fill(COLORS.primary500);
-        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10)
-          .text('Claims Summary', PAD + 8, cy + 4);
+        // Header line
+        doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(16)
+          .text('Claims Summary', PAD, cy);
         const monthLbl = invoice.month
           ? new Date(invoice.month).toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
           : '';
-        doc.fontSize(8).text(
-          `${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}  ·  Invoice ${invoice.invoiceNumber || 'Draft'}${monthLbl ? `  ·  ${monthLbl}` : ''}`,
-          PAD + 8, cy + 4, { width: W - 2 * PAD - 16, align: 'right' },
-        );
-        cy += headerBarH;
+        doc.fillColor(COLORS.muted).font('Helvetica').fontSize(9)
+          .text(
+            `Invoice ${invoice.invoiceNumber || 'Draft'}${monthLbl ? '  ·  ' + monthLbl : ''}  ·  ${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}`,
+            PAD, cy, { width: W - 2 * PAD, align: 'right' },
+          );
+        cy += 30;
 
-        // Sub-header
         const sumCols = [
-          { key: 'sr',      label: '#',        x: PAD,        w: 30,  align: 'center' },
-          { key: 'patient', label: 'Patient',  x: PAD + 30,   w: 200, align: 'left' },
-          { key: 'ccn',     label: 'CCN No.',  x: PAD + 230,  w: 110, align: 'left' },
+          { key: 'sr',      label: '#',         x: PAD,        w: 30,  align: 'center' },
+          { key: 'patient', label: 'Patient',   x: PAD + 30,   w: 200, align: 'left' },
+          { key: 'ccn',     label: 'CCN No.',   x: PAD + 230,  w: 110, align: 'left' },
           { key: 'final',   label: 'Final Approval', x: PAD + 340, w: 100, align: 'right' },
-          { key: 'amount',  label: 'TPA Fee',  x: PAD + 440,  w: RIGHT - (PAD + 440), align: 'right' },
+          { key: 'amount',  label: 'TPA Fee',   x: PAD + 440,  w: RIGHT - (PAD + 440), align: 'right' },
         ];
-        doc.rect(PAD, cy, W - 2 * PAD, 18).fill(COLORS.primary50);
-        doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9);
-        sumCols.forEach((c) => doc.text(c.label, c.x + 4, cy + 5, { width: c.w - 8, align: c.align }));
-        cy += 18;
 
-        // Rows
+        doc.rect(PAD, cy, W - 2 * PAD, 24).fill(COLORS.primary50);
+        doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(9);
+        sumCols.forEach((c) => doc.text(c.label.toUpperCase(), c.x + 4, cy + 8, { width: c.w - 8, align: c.align, characterSpacing: 0.5 }));
+        cy += 24;
+
         doc.font('Helvetica').fontSize(9).fillColor(COLORS.ink);
         let total = 0;
+        const sumRowH = 20;
         claimLines.forEach((line, i) => {
           if (cy > 740) { doc.addPage(); cy = PAD; }
-          const yStart = cy;
+          if (i % 2 === 1) {
+            doc.rect(PAD, cy, W - 2 * PAD, sumRowH).fill(COLORS.alt);
+          }
           const finalApproval = line.meta?.finalApprovalAmount || 0;
-          // Description format: "TPA Desk — <patient> (CCN <ccn>)"
-          const patientMatch = (line.description || '').match(/—\s*(.+?)\s*(\(CCN\s*(.+?)\))?$/);
+          const patientMatch = (line.description || '').match(/[—-]\s*(.+?)\s*(\(CCN\s*(.+?)\))?$/);
           const patient = patientMatch?.[1] || line.description;
           const ccn = patientMatch?.[3] || '';
           total += Number(line.amount) || 0;
@@ -413,20 +489,23 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
             amount:  formatINR(line.amount),
           };
           sumCols.forEach((c) => {
-            doc.fillColor(COLORS.ink).font(c.key === 'sr' ? 'Helvetica' : 'Helvetica')
-              .text(data[c.key], c.x + 4, yStart + 5, { width: c.w - 8, align: c.align });
+            doc.fillColor(COLORS.ink).font(c.key === 'patient' || c.key === 'amount' ? 'Helvetica-Bold' : 'Helvetica')
+              .fontSize(9.5)
+              .text(data[c.key], c.x + 4, cy + 6, { width: c.w - 8, align: c.align });
           });
-          doc.lineWidth(0.4).strokeColor(COLORS.border);
-          sumCols.forEach((c) => doc.rect(c.x, yStart, c.w, 18).stroke());
-          cy += 18;
+          cy += sumRowH;
         });
 
-        // Footer total
+        // Bottom rule + total
+        doc.lineWidth(0.5).strokeColor(COLORS.border)
+          .moveTo(PAD, cy).lineTo(RIGHT, cy).stroke();
+        cy += 8;
+
         if (cy > 740) { doc.addPage(); cy = PAD; }
-        doc.rect(PAD, cy, W - 2 * PAD, 20).fillAndStroke(COLORS.primary500, COLORS.primary500);
-        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10);
-        doc.text(`Total — ${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}`, PAD + 8, cy + 5);
-        doc.text(formatINR(total), sumCols[4].x + 4, cy + 5, { width: sumCols[4].w - 8, align: 'right' });
+        doc.rect(PAD, cy, W - 2 * PAD, 28).fill(COLORS.primary600);
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11);
+        doc.text(`Total — ${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}`, PAD + 12, cy + 9);
+        doc.text(formatINR(total), sumCols[4].x + 4, cy + 9, { width: sumCols[4].w - 8, align: 'right' });
       }
 
       doc.end();
