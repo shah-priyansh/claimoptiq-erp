@@ -6,7 +6,8 @@ import { HiOutlineCog } from 'react-icons/hi';
 
 const MODULE_GROUPS = [
   { label: null,             keys: ['dashboard', 'claims'] },
-  { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'users', 'roles', 'claim_statuses', 'claim_document_types'] },
+  { label: 'Billing & Finance', keys: ['invoices', 'expenses', 'tds_rates', 'expense_categories', 'references'] },
+  { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'billing_service_names', 'users', 'roles', 'claim_statuses', 'claim_document_types'] },
   { label: 'Documents',      keys: ['document_submissions'] },
   { label: null,             keys: ['reports'] },
   { label: 'Staff',          keys: ['staff'] },
@@ -208,7 +209,13 @@ const RoleForm = () => {
                 </tr>
               </thead>
               <tbody>
-                {MODULE_GROUPS.flatMap((group) => {
+                {(() => {
+                  // Surface any backend module not declared in MODULE_GROUPS under "Other"
+                  // so the page never silently drops new modules.
+                  const declaredKeys = new Set(MODULE_GROUPS.flatMap((g) => g.keys));
+                  const extras = modules.map((m) => m.key).filter((k) => !declaredKeys.has(k));
+                  return extras.length ? [...MODULE_GROUPS, { label: 'Other', keys: extras }] : MODULE_GROUPS;
+                })().flatMap((group) => {
                   const groupMods = group.keys
                     .map(k => modules.find(m => m.key === k))
                     .filter(Boolean);
