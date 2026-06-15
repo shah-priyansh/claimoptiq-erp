@@ -8,7 +8,7 @@ const allModules = [
   'claim_document_types', 'document_submissions', 'staff',
   'references', 'invoices', 'tds_rates',
   'expenses', 'expense_categories',
-  'cash_bank',
+  'cash_bank', 'account_entries',
 ];
 
 const buildPermissions = (config) =>
@@ -38,6 +38,7 @@ const defaultRoles = [
       expenses:             { view: true, create: true, edit: true, delete: true, export: true },
       expense_categories:   { view: true, create: true, edit: true, delete: true },
       cash_bank:            { view: true, create: true, edit: true, delete: true, export: true },
+      account_entries:      { view: true, create: true, edit: true, delete: true, export: true },
       users:                { view: true, create: true, edit: true, delete: true },
       roles:                { view: true, create: true, edit: true, delete: true },
       reports:              { view: true, export: true },
@@ -62,6 +63,7 @@ const defaultRoles = [
       tds_rates:            { view: true },
       expenses:             { view: true, create: true, edit: true },
       cash_bank:            { view: true, create: true, edit: true },
+      account_entries:      { view: true, create: true, edit: true },
       reports:              { view: true },
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
