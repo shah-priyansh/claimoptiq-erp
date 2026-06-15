@@ -168,11 +168,13 @@ exports.getClaims = async (req, res) => {
       }
     }
     if (search) {
+      const searchSr = Number(search);
       where.OR = [
         { patientName: { contains: search, mode: 'insensitive' } },
         { policyNo: { contains: search, mode: 'insensitive' } },
         { ccnNo: { contains: search, mode: 'insensitive' } },
         { clientId: { contains: search, mode: 'insensitive' } },
+        ...(Number.isInteger(searchSr) && searchSr > 0 ? [{ srNo: searchSr }] : []),
       ];
     }
 
@@ -1159,11 +1161,13 @@ exports.exportClaims = async (req, res) => {
       }
     }
     if (search) {
+      const searchSr = Number(search);
       where.OR = [
         { patientName: { contains: search, mode: 'insensitive' } },
         { policyNo: { contains: search, mode: 'insensitive' } },
         { ccnNo: { contains: search, mode: 'insensitive' } },
         { clientId: { contains: search, mode: 'insensitive' } },
+        ...(Number.isInteger(searchSr) && searchSr > 0 ? [{ srNo: searchSr }] : []),
       ];
     }
 
