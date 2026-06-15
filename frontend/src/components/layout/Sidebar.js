@@ -21,6 +21,7 @@ const adminItems = [
   { to: '/hospitals',      label: 'Hospitals',           icon: HiOutlineOfficeBuilding, module: 'hospitals' },
   { to: '/insurance',      label: 'Insurance Companies', icon: HiOutlineShieldCheck,    module: 'insurance' },
   { to: '/tpa',            label: 'TPA',                 icon: HiOutlineClipboardList,  module: 'tpa' },
+  { to: '/references',     label: 'References',          icon: HiOutlineTag,            module: 'references' },
   { to: '/users',          label: 'Users',               icon: HiOutlineUserGroup,      module: 'users' },
   { to: '/roles',          label: 'Roles & Permissions', icon: HiOutlineKey,            module: 'roles' },
   { to: '/claim-statuses',        label: 'Claim Status Master',   icon: HiOutlineTag,          module: 'claim_statuses' },

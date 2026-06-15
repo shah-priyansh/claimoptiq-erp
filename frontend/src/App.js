@@ -13,6 +13,7 @@ import HospitalList from './pages/hospitals/HospitalList';
 import HospitalForm from './pages/hospitals/HospitalForm';
 import InsuranceList from './pages/insurance/InsuranceList';
 import TPAList from './pages/tpa/TPAList';
+import ReferenceList from './pages/references/ReferenceList';
 import UserList from './pages/users/UserList';
 import ClaimList from './pages/claims/ClaimList';
 import ClaimForm from './pages/claims/ClaimForm';
@@ -49,6 +50,7 @@ function App() {
             <Route path="/hospitals/:id/edit" element={<ProtectedRoute module="hospitals" requireManage><HospitalForm /></ProtectedRoute>} />
             <Route path="/insurance" element={<ProtectedRoute module="insurance" requireManage><InsuranceList /></ProtectedRoute>} />
             <Route path="/tpa" element={<ProtectedRoute module="tpa" requireManage><TPAList /></ProtectedRoute>} />
+            <Route path="/references" element={<ProtectedRoute module="references" requireManage><ReferenceList /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute module="users" requireManage><UserList /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute module="claims"><ClaimList /></ProtectedRoute>} />
             <Route path="/claims/new" element={<ProtectedRoute module="claims"><ClaimForm /></ProtectedRoute>} />
