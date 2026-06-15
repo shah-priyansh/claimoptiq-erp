@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineSearch } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineTrash, HiOutlineEye } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
@@ -63,7 +63,8 @@ const InvoiceList = () => {
     }).catch(() => {});
   }, []);
 
-  useEffect(() => { fetchInvoices(); /* eslint-disable-next-line */ }, [page, pageSize, filters.hospitalId, filters.status, filters.month]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month]);
 
   const handleDelete = async (item) => {
     if (item.status !== 'draft') {

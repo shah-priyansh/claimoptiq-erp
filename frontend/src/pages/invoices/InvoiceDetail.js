@@ -44,7 +44,7 @@ const InvoiceDetail = () => {
   const [notes, setNotes] = useState('');
   const [adjustments, setAdjustments] = useState([]);
 
-  const fetch = async () => {
+  const reload = async () => {
     setLoading(true);
     try {
       const { data } = await getInvoiceAPI(id);
@@ -61,7 +61,8 @@ const InvoiceDetail = () => {
     }
   };
 
-  useEffect(() => { fetch(); /* eslint-disable-next-line */ }, [id]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(); }, [id]);
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
   if (!invoice) return null;
@@ -77,7 +78,7 @@ const InvoiceDetail = () => {
     try {
       await updateInvoiceAPI(id, { notes, adjustments });
       toast.success('Draft saved');
-      fetch();
+      reload();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Save failed');
     } finally {
@@ -91,7 +92,7 @@ const InvoiceDetail = () => {
     try {
       await issueInvoiceAPI(id);
       toast.success('Invoice issued');
-      fetch();
+      reload();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Issue failed');
     } finally {
@@ -110,7 +111,7 @@ const InvoiceDetail = () => {
     try {
       await voidInvoiceAPI(id, { reason });
       toast.success('Invoice voided');
-      fetch();
+      reload();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Void failed');
     } finally {
