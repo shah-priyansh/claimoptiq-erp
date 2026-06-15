@@ -88,6 +88,7 @@ model Reference {
 
   applicableServices ReferenceApplicableService[]
   hospitals          Hospital[]
+  expenses           Expense[]
 
   @@index([name])
   @@map("references")
@@ -149,6 +150,50 @@ model Invoice {
   @@index([status])
   @@index([month])
   @@map("invoices")
+}
+
+model ExpenseCategory {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  label     String
+  isSystem  Boolean  @default(false) @map("is_system")
+  isActive  Boolean  @default(true) @map("is_active")
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  expenses  Expense[]
+
+  @@map("expense_categories")
+}
+
+model Expense {
+  id           String   @id @default(uuid())
+  date         DateTime
+  categoryId   String   @map("category_id")
+  amount       Float
+  notes        String   @default("")
+  referenceId  String?  @map("reference_id")
+
+  sourceType   String?  @map("source_type")
+  sourceId     String?  @map("source_id")
+  sourceLineId String?  @map("source_line_id")
+
+  createdById  String?  @map("created_by_id")
+  updatedById  String?  @map("updated_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  category     ExpenseCategory @relation(fields: [categoryId], references: [id])
+  reference    Reference?      @relation(fields: [referenceId], references: [id])
+  createdBy    User?           @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+  updatedBy    User?           @relation("ExpenseUpdatedBy", fields: [updatedById], references: [id])
+
+  @@index([date(sort: Desc)])
+  @@index([categoryId, date(sort: Desc)])
+  @@index([referenceId])
+  @@unique([sourceType, sourceLineId])
+  @@map("expenses")
 }
 
 model TdsRate {
@@ -256,6 +301,8 @@ model User {
   employee                   Employee?
   invoicesCreated            Invoice[]            @relation("InvoiceCreatedBy")
   invoicesIssued             Invoice[]            @relation("InvoiceIssuedBy")
+  expensesCreated            Expense[]            @relation("ExpenseCreatedBy")
+  expensesUpdated            Expense[]            @relation("ExpenseUpdatedBy")
 
   @@map("users")
 }
