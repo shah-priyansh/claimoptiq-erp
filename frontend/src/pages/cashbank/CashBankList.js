@@ -101,19 +101,15 @@ const CashBankList = () => {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-800">Cash / Bank</h1>
-          <p className="text-sm text-gray-500">Money in (invoice payments) and out (expense payouts) across Cash, Bank, and UPI.</p>
-        </div>
-        {canCreate && (
+    <div>
+      {canCreate && (
+        <div className="flex justify-end mb-4 gap-2">
           <button onClick={() => setModal({ open: true, item: null })}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg">
+            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
             <HiOutlinePlus className="w-4 h-4" /> Add Entry
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Balances strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
@@ -183,22 +179,22 @@ const CashBankList = () => {
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-sm text-gray-500">Loading...</div>
+          <div className="py-8 text-center text-gray-400">Loading...</div>
         ) : items.length === 0 ? (
-          <div className="p-8 text-center text-sm text-gray-500">No entries in this range</div>
+          <div className="py-8 text-center text-gray-400">No entries in this range</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left py-3 px-4">Date</th>
-                  <th className="text-left py-3 px-4">Direction</th>
-                  <th className="text-left py-3 px-4">Mode</th>
-                  <th className="text-left py-3 px-4">Link</th>
-                  <th className="text-left py-3 px-4">UTR / Cheque</th>
-                  <th className="text-left py-3 px-4">Notes</th>
-                  <th className="text-right py-3 px-4">Amount</th>
-                  <th className="text-right py-3 px-4">Actions</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Direction</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Mode</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Link</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">UTR / Cheque</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Notes</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">

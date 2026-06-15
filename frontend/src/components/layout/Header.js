@@ -14,13 +14,27 @@ const STATIC_TITLES = {
   '/hospitals/new':          'New Hospital',
   '/insurance':              'Insurance Companies',
   '/tpa':                    'TPA',
+  '/references':             'References',
   '/users':                  'Users',
   '/roles':                  'Roles & Permissions',
   '/roles/new':              'New Role',
-  '/reports':                'FCC Bill Generate',
+  '/reports':                'Reports',
+  '/reports/claims':         'Claims Report',
+  '/reports/sales':          'Sales Report',
+  '/reports/expenses':       'Expenses Report',
+  '/reports/profit':         'Profit Report',
+  '/reports/references':     'References Report',
+  '/reports/cash-bank':      'Cash / Bank Report',
   '/claim-statuses':         'Claim Status Master',
   '/claim-document-types':   'Document Types',
   '/billing-service-names':  'Billing Service Names',
+  '/tds-rates':              'TDS Rates',
+  '/invoices':               'Invoices',
+  '/invoices/new':           'New Invoice',
+  '/expenses':               'Expenses',
+  '/expense-categories':     'Expense Categories',
+  '/cash-bank':              'Cash / Bank',
+  '/account-entries':        'Account Entries',
   '/documents/upload':       'Upload Document',
   '/documents/inbox':        'Document Inbox',
   '/staff':                  'Staff',
@@ -35,6 +49,7 @@ const getPageTitle = (pathname) => {
   if (/^\/hospitals\/[^/]+\/edit$/.test(pathname)) return 'Edit Hospital';
   if (/^\/hospitals\/[^/]+$/.test(pathname))       return 'Hospital Detail';
   if (/^\/roles\/[^/]+\/edit$/.test(pathname))     return 'Edit Role';
+  if (/^\/invoices\/[^/]+$/.test(pathname))        return 'Invoice Detail';
   return '';
 };
 

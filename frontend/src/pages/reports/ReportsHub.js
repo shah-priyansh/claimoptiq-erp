@@ -33,12 +33,7 @@ const ReportsHub = () => {
   const ProfitIcon = (m.profit || 0) >= 0 ? HiOutlineTrendingUp : HiOutlineTrendingDown;
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto">
-      <div className="mb-5">
-        <h1 className="text-2xl font-semibold text-gray-800">Reports</h1>
-        <p className="text-sm text-gray-500">Five report families plus the original claim-level report.</p>
-      </div>
-
+    <div>
       {/* Dashboard tiles */}
       {loading ? (
         <div className="p-6 bg-white border border-gray-200 rounded-xl text-sm text-gray-500">Loading dashboard…</div>

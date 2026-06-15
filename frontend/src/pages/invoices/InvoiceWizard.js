@@ -78,14 +78,11 @@ const InvoiceWizard = () => {
   const orderedTypes = ['claim_tpa_desk', 'service_fixed', 'service_percentage', 'adjustment'];
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto">
+    <div>
       <button onClick={() => navigate('/invoices')}
         className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-3">
         <HiOutlineArrowLeft className="w-4 h-4" /> Back to invoices
       </button>
-
-      <h1 className="text-2xl font-semibold text-gray-800">New Invoice</h1>
-      <p className="text-sm text-gray-500 mb-6">Pick a hospital and month, preview, then save as draft.</p>
 
       <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
