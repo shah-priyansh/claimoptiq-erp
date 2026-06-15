@@ -7,6 +7,7 @@ const allModules = [
   'users', 'roles', 'reports', 'claim_statuses',
   'claim_document_types', 'document_submissions', 'staff',
   'references', 'invoices', 'tds_rates',
+  'expenses', 'expense_categories',
 ];
 
 const buildPermissions = (config) =>
@@ -33,6 +34,8 @@ const defaultRoles = [
       references:           { view: true, create: true, edit: true, delete: true },
       invoices:             { view: true, create: true, edit: true, delete: true, export: true },
       tds_rates:            { view: true, create: true, edit: true, delete: true },
+      expenses:             { view: true, create: true, edit: true, delete: true, export: true },
+      expense_categories:   { view: true, create: true, edit: true, delete: true },
       users:                { view: true, create: true, edit: true, delete: true },
       roles:                { view: true, create: true, edit: true, delete: true },
       reports:              { view: true, export: true },
@@ -55,6 +58,7 @@ const defaultRoles = [
       references:           { view: true },
       invoices:             { view: true, create: true, edit: true },
       tds_rates:            { view: true },
+      expenses:             { view: true, create: true, edit: true },
       reports:              { view: true },
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
@@ -115,6 +119,15 @@ const claimStatuses = [
   { slug: 'billed',        label: 'Billed',        color: 'teal',   order: 7, isSystem: true, superAdminOnly: true },
 ];
 
+// Expense categories — four system rows the operator cannot delete.
+// They can rename or reorder them, and add custom non-system rows from the admin UI.
+const expenseCategories = [
+  { slug: 'salary',               label: 'Salary',               isSystem: true, order: 1 },
+  { slug: 'reference_commission', label: 'Reference Commission', isSystem: true, order: 2 },
+  { slug: 'office',               label: 'Office Expense',       isSystem: true, order: 3 },
+  { slug: 'travel',               label: 'Travel',               isSystem: true, order: 4 },
+];
+
 // Common Indian TDS sections — operator can edit / extend from the master UI.
 const tdsRates = [
   { taxName: 'Payment of salary',                        rate: 1,  section: '192' },
@@ -169,6 +182,16 @@ async function main() {
   await prisma.claimDocumentType.deleteMany();
   await prisma.claimDocumentType.createMany({ data: claimDocumentTypes });
   console.log(`  ✓ ${claimDocumentTypes.length} claim document types`);
+
+  // Idempotent expense category seed — system rows upserted by slug.
+  for (const c of expenseCategories) {
+    await prisma.expenseCategory.upsert({
+      where: { slug: c.slug },
+      update: { isSystem: true, order: c.order },     // never overwrite label so renames stick
+      create: c,
+    });
+  }
+  console.log(`  ✓ ${expenseCategories.length} expense categories (idempotent)`);
 
   // Idempotent TDS rate seed — won't wipe rates the operator added/edited.
   for (const r of tdsRates) {
