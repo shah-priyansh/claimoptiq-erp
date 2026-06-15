@@ -5,7 +5,7 @@ set -euo pipefail
 
 API="${API:-http://localhost:5001/api}"
 EMAIL="${EMAIL:-admin@claimoptiq.com}"
-PASSWORD="${PASSWORD:-Admin@123}"
+PASSWORD="${PASSWORD:-Test@123}"
 
 say() { printf '\n\033[1;34m▶ %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31m✗ %s\033[0m\n' "$*"; exit 1; }
@@ -14,7 +14,7 @@ pass() { printf '\033[1;32m✓ %s\033[0m\n' "$*"; }
 say "Login as super_admin"
 TOKEN=$(curl -fsS -X POST "$API/auth/login" \
   -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" | node -e 'process.stdin.on("data",d=>{const j=JSON.parse(d);process.stdout.write(j.token||"")})')
+  -d "{\"identifier\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" | node -e 'process.stdin.on("data",d=>{const j=JSON.parse(d);process.stdout.write(j.token||"")})')
 [[ -n "$TOKEN" ]] || fail "login failed"
 H=(-H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
 pass "logged in"
