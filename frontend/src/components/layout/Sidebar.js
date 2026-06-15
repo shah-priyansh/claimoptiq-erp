@@ -28,6 +28,7 @@ const adminItems = [
   { to: '/claim-document-types',  label: 'Document Types',        icon: HiOutlineDocumentText, module: 'claim_document_types' },
   { to: '/billing-service-names', label: 'Billing Service Names', icon: HiOutlineCog,          module: 'billing_service_names' },
   { to: '/tds-rates',             label: 'TDS Rates',             icon: HiOutlineTag,          module: 'tds_rates' },
+  { to: '/expense-categories',    label: 'Expense Categories',    icon: HiOutlineTag,          module: 'expense_categories' },
 ];
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -105,6 +106,13 @@ const Sidebar = ({ isOpen, onClose }) => {
             <NavLink to="/invoices" className={linkClass} onClick={onClose}>
               <HiOutlineClipboardList className="w-5 h-5 flex-shrink-0" />
               Invoices
+            </NavLink>
+          )}
+
+          {canViewModule('expenses') && (
+            <NavLink to="/expenses" className={linkClass} onClick={onClose}>
+              <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
+              Expenses
             </NavLink>
           )}
 
