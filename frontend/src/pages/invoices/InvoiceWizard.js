@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
   HiOutlineArrowLeft, HiOutlineSearch, HiOutlinePlus, HiOutlineTrash,
+  HiChevronRight, HiChevronDown,
 } from 'react-icons/hi';
 import {
   getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getInvoiceAPI, getTdsRatesAPI,
@@ -31,6 +32,15 @@ const todayMonth = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
+// 'TPA Desk — RAJESH PATEL (CCN-0001)' → 'TPA Desk'
+// Group rows by the prefix before ' — ' or ' - ' so 50 per-claim lines
+// collapse into one expandable group per billing service.
+const baseServiceName = (desc) => {
+  if (!desc) return 'Other';
+  const m = String(desc).split(/\s+[—-]\s+/);
+  return (m[0] || desc).trim();
+};
+
 const InvoiceWizard = () => {
   const navigate = useNavigate();
   const [hospitals, setHospitals] = useState([]);
@@ -49,6 +59,32 @@ const InvoiceWizard = () => {
   const [editLines, setEditLines] = useState([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Groups (lineType+baseServiceName) expanded for inline editing. Collapsed by
+  // default so 50+ TPA Desk rows roll up into one summary row.
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const toggleGroup = (key) =>
+    setExpandedGroups((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+
+  // [ { key, label, lineType, items: [{ row, idx }] } ] preserving insertion order.
+  const lineGroups = useMemo(() => {
+    const order = [];
+    const map = new Map();
+    editLines.forEach((row, idx) => {
+      const groupable = row.lineType === 'claim_tpa_desk' || row.lineType === 'service_percentage';
+      const key = groupable ? `${row.lineType}::${baseServiceName(row.description)}` : `single::${idx}`;
+      if (!map.has(key)) {
+        const label = groupable ? baseServiceName(row.description) : row.description;
+        map.set(key, { key, label, lineType: row.lineType, items: [], groupable });
+        order.push(key);
+      }
+      map.get(key).items.push({ row, idx });
+    });
+    return order.map((k) => map.get(k));
+  }, [editLines]);
 
   useEffect(() => {
     getHospitalsAPI().then(({ data }) => {
@@ -305,34 +341,98 @@ const InvoiceWizard = () => {
               <tbody className="divide-y divide-gray-100">
                 {editLines.length === 0 ? (
                   <tr><td colSpan={5} className="py-6 text-center text-sm text-gray-400">No items. Click "Add Item" to add a manual row.</td></tr>
-                ) : editLines.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 text-gray-400 text-xs">{idx + 1}</td>
-                    <td className="py-3 px-4">
-                      <input value={row.description}
-                        onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                        placeholder="Description"
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(row.lineType)}`}>
-                        {LINE_TYPE_LABEL[row.lineType] || row.lineType}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <input type="number" value={row.amount}
-                        onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <button onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
-                        title="Remove row"
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
-                        <HiOutlineTrash className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                ) : lineGroups.flatMap((g) => {
+                  // Single-row 'group' (e.g. one Fixed service or a manual row) — render flat, no header.
+                  if (g.items.length === 1 && !g.groupable) {
+                    const { row, idx } = g.items[0];
+                    return [(
+                      <tr key={`row-${idx}`} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 text-gray-400 text-xs">{idx + 1}</td>
+                        <td className="py-3 px-4">
+                          <input value={row.description}
+                            onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
+                            placeholder="Description"
+                            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(row.lineType)}`}>
+                            {LINE_TYPE_LABEL[row.lineType] || row.lineType}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <input type="number" value={row.amount}
+                            onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
+                            title="Remove row"
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                            <HiOutlineTrash className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    )];
+                  }
+                  // Multi-row group — collapse into a summary header with expand chevron.
+                  const groupTotal = g.items.reduce((a, { row }) => a + (Number(row.amount) || 0), 0);
+                  const expanded = expandedGroups.has(g.key);
+                  const rows = [(
+                    <tr key={`hdr-${g.key}`}
+                      onClick={() => toggleGroup(g.key)}
+                      className="bg-gray-50/60 hover:bg-gray-100 cursor-pointer">
+                      <td className="py-3 px-4 text-gray-500">
+                        {expanded ? <HiChevronDown className="w-4 h-4" /> : <HiChevronRight className="w-4 h-4" />}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-800">{g.label}</span>
+                          <span className="text-xs text-gray-500">— {g.items.length} {g.items.length === 1 ? 'claim' : 'claims'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(g.lineType)}`}>
+                          {LINE_TYPE_LABEL[g.lineType] || g.lineType}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-semibold text-gray-800 tabular-nums">
+                        {formatINR(groupTotal)}
+                      </td>
+                      <td className="py-3 px-4 text-right text-xs text-gray-400">
+                        {expanded ? 'hide' : 'show'}
+                      </td>
+                    </tr>
+                  )];
+                  if (expanded) {
+                    g.items.forEach(({ row, idx }) => {
+                      rows.push(
+                        <tr key={`row-${idx}`} className="bg-white">
+                          <td className="py-2 px-4 text-gray-400 text-xs pl-10">{idx + 1}</td>
+                          <td className="py-2 px-4">
+                            <input value={row.description}
+                              onChange={(e) => setEditLines((arr) => arr.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
+                              placeholder="Description"
+                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          </td>
+                          <td className="py-2 px-4" />
+                          <td className="py-2 px-4">
+                            <input type="number" value={row.amount}
+                              onChange={(e) => setEditLines((arr) => arr.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          </td>
+                          <td className="py-2 px-4 text-right">
+                            <button onClick={() => setEditLines((arr) => arr.filter((_, i) => i !== idx))}
+                              title="Remove row"
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                              <HiOutlineTrash className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  }
+                  return rows;
+                })}
               </tbody>
               <tfoot className="bg-gray-50 border-t border-gray-200">
                 <tr>

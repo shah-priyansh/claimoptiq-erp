@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
   HiOutlineArrowLeft, HiOutlinePlus, HiOutlineTrash,
   HiOutlinePrinter, HiOutlineBan, HiOutlineCheck, HiOutlineSave,
   HiOutlineCheckCircle, HiOutlineExclamationCircle,
+  HiChevronRight, HiChevronDown,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -35,6 +36,13 @@ const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-I
 const formatMonth = (d) => d ? new Date(d).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '-';
 const formatDate = (d) => _formatDate(d);
 
+// 'TPA Desk — RAJESH PATEL (CCN-0001)' → 'TPA Desk'. Used to collapse rows
+// from the same billing service into a single expandable group header.
+const baseServiceName = (desc) => {
+  if (!desc) return 'Other';
+  return (String(desc).split(/\s+[—-]\s+/)[0] || desc).trim();
+};
+
 const InvoiceDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -59,6 +67,33 @@ const InvoiceDetail = () => {
   const [payForm, setPayForm] = useState({ date: new Date().toISOString().slice(0,10), mode: 'cash', amount: 0, utrNumber: '', chequeNumber: '', notes: '' });
   const [payingNow, setPayingNow] = useState(false);
   const [loadingPdf, setLoadingPdf] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const toggleGroup = (key) => setExpandedGroups((s) => {
+    const next = new Set(s);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const lineGroups = useMemo(() => {
+    const order = [];
+    const map = new Map();
+    editLines.forEach((row, idx) => {
+      const groupable = row.lineType === 'claim_tpa_desk' || row.lineType === 'service_percentage';
+      const key = groupable ? `${row.lineType}::${baseServiceName(row.description)}` : `single::${idx}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label: groupable ? baseServiceName(row.description) : row.description,
+          lineType: row.lineType,
+          groupable,
+          items: [],
+        });
+        order.push(key);
+      }
+      map.get(key).items.push({ row, idx });
+    });
+    return order.map((k) => map.get(k));
+  }, [editLines]);
 
   const reload = async () => {
     setLoading(true);
@@ -403,44 +438,102 @@ const InvoiceDetail = () => {
                 <tbody className="divide-y divide-gray-100">
                   {editLines.length === 0 ? (
                     <tr><td colSpan={5} className="py-6 text-center text-sm text-gray-400">No line items yet. Use "Add Item" to start.</td></tr>
-                  ) : editLines.map((row, idx) => (
-                    <tr key={row._origId || `new-${idx}`} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 text-gray-400 text-sm">{idx + 1}</td>
-                      <td className="py-3 px-4">
-                        <input
-                          value={row.description}
-                          onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                          placeholder="Description"
-                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                          row.lineType === 'claim_tpa_desk' ? 'bg-primary-50 text-primary-700' :
-                          row.lineType === 'service_fixed' ? 'bg-amber-50 text-amber-700' :
-                          row.lineType === 'adjustment' ? 'bg-purple-50 text-purple-700' :
-                          row.lineType === 'manual' ? 'bg-emerald-50 text-emerald-700' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>
-                          {LINE_TYPE_LABEL[row.lineType] || row.lineType}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <input
-                          type="number"
-                          value={row.amount}
-                          onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
-                          className="w-full px-2 py-1 border border-gray-200 rounded text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
-                          title="Remove row"
-                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
-                          <HiOutlineTrash className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  ) : lineGroups.flatMap((g) => {
+                    const pillFor = (lt) =>
+                      lt === 'claim_tpa_desk' ? 'bg-primary-50 text-primary-700' :
+                      lt === 'service_fixed' ? 'bg-amber-50 text-amber-700' :
+                      lt === 'adjustment' ? 'bg-purple-50 text-purple-700' :
+                      lt === 'manual' ? 'bg-emerald-50 text-emerald-700' :
+                      'bg-gray-100 text-gray-600';
+                    if (g.items.length === 1 && !g.groupable) {
+                      const { row, idx } = g.items[0];
+                      return [(
+                        <tr key={row._origId || `row-${idx}`} className="hover:bg-gray-50">
+                          <td className="py-3 px-4 text-gray-400 text-sm">{idx + 1}</td>
+                          <td className="py-3 px-4">
+                            <input value={row.description}
+                              onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
+                              placeholder="Description"
+                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${pillFor(row.lineType)}`}>
+                              {LINE_TYPE_LABEL[row.lineType] || row.lineType}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <input type="number" value={row.amount}
+                              onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <button onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
+                              title="Remove row"
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                              <HiOutlineTrash className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      )];
+                    }
+                    const groupTotal = g.items.reduce((a, { row }) => a + (Number(row.amount) || 0), 0);
+                    const expanded = expandedGroups.has(g.key);
+                    const out = [(
+                      <tr key={`hdr-${g.key}`}
+                        onClick={() => toggleGroup(g.key)}
+                        className="bg-gray-50/60 hover:bg-gray-100 cursor-pointer">
+                        <td className="py-3 px-4 text-gray-500">
+                          {expanded ? <HiChevronDown className="w-4 h-4" /> : <HiChevronRight className="w-4 h-4" />}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-800">{g.label}</span>
+                            <span className="text-xs text-gray-500">— {g.items.length} {g.items.length === 1 ? 'claim' : 'claims'}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${pillFor(g.lineType)}`}>
+                            {LINE_TYPE_LABEL[g.lineType] || g.lineType}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-semibold text-gray-800 tabular-nums">
+                          {formatINR(groupTotal)}
+                        </td>
+                        <td className="py-3 px-4 text-right text-xs text-gray-400">
+                          {expanded ? 'hide' : 'show'}
+                        </td>
+                      </tr>
+                    )];
+                    if (expanded) {
+                      g.items.forEach(({ row, idx }) => {
+                        out.push(
+                          <tr key={row._origId || `row-${idx}`} className="bg-white">
+                            <td className="py-2 px-4 text-gray-400 text-xs pl-10">{idx + 1}</td>
+                            <td className="py-2 px-4">
+                              <input value={row.description}
+                                onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
+                                placeholder="Description"
+                                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                            </td>
+                            <td className="py-2 px-4" />
+                            <td className="py-2 px-4">
+                              <input type="number" value={row.amount}
+                                onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                            </td>
+                            <td className="py-2 px-4 text-right">
+                              <button onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
+                                title="Remove row"
+                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                                <HiOutlineTrash className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    }
+                    return out;
+                  })}
                 </tbody>
                 <tfoot className="bg-gray-50">
                   <tr>
@@ -510,6 +603,7 @@ const InvoiceDetail = () => {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-10"></th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
                 </tr>
@@ -518,17 +612,71 @@ const InvoiceDetail = () => {
                 {orderedTypes.flatMap((t) => {
                   const rows = groupedLines[t];
                   if (!rows || !rows.length) return [];
-                  return [
+                  // For TPA Desk + Variable, fold rows that share a baseServiceName
+                  // into one collapsible header to keep 50+ claim invoices readable.
+                  const collapsible = t === 'claim_tpa_desk' || t === 'service_percentage';
+                  const out = [(
                     <tr key={`${t}-h`} className="bg-gray-50/60">
-                      <td colSpan={2} className="py-3 px-4 text-xs font-semibold uppercase text-gray-500">{LINE_TYPE_LABEL[t] || t}</td>
-                    </tr>,
-                    ...rows.map((l) => (
+                      <td colSpan={3} className="py-3 px-4 text-xs font-semibold uppercase text-gray-500">{LINE_TYPE_LABEL[t] || t}</td>
+                    </tr>
+                  )];
+                  if (!collapsible) {
+                    rows.forEach((l) => out.push(
                       <tr key={l._id || l.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4" />
                         <td className="py-3 px-4 text-gray-700">{l.description}</td>
-                        <td className="py-3 px-4 text-right text-gray-700">{formatINR(l.amount)}</td>
+                        <td className="py-3 px-4 text-right text-gray-700 tabular-nums">{formatINR(l.amount)}</td>
                       </tr>
-                    )),
-                  ];
+                    ));
+                    return out;
+                  }
+                  // Bucket rows of this type by baseServiceName, preserving order.
+                  const order = [];
+                  const map = new Map();
+                  rows.forEach((l) => {
+                    const k = baseServiceName(l.description);
+                    if (!map.has(k)) { map.set(k, []); order.push(k); }
+                    map.get(k).push(l);
+                  });
+                  order.forEach((label) => {
+                    const items = map.get(label);
+                    const key = `ro-${t}-${label}`;
+                    const total = items.reduce((a, l) => a + (Number(l.amount) || 0), 0);
+                    const expanded = expandedGroups.has(key);
+                    if (items.length === 1) {
+                      const l = items[0];
+                      out.push(
+                        <tr key={l._id || l.id} className="hover:bg-gray-50">
+                          <td className="py-3 px-4" />
+                          <td className="py-3 px-4 text-gray-700">{l.description}</td>
+                          <td className="py-3 px-4 text-right text-gray-700 tabular-nums">{formatINR(l.amount)}</td>
+                        </tr>
+                      );
+                      return;
+                    }
+                    out.push(
+                      <tr key={key} onClick={() => toggleGroup(key)} className="bg-gray-50/40 hover:bg-gray-100 cursor-pointer">
+                        <td className="py-3 px-4 text-gray-500">
+                          {expanded ? <HiChevronDown className="w-4 h-4" /> : <HiChevronRight className="w-4 h-4" />}
+                        </td>
+                        <td className="py-3 px-4 text-gray-800">
+                          <span className="font-medium">{label}</span>
+                          <span className="text-xs text-gray-500 ml-2">— {items.length} claims</span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-semibold text-gray-800 tabular-nums">{formatINR(total)}</td>
+                      </tr>
+                    );
+                    if (expanded) {
+                      items.forEach((l) => out.push(
+                        <tr key={l._id || l.id} className="bg-white">
+                          <td className="py-2 px-4 pl-10" />
+                          <td className="py-2 px-4 text-gray-600 text-sm">{l.description}</td>
+                          <td className="py-2 px-4 text-right text-gray-600 text-sm tabular-nums">{formatINR(l.amount)}</td>
+                        </tr>
+                      ));
+                    }
+                  });
+                  return out;
                 })}
               </tbody>
             </table>
