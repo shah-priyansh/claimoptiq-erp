@@ -6,7 +6,7 @@ import { HiOutlineCog } from 'react-icons/hi';
 
 const MODULE_GROUPS = [
   { label: null,             keys: ['dashboard', 'claims'] },
-  { label: 'Billing & Finance', keys: ['invoices', 'expenses', 'cash_bank', 'tds_rates', 'expense_categories', 'references'] },
+  { label: 'Billing & Finance', keys: ['invoices', 'expenses', 'cash_bank', 'account_entries', 'tds_rates', 'expense_categories', 'references'] },
   { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'billing_service_names', 'users', 'roles', 'claim_statuses', 'claim_document_types'] },
   { label: 'Documents',      keys: ['document_submissions'] },
   { label: null,             keys: ['reports'] },
