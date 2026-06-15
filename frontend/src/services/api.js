@@ -99,6 +99,14 @@ export const updateCashBankAPI      = (id, data) => API.patch(`/cash-bank/${id}`
 export const deleteCashBankAPI      = (id) => API.delete(`/cash-bank/${id}`);
 export const recordInvoicePaymentAPI = (invoiceId, data) => API.post(`/invoices/${invoiceId}/payments`, data);
 
+// Account entries (General + Contra)
+export const getAccountEntriesAPI       = (params) => API.get('/account-entries', { params });
+export const getAccountEntrySummaryAPI  = (params) => API.get('/account-entries/summary', { params });
+export const getAccountEntryAPI         = (id) => API.get(`/account-entries/${id}`);
+export const createAccountEntryAPI      = (data) => API.post('/account-entries', data);
+export const updateAccountEntryAPI      = (id, data) => API.patch(`/account-entries/${id}`, data);
+export const deleteAccountEntryAPI      = (id) => API.delete(`/account-entries/${id}`);
+
 // TDS Rates master
 export const getTdsRatesAPI    = (params) => API.get('/tds-rates', { params });
 export const createTdsRateAPI  = (data) => API.post('/tds-rates', data);
