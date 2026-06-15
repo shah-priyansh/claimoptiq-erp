@@ -48,6 +48,9 @@ model Hospital {
   referenceBy     String                   @default("") @map("reference_by")
   referenceId       String?    @map("reference_id")
   reference         Reference? @relation(fields: [referenceId], references: [id])
+  gstRate         Float                    @default(0) @map("gst_rate")
+  tdsRate         Float                    @default(0) @map("tds_rate")
+  invoicePrefix   String                   @default("FCC") @map("invoice_prefix")
   isActive        Boolean                  @default(true) @map("is_active")
   createdAt       DateTime                 @default(now()) @map("created_at")
   updatedAt       DateTime                 @updatedAt @map("updated_at")
@@ -56,6 +59,7 @@ model Hospital {
   users           User[]
   claims          Claim[]
   submissions     DocumentSubmission[]
+  invoices        Invoice[]
 
   @@map("hospitals")
 }
@@ -99,6 +103,66 @@ model ReferenceApplicableService {
 
   @@unique([referenceId, billingServiceNameId])
   @@map("reference_applicable_services")
+}
+
+model Invoice {
+  id                String   @id @default(uuid())
+  invoiceNumber     String?  @unique @map("invoice_number")
+  hospitalId        String   @map("hospital_id")
+  month             DateTime
+  status            String   @default("draft")
+  issuedAt          DateTime? @map("issued_at")
+  dueDate           DateTime? @map("due_date")
+
+  subtotalTpaDesk   Float    @default(0) @map("subtotal_tpa_desk")
+  subtotalServices  Float    @default(0) @map("subtotal_services")
+  subtotalAdjust    Float    @default(0) @map("subtotal_adjustments")
+  gross             Float    @default(0)
+  gstRate           Float    @default(0) @map("gst_rate")
+  gstAmount         Float    @default(0) @map("gst_amount")
+  tdsRate           Float    @default(0) @map("tds_rate")
+  tdsAmount         Float    @default(0) @map("tds_amount")
+  netTotal          Float    @default(0) @map("net_total")
+  previousBalance   Float    @default(0) @map("previous_balance")
+  grandTotal        Float    @default(0) @map("grand_total")
+  amountPaid        Float    @default(0) @map("amount_paid")
+  amountPending     Float    @default(0) @map("amount_pending")
+
+  notes             String   @default("")
+  createdById       String?  @map("created_by_id")
+  issuedById        String?  @map("issued_by_id")
+  voidedAt          DateTime? @map("voided_at")
+  voidReason        String   @default("") @map("void_reason")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  hospital  Hospital @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+  createdBy User?    @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  issuedBy  User?    @relation("InvoiceIssuedBy", fields: [issuedById], references: [id])
+  lineItems InvoiceLineItem[]
+
+  @@unique([hospitalId, month])
+  @@index([status])
+  @@index([month])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id                   String  @id @default(uuid())
+  invoiceId            String  @map("invoice_id")
+  lineType             String  @map("line_type")
+  description          String
+  amount               Float   @default(0)
+  order                Int     @default(0)
+  claimId              String? @map("claim_id")
+  billingServiceId     String? @map("billing_service_id")
+  billingServiceNameId String? @map("billing_service_name_id")
+  meta                 Json    @default("{}")
+
+  invoice              Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
 }
 
 model HospitalBillingService {
@@ -171,6 +235,8 @@ model User {
   statusChangedSubmissions   DocumentSubmission[] @relation("SubmissionStatusChangedBy")
   notifications              Notification[]
   employee                   Employee?
+  invoicesCreated            Invoice[]            @relation("InvoiceCreatedBy")
+  invoicesIssued             Invoice[]            @relation("InvoiceIssuedBy")
 
   @@map("users")
 }
