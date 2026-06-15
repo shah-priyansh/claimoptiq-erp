@@ -10,9 +10,10 @@ const ReferencesReport = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refs, setRefs] = useState([]);
+  const [loadingRefs, setLoadingRefs] = useState(true);
 
   useEffect(() => {
-    getReferencesAPI({ active: 'true' }).then(({ data }) => setRefs(data || [])).catch(() => {});
+    getReferencesAPI({ active: 'true' }).then(({ data }) => setRefs(data || [])).catch(() => {}).finally(() => setLoadingRefs(false));
   }, []);
 
   useEffect(() => {
@@ -58,6 +59,7 @@ const ReferencesReport = () => {
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Reference</label>
             <SearchableSelect
+              isLoading={loadingRefs}
               value={filters.referenceId}
               onChange={(v) => setFilters((f) => ({ ...f, referenceId: v }))}
               placeholder="All references"

@@ -32,6 +32,8 @@ const CashBankList = () => {
   const [balances, setBalances] = useState({ cash: 0, bank: 0, upi: 0, total: 0 });
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(true);
+  const [loadingExpenses, setLoadingExpenses] = useState(true);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
   const [page, setPage] = useState(1);
@@ -66,8 +68,8 @@ const CashBankList = () => {
 
   useEffect(() => {
     // Load invoice/expense pickers (best-effort)
-    getInvoicesAPI({ limit: 200 }).then(({ data }) => setInvoices((data.invoices || []).filter((i) => i.status === 'issued' || i.status === 'partially_paid'))).catch(() => {});
-    getExpensesAPI({ limit: 200 }).then(({ data }) => setExpenses(data.expenses || [])).catch(() => {});
+    getInvoicesAPI({ limit: 200 }).then(({ data }) => setInvoices((data.invoices || []).filter((i) => i.status === 'issued' || i.status === 'partially_paid'))).catch(() => {}).finally(() => setLoadingInvoices(false));
+    getExpensesAPI({ limit: 200 }).then(({ data }) => setExpenses(data.expenses || [])).catch(() => {}).finally(() => setLoadingExpenses(false));
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,6 +265,8 @@ const CashBankList = () => {
         initial={modal.item}
         invoices={invoices}
         expenses={expenses}
+        loadingInvoices={loadingInvoices}
+        loadingExpenses={loadingExpenses}
         onClose={() => setModal({ open: false, item: null })}
         onSave={handleSave}
       />

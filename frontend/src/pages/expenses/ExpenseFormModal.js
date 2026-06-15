@@ -6,7 +6,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', referenceId: '' };
 
-const ExpenseFormModal = ({ open, initial, categories, references, onClose, onSave }) => {
+const ExpenseFormModal = ({ open, initial, categories, references, loadingRefs = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
@@ -89,6 +89,7 @@ const ExpenseFormModal = ({ open, initial, categories, references, onClose, onSa
               {selectedSlug === 'reference_commission' && <span className="text-xs text-gray-400 ml-1">— attributing helps reports</span>}
             </label>
             <SearchableSelect
+              isLoading={loadingRefs}
               value={form.referenceId}
               onChange={(v) => setForm((f) => ({ ...f, referenceId: v }))}
               placeholder="Pick a reference"

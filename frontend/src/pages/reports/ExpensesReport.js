@@ -10,9 +10,10 @@ const ExpensesReport = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
 
   useEffect(() => {
-    getExpenseCategoriesAPI().then(({ data }) => setCategories(data || [])).catch(() => {});
+    getExpenseCategoriesAPI().then(({ data }) => setCategories(data || [])).catch(() => {}).finally(() => setLoadingCategories(false));
   }, []);
 
   useEffect(() => {
@@ -70,6 +71,7 @@ const ExpensesReport = () => {
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
             <SearchableSelect
+              isLoading={loadingCategories}
               value={filters.categoryId}
               onChange={(v) => setFilters((f) => ({ ...f, categoryId: v }))}
               placeholder="All categories"

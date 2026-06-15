@@ -48,6 +48,7 @@ const InvoiceDetail = () => {
   const [adjustments, setAdjustments] = useState([]);
   const [tdsRateId, setTdsRateId] = useState('');
   const [tdsRates, setTdsRates] = useState([]);
+  const [loadingTdsRates, setLoadingTdsRates] = useState(true);
   const [payments, setPayments] = useState([]);
   const [payForm, setPayForm] = useState({ date: new Date().toISOString().slice(0,10), mode: 'cash', amount: 0, utrNumber: '', chequeNumber: '', notes: '' });
   const [payingNow, setPayingNow] = useState(false);
@@ -81,7 +82,7 @@ const InvoiceDetail = () => {
   useEffect(() => { reload(); }, [id]);
 
   useEffect(() => {
-    getTdsRatesAPI({ active: 'true' }).then(({ data }) => setTdsRates(data || [])).catch(() => setTdsRates([]));
+    getTdsRatesAPI({ active: 'true' }).then(({ data }) => setTdsRates(data || [])).catch(() => setTdsRates([])).finally(() => setLoadingTdsRates(false));
   }, []);
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
@@ -347,6 +348,7 @@ const InvoiceDetail = () => {
           <div className="mt-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate</label>
             <SearchableSelect
+              isLoading={loadingTdsRates}
               value={tdsRateId}
               onChange={setTdsRateId}
               placeholder={`Use hospital default (${invoice.hospital?.tdsRate ?? 0}%)`}

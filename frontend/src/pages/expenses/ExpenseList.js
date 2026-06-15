@@ -31,6 +31,7 @@ const ExpenseList = () => {
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [references, setReferences] = useState([]);
+  const [loadingRefs, setLoadingRefs] = useState(true);
   const [summary, setSummary] = useState({ rows: [], grandTotal: 0 });
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
@@ -82,7 +83,7 @@ const ExpenseList = () => {
     ]).then(([cats, refs]) => {
       setCategories(cats.data || []);
       setReferences(refs.data || []);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setLoadingRefs(false));
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,6 +169,7 @@ const ExpenseList = () => {
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Reference</label>
             <SearchableSelect
+              isLoading={loadingRefs}
               value={filters.referenceId}
               onChange={(v) => { setFilters((f) => ({ ...f, referenceId: v })); setPage(1); }}
               placeholder="All references"
@@ -266,6 +268,7 @@ const ExpenseList = () => {
         initial={modal.item}
         categories={categories}
         references={references}
+        loadingRefs={loadingRefs}
         onClose={() => setModal({ open: false, item: null })}
         onSave={handleSave}
       />
