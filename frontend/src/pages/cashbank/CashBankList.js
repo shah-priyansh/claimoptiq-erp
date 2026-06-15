@@ -9,9 +9,10 @@ import {
   getInvoicesAPI, getExpensesAPI,
 } from '../../services/api';
 import CashBankFormModal from './CashBankFormModal';
+import { formatDate as _formatDate } from '../../utils/format';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
-const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+const formatDate = (d) => _formatDate(d);
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const monthStart = () => {
   const d = new Date();

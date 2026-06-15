@@ -3,6 +3,38 @@ export const formatINR = (amount) => {
   return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(num);
 };
 
+// Always returns DD/MM/YYYY (zero-padded). Locale-independent so machines with
+// a non-Indian default locale still render the project standard.
+// `dash` is shown for null/undefined/invalid input.
+export const formatDate = (input, dash = '-') => {
+  if (!input) return dash;
+  const dt = input instanceof Date ? input : new Date(input);
+  if (isNaN(dt.getTime())) return dash;
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+};
+
+// DD/MM/YYYY HH:MM — for timestamps where the time matters (audit rows etc.).
+export const formatDateTime = (input, dash = '-') => {
+  if (!input) return dash;
+  const dt = input instanceof Date ? input : new Date(input);
+  if (isNaN(dt.getTime())) return dash;
+  const date = formatDate(dt);
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mi = String(dt.getMinutes()).padStart(2, '0');
+  return `${date} ${hh}:${mi}`;
+};
+
+// Month label: `Jun 2026` — for invoice month columns / summary headers.
+export const formatMonthLabel = (input, dash = '-') => {
+  if (!input) return dash;
+  const dt = input instanceof Date ? input : new Date(input);
+  if (isNaN(dt.getTime())) return dash;
+  return dt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+};
+
 export const formatCurrency = (amount) => `Rs ${formatINR(amount)}`;
 
 export const formatCurrencyCompact = (amount) => {

@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency, calculateFilePrice } from '../../utils/format';
+import { formatCurrency, calculateFilePrice, formatDate as _formatDate } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
 import * as XLSX from 'xlsx-js-style';
@@ -49,7 +49,7 @@ const CLAIM_TYPE_OPTIONS = Object.entries(CLAIM_TYPE_CONFIG).map(([value, c]) =>
 // ─── Field definitions (shared with Reports) ─────────────────────────────────
 // Order here drives the export sequence (Excel + PDF), and matches the columns
 // in the operations team's reference workbook so imports/exports stay aligned.
-const fmtDateCell = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '';
+const fmtDateCell = (d) => _formatDate(d, '');
 const BASE_FIELD_DEFS = [
   { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => c.month || '' },
   { key: 'hospital',                  label: 'HOSPITAL',               width: 26, pdfW: 32, defaultOn: true,  nonHospitalOnly: true, getValue: c => c.isDirectPatient ? 'Direct Patient' : (c.hospital?.name || '-') },
@@ -272,7 +272,7 @@ const ClaimList = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, refreshKey]);
 
-  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '-';
+  const formatDate = (d) => _formatDate(d);
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
   const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(v) : (v || '-');
 
@@ -618,7 +618,7 @@ const ClaimList = () => {
     const bodyFontSize = scale >= 0.95 ? 8 : scale >= 0.8 ? 7 : 6.5;
     const cellPadding  = scale >= 0.95 ? 2 : 1.5;
 
-    const today = new Date().toLocaleDateString('en-IN');
+    const today = _formatDate(new Date());
     doc.setTextColor(17, 24, 39);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
@@ -725,7 +725,7 @@ const ClaimList = () => {
     const bodyFontSize = scale >= 0.95 ? 8 : scale >= 0.8 ? 7 : 6.5;
     const cellPadding  = scale >= 0.95 ? 2 : 1.5;
 
-    const today = new Date().toLocaleDateString('en-IN');
+    const today = _formatDate(new Date());
     const totalCount = data.length;
 
     doc.setTextColor(17, 24, 39);

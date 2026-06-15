@@ -9,8 +9,9 @@ import {
   HiOutlineRefresh, HiOutlinePlus, HiOutlineCloudUpload,
   HiOutlineInbox, HiOutlineDownload, HiOutlineTrash, HiOutlineEye,
 } from 'react-icons/hi';
+import { formatDate as _formatDate } from '../../utils/format';
 
-const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const formatDate = (d) => _formatDate(d, '—');
 
 const STATUS_STYLE = {
   pending:  'bg-yellow-50 text-yellow-700 border border-yellow-200',

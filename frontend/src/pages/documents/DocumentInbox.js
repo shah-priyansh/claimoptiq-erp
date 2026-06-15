@@ -16,6 +16,7 @@ import {
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { formatDate as _formatDate } from '../../utils/format';
 
 const STATUS_OPTIONS = [
   { value: 'pending',  label: 'Pending' },
@@ -39,7 +40,7 @@ const formatSize = (bytes) => {
   return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
+const formatDate = (d) => _formatDate(d);
 
 const DocumentInbox = () => {
   const navigate = useNavigate();
