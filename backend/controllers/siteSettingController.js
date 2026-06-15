@@ -22,6 +22,9 @@ const DEFAULTS = {
   invoice_bank_account_holder:    'FIRST CARE CONSULTANCY',
   invoice_upi_id:                 '',
   invoice_authorized_signatory:   'First Care Consultancy',
+  // Fallback GST rate used when the hospital doesn't carry its own gstRate
+  // override. Stored as a string ('18' / '0' / '12') and parsed at use-site.
+  invoice_default_gst_rate:       '0',
 };
 
 // Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them

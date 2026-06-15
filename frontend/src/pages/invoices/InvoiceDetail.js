@@ -52,6 +52,7 @@ const InvoiceDetail = () => {
   const [originalLines, setOriginalLines] = useState([]);
   const [roundOff, setRoundOff] = useState(0);
   const [tdsRateId, setTdsRateId] = useState('');
+  const [gstRate, setGstRate] = useState(0);
   const [tdsRates, setTdsRates] = useState([]);
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
   const [payments, setPayments] = useState([]);
@@ -67,6 +68,7 @@ const InvoiceDetail = () => {
       setNotes(data.notes || '');
       setTdsRateId(data.tdsRateId || '');
       setRoundOff(data.roundOff || 0);
+      setGstRate(data.gstRate ?? 0);
       setAdjustments((data.lineItems || []).filter((l) => l.lineType === 'adjustment').map((l) => ({
         description: l.description, amount: l.amount,
       })));
@@ -139,6 +141,7 @@ const InvoiceDetail = () => {
         notes,
         tdsRateId: tdsRateId || null,
         roundOff: Math.round(Number(roundOff) || 0),
+        gstRate: Math.max(0, Number(gstRate) || 0),
       };
       if (lineEdits.length) payload.lineEdits = lineEdits;
       if (manualItems.length) payload.manualItems = manualItems;
@@ -455,7 +458,18 @@ const InvoiceDetail = () => {
               Tip: use a negative amount for a discount, positive for an extra charge. Claim-linked rows update the claim's file price when the invoice is issued.
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  GST Rate (%) <span className="text-xs text-gray-400 font-normal">(applied to Sub Total)</span>
+                </label>
+                <input
+                  type="number" min="0" max="100" step="0.01"
+                  value={gstRate}
+                  onChange={(e) => setGstRate(e.target.value)}
+                  placeholder="0"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate</label>
                 <SearchableSelect
@@ -474,7 +488,7 @@ const InvoiceDetail = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Round Off <span className="text-xs text-gray-400 font-normal">(+/- applied to Grand Total)</span>
+                  Round Off <span className="text-xs text-gray-400 font-normal">(+/- on Grand Total)</span>
                 </label>
                 <input
                   type="number"
