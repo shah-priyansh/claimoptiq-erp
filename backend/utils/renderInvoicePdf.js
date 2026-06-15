@@ -183,27 +183,60 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       tableCols.forEach((c) => doc.text(c.label, c.x + 4, y + 5, { width: c.w - 8, align: c.align }));
       y += headerBarH;
 
-      // Body rows — keep ALL lines visible (claim_tpa_desk + service_fixed + adjustment)
+      // Body rows: collapse claim_tpa_desk + service_percentage lines that share
+      // a billingServiceNameId into one bucket per service ("TPA Desk × 6 claims"),
+      // so a hospital with 100 claims doesn't blow the invoice up to 10 pages.
+      // fixed and adjustment lines stay as individual rows.
       const allLines = invoice.lineItems || [];
+      const groupableTypes = new Set(['claim_tpa_desk', 'service_percentage']);
+      const buckets = new Map(); // key -> { name, count, amount }
+      const standalone = [];      // service_fixed + adjustment
+      for (const line of allLines) {
+        if (!groupableTypes.has(line.lineType)) {
+          standalone.push(line);
+          continue;
+        }
+        const key = line.billingServiceNameId || line.lineType;
+        const label = (line.description || '').split(' — ')[0] || line.lineType.replace('_', ' ');
+        const cur = buckets.get(key) || { name: label, count: 0, amount: 0 };
+        cur.count += 1;
+        cur.amount += Number(line.amount) || 0;
+        buckets.set(key, cur);
+      }
+
+      const bodyRows = [
+        ...Array.from(buckets.values()).map((b) => ({
+          name: b.count > 1 ? `${b.name} — ${b.count} claims` : b.name,
+          qty:  String(b.count),
+          rate: formatINR(b.amount / Math.max(b.count, 1)),
+          amount: b.amount,
+        })),
+        ...standalone.map((line) => ({
+          name: line.description,
+          qty:  '1',
+          rate: formatINR(line.amount),
+          amount: Number(line.amount) || 0,
+        })),
+      ];
+
       doc.font('Helvetica').fontSize(9).fillColor(COLORS.ink);
       let srNo = 1;
       const rowH = 20;
-      allLines.forEach((line) => {
+      bodyRows.forEach((row) => {
         if (y > 720) { doc.addPage(); y = PAD; }
         const yStart = y;
         const data = {
           sr:   String(srNo++),
-          name: line.description,
-          qty:  '1',
-          rate: formatINR(line.amount),
-          amt:  formatINR(line.amount),
+          name: row.name,
+          qty:  row.qty,
+          rate: row.rate,
+          amt:  formatINR(row.amount),
         };
         tableCols.forEach((c) => {
           if (c.key === 'name') doc.font('Helvetica-Bold');
           else doc.font('Helvetica');
           doc.fillColor(COLORS.ink).text(data[c.key], c.x + 4, yStart + 5, { width: c.w - 8, align: c.align });
         });
-        // Cell borders
         doc.lineWidth(0.4).strokeColor(COLORS.border);
         tableCols.forEach((c) => doc.rect(c.x, yStart, c.w, rowH).stroke());
         y += rowH;
@@ -325,6 +358,74 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       rightY += 40;
       doc.font('Helvetica-Bold').fontSize(10)
         .text('Authorized Signatory', rightColXBottom, rightY, { width: colsBottomW, align: 'center' });
+
+      // ===== Claim summary (new page when there are billed claims) ===========
+      const claimLines = (invoice.lineItems || []).filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId);
+      if (claimLines.length) {
+        doc.addPage();
+        let cy = PAD;
+
+        // Header band — same blue strip as the main page.
+        doc.rect(PAD, cy, W - 2 * PAD, headerBarH).fill(COLORS.primary500);
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10)
+          .text('Claims Summary', PAD + 8, cy + 4);
+        const monthLbl = invoice.month
+          ? new Date(invoice.month).toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+          : '';
+        doc.fontSize(8).text(
+          `${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}  ·  Invoice ${invoice.invoiceNumber || 'Draft'}${monthLbl ? `  ·  ${monthLbl}` : ''}`,
+          PAD + 8, cy + 4, { width: W - 2 * PAD - 16, align: 'right' },
+        );
+        cy += headerBarH;
+
+        // Sub-header
+        const sumCols = [
+          { key: 'sr',      label: '#',        x: PAD,        w: 30,  align: 'center' },
+          { key: 'patient', label: 'Patient',  x: PAD + 30,   w: 200, align: 'left' },
+          { key: 'ccn',     label: 'CCN No.',  x: PAD + 230,  w: 110, align: 'left' },
+          { key: 'final',   label: 'Final Approval', x: PAD + 340, w: 100, align: 'right' },
+          { key: 'amount',  label: 'TPA Fee',  x: PAD + 440,  w: RIGHT - (PAD + 440), align: 'right' },
+        ];
+        doc.rect(PAD, cy, W - 2 * PAD, 18).fill(COLORS.primary50);
+        doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9);
+        sumCols.forEach((c) => doc.text(c.label, c.x + 4, cy + 5, { width: c.w - 8, align: c.align }));
+        cy += 18;
+
+        // Rows
+        doc.font('Helvetica').fontSize(9).fillColor(COLORS.ink);
+        let total = 0;
+        claimLines.forEach((line, i) => {
+          if (cy > 740) { doc.addPage(); cy = PAD; }
+          const yStart = cy;
+          const finalApproval = line.meta?.finalApprovalAmount || 0;
+          // Description format: "TPA Desk — <patient> (CCN <ccn>)"
+          const patientMatch = (line.description || '').match(/—\s*(.+?)\s*(\(CCN\s*(.+?)\))?$/);
+          const patient = patientMatch?.[1] || line.description;
+          const ccn = patientMatch?.[3] || '';
+          total += Number(line.amount) || 0;
+          const data = {
+            sr:      String(i + 1),
+            patient,
+            ccn:     ccn || '-',
+            final:   formatINR(finalApproval),
+            amount:  formatINR(line.amount),
+          };
+          sumCols.forEach((c) => {
+            doc.fillColor(COLORS.ink).font(c.key === 'sr' ? 'Helvetica' : 'Helvetica')
+              .text(data[c.key], c.x + 4, yStart + 5, { width: c.w - 8, align: c.align });
+          });
+          doc.lineWidth(0.4).strokeColor(COLORS.border);
+          sumCols.forEach((c) => doc.rect(c.x, yStart, c.w, 18).stroke());
+          cy += 18;
+        });
+
+        // Footer total
+        if (cy > 740) { doc.addPage(); cy = PAD; }
+        doc.rect(PAD, cy, W - 2 * PAD, 20).fillAndStroke(COLORS.primary500, COLORS.primary500);
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10);
+        doc.text(`Total — ${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}`, PAD + 8, cy + 5);
+        doc.text(formatINR(total), sumCols[4].x + 4, cy + 5, { width: sumCols[4].w - 8, align: 'right' });
+      }
 
       doc.end();
     } catch (e) {
