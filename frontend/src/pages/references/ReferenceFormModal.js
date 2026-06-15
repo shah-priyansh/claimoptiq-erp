@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { HiOutlineX } from 'react-icons/hi';
 
-const blank = { name: '', mobile: '', address: '', commissionRate: 0, applicableServiceIds: [] };
+const blank = { name: '', mobile: '', address: '', commissionRate: 0, applicableServiceIds: [], isActive: true };
 
 const ReferenceFormModal = ({ open, initial, services, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
@@ -18,6 +18,7 @@ const ReferenceFormModal = ({ open, initial, services, onClose, onSave }) => {
         applicableServiceIds: (initial.applicableServices || [])
           .map((s) => s.billingServiceName?._id || s.billingServiceNameId)
           .filter(Boolean),
+        isActive: initial.isActive !== false,
       });
     } else {
       setForm(blank);
@@ -117,17 +118,28 @@ const ReferenceFormModal = ({ open, initial, services, onClose, onSave }) => {
               </div>
             )}
           </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !form.name.trim()}
-              className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 rounded-lg"
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </button>
+          <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+            <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+                className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              Active
+            </label>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving || !form.name.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 rounded-lg"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
