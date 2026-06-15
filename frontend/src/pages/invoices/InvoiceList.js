@@ -189,26 +189,31 @@ const InvoiceList = () => {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
-            <select value={filters.status}
-              onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="issued">Issued</option>
-              <option value="partially_paid">Partially Paid</option>
-              <option value="paid">Paid</option>
-              <option value="void">Void</option>
-            </select>
+            <SearchableSelect
+              value={filters.status}
+              onChange={(v) => { setFilters((f) => ({ ...f, status: v })); setPage(1); }}
+              placeholder="All statuses"
+              searchPlaceholder="Search status..."
+              noneLabel="All statuses"
+              allowClear
+              options={[
+                { value: 'draft',          label: 'Draft',          badgeClass: 'bg-gray-100 text-gray-700' },
+                { value: 'issued',         label: 'Issued',         badgeClass: 'bg-blue-50 text-blue-700' },
+                { value: 'partially_paid', label: 'Partially Paid', badgeClass: 'bg-amber-50 text-amber-700' },
+                { value: 'paid',           label: 'Paid',           badgeClass: 'bg-green-50 text-green-700' },
+                { value: 'void',           label: 'Void',           badgeClass: 'bg-red-50 text-red-700' },
+              ]}
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Month</label>
             <input type="month" value={filters.month}
               onChange={(e) => { setFilters((f) => ({ ...f, month: e.target.value })); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-700" />
           </div>
           <div className="flex items-end">
             <button onClick={() => { setFilters({ hospitalId: '', status: '', month: '' }); setPage(1); }}
-              className="px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg">
+              className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors">
               Clear filters
             </button>
           </div>
