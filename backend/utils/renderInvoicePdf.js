@@ -96,14 +96,14 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       let y = PAD;
 
       // ===== Top accent bar =====
-      doc.rect(0, 0, W, 6).fill(COLORS.primary600);
+      doc.rect(0, 0, W, 5).fill(COLORS.primary600);
 
-      // ===== Header: logo + company info (no big blue band) =====
-      y = 22;
+      // ===== Header: logo + company info on left, invoice meta on right =====
+      y = 36;
       const logoBoxX = PAD;
       const logoBoxY = y;
-      const logoBoxW = 96;
-      const logoBoxH = 96;
+      const logoBoxW = 80;
+      const logoBoxH = 80;
       if (logoBuf) {
         try {
           doc.image(logoBuf, logoBoxX, logoBoxY, { fit: [logoBoxW, logoBoxH], align: 'center', valign: 'center' });
@@ -113,17 +113,17 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         doc.roundedRect(logoBoxX, logoBoxY, logoBoxW, logoBoxH, 8).fillAndStroke(COLORS.primary500, COLORS.primary500);
         const initials = (template.invoice_company_name || 'FCC')
           .split(/\s+/).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
-        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(28)
-          .text(initials, logoBoxX, logoBoxY + 32, { width: logoBoxW, align: 'center' });
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(26)
+          .text(initials, logoBoxX, logoBoxY + 26, { width: logoBoxW, align: 'center' });
       }
 
-      // Company info, top-left next to logo
-      const companyX = logoBoxX + logoBoxW + 16;
-      const companyW = (W / 2) - companyX;
-      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(15)
-        .text(template.invoice_company_name || 'Company', companyX, logoBoxY + 6, { width: companyW });
+      // Company info next to the logo
+      const companyX = logoBoxX + logoBoxW + 18;
+      const companyW = (W / 2) - companyX + 30;
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(14)
+        .text(template.invoice_company_name || 'Company', companyX, logoBoxY + 4, { width: companyW });
       doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5);
-      let cy = doc.y + 4;
+      let cy = doc.y + 6;
       const addrLines = [
         template.invoice_company_address,
         template.invoice_company_phone ? `Phone: ${template.invoice_company_phone}` : '',
@@ -132,41 +132,43 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       ].filter(Boolean);
       addrLines.forEach((line) => {
         doc.text(line, companyX, cy, { width: companyW });
-        cy = doc.y + 1;
+        cy = doc.y + 2;
       });
 
       // ===== TAX INVOICE block on the right =====
-      const tiX = W / 2 + 8;
+      const tiX = W / 2 + 40;
       const tiW = RIGHT - tiX;
-      doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(28)
-        .text('TAX INVOICE', tiX, logoBoxY, { width: tiW, align: 'right' });
-      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(9);
+      doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(26)
+        .text('TAX INVOICE', tiX, logoBoxY - 4, { width: tiW, align: 'right' });
+
       const invoiceMeta = [
         ['Invoice No.', invoice.invoiceNumber || `Draft-${(invoice.id || '').slice(0, 8)}`],
         ['Date', formatDate(invoice.issuedAt || invoice.createdAt)],
         ['Time', formatTime(invoice.issuedAt || invoice.createdAt)],
         ['Due', invoice.dueDate ? formatDate(invoice.dueDate) : null],
       ].filter(([, v]) => v);
-      let metaY = logoBoxY + 38;
+      let metaY = logoBoxY + 36;
+      const metaRowH = 14;
       invoiceMeta.forEach(([label, value]) => {
         doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5)
-          .text(label, tiX, metaY, { width: tiW / 2 - 6, align: 'right' });
-        doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9.5)
-          .text(value, tiX + tiW / 2 - 6, metaY - 0.5, { width: tiW / 2 + 6, align: 'right' });
-        metaY = doc.y + 2;
+          .text(label, tiX, metaY + 1, { width: tiW / 2 - 6, align: 'right' });
+        doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(10)
+          .text(value, tiX + tiW / 2 - 6, metaY, { width: tiW / 2 + 6, align: 'right' });
+        metaY += metaRowH;
       });
 
-      y = Math.max(logoBoxY + logoBoxH, metaY) + 14;
+      y = Math.max(logoBoxY + logoBoxH, metaY) + 22;
 
       // ===== Bill To card =====
-      const billH = 70;
+      const billH = 88;
       doc.lineWidth(1).strokeColor(COLORS.border);
       doc.roundedRect(PAD, y, W - 2 * PAD, billH, 6).fillAndStroke(COLORS.alt, COLORS.border);
 
+      const cardPad = 16;
       doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
-        .text('BILL TO', PAD + 14, y + 10, { characterSpacing: 1 });
+        .text('BILL TO', PAD + cardPad, y + cardPad - 2, { characterSpacing: 1 });
       doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(13)
-        .text(hospital.name || '-', PAD + 14, y + 22, { width: (W - 2 * PAD) / 2 - 18 });
+        .text(hospital.name || '-', PAD + cardPad, y + cardPad + 11, { width: (W - 2 * PAD) / 2 - cardPad });
 
       const addrPieces = [
         hospital.address,
@@ -174,31 +176,31 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         hospital.phone ? `Phone: ${hospital.phone}` : '',
       ].filter(Boolean);
       doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5);
-      let bly = doc.y + 2;
+      let bly = doc.y + 4;
       addrPieces.forEach((line) => {
-        doc.text(line, PAD + 14, bly, { width: (W - 2 * PAD) / 2 - 18 });
-        bly = doc.y + 1;
+        doc.text(line, PAD + cardPad, bly, { width: (W - 2 * PAD) / 2 - cardPad });
+        bly = doc.y + 2;
       });
 
       // Right side of Bill To — invoice status + balance due preview
       const statusX = PAD + (W - 2 * PAD) / 2;
-      const statusW = (W - 2 * PAD) / 2 - 14;
+      const statusW = (W - 2 * PAD) / 2 - cardPad;
       const statusLabel = (invoice.status || 'draft').replace('_', ' ').toUpperCase();
       const statusColor = invoice.status === 'paid' ? COLORS.green
         : invoice.status === 'void' ? COLORS.red
         : invoice.status === 'partially_paid' ? '#f59e0b'
         : COLORS.primary600;
       doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
-        .text('STATUS', statusX, y + 10, { width: statusW, align: 'right', characterSpacing: 1 });
+        .text('STATUS', statusX, y + cardPad - 2, { width: statusW, align: 'right', characterSpacing: 1 });
       doc.fillColor(statusColor).font('Helvetica-Bold').fontSize(13)
-        .text(statusLabel, statusX, y + 22, { width: statusW, align: 'right' });
+        .text(statusLabel, statusX, y + cardPad + 11, { width: statusW, align: 'right' });
       doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5)
-        .text('Balance due', statusX, y + 46, { width: statusW, align: 'right' });
+        .text('Balance Due', statusX, y + cardPad + 38, { width: statusW, align: 'right' });
       doc.fillColor(invoice.amountPending > 0 ? COLORS.red : COLORS.green)
-        .font('Helvetica-Bold').fontSize(11)
-        .text(formatINR(invoice.amountPending), statusX, y + 56, { width: statusW, align: 'right' });
+        .font('Helvetica-Bold').fontSize(12)
+        .text(formatINR(invoice.amountPending), statusX, y + cardPad + 50, { width: statusW, align: 'right' });
 
-      y += billH + 14;
+      y += billH + 20;
 
       // ===== Line items table =====
       // Cleaner: no full blue header — instead a thin underline + light alt rows.
@@ -210,10 +212,10 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         { key: 'amt',   label: 'Amount',     x: PAD + 426, w: RIGHT - (PAD + 426), align: 'right' },
       ];
 
-      const thH = 22;
+      const thH = 26;
       doc.rect(PAD, y, W - 2 * PAD, thH).fill(COLORS.primary50);
       doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(9);
-      tableCols.forEach((c) => doc.text(c.label.toUpperCase(), c.x + 4, y + 7, { width: c.w - 8, align: c.align, characterSpacing: 0.5 }));
+      tableCols.forEach((c) => doc.text(c.label.toUpperCase(), c.x + 6, y + 9, { width: c.w - 12, align: c.align, characterSpacing: 0.5 }));
       y += thH;
       doc.lineWidth(0.5).strokeColor(COLORS.border)
         .moveTo(PAD, y).lineTo(RIGHT, y).stroke();
@@ -251,7 +253,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         })),
       ];
 
-      const rowH = 22;
+      const rowH = 26;
       let srNo = 1;
       bodyRows.forEach((row, i) => {
         if (y > 700) { doc.addPage(); y = PAD; }
@@ -271,7 +273,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
           doc.fillColor(COLORS.ink)
             .font(isName || isAmt ? 'Helvetica-Bold' : 'Helvetica')
             .fontSize(9.5)
-            .text(data[c.key], c.x + 4, y + 7, { width: c.w - 8, align: c.align });
+            .text(data[c.key], c.x + 6, y + 9, { width: c.w - 12, align: c.align });
         });
         y += rowH;
       });
@@ -279,7 +281,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       // Subtotal line (just gross above the totals card)
       doc.lineWidth(0.5).strokeColor(COLORS.border)
         .moveTo(PAD, y).lineTo(RIGHT, y).stroke();
-      y += 16;
+      y += 22;
 
       // ===== Two columns: left = words/terms/bank ; right = totals card =====
       const colsBottomW = (W - 2 * PAD - 14) / 2;
@@ -316,24 +318,26 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         .text('BANK DETAILS', PAD, leftY, { characterSpacing: 1 });
       leftY = doc.y + 4;
 
-      const bankCardH = 90;
+      const bankCardH = 110;
       doc.roundedRect(PAD, leftY, colsBottomW, bankCardH, 6).fillAndStroke(COLORS.alt, COLORS.border);
 
-      const qrSize = 70;
+      const qrSize = 84;
+      const qrX = PAD + 14;
+      const qrY = leftY + (bankCardH - qrSize) / 2;
       if (qrDataUrl) {
         const base64 = qrDataUrl.split(',')[1];
-        try { doc.image(Buffer.from(base64, 'base64'), PAD + 10, leftY + 10, { width: qrSize, height: qrSize }); }
+        try { doc.image(Buffer.from(base64, 'base64'), qrX, qrY, { width: qrSize, height: qrSize }); }
         catch { /* skip */ }
       } else {
         doc.lineWidth(0.5).strokeColor(COLORS.border)
-          .roundedRect(PAD + 10, leftY + 10, qrSize, qrSize, 4).stroke();
+          .roundedRect(qrX, qrY, qrSize, qrSize, 4).stroke();
         doc.font('Helvetica-Oblique').fontSize(7).fillColor(COLORS.faint)
-          .text('Scan to pay\n(UPI not\nconfigured)', PAD + 10, leftY + 28, { width: qrSize, align: 'center' });
+          .text('Scan to pay\n(UPI not\nconfigured)', qrX, qrY + 30, { width: qrSize, align: 'center' });
       }
 
-      const bankTextX = PAD + 10 + qrSize + 10;
-      const bankTextW = colsBottomW - (qrSize + 30);
-      let bankY = leftY + 12;
+      const bankTextX = qrX + qrSize + 14;
+      const bankTextW = colsBottomW - (qrSize + 42);
+      let bankY = leftY + 14;
       const bankLines = [
         ['Bank', template.invoice_bank_name],
         ['A/C No.', template.invoice_bank_account_no],
@@ -342,11 +346,11 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       ];
       bankLines.forEach(([label, val]) => {
         if (!val) return;
-        doc.font('Helvetica').fontSize(8).fillColor(COLORS.muted)
-          .text(label, bankTextX, bankY, { width: bankTextW });
-        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.ink)
-          .text(val, bankTextX, bankY + 9, { width: bankTextW });
-        bankY += 22;
+        doc.font('Helvetica').fontSize(7.5).fillColor(COLORS.muted)
+          .text(label.toUpperCase(), bankTextX, bankY, { width: bankTextW, characterSpacing: 0.5 });
+        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COLORS.ink)
+          .text(val, bankTextX, bankY + 10, { width: bankTextW });
+        bankY += 23;
       });
 
       leftY += bankCardH + 12;
@@ -362,18 +366,20 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
 
       const drawTotalRow = (label, value, opts = {}) => {
         const { bold, valueColor, big, divider, faint } = opts;
-        const lineH = big ? 28 : 20;
+        const lineH = big ? 36 : 26;
         if (divider) {
           doc.lineWidth(0.5).strokeColor(COLORS.border)
-            .moveTo(totalsCardX + 6, rightY).lineTo(totalsCardX + totalsCardW - 6, rightY).stroke();
+            .moveTo(totalsCardX + 14, rightY).lineTo(totalsCardX + totalsCardW - 14, rightY).stroke();
         }
+        const textY = rightY + (big ? 12 : 8);
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
           .fontSize(big ? 11 : 9.5)
           .fillColor(faint ? COLORS.muted : COLORS.ink)
-          .text(label, totalsCardX + 12, rightY + (big ? 7 : 5), { width: totalsCardW / 2 - 14, align: 'left' });
+          .text(label, totalsCardX + 14, textY, { width: totalsCardW / 2 - 14, align: 'left' });
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
+          .fontSize(big ? 13 : 9.5)
           .fillColor(valueColor || COLORS.ink)
-          .text(value, totalsCardX + totalsCardW / 2, rightY + (big ? 7 : 5), { width: totalsCardW / 2 - 12, align: 'right' });
+          .text(value, totalsCardX + totalsCardW / 2, textY - (big ? 1 : 0), { width: totalsCardW / 2 - 14, align: 'right' });
         rightY += lineH;
       };
 
@@ -392,13 +398,13 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       }
 
       // Grand Total emphasis: filled primary band
-      const grandY = rightY;
-      const grandH = 36;
+      const grandY = rightY + 4;
+      const grandH = 42;
       doc.rect(totalsCardX, grandY, totalsCardW, grandH).fill(COLORS.primary600);
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11)
-        .text('GRAND TOTAL', totalsCardX + 12, grandY + 12, { width: totalsCardW / 2 - 14, align: 'left' });
-      doc.fontSize(14)
-        .text(formatINR(invoice.grandTotal || invoice.netTotal), totalsCardX + totalsCardW / 2, grandY + 10, { width: totalsCardW / 2 - 12, align: 'right' });
+        .text('GRAND TOTAL', totalsCardX + 14, grandY + 16, { width: totalsCardW / 2 - 14, align: 'left' });
+      doc.fontSize(15)
+        .text(formatINR(invoice.grandTotal || invoice.netTotal), totalsCardX + totalsCardW / 2, grandY + 14, { width: totalsCardW / 2 - 14, align: 'right' });
       rightY = grandY + grandH + 4;
 
       if (invoice.amountPaid) drawTotalRow('Received', formatINR(invoice.amountPaid), { faint: true, valueColor: COLORS.green });
@@ -414,16 +420,16 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
         .roundedRect(totalsCardX, totalsStartY, totalsCardW, rightY - totalsStartY, 6).stroke();
 
       // Signature block
-      rightY += 24;
-      const sigW = 160;
-      const sigX = totalsCardX + totalsCardW - sigW;
-      doc.lineWidth(0.8).strokeColor(COLORS.ink)
+      rightY += 36;
+      const sigW = totalsCardW - 24;
+      const sigX = totalsCardX + 12;
+      doc.lineWidth(0.8).strokeColor(COLORS.faint)
         .moveTo(sigX, rightY).lineTo(sigX + sigW, rightY).stroke();
-      rightY += 4;
-      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8)
+      rightY += 6;
+      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5)
         .text(`for ${template.invoice_company_name || 'Company'}`, sigX, rightY, { width: sigW, align: 'center' });
-      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9)
-        .text('Authorized Signatory', sigX, doc.y + 1, { width: sigW, align: 'center' });
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9.5)
+        .text('Authorized Signatory', sigX, doc.y + 2, { width: sigW, align: 'center' });
 
       // ===== Footer =====
       const footerY = H - 24;
