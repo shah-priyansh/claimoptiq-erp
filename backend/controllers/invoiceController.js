@@ -195,10 +195,10 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
 
 exports.preview = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, adjustments, tdsRateId } = req.body;
+    const { hospitalId, month: rawMonth, adjustments, tdsRateId, gstRate } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate });
     res.json({
       hospital: toResponse(built.hospital),
       month,
@@ -214,7 +214,7 @@ exports.preview = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId } = req.body;
+    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
@@ -229,7 +229,7 @@ exports.create = async (req, res) => {
       return res.status(200).json(toResponse(existing));
     }
 
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate });
     if (!built.lines.length) {
       return res.status(400).json({ message: 'No claims or fixed services found for this month. Nothing to invoice.' });
     }

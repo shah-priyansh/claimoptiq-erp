@@ -42,6 +42,7 @@ const InvoiceWizard = () => {
   const [month, setMonth] = useState(todayMonth());
   const [notes, setNotes] = useState('');
   const [roundOff, setRoundOff] = useState(0);
+  const [gstRate, setGstRate] = useState('');
   const [preview, setPreview] = useState(null);
   // Editable working copy of the preview lines. Each row carries:
   //   description, amount, lineType, _isManual (true for rows the operator added)
@@ -69,8 +70,14 @@ const InvoiceWizard = () => {
     setPreview(null);
     setEditLines([]);
     try {
-      const { data } = await previewInvoiceAPI({ hospitalId, month: month + '-01', tdsRateId: tdsRateId || undefined });
+      const { data } = await previewInvoiceAPI({
+        hospitalId,
+        month: month + '-01',
+        tdsRateId: tdsRateId || undefined,
+        ...(gstRate !== '' ? { gstRate: Number(gstRate) || 0 } : {}),
+      });
       setPreview(data);
+      if (gstRate === '') setGstRate(String(data.totals.gstRate ?? 0));
       setEditLines((data.lines || []).map((l) => ({
         description: l.description || '',
         amount: l.amount,
@@ -93,7 +100,8 @@ const InvoiceWizard = () => {
     const services = sumBy(['service_fixed', 'manual']);
     const adjust = sumBy(['adjustment']);
     const gross = Math.round(tpa + services + adjust);
-    const gstAmount = Math.round((gross * (preview.totals.gstRate || 0)) / 100);
+    const effectiveGst = gstRate === '' ? (preview.totals.gstRate || 0) : (Number(gstRate) || 0);
+    const gstAmount = Math.round((gross * effectiveGst) / 100);
     const tdsAmount = Math.round((gross * (preview.totals.tdsRate || 0)) / 100);
     const netTotal = gross + gstAmount - tdsAmount;
     const grandTotal = netTotal + (preview.totals.previousBalance || 0) + (Math.round(Number(roundOff) || 0));
@@ -106,7 +114,7 @@ const InvoiceWizard = () => {
       roundOff: Math.round(Number(roundOff) || 0),
       grandTotal,
     };
-  }, [editLines, preview, roundOff]);
+  }, [editLines, preview, roundOff, gstRate]);
 
   const create = async () => {
     if (!preview) return;
@@ -122,6 +130,7 @@ const InvoiceWizard = () => {
         month: month + '-01',
         notes,
         tdsRateId: tdsRateId || undefined,
+        ...(gstRate !== '' ? { gstRate: Number(gstRate) || 0 } : {}),
       });
 
       // 2. Reconcile any operator edits / manual rows / round-off via PATCH.
@@ -215,18 +224,29 @@ const InvoiceWizard = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Month *</label>
             <input type="month" value={month}
               onChange={(e) => { setMonth(e.target.value); setPreview(null); setEditLines([]); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-700" />
           </div>
           <div className="flex items-end">
             <button onClick={runPreview} disabled={loading || !hospitalId || !month}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-900 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-primary-600 text-primary-700 hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium rounded-lg transition-colors">
               <HiOutlineSearch className="w-4 h-4" />
               {loading ? 'Loading...' : 'Load Lines'}
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              GST Rate (%) <span className="text-xs text-gray-400 font-normal">(default from settings)</span>
+            </label>
+            <input
+              type="number" min="0" max="100" step="0.01"
+              value={gstRate}
+              onChange={(e) => setGstRate(e.target.value)}
+              placeholder="0"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate (optional)</label>
             <SearchableSelect
@@ -247,7 +267,7 @@ const InvoiceWizard = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
             <input value={notes} onChange={(e) => setNotes(e.target.value)}
               placeholder="Internal note for this invoice"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           </div>
         </div>
       </div>
@@ -261,25 +281,25 @@ const InvoiceWizard = () => {
             </div>
             <div className="flex items-center gap-2">
               <button onClick={addManualRow}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg border border-primary-200">
+                className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-primary-700 bg-white border border-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
                 <HiOutlinePlus className="w-4 h-4" /> Add Item
               </button>
               <button onClick={create} disabled={creating || editLines.length === 0}
-                className="px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
+                className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
                 {creating ? 'Saving...' : 'Save Draft'}
               </button>
             </div>
           </div>
 
-          <div className="overflow-x-auto border border-gray-100 rounded-lg">
+          <div className="overflow-x-auto border border-gray-200 rounded-lg">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left py-2 px-3 w-10">#</th>
-                  <th className="text-left py-2 px-3">Description</th>
-                  <th className="text-left py-2 px-3 w-28">Type</th>
-                  <th className="text-right py-2 px-3 w-32">Amount</th>
-                  <th className="py-2 px-3 w-10"></th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-10">#</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-28">Type</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-32">Amount</th>
+                  <th className="py-3 px-4 w-10"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -287,37 +307,37 @@ const InvoiceWizard = () => {
                   <tr><td colSpan={5} className="py-6 text-center text-sm text-gray-400">No items. Click "Add Item" to add a manual row.</td></tr>
                 ) : editLines.map((row, idx) => (
                   <tr key={idx} className="hover:bg-gray-50">
-                    <td className="py-2 px-3 text-gray-400 text-xs">{idx + 1}</td>
-                    <td className="py-2 px-3">
+                    <td className="py-3 px-4 text-gray-400 text-xs">{idx + 1}</td>
+                    <td className="py-3 px-4">
                       <input value={row.description}
                         onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
                         placeholder="Description"
-                        className="w-full px-2 py-1 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                     </td>
-                    <td className="py-2 px-3">
+                    <td className="py-3 px-4">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(row.lineType)}`}>
                         {LINE_TYPE_LABEL[row.lineType] || row.lineType}
                       </span>
                     </td>
-                    <td className="py-2 px-3">
+                    <td className="py-3 px-4">
                       <input type="number" value={row.amount}
                         onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
-                        className="w-full px-2 py-1 border border-gray-200 rounded text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                     </td>
-                    <td className="py-2 px-3 text-right">
+                    <td className="py-3 px-4 text-right">
                       <button onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
                         title="Remove row"
-                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
                         <HiOutlineTrash className="w-4 h-4" />
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="bg-gray-50">
+              <tfoot className="bg-gray-50 border-t border-gray-200">
                 <tr>
-                  <td colSpan={3} className="py-2 px-3 text-right text-xs uppercase text-gray-500 font-semibold">Subtotal</td>
-                  <td className="py-2 px-3 text-right font-semibold text-gray-800">
+                  <td colSpan={3} className="py-3 px-4 text-right text-xs uppercase text-gray-500 font-semibold">Subtotal</td>
+                  <td className="py-3 px-4 text-right font-semibold text-gray-800 tabular-nums">
                     {formatINR(editLines.reduce((a, r) => a + (Number(r.amount) || 0), 0))}
                   </td>
                   <td />
@@ -326,31 +346,54 @@ const InvoiceWizard = () => {
             </table>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Round Off <span className="text-xs text-gray-400 font-normal">(+/- applied to Grand Total)</span>
+                Round Off <span className="text-xs text-gray-400 font-normal">(+/- on Grand Total)</span>
               </label>
               <input type="number" value={roundOff}
                 onChange={(e) => setRoundOff(e.target.value)}
                 placeholder="0"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
             </div>
-            <div className="space-y-1 text-sm text-gray-600">
-              <div className="flex justify-between"><span>Gross</span><span>{formatINR(liveTotals?.gross || 0)}</span></div>
-              <div className="flex justify-between"><span>GST ({preview.totals.gstRate}%)</span><span>{formatINR(liveTotals?.gstAmount || 0)}</span></div>
-              <div className="flex justify-between"><span>TDS ({preview.totals.tdsRate}%)</span><span>− {formatINR(liveTotals?.tdsAmount || 0)}</span></div>
-              <div className="flex justify-between font-semibold text-gray-800"><span>Net Total</span><span>{formatINR(liveTotals?.netTotal || 0)}</span></div>
-              {liveTotals?.previousBalance > 0 && (
-                <div className="flex justify-between"><span>Previous Balance</span><span>{formatINR(liveTotals.previousBalance)}</span></div>
-              )}
-              {liveTotals?.roundOff !== 0 && (
-                <div className="flex justify-between"><span>Round Off</span><span>{formatINR(liveTotals?.roundOff || 0)}</span></div>
-              )}
-              <div className="flex justify-between text-base font-bold text-gray-900 border-t border-gray-200 pt-1">
-                <span>Grand Total</span><span>{formatINR(liveTotals?.grandTotal || 0)}</span>
-              </div>
-            </div>
+            {(() => {
+              const effGst = gstRate === '' ? (preview.totals.gstRate || 0) : (Number(gstRate) || 0);
+              const effTds = preview.totals.tdsRate || 0;
+              const tdsSec = preview.totals.tdsSection || '';
+              const thisBalance = (liveTotals?.netTotal || 0) + (liveTotals?.roundOff || 0);
+              const currentBalance = thisBalance + (liveTotals?.previousBalance || 0);
+              return (
+                <div className="space-y-1 text-sm text-gray-600">
+                  <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(liveTotals?.gross || 0)}</span></div>
+                  {effGst > 0 && (
+                    <div className="flex justify-between"><span>GST ({effGst}%)</span><span className="tabular-nums">{formatINR(liveTotals?.gstAmount || 0)}</span></div>
+                  )}
+                  {(liveTotals?.tdsAmount || 0) > 0 && (
+                    <div className="flex justify-between text-red-600">
+                      <span>TDS@{effTds}%{tdsSec ? `(${tdsSec})` : ''}</span>
+                      <span className="tabular-nums">{formatINR(liveTotals?.tdsAmount || 0)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1 mt-1">
+                    <span>Total</span><span className="tabular-nums">{formatINR(liveTotals?.netTotal || 0)}</span>
+                  </div>
+                  <div className="flex justify-between"><span>Received</span><span className="tabular-nums">{formatINR(0)}</span></div>
+                  <div className="flex justify-between"><span>Balance</span><span className="tabular-nums">{formatINR(thisBalance)}</span></div>
+                  <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
+                    <span>Previous Balance</span><span className="tabular-nums">{formatINR(liveTotals?.previousBalance || 0)}</span>
+                  </div>
+                  <div className={`flex justify-between font-bold ${currentBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    <span>Current Balance</span><span className="tabular-nums">{formatINR(currentBalance)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-gray-900">
+                    <span>Invoice Value Before TDS</span><span className="tabular-nums">{formatINR(liveTotals?.gross || 0)}</span>
+                  </div>
+                  {(liveTotals?.roundOff || 0) !== 0 && (
+                    <div className="flex justify-between"><span>Round Off</span><span className="tabular-nums">{formatINR(liveTotals?.roundOff || 0)}</span></div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
