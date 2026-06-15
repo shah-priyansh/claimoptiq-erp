@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineTrash, HiOutlineEye } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
-import { getInvoicesAPI, deleteInvoiceAPI, getHospitalsAPI } from '../../services/api';
+import { getInvoicesAPI, deleteInvoiceAPI, getHospitalsAPI, openInvoicePdf } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const STATUS_COLORS = {
@@ -174,11 +174,20 @@ const InvoiceList = () => {
                     <td className="py-3 px-4 text-right">
                       <div className="flex justify-end gap-1">
                         <button onClick={() => navigate(`/invoices/${inv._id}`)}
+                          title="View"
                           className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
                           <HiOutlineEye className="w-4 h-4" />
                         </button>
+                        <button
+                          onClick={() => openInvoicePdf(inv._id, inv.invoiceNumber || `draft-${(inv._id || '').slice(0,8)}`)
+                            .catch((err) => toast.error(err.response?.data?.message || 'Failed to load PDF'))}
+                          title="Download / Preview PDF"
+                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
+                          <HiOutlineDownload className="w-4 h-4" />
+                        </button>
                         {canDelete && inv.status === 'draft' && (
                           <button onClick={() => handleDelete(inv)}
+                            title="Delete draft"
                             className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
                             <HiOutlineTrash className="w-4 h-4" />
                           </button>

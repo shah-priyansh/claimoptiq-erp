@@ -8,7 +8,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
-  getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, invoicePdfUrl,
+  getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, openInvoicePdf,
   getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -228,12 +228,14 @@ const InvoiceDetail = () => {
         )}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {(isIssued || isVoid) && (
-            <a href={invoicePdfUrl(id)} target="_blank" rel="noreferrer"
-              className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium rounded-lg">
-              <HiOutlinePrinter className="w-4 h-4" /> Print PDF
-            </a>
-          )}
+          {/* PDF is downloadable at every status. For drafts it's a preview;
+              for issued / partially_paid / paid / void it's the final document. */}
+          <button type="button"
+            onClick={() => openInvoicePdf(id, invoice.invoiceNumber || `draft-${id.slice(0,8)}`)
+              .catch((err) => toast.error(err.response?.data?.message || 'Failed to load PDF'))}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium rounded-lg">
+            <HiOutlinePrinter className="w-4 h-4" /> {isDraft ? 'Preview PDF' : 'Print PDF'}
+          </button>
           {isDraft && canEdit && (
             <>
               <button onClick={saveDraft} disabled={saving}

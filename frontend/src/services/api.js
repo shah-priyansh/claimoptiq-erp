@@ -76,6 +76,27 @@ export const voidInvoiceAPI    = (id, data) => API.post(`/invoices/${id}/void`, 
 export const deleteInvoiceAPI  = (id) => API.delete(`/invoices/${id}`);
 export const invoicePdfUrl     = (id) => `${API.defaults.baseURL}/invoices/${id}/pdf`;
 
+// Fetches the invoice PDF *with the JWT* (the protected endpoint rejects a
+// plain <a target="_blank"> because the new tab doesn't send the
+// Authorization header). Opens the result in a new tab and falls back to a
+// straight download when popups are blocked. Caller is expected to surface
+// any toast/error itself.
+export const openInvoicePdf = async (id, filename) => {
+  const { data } = await API.get(`/invoices/${id}/pdf`, { responseType: 'blob' });
+  const url = URL.createObjectURL(data);
+  const win = window.open(url, '_blank');
+  if (!win) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || `invoice-${id}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  // Defer revocation so the new tab has time to load the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
 // Expenses
 export const getExpenseCategoriesAPI  = (params) => API.get('/expense-categories', { params });
 export const createExpenseCategoryAPI = (data) => API.post('/expense-categories', data);
