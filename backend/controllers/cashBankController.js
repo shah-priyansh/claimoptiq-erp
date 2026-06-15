@@ -110,17 +110,28 @@ exports.list = async (req, res) => {
   }
 };
 
-// Current running balance per mode = Σ IN − Σ OUT (no date filter).
+// Current running balance per mode:
+//   balance(mode) = Σ CashBankEntry IN to that mode
+//                 − Σ CashBankEntry OUT from that mode
+//                 + Σ AccountEntry contra toMode == this mode
+//                 − Σ AccountEntry contra fromMode == this mode
 exports.balances = async (req, res) => {
   try {
-    const grouped = await prisma.cashBankEntry.groupBy({
-      by: ['mode', 'direction'],
-      _sum: { amount: true },
-    });
+    const [cashBankGrouped, contraTo, contraFrom] = await Promise.all([
+      prisma.cashBankEntry.groupBy({ by: ['mode', 'direction'], _sum: { amount: true } }),
+      prisma.accountEntry.groupBy({ where: { entryType: 'contra' }, by: ['toMode'], _sum: { amount: true } }),
+      prisma.accountEntry.groupBy({ where: { entryType: 'contra' }, by: ['fromMode'], _sum: { amount: true } }),
+    ]);
     const out = { cash: 0, bank: 0, upi: 0 };
-    for (const row of grouped) {
+    for (const row of cashBankGrouped) {
       const sign = row.direction === 'in' ? 1 : -1;
       out[row.mode] = (out[row.mode] || 0) + sign * (row._sum.amount || 0);
+    }
+    for (const row of contraTo) {
+      if (row.toMode && out[row.toMode] !== undefined) out[row.toMode] += row._sum.amount || 0;
+    }
+    for (const row of contraFrom) {
+      if (row.fromMode && out[row.fromMode] !== undefined) out[row.fromMode] -= row._sum.amount || 0;
     }
     out.total = out.cash + out.bank + out.upi;
     res.json({
