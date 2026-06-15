@@ -76,6 +76,19 @@ export const voidInvoiceAPI    = (id, data) => API.post(`/invoices/${id}/void`, 
 export const deleteInvoiceAPI  = (id) => API.delete(`/invoices/${id}`);
 export const invoicePdfUrl     = (id) => `${API.defaults.baseURL}/invoices/${id}/pdf`;
 
+// Expenses
+export const getExpenseCategoriesAPI  = (params) => API.get('/expense-categories', { params });
+export const createExpenseCategoryAPI = (data) => API.post('/expense-categories', data);
+export const updateExpenseCategoryAPI = (id, data) => API.patch(`/expense-categories/${id}`, data);
+export const deleteExpenseCategoryAPI = (id) => API.delete(`/expense-categories/${id}`);
+
+export const getExpensesAPI       = (params) => API.get('/expenses', { params });
+export const getExpenseSummaryAPI = (params) => API.get('/expenses/summary', { params });
+export const getExpenseAPI        = (id) => API.get(`/expenses/${id}`);
+export const createExpenseAPI     = (data) => API.post('/expenses', data);
+export const updateExpenseAPI     = (id, data) => API.patch(`/expenses/${id}`, data);
+export const deleteExpenseAPI     = (id) => API.delete(`/expenses/${id}`);
+
 // TDS Rates master
 export const getTdsRatesAPI    = (params) => API.get('/tds-rates', { params });
 export const createTdsRateAPI  = (data) => API.post('/tds-rates', data);
