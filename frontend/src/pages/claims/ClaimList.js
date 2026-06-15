@@ -407,7 +407,7 @@ const ClaimList = () => {
     amountIndices.forEach(i => { totals[i] = 0; });
 
     data.forEach((c, idx) => {
-      const row = COLS.map((f, ci) => (ci === 0 ? idx + 1 : f.getValue(c)));
+      const row = COLS.map((f, ci) => (ci === 0 ? (c.srNo || idx + 1) : f.getValue(c)));
       amountIndices.forEach(i => { totals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
       rowMeta.push({ row: wsData.length, type: 'data' });
       wsData.push(row);
@@ -507,7 +507,7 @@ const ClaimList = () => {
 
         items.forEach((c, idx) => {
           const row = COLS.map((f, ci) => {
-            if (ci === 0) return idx + 1;
+            if (ci === 0) return c.srNo || idx + 1;
             return f.getValue(c);
           });
           amountIndices.forEach(i => { monthTotals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
@@ -636,7 +636,7 @@ const ClaimList = () => {
     amountIndices.forEach(i => { totals[i] = 0; });
 
     const bodyRows = data.map((c, idx) => {
-      const row = COLS.map((f, ci) => (ci === 0 ? idx + 1 : f.getValue(c)));
+      const row = COLS.map((f, ci) => (ci === 0 ? (c.srNo || idx + 1) : f.getValue(c)));
       amountIndices.forEach(i => { totals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
       return row.map((v, i) => amountIndices.includes(i) ? fmtAmt(v) : (v ?? ''));
     });
@@ -791,7 +791,7 @@ const ClaimList = () => {
         amountIndices.forEach(i => { monthTotals[i] = 0; });
 
         const bodyRows = items.map((c, idx) => {
-          const row = COLS.map((f, ci) => { if (ci === 0) return idx + 1; return f.getValue(c); });
+          const row = COLS.map((f, ci) => { if (ci === 0) return c.srNo || idx + 1; return f.getValue(c); });
           amountIndices.forEach(i => { monthTotals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
           return row.map((v, i) => amountIndices.includes(i) ? fmtAmt(v) : (v ?? ''));
         });
