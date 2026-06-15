@@ -17,6 +17,8 @@ router.route('/:id')
   .delete(checkPermission('invoices', 'delete'), ctrl.remove);
 
 router.post('/:id/issue', checkPermission('invoices', 'edit'), ctrl.issue);
+const cashBank = require('../controllers/cashBankController');
+router.post('/:id/payments', checkPermission('cash_bank', 'create'), cashBank.recordInvoicePayment);
 router.post('/:id/void', checkPermission('invoices', 'edit'), ctrl.void);
 router.get('/:id/pdf', checkPermission('invoices', 'view'), ctrl.pdf);
 
