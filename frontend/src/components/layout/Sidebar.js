@@ -123,6 +123,13 @@ const Sidebar = ({ isOpen, onClose }) => {
             </NavLink>
           )}
 
+          {canViewModule('account_entries') && (
+            <NavLink to="/account-entries" className={linkClass} onClick={onClose}>
+              <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
+              Account Entries
+            </NavLink>
+          )}
+
           {canViewModule('document_submissions') && user?.hospital && (
             <NavLink to="/documents/upload" className={linkClass} onClick={onClose}>
               <HiOutlineCloudUpload className="w-5 h-5 flex-shrink-0" />

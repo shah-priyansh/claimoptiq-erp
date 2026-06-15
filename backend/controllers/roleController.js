@@ -18,6 +18,7 @@ exports.getModules = async (req, res) => {
       { key: 'expenses', label: 'Expenses', actions: ['view', 'create', 'edit', 'delete', 'export'] },
       { key: 'expense_categories', label: 'Expense Categories', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'cash_bank', label: 'Cash / Bank', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+      { key: 'account_entries', label: 'Account Entries', actions: ['view', 'create', 'edit', 'delete', 'export'] },
       { key: 'users', label: 'User Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'roles', label: 'Role Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'reports', label: 'FCC Bill Generate', actions: ['view', 'export'] },
