@@ -407,7 +407,7 @@ const ClaimList = () => {
     amountIndices.forEach(i => { totals[i] = 0; });
 
     data.forEach((c, idx) => {
-      const row = COLS.map((f, ci) => (ci === 0 ? (c.srNo || idx + 1) : f.getValue(c)));
+      const row = COLS.map((f, ci) => (ci === 0 ? (isHospitalUser ? idx + 1 : (c.srNo || idx + 1)) : f.getValue(c)));
       amountIndices.forEach(i => { totals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
       rowMeta.push({ row: wsData.length, type: 'data' });
       wsData.push(row);
@@ -507,7 +507,7 @@ const ClaimList = () => {
 
         items.forEach((c, idx) => {
           const row = COLS.map((f, ci) => {
-            if (ci === 0) return c.srNo || idx + 1;
+            if (ci === 0) return isHospitalUser ? idx + 1 : (c.srNo || idx + 1);
             return f.getValue(c);
           });
           amountIndices.forEach(i => { monthTotals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
@@ -636,7 +636,7 @@ const ClaimList = () => {
     amountIndices.forEach(i => { totals[i] = 0; });
 
     const bodyRows = data.map((c, idx) => {
-      const row = COLS.map((f, ci) => (ci === 0 ? (c.srNo || idx + 1) : f.getValue(c)));
+      const row = COLS.map((f, ci) => (ci === 0 ? (isHospitalUser ? idx + 1 : (c.srNo || idx + 1)) : f.getValue(c)));
       amountIndices.forEach(i => { totals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
       return row.map((v, i) => amountIndices.includes(i) ? fmtAmt(v) : (v ?? ''));
     });
@@ -791,7 +791,7 @@ const ClaimList = () => {
         amountIndices.forEach(i => { monthTotals[i] = 0; });
 
         const bodyRows = items.map((c, idx) => {
-          const row = COLS.map((f, ci) => { if (ci === 0) return c.srNo || idx + 1; return f.getValue(c); });
+          const row = COLS.map((f, ci) => { if (ci === 0) return isHospitalUser ? idx + 1 : (c.srNo || idx + 1); return f.getValue(c); });
           amountIndices.forEach(i => { monthTotals[i] += (typeof row[i] === 'number' ? row[i] : 0); });
           return row.map((v, i) => amountIndices.includes(i) ? fmtAmt(v) : (v ?? ''));
         });
@@ -1227,7 +1227,7 @@ const ClaimList = () => {
                 <tr><td colSpan={isHospitalUser ? 7 : 8} className="py-8 text-center text-gray-400">Loading...</td></tr>
               ) : claims.length === 0 ? (
                 <tr><td colSpan={isHospitalUser ? 7 : 8} className="py-8 text-center text-gray-400">No claims found</td></tr>
-              ) : claims.map((c) => (
+              ) : claims.map((c, rowIdx) => (
                 <tr key={c._id}
                   className={`hover:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
                   onClick={() => stickerMode ? toggleStickerSelect(c._id) : navigate(`/claims/${c._id}`)}>
@@ -1236,7 +1236,7 @@ const ClaimList = () => {
                       <input type="checkbox" checked={stickerSelectedIds.includes(c._id)}
                         onChange={() => toggleStickerSelect(c._id)} onClick={e => e.stopPropagation()}
                         className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                    ) : c.srNo}
+                    ) : (isHospitalUser ? rowIdx + 1 : c.srNo)}
                   </td>
                   <td className="py-3 px-3">
                     <p className="text-sm font-medium text-gray-800">{c.patientName}</p>
