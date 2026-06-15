@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI, getBillingServiceNamesAPI } from '../../services/api';
+import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI, getBillingServiceNamesAPI, getReferencesAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserCircle } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
@@ -55,7 +55,7 @@ const HospitalForm = () => {
 
   const [form, setForm] = useState({
     name: '', contact: '', email: '', phone: '', address: '',
-    city: '', state: '', pincode: '', referenceBy: '',
+    city: '', state: '', pincode: '', referenceBy: '', referenceId: '',
     doctors: [],
     billingServices: [],
   });
@@ -64,6 +64,7 @@ const HospitalForm = () => {
   const [fetchLoading, setFetchLoading] = useState(isEdit);
   const [insurers, setInsurers] = useState([]);
   const [serviceNames, setServiceNames] = useState([]);
+  const [references, setReferences] = useState([]);
   const [dropdownDataLoading, setDropdownDataLoading] = useState(true);
   const [insurerSearch, setInsurerSearch] = useState('');
   const [insurerDropdownOpen, setInsurerDropdownOpen] = useState(null);
@@ -72,12 +73,17 @@ const HospitalForm = () => {
     Promise.all([
       getInsuranceAPI(),
       getBillingServiceNamesAPI(),
-    ]).then(([ins, svc]) => {
+      getReferencesAPI({ active: 'true' }),
+    ]).then(([ins, svc, refs]) => {
       setInsurers((ins.data || []).filter(i => i.isActive !== false));
       setServiceNames(svc.data || []);
+      setReferences(refs.data || []);
     }).catch(() => {}).finally(() => setDropdownDataLoading(false));
     if (isEdit) {
-      getHospitalAPI(id).then(({ data }) => setForm(data)).catch(() => {
+      getHospitalAPI(id).then(({ data }) => setForm({
+        ...data,
+        referenceId: data.referenceId || data.reference?._id || '',
+      })).catch(() => {
         toast.error('Hospital not found');
         navigate('/hospitals');
       }).finally(() => setFetchLoading(false));
@@ -241,8 +247,30 @@ const HospitalForm = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Reference By</label>
-              <input name="referenceBy" value={form.referenceBy} onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              {references.length > 0 ? (
+                <>
+                  <select
+                    value={form.referenceId || ''}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const ref = references.find(r => r._id === id);
+                      setForm(f => ({ ...f, referenceId: id, referenceBy: ref ? ref.name : '' }));
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                    <option value="">— Select reference —</option>
+                    {references.map(r => (
+                      <option key={r._id} value={r._id}>{r.name} ({r.commissionRate}%)</option>
+                    ))}
+                  </select>
+                  {!form.referenceId && form.referenceBy && (
+                    <p className="text-xs text-gray-400 mt-1">Legacy text: "{form.referenceBy}" (saved as-is until you pick a reference)</p>
+                  )}
+                </>
+              ) : (
+                <input name="referenceBy" value={form.referenceBy} onChange={handleChange}
+                  placeholder="Free text (create a Reference master to enable dropdown)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              )}
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
