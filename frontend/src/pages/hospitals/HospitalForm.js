@@ -56,6 +56,7 @@ const HospitalForm = () => {
   const [form, setForm] = useState({
     name: '', contact: '', email: '', phone: '', address: '',
     city: '', state: '', pincode: '', referenceBy: '', referenceId: '',
+    gstRate: 0, tdsRate: 0, invoicePrefix: 'FCC',
     doctors: [],
     billingServices: [],
   });
@@ -294,6 +295,56 @@ const HospitalForm = () => {
                 inputMode="numeric" maxLength={6}
                 className={inputCls(!!errors.pincode)} placeholder="e.g. 395001" />
               {errors.pincode && <p className="text-xs text-red-500 mt-1">{errors.pincode}</p>}
+            </div>
+          </div>
+        </div>
+
+        {/* Invoice defaults */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">Invoice Defaults</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Default GST / TDS rates + invoice number prefix used when an invoice is created for this hospital. Operator can override the TDS rate per invoice from the TDS Rate master.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">GST Rate (%)</label>
+              <input
+                name="gstRate"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={form.gstRate}
+                onChange={(e) => setForm((f) => ({ ...f, gstRate: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                placeholder="e.g. 18"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Default TDS Rate (%)</label>
+              <input
+                name="tdsRate"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={form.tdsRate}
+                onChange={(e) => setForm((f) => ({ ...f, tdsRate: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                placeholder="e.g. 10"
+              />
+              <p className="text-xs text-gray-400 mt-1">Used when "Use hospital default" is picked in the invoice wizard</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Prefix</label>
+              <input
+                name="invoicePrefix"
+                value={form.invoicePrefix}
+                onChange={(e) => setForm((f) => ({ ...f, invoicePrefix: e.target.value.toUpperCase().slice(0, 10) }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                placeholder="FCC"
+              />
+              <p className="text-xs text-gray-400 mt-1">Appears as PREFIX/YYYY-YY/0001 on issued invoices</p>
             </div>
           </div>
         </div>

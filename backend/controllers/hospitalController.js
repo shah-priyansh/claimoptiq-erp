@@ -62,6 +62,17 @@ const buildHospitalData = async (body) => {
     pincode: body.pincode || '',
     isActive: body.isActive !== undefined ? body.isActive : true,
   };
+  if (body.gstRate !== undefined) {
+    const n = Number(body.gstRate);
+    data.gstRate = Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  if (body.tdsRate !== undefined) {
+    const n = Number(body.tdsRate);
+    data.tdsRate = Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  if (body.invoicePrefix !== undefined) {
+    data.invoicePrefix = String(body.invoicePrefix || 'FCC').toUpperCase().slice(0, 10) || 'FCC';
+  }
   if (referenceId !== undefined) data.referenceId = referenceId;
   if (body.referenceBy !== undefined) data.referenceBy = body.referenceBy || '';
   else if (referenceByFromRef !== undefined) data.referenceBy = referenceByFromRef;
