@@ -14,6 +14,9 @@ import HospitalForm from './pages/hospitals/HospitalForm';
 import InsuranceList from './pages/insurance/InsuranceList';
 import TPAList from './pages/tpa/TPAList';
 import ReferenceList from './pages/references/ReferenceList';
+import InvoiceList from './pages/invoices/InvoiceList';
+import InvoiceWizard from './pages/invoices/InvoiceWizard';
+import InvoiceDetail from './pages/invoices/InvoiceDetail';
 import UserList from './pages/users/UserList';
 import ClaimList from './pages/claims/ClaimList';
 import ClaimForm from './pages/claims/ClaimForm';
@@ -59,6 +62,9 @@ function App() {
             <Route path="/roles" element={<ProtectedRoute module="roles" requireManage><RoleList /></ProtectedRoute>} />
             <Route path="/roles/new" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />
             <Route path="/roles/:id/edit" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />
+            <Route path="/invoices" element={<ProtectedRoute module="invoices"><InvoiceList /></ProtectedRoute>} />
+            <Route path="/invoices/new" element={<ProtectedRoute module="invoices" requireManage><InvoiceWizard /></ProtectedRoute>} />
+            <Route path="/invoices/:id" element={<ProtectedRoute module="invoices"><InvoiceDetail /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
             <Route path="/claim-statuses" element={<ProtectedRoute module="claim_statuses" requireManage><ClaimStatusMaster /></ProtectedRoute>} />
             <Route path="/claim-document-types" element={<ProtectedRoute module="claim_document_types" requireManage><ClaimDocumentTypeMaster /></ProtectedRoute>} />
