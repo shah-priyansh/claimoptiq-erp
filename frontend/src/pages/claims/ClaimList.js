@@ -998,7 +998,7 @@ const ClaimList = () => {
         <div className="relative flex-1 sm:max-w-md">
           <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
           <input
-            placeholder="Search patient, policy, CCN..."
+            placeholder="Search SR, patient, policy, CCN..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="w-full pl-9 pr-3 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
