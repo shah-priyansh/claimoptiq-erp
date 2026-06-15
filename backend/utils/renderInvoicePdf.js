@@ -338,9 +338,11 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       drawAmtRow('Sub Total', formatINR(invoice.gross));
       if (invoice.gstAmount) drawAmtRow(`GST (${invoice.gstRate}%)`, formatINR(invoice.gstAmount));
       if (invoice.tdsAmount) {
+        // Keep the Amounts cell on ONE line — the long tax name would wrap into
+        // the next row. Section + rate is enough to identify it; the full name
+        // is already shown on the Invoice Detail page and the Line Items table.
         const sectionLabel = invoice.tdsSection ? ` ${invoice.tdsSection}` : '';
-        const nameLabel = invoice.tdsName ? ` — ${invoice.tdsName}` : '';
-        drawAmtRow(`TDS${sectionLabel} (${invoice.tdsRate}%)${nameLabel}`, formatINR(-invoice.tdsAmount), false, COLORS.red);
+        drawAmtRow(`TDS${sectionLabel} (${invoice.tdsRate}%)`, formatINR(-invoice.tdsAmount), false, COLORS.red);
       }
       drawAmtRow('Total', formatINR(invoice.netTotal || invoice.gross), true);
       drawAmtRow('Received', formatINR(invoice.amountPaid));
