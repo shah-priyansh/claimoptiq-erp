@@ -44,6 +44,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     where: { id: hospitalId },
     include: {
       billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
+      tdsRateMaster: { select: { id: true, taxName: true, rate: true, section: true, isActive: true } },
     },
   });
   if (!hospital) {
@@ -156,7 +157,12 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   });
   const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
 
-  const tds = await resolveTdsRate(tdsRateId, hospital.tdsRate);
+  // Resolve TDS: per-invoice override wins, else the hospital's default master row,
+  // else the legacy hospital.tdsRate float.
+  const effectiveTdsRateId = tdsRateId || hospital.tdsRateId || null;
+  const tds = effectiveTdsRateId
+    ? await resolveTdsRate(effectiveTdsRateId, hospital.tdsRate)
+    : { rate: hospital.tdsRate || 0, name: '', section: '' };
 
   const totals = calculateInvoiceTotals({
     tpaDeskLines,
@@ -171,7 +177,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     hospital,
     claims,
     lines: [...tpaDeskLines, ...fixedServiceLines, ...adjustmentLines],
-    totals: { ...totals, gstRate: hospital.gstRate || 0, tdsRate: tds.rate, tdsName: tds.name, tdsSection: tds.section, tdsRateId: tdsRateId || null },
+    totals: { ...totals, gstRate: hospital.gstRate || 0, tdsRate: tds.rate, tdsName: tds.name, tdsSection: tds.section, tdsRateId: effectiveTdsRateId },
   };
 };
 

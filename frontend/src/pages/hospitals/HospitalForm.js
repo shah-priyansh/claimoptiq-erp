@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI, getBillingServiceNamesAPI, getReferencesAPI } from '../../services/api';
+import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI, getBillingServiceNamesAPI, getReferencesAPI, getTdsRatesAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserCircle } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
@@ -56,7 +56,7 @@ const HospitalForm = () => {
   const [form, setForm] = useState({
     name: '', contact: '', email: '', phone: '', address: '',
     city: '', state: '', pincode: '', referenceBy: '', referenceId: '',
-    gstRate: 0, tdsRate: 0, invoicePrefix: 'FCC',
+    gstRate: 0, tdsRate: 0, tdsRateId: '', invoicePrefix: 'FCC',
     doctors: [],
     billingServices: [],
   });
@@ -66,6 +66,7 @@ const HospitalForm = () => {
   const [insurers, setInsurers] = useState([]);
   const [serviceNames, setServiceNames] = useState([]);
   const [references, setReferences] = useState([]);
+  const [tdsRates, setTdsRates] = useState([]);
   const [dropdownDataLoading, setDropdownDataLoading] = useState(true);
   const [insurerSearch, setInsurerSearch] = useState('');
   const [insurerDropdownOpen, setInsurerDropdownOpen] = useState(null);
@@ -75,15 +76,18 @@ const HospitalForm = () => {
       getInsuranceAPI(),
       getBillingServiceNamesAPI(),
       getReferencesAPI({ active: 'true' }),
-    ]).then(([ins, svc, refs]) => {
+      getTdsRatesAPI({ active: 'true' }),
+    ]).then(([ins, svc, refs, tds]) => {
       setInsurers((ins.data || []).filter(i => i.isActive !== false));
       setServiceNames(svc.data || []);
       setReferences(refs.data || []);
+      setTdsRates(tds.data || []);
     }).catch(() => {}).finally(() => setDropdownDataLoading(false));
     if (isEdit) {
       getHospitalAPI(id).then(({ data }) => setForm({
         ...data,
         referenceId: data.referenceId || data.reference?._id || '',
+        tdsRateId: data.tdsRateId || data.tdsRateMaster?._id || '',
       })).catch(() => {
         toast.error('Hospital not found');
         navigate('/hospitals');
@@ -321,19 +325,27 @@ const HospitalForm = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Default TDS Rate (%)</label>
-              <input
-                name="tdsRate"
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={form.tdsRate}
-                onChange={(e) => setForm((f) => ({ ...f, tdsRate: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                placeholder="e.g. 10"
+              <label className="block text-sm font-medium text-gray-700 mb-1">Default TDS Rate</label>
+              <SearchableSelect
+                value={form.tdsRateId}
+                onChange={(v) => {
+                  const picked = tdsRates.find((r) => r._id === v);
+                  setForm((f) => ({ ...f, tdsRateId: v, tdsRate: picked ? picked.rate : 0 }));
+                }}
+                placeholder="No default TDS"
+                searchPlaceholder="Search TDS rates..."
+                noneLabel="— No default —"
+                allowClear
+                options={tdsRates.map((r) => ({
+                  value: r._id,
+                  label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
+                }))}
               />
-              <p className="text-xs text-gray-400 mt-1">Used when "Use hospital default" is picked in the invoice wizard</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Picked from the TDS Rate master. Carries name + section onto the invoice PDF.
+                {' '}
+                <a href="/tds-rates" className="text-primary-600 hover:underline">Add new rates here</a>.
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Prefix</label>

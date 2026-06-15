@@ -50,6 +50,8 @@ model Hospital {
   reference         Reference? @relation(fields: [referenceId], references: [id])
   gstRate         Float                    @default(0) @map("gst_rate")
   tdsRate         Float                    @default(0) @map("tds_rate")
+  tdsRateId       String?                  @map("tds_rate_id")
+  tdsRateMaster   TdsRate?                 @relation("HospitalDefaultTdsRate", fields: [tdsRateId], references: [id])
   invoicePrefix   String                   @default("FCC") @map("invoice_prefix")
   isActive        Boolean                  @default(true) @map("is_active")
   createdAt       DateTime                 @default(now()) @map("created_at")
@@ -264,6 +266,7 @@ model TdsRate {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   invoices  Invoice[]
+  hospitalDefaults Hospital[] @relation("HospitalDefaultTdsRate")
 
   @@index([taxName])
   @@map("tds_rates")
