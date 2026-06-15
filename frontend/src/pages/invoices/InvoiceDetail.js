@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import {
   HiOutlineArrowLeft, HiOutlinePlus, HiOutlineTrash,
   HiOutlinePrinter, HiOutlineBan, HiOutlineCheck, HiOutlineSave,
+  HiOutlineCheckCircle, HiOutlineExclamationCircle,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -218,6 +219,33 @@ const InvoiceDetail = () => {
     }
   };
 
+  const markAsPaid = async () => {
+    const pending = Math.max(0, Math.round(invoice.amountPending || 0));
+    if (pending <= 0) {
+      toast.info('Invoice is already fully paid');
+      return;
+    }
+    if (!(await confirm(
+      `Record a full payment of ₹${pending.toLocaleString('en-IN')} (Cash) and mark this invoice as Paid?`,
+      { title: 'Mark as Paid', confirmLabel: 'Mark Paid' },
+    ))) return;
+    setPayingNow(true);
+    try {
+      await recordInvoicePaymentAPI(id, {
+        date: new Date().toISOString().slice(0, 10),
+        mode: 'cash',
+        amount: pending,
+        notes: 'Marked as paid',
+      });
+      toast.success('Invoice marked as paid');
+      reload();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to mark as paid');
+    } finally {
+      setPayingNow(false);
+    }
+  };
+
   const removePayment = async (entry) => {
     if (!(await confirm(`Reverse this ${entry.mode.toUpperCase()} payment of ₹${entry.amount}?`, { title: 'Reverse Payment', confirmLabel: 'Reverse' }))) return;
     try {
@@ -297,6 +325,12 @@ const InvoiceDetail = () => {
               <HiOutlineTrash className="w-4 h-4" /> Delete
             </button>
           )}
+          {(isIssued || invoice.status === 'partially_paid') && canEdit && (invoice.amountPending || 0) > 0 && (
+            <button onClick={markAsPaid} disabled={payingNow}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+              <HiOutlineCheckCircle className="w-4 h-4" /> {payingNow ? 'Saving...' : 'Mark as Paid'}
+            </button>
+          )}
           {isIssued && canEdit && (invoice.amountPaid || 0) === 0 && (
             <button onClick={handleVoid}
               className="flex items-center gap-2 bg-white border border-red-300 hover:bg-red-50 text-red-600 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
@@ -317,9 +351,18 @@ const InvoiceDetail = () => {
             </p>
             {invoice.issuedAt && <p className="text-xs text-gray-400 mt-1">Issued {formatDate(invoice.issuedAt)} • Due {formatDate(invoice.dueDate)}</p>}
           </div>
-          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_COLORS[invoice.status]}`}>
-            {invoice.status.replace('_', ' ').toUpperCase()}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_COLORS[invoice.status]}`}>
+              {invoice.status.replace('_', ' ').toUpperCase()}
+            </span>
+            {(isIssued || invoice.status === 'partially_paid')
+              && (invoice.amountPending || 0) > 0
+              && invoice.dueDate && new Date(invoice.dueDate) < new Date() && (
+              <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-red-100 text-red-700">
+                <HiOutlineExclamationCircle className="w-3.5 h-3.5" /> OVERDUE
+              </span>
+            )}
+          </div>
         </div>
 
         {isVoid && invoice.voidReason && (
