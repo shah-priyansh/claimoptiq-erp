@@ -199,6 +199,30 @@ model Expense {
   @@map("expenses")
 }
 
+model AccountEntry {
+  id          String   @id @default(uuid())
+  date        DateTime
+  entryType   String   @map("entry_type")             // 'general' | 'contra'
+  remarks     String   @default("")
+
+  debit       Float    @default(0)
+  credit      Float    @default(0)
+
+  fromMode    String?  @map("from_mode")              // 'cash' | 'bank' | 'upi'
+  toMode      String?  @map("to_mode")                // 'cash' | 'bank' | 'upi'
+  amount      Float    @default(0)
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy   User?    @relation("AccountEntryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([date(sort: Desc)])
+  @@index([entryType, date(sort: Desc)])
+  @@map("account_entries")
+}
+
 model CashBankEntry {
   id            String   @id @default(uuid())
   date          DateTime
@@ -338,6 +362,7 @@ model User {
   expensesCreated            Expense[]            @relation("ExpenseCreatedBy")
   expensesUpdated            Expense[]            @relation("ExpenseUpdatedBy")
   cashBankCreated            CashBankEntry[]      @relation("CashBankCreatedBy")
+  accountEntriesCreated      AccountEntry[]       @relation("AccountEntryCreatedBy")
 
   @@map("users")
 }
