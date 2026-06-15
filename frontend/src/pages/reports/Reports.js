@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI } from '../../services/api';
+import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -70,15 +70,22 @@ const Reports = () => {
   const isSuperAdmin = roleSlug === 'super_admin';
 
   const [hospitals, setHospitals] = useState([]);
+  const [referenceMaster, setReferenceMaster] = useState([]);
   const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '', directPatient: '', reference: '' });
 
-  // Distinct, sorted list of non-empty referenceBy values from active hospitals.
-  // Refreshes when hospitals load.
+  useEffect(() => {
+    getReferencesAPI({ active: 'true' })
+      .then(({ data }) => setReferenceMaster(data || []))
+      .catch(() => setReferenceMaster([]));
+  }, []);
+
+  // Distinct, sorted union of legacy referenceBy strings + active Reference master names.
   const referenceOptions = React.useMemo(() => {
     const seen = new Set();
     hospitals.forEach(h => { if (h.referenceBy && h.referenceBy.trim()) seen.add(h.referenceBy.trim()); });
+    referenceMaster.forEach(r => { if (r.name && r.name.trim()) seen.add(r.name.trim()); });
     return Array.from(seen).sort((a, b) => a.localeCompare(b)).map(r => ({ value: r, label: r }));
-  }, [hospitals]);
+  }, [hospitals, referenceMaster]);
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(false);
   const [claimStatuses, setClaimStatuses] = useState([]);
