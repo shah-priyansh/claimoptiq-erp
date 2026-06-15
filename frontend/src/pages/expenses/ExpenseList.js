@@ -115,19 +115,15 @@ const ExpenseList = () => {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-800">Expenses</h1>
-          <p className="text-sm text-gray-500">Salary, Reference Commission, Office, Travel — and anything else operator-defined.</p>
-        </div>
-        {canCreate && (
+    <div>
+      {canCreate && (
+        <div className="flex justify-end mb-4 gap-2">
           <button onClick={() => setModal({ open: true, item: null })}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg">
+            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
             <HiOutlinePlus className="w-4 h-4" /> Add Expense
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Totals strip — per-category cards + grand total */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
@@ -189,20 +185,20 @@ const ExpenseList = () => {
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-sm text-gray-500">Loading...</div>
+          <div className="py-8 text-center text-gray-400">Loading...</div>
         ) : items.length === 0 ? (
-          <div className="p-8 text-center text-sm text-gray-500">No expenses found in this range</div>
+          <div className="py-8 text-center text-gray-400">No expenses found in this range</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left py-3 px-4">Date</th>
-                  <th className="text-left py-3 px-4">Category</th>
-                  <th className="text-left py-3 px-4">Reference</th>
-                  <th className="text-left py-3 px-4">Notes</th>
-                  <th className="text-right py-3 px-4">Amount</th>
-                  <th className="text-right py-3 px-4">Actions</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Category</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reference</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Notes</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">

@@ -55,12 +55,10 @@ const SalesReport = () => {
       ];
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto">
+    <div>
       <Link to="/reports" className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-3">
         <HiOutlineArrowLeft className="w-4 h-4" /> Back to reports
       </Link>
-      <h1 className="text-2xl font-semibold text-gray-800">Sales Report</h1>
-      <p className="text-sm text-gray-500 mb-5">Revenue from issued / partially-paid / paid invoices.</p>
 
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
