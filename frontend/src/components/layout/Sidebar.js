@@ -33,19 +33,27 @@ const billingItems = [
   { to: '/reports',          label: 'Reports',         icon: HiOutlineDocumentReport, module: 'reports' },
 ];
 
-// Sub-nav items grouped under "Administration".
-const adminItems = [
-  { to: '/hospitals',             label: 'Hospitals',           icon: HiOutlineOfficeBuilding, module: 'hospitals' },
-  { to: '/insurance',             label: 'Insurance Companies', icon: HiOutlineShieldCheck,    module: 'insurance' },
-  { to: '/tpa',                   label: 'TPA',                 icon: HiOutlineClipboardList,  module: 'tpa' },
-  { to: '/references',            label: 'References',          icon: HiOutlineTag,            module: 'references' },
-  { to: '/users',                 label: 'Users',               icon: HiOutlineUserGroup,      module: 'users' },
-  { to: '/roles',                 label: 'Roles & Permissions', icon: HiOutlineKey,            module: 'roles' },
-  { to: '/claim-statuses',        label: 'Claim Status Master', icon: HiOutlineTag,            module: 'claim_statuses' },
-  { to: '/claim-document-types',  label: 'Document Types',      icon: HiOutlineDocumentText,   module: 'claim_document_types' },
-  { to: '/billing-service-names', label: 'Billing Services',    icon: HiOutlineCollection,     module: 'billing_service_names' },
-  { to: '/tds-rates',             label: 'TDS Rates',           icon: HiOutlineCalculator,     module: 'tds_rates' },
-  { to: '/expense-categories',    label: 'Expense Categories',  icon: HiOutlineCollection,     module: 'expense_categories' },
+// Sub-nav items grouped under "Masters" (entities the operator manages day to day).
+const masterItems = [
+  { to: '/hospitals',  label: 'Hospitals',  icon: HiOutlineOfficeBuilding, module: 'hospitals' },
+  { to: '/insurance',  label: 'Insurance',  icon: HiOutlineShieldCheck,    module: 'insurance' },
+  { to: '/tpa',        label: 'TPA',        icon: HiOutlineClipboardList,  module: 'tpa' },
+  { to: '/references', label: 'References', icon: HiOutlineTag,            module: 'references' },
+];
+
+// Sub-nav items grouped under "Access".
+const accessItems = [
+  { to: '/users', label: 'Users', icon: HiOutlineUserGroup, module: 'users' },
+  { to: '/roles', label: 'Roles', icon: HiOutlineKey,       module: 'roles' },
+];
+
+// Sub-nav items grouped under "Configuration" — small reference tables.
+const configItems = [
+  { to: '/claim-statuses',        label: 'Claim Status',    icon: HiOutlineTag,          module: 'claim_statuses' },
+  { to: '/claim-document-types',  label: 'Document Types',  icon: HiOutlineDocumentText, module: 'claim_document_types' },
+  { to: '/billing-service-names', label: 'Billing Services', icon: HiOutlineCollection,  module: 'billing_service_names' },
+  { to: '/tds-rates',             label: 'TDS Rates',       icon: HiOutlineCalculator,   module: 'tds_rates' },
+  { to: '/expense-categories',    label: 'Expense Buckets', icon: HiOutlineCollection,   module: 'expense_categories' },
 ];
 
 const linkClass = ({ isActive }) =>
@@ -193,9 +201,25 @@ const Sidebar = ({ isOpen, onClose }) => {
           <SectionLabel>System</SectionLabel>
 
           <CollapsibleSection
-            label="Administration"
+            label="Masters"
+            Icon={HiOutlineOfficeBuilding}
+            items={masterItems}
+            viewCheck={canManageModule}
+            onChildClick={onClose}
+          />
+
+          <CollapsibleSection
+            label="Access"
+            Icon={HiOutlineKey}
+            items={accessItems}
+            viewCheck={canManageModule}
+            onChildClick={onClose}
+          />
+
+          <CollapsibleSection
+            label="Configuration"
             Icon={HiOutlineCog}
-            items={adminItems}
+            items={configItems}
             viewCheck={canManageModule}
             onChildClick={onClose}
           />
