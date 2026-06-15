@@ -167,9 +167,16 @@ const InvoiceList = () => {
                     <td className="py-3 px-4 text-gray-600">{inv.hospital?.name || '-'}</td>
                     <td className="py-3 px-4 text-gray-600">{formatMonth(inv.month)}</td>
                     <td className="py-3 px-4">
-                      <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[inv.status] || 'bg-gray-100 text-gray-700'}`}>
-                        {inv.status.replace('_', ' ')}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[inv.status] || 'bg-gray-100 text-gray-700'}`}>
+                          {inv.status.replace('_', ' ')}
+                        </span>
+                        {(inv.status === 'issued' || inv.status === 'partially_paid')
+                          && (inv.amountPending || 0) > 0
+                          && inv.dueDate && new Date(inv.dueDate) < new Date() && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 font-medium">overdue</span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-right text-gray-800 font-medium">{formatINR(inv.grandTotal)}</td>
                     <td className="py-3 px-4 text-right text-gray-600">{formatINR(inv.amountPaid)}</td>

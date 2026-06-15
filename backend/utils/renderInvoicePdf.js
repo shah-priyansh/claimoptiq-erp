@@ -185,8 +185,15 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       // Right side of Bill To — invoice status + balance due preview
       const statusX = PAD + (W - 2 * PAD) / 2;
       const statusW = (W - 2 * PAD) / 2 - cardPad;
-      const statusLabel = (invoice.status || 'draft').replace('_', ' ').toUpperCase();
-      const statusColor = invoice.status === 'paid' ? COLORS.green
+      const isOverdue =
+        (invoice.status === 'issued' || invoice.status === 'partially_paid') &&
+        Number(invoice.amountPending || 0) > 0 &&
+        invoice.dueDate && new Date(invoice.dueDate) < new Date();
+      const statusLabel = isOverdue
+        ? 'OVERDUE'
+        : (invoice.status || 'draft').replace('_', ' ').toUpperCase();
+      const statusColor = isOverdue ? COLORS.red
+        : invoice.status === 'paid' ? COLORS.green
         : invoice.status === 'void' ? COLORS.red
         : invoice.status === 'partially_paid' ? '#f59e0b'
         : COLORS.primary600;
