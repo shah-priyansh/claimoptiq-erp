@@ -6,6 +6,7 @@ const allModules = [
   'dashboard', 'claims', 'hospitals', 'insurance', 'tpa',
   'users', 'roles', 'reports', 'claim_statuses',
   'claim_document_types', 'document_submissions', 'staff',
+  'references',
 ];
 
 const buildPermissions = (config) =>
@@ -29,6 +30,7 @@ const defaultRoles = [
       hospitals:            { view: true, create: true, edit: true, delete: true },
       insurance:            { view: true, create: true, edit: true, delete: true },
       tpa:                  { view: true, create: true, edit: true, delete: true },
+      references:           { view: true, create: true, edit: true, delete: true },
       users:                { view: true, create: true, edit: true, delete: true },
       roles:                { view: true, create: true, edit: true, delete: true },
       reports:              { view: true, export: true },
@@ -48,6 +50,7 @@ const defaultRoles = [
       hospitals:            { view: true },
       insurance:            { view: true },
       tpa:                  { view: true },
+      references:           { view: true },
       reports:              { view: true },
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
