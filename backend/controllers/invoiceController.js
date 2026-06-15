@@ -5,6 +5,7 @@ const calculateInvoiceTotals = require('../utils/calculateInvoiceTotals');
 const { reserveNextInvoiceNumber } = require('../utils/invoiceSequence');
 const renderInvoicePdf = require('../utils/renderInvoicePdf');
 const { getInvoiceTemplate } = require('./siteSettingController');
+const { writeReferenceCommissionFlow, clearReferenceCommissionFlow } = require('../utils/referenceCommissionFlow');
 
 const EXCLUDED_CLAIM_STATUSES = ['rejected', 'cancelled'];
 
@@ -354,7 +355,17 @@ exports.update = async (req, res) => {
 exports.issue = async (req, res) => {
   try {
     const id = req.params.id;
-    const invoice = await prisma.invoice.findUnique({ where: { id }, include: { hospital: true, lineItems: true } });
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      include: {
+        hospital: {
+          include: {
+            reference: { include: { applicableServices: true } },
+          },
+        },
+        lineItems: true,
+      },
+    });
     if (!invoice) return res.status(404).json({ message: 'Not found' });
     if (invoice.status !== 'draft') return res.status(400).json({ message: `Cannot issue from status '${invoice.status}'` });
 
@@ -363,6 +374,7 @@ exports.issue = async (req, res) => {
 
     const claimIds = invoice.lineItems.filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId).map((l) => l.claimId);
 
+    let commissionAutoFlow = { rowsCreated: 0, totalAmount: 0, skipped: true, reason: 'not run' };
     const result = await prisma.$transaction(async (tx) => {
       // Recompute previousBalance at issue time (drift safety)
       const priorOpen = await tx.invoice.findMany({
@@ -394,7 +406,7 @@ exports.issue = async (req, res) => {
         }
       }
 
-      return tx.invoice.update({
+      const updated = await tx.invoice.update({
         where: { id },
         data: {
           status: 'issued',
@@ -408,9 +420,18 @@ exports.issue = async (req, res) => {
         },
         include: invoiceInclude,
       });
+
+      // Reference commission auto-flow — runs in the same transaction.
+      // The updated invoice object carries the issued invoiceNumber/issuedAt/issuedById
+      // that the engine uses for the Expense notes + provenance.
+      commissionAutoFlow = await writeReferenceCommissionFlow(tx, updated, invoice.hospital);
+
+      return updated;
     });
 
-    res.json(toResponse(result));
+    const payload = toResponse(result);
+    payload.commissionAutoFlow = commissionAutoFlow;
+    res.json(payload);
   } catch (error) {
     const status = error.status || 500;
     res.status(status).json({ message: error.message || 'Server error' });
@@ -428,10 +449,13 @@ exports.void = async (req, res) => {
     const claimIds = invoice.lineItems.filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId).map((l) => l.claimId);
     const reason = String(req.body?.reason || '').slice(0, 500);
 
+    let commissionAutoFlow = { rowsRemoved: 0 };
     const result = await prisma.$transaction(async (tx) => {
       if (claimIds.length) {
         await tx.claim.updateMany({ where: { id: { in: claimIds } }, data: { isBilled: false } });
       }
+      // Remove any auto-flow expense rows tied to this invoice
+      commissionAutoFlow = await clearReferenceCommissionFlow(tx, id);
       return tx.invoice.update({
         where: { id },
         data: {
@@ -443,7 +467,9 @@ exports.void = async (req, res) => {
       });
     });
 
-    res.json(toResponse(result));
+    const payload = toResponse(result);
+    payload.commissionAutoFlow = commissionAutoFlow;
+    res.json(payload);
   } catch (error) {
     const status = error.status || 500;
     res.status(status).json({ message: error.message || 'Server error' });
