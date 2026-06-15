@@ -9,6 +9,7 @@ const hospitalInclude = {
   billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
   doctors: true,
   reference: { select: { id: true, name: true, commissionRate: true, isActive: true } },
+  tdsRateMaster: { select: { id: true, taxName: true, rate: true, section: true, isActive: true } },
 };
 
 const hospitalListInclude = {
@@ -69,6 +70,16 @@ const buildHospitalData = async (body) => {
   if (body.tdsRate !== undefined) {
     const n = Number(body.tdsRate);
     data.tdsRate = Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  if (body.tdsRateId !== undefined) {
+    data.tdsRateId = body.tdsRateId || null;
+    // Keep the float column in sync so legacy callers / reports still resolve correctly.
+    if (body.tdsRateId) {
+      const r = await prisma.tdsRate.findUnique({ where: { id: body.tdsRateId }, select: { rate: true } });
+      if (r) data.tdsRate = r.rate;
+    } else if (body.tdsRate === undefined) {
+      data.tdsRate = 0;
+    }
   }
   if (body.invoicePrefix !== undefined) {
     data.invoicePrefix = String(body.invoicePrefix || 'FCC').toUpperCase().slice(0, 10) || 'FCC';
