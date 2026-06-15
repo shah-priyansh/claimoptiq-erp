@@ -37,6 +37,7 @@ const InvoiceList = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
+  const [pdfLoadingId, setPdfLoadingId] = useState(null);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -179,11 +180,22 @@ const InvoiceList = () => {
                           <HiOutlineEye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => openInvoicePdf(inv._id, inv.invoiceNumber || `draft-${(inv._id || '').slice(0,8)}`)
-                            .catch((err) => toast.error(err.response?.data?.message || 'Failed to load PDF'))}
-                          title="Download / Preview PDF"
-                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
-                          <HiOutlineDownload className="w-4 h-4" />
+                          disabled={pdfLoadingId === inv._id}
+                          onClick={async () => {
+                            setPdfLoadingId(inv._id);
+                            try {
+                              await openInvoicePdf(inv._id, inv.invoiceNumber || `draft-${(inv._id || '').slice(0, 8)}`);
+                            } catch (err) {
+                              toast.error(err.response?.data?.message || 'Failed to load PDF');
+                            } finally {
+                              setPdfLoadingId(null);
+                            }
+                          }}
+                          title={pdfLoadingId === inv._id ? 'Generating PDF…' : 'Download / Preview PDF'}
+                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 disabled:cursor-wait rounded">
+                          {pdfLoadingId === inv._id
+                            ? <span className="inline-block w-4 h-4 rounded-full border-2 border-gray-300 border-t-primary-600 animate-spin" />
+                            : <HiOutlineDownload className="w-4 h-4" />}
                         </button>
                         {canDelete && inv.status === 'draft' && (
                           <button onClick={() => handleDelete(inv)}

@@ -51,6 +51,7 @@ const InvoiceDetail = () => {
   const [payments, setPayments] = useState([]);
   const [payForm, setPayForm] = useState({ date: new Date().toISOString().slice(0,10), mode: 'cash', amount: 0, utrNumber: '', chequeNumber: '', notes: '' });
   const [payingNow, setPayingNow] = useState(false);
+  const [loadingPdf, setLoadingPdf] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -231,10 +232,29 @@ const InvoiceDetail = () => {
           {/* PDF is downloadable at every status. For drafts it's a preview;
               for issued / partially_paid / paid / void it's the final document. */}
           <button type="button"
-            onClick={() => openInvoicePdf(id, invoice.invoiceNumber || `draft-${id.slice(0,8)}`)
-              .catch((err) => toast.error(err.response?.data?.message || 'Failed to load PDF'))}
-            className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium rounded-lg">
-            <HiOutlinePrinter className="w-4 h-4" /> {isDraft ? 'Preview PDF' : 'Print PDF'}
+            disabled={loadingPdf}
+            onClick={async () => {
+              setLoadingPdf(true);
+              try {
+                await openInvoicePdf(id, invoice.invoiceNumber || `draft-${id.slice(0, 8)}`);
+              } catch (err) {
+                toast.error(err.response?.data?.message || 'Failed to load PDF');
+              } finally {
+                setLoadingPdf(false);
+              }
+            }}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-900 disabled:opacity-60 disabled:cursor-wait text-white text-sm font-medium rounded-lg">
+            {loadingPdf ? (
+              <>
+                <span className="inline-block w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                Generating…
+              </>
+            ) : (
+              <>
+                <HiOutlinePrinter className="w-4 h-4" />
+                {isDraft ? 'Preview PDF' : 'Print PDF'}
+              </>
+            )}
           </button>
           {isDraft && canEdit && (
             <>
