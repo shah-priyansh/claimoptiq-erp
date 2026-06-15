@@ -20,6 +20,7 @@ import InvoiceDetail from './pages/invoices/InvoiceDetail';
 import TdsRateList from './pages/tds/TdsRateList';
 import ExpenseList from './pages/expenses/ExpenseList';
 import ExpenseCategoryList from './pages/expenses/ExpenseCategoryList';
+import CashBankList from './pages/cashbank/CashBankList';
 import UserList from './pages/users/UserList';
 import ClaimList from './pages/claims/ClaimList';
 import ClaimForm from './pages/claims/ClaimForm';
@@ -71,6 +72,7 @@ function App() {
             <Route path="/tds-rates" element={<ProtectedRoute module="tds_rates" requireManage><TdsRateList /></ProtectedRoute>} />
             <Route path="/expenses" element={<ProtectedRoute module="expenses"><ExpenseList /></ProtectedRoute>} />
             <Route path="/expense-categories" element={<ProtectedRoute module="expense_categories" requireManage><ExpenseCategoryList /></ProtectedRoute>} />
+            <Route path="/cash-bank" element={<ProtectedRoute module="cash_bank"><CashBankList /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
             <Route path="/claim-statuses" element={<ProtectedRoute module="claim_statuses" requireManage><ClaimStatusMaster /></ProtectedRoute>} />
             <Route path="/claim-document-types" element={<ProtectedRoute module="claim_document_types" requireManage><ClaimDocumentTypeMaster /></ProtectedRoute>} />
