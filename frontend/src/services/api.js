@@ -65,6 +65,17 @@ export const createReferenceAPI = (data) => API.post('/references', data);
 export const updateReferenceAPI = (id, data) => API.put(`/references/${id}`, data);
 export const deleteReferenceAPI = (id) => API.delete(`/references/${id}`);
 
+// Invoices
+export const previewInvoiceAPI = (data) => API.post('/invoices/preview', data);
+export const createInvoiceAPI  = (data) => API.post('/invoices', data);
+export const getInvoicesAPI    = (params) => API.get('/invoices', { params });
+export const getInvoiceAPI     = (id) => API.get(`/invoices/${id}`);
+export const updateInvoiceAPI  = (id, data) => API.patch(`/invoices/${id}`, data);
+export const issueInvoiceAPI   = (id) => API.post(`/invoices/${id}/issue`);
+export const voidInvoiceAPI    = (id, data) => API.post(`/invoices/${id}/void`, data);
+export const deleteInvoiceAPI  = (id) => API.delete(`/invoices/${id}`);
+export const invoicePdfUrl     = (id) => `${API.defaults.baseURL}/invoices/${id}/pdf`;
+
 // Billing Service Names
 export const getBillingServiceNamesAPI = () => API.get('/billing-service-names');
 export const createBillingServiceNameAPI = (data) => API.post('/billing-service-names', data);
