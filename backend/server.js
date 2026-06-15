@@ -30,6 +30,8 @@ app.use('/api/billing-service-names', require('./routes/billingServiceNameRoutes
 app.use('/api/references', require('./routes/referenceRoutes'));
 app.use('/api/invoices', require('./routes/invoiceRoutes'));
 app.use('/api/tds-rates', require('./routes/tdsRateRoutes'));
+app.use('/api/expense-categories', require('./routes/expenseCategoryRoutes'));
+app.use('/api/expenses', require('./routes/expenseRoutes'));
 app.use('/api/claims', require('./routes/claimRoutes'));
 app.use('/api/roles', require('./routes/roleRoutes'));
 app.use('/api/claim-statuses', require('./routes/claimStatusRoutes'));
