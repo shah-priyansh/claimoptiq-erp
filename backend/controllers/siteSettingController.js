@@ -22,9 +22,16 @@ const DEFAULTS = {
   invoice_bank_account_holder:    'FIRST CARE CONSULTANCY',
   invoice_upi_id:                 '',
   invoice_authorized_signatory:   'First Care Consultancy',
-  // Fallback GST rate used when the hospital doesn't carry its own gstRate
-  // override. Stored as a string ('18' / '0' / '12') and parsed at use-site.
+  // Platform-wide default GST rate (per-hospital GST override was removed
+  // 2026-06-16). Stored as a string ('18' / '0' / '12') and parsed at use-site.
   invoice_default_gst_rate:       '0',
+  // Platform-wide invoice number prefix — appears as PREFIX/YYYY-YY/0001 on
+  // issued invoices. Replaces the previous per-hospital invoicePrefix field.
+  invoice_number_prefix:          'FCC',
+  // Platform-wide default TDS — points at a TdsRate master row id. The
+  // per-hospital tdsRate / tdsRateId columns were retired 2026-06-16; this
+  // is now the single fallback when an invoice doesn't carry an override.
+  invoice_default_tds_rate_id:    '',
 };
 
 // Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { getPublicStatsAPI, updateSiteSettingsAPI, uploadInvoiceLogoAPI } from '../../services/api';
+import { getPublicStatsAPI, updateSiteSettingsAPI, uploadInvoiceLogoAPI, getTdsRatesAPI } from '../../services/api';
 import { toast } from 'react-toastify';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const STATIC_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
 const resolveLogoSrc = (url) => {
@@ -26,16 +27,24 @@ const SiteSettings = () => {
     invoice_bank_name: '', invoice_bank_account_no: '', invoice_bank_ifsc: '',
     invoice_bank_account_holder: '', invoice_upi_id: '', invoice_authorized_signatory: '',
     invoice_default_gst_rate: '0',
+    invoice_number_prefix: 'FCC',
+    invoice_default_tds_rate_id: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [tdsRates, setTdsRates] = useState([]);
+  const [loadingTdsRates, setLoadingTdsRates] = useState(true);
 
   useEffect(() => {
     getPublicStatsAPI()
       .then(({ data }) => setForm((f) => ({ ...f, ...data })))
       .catch(() => toast.error('Failed to load settings'))
       .finally(() => setLoading(false));
+    getTdsRatesAPI({ active: 'true' })
+      .then(({ data }) => setTdsRates(data || []))
+      .catch(() => setTdsRates([]))
+      .finally(() => setLoadingTdsRates(false));
   }, []);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -192,10 +201,9 @@ const SiteSettings = () => {
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h2 className="text-base font-semibold text-gray-700 mb-1">Tax Defaults</h2>
+              <h2 className="text-base font-semibold text-gray-700 mb-1">Tax &amp; Numbering Defaults</h2>
               <p className="text-xs text-gray-500 mb-4">
-                Default GST applied to new invoices. A hospital-specific GST rate, when set, overrides this.
-                You can also edit the rate on each draft invoice before issuing it.
+                Applied to every new invoice. You can still edit GST + TDS on each draft before issuing.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
@@ -207,6 +215,39 @@ const SiteSettings = () => {
                     placeholder="e.g. 18"
                     className={inputCls}
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Default TDS Rate</label>
+                  <SearchableSelect
+                    isLoading={loadingTdsRates}
+                    value={form.invoice_default_tds_rate_id}
+                    onChange={(v) => setForm((f) => ({ ...f, invoice_default_tds_rate_id: v || '' }))}
+                    placeholder="No default TDS"
+                    searchPlaceholder="Search TDS rates..."
+                    noneLabel="— No default —"
+                    allowClear
+                    options={tdsRates.map((r) => ({
+                      value: r._id,
+                      label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
+                    }))}
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    Carries name + section onto the invoice PDF.
+                    {' '}
+                    <a href="/tds-rates" className="text-primary-600 hover:underline">Add new rates here</a>.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Prefix</label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    value={form.invoice_number_prefix}
+                    onChange={(e) => set('invoice_number_prefix')({ target: { value: e.target.value.toUpperCase().slice(0, 10) } })}
+                    placeholder="FCC"
+                    className={inputCls}
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Appears as PREFIX/YYYY-YY/0001 on issued invoices.</p>
                 </div>
               </div>
             </div>
