@@ -172,6 +172,9 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
   const [previewLimit, setPreviewLimit] = useState(200);
   const [onlyIssues, setOnlyIssues] = useState(false);
   const [autoCreateMasters, setAutoCreateMasters] = useState(false);
+  // Bypasses the CCN + name/hospital/admit-date duplicate checks. Used when
+  // re-importing the failed-rows export after fixing data.
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, batch: 0, batches: 0, imported: 0, failed: 0, etaSec: null });
   // `cancelRef` is the synchronous source of truth read inside the import loop.
   // `cancelling` mirrors it as React state so the UI can re-render the button
@@ -604,7 +607,10 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
         try {
           ({ data } = await importClaimsAPI(
             batch,
-            { autoCreateMasters: isSuperAdmin && autoCreateMasters },
+            {
+              autoCreateMasters: isSuperAdmin && autoCreateMasters,
+              allowDuplicates: isSuperAdmin && allowDuplicates,
+            },
             { signal: controller.signal },
           ));
         } catch (err) {
@@ -952,12 +958,30 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
                             {missing.insurers.size  > 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px]">{missing.insurers.size} new insurer(s)</span>}
                             {missing.tpas.size      > 0 && <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px]">{missing.tpas.size} new TPA(s)</span>}
                           </div>
-                          <p className="text-[11px] text-gray-500 mt-1.5">⚠ This creates master records exactly as written in your file. Typos become duplicates — verify spellings first.</p>
+                          <p className="text-[11px] text-gray-500 mt-1.5">⚠ This creates master records (incl. missing claim statuses) exactly as written in your file. Typos become duplicates — verify spellings first.</p>
                         </div>
                       </label>
                     </div>
                   );
                 })()}
+
+                {isSuperAdmin && (
+                  <div className={`border rounded-lg p-3 text-xs space-y-2 ${allowDuplicates ? 'bg-rose-50 border-rose-200' : 'bg-gray-50 border-gray-200'}`}>
+                    <label className="flex items-start gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={allowDuplicates}
+                        onChange={e => setAllowDuplicates(e.target.checked)}
+                        className="rounded mt-0.5"
+                      />
+                      <div className="flex-1">
+                        <p className="font-semibold text-gray-800">Skip duplicate detection</p>
+                        <p className="text-[11px] text-gray-600 mt-1">Bypass the CCN-already-exists + same-patient/hospital/admit-date checks. Use when re-importing a failed-rows export where the originals are already in the DB.</p>
+                        <p className="text-[11px] text-rose-700 mt-1">⚠ Importing genuinely duplicate rows will create twin claim records — only enable for known good data.</p>
+                      </div>
+                    </label>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between">
                   <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">

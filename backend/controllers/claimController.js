@@ -705,7 +705,7 @@ const suggestMatches = (input, list, limit = 3) => {
 
 exports.importClaims = async (req, res) => {
   try {
-    const { rows, autoCreateMasters } = req.body;
+    const { rows, autoCreateMasters, allowDuplicates } = req.body;
     if (!Array.isArray(rows) || !rows.length) {
       return res.status(400).json({ message: 'rows (non-empty array) is required' });
     }
@@ -714,6 +714,10 @@ exports.importClaims = async (req, res) => {
     }
     const isSuperAdminFlag = req.user?.role?.slug === 'super_admin';
     const shouldAutoCreate = !!autoCreateMasters && isSuperAdminFlag;
+    // Opt-in toggle (super-admin only) to skip the CCN + name/hospital/date
+    // duplicate checks. Used when re-importing the failed-rows export after
+    // fixing data, where the original imports are already in the DB.
+    const shouldAllowDuplicates = !!allowDuplicates && isSuperAdminFlag;
 
     // Resolve hospital/insurance/TPA by name (case-insensitive). Pre-load lookups once.
     let [hospitals, insurers, tpas, statuses] = await Promise.all([
@@ -724,7 +728,7 @@ exports.importClaims = async (req, res) => {
     ]);
 
     // ── Auto-create missing masters (super-admin opt-in) ───────────────
-    const autoCreated = { hospitals: [], insurers: [], tpas: [] };
+    const autoCreated = { hospitals: [], insurers: [], tpas: [], statuses: [] };
     if (shouldAutoCreate) {
       const existingHospCanon  = new Set(hospitals.map(h => canonical(h.name)).filter(Boolean));
       const existingInsCanon   = new Set(insurers.map(i  => canonical(i.name)).filter(Boolean));
@@ -789,6 +793,39 @@ exports.importClaims = async (req, res) => {
         tpas = tpas.concat(created);
         autoCreated.tpas = created.map(c => c.name);
       }
+      // Claim statuses — slugs unknown in the master are created on the fly
+      // so re-importing exports that carry custom workflow stages (e.g.
+      // "pre-auth_approved", "claim_under_process") doesn't bounce on
+      // validation. We snapshot a sensible label + color and let the operator
+      // tune them in the Claim Status master afterwards.
+      const existingStatusSlugs = new Set(statuses.map(s => s.slug));
+      const newStatuses = new Map(); // slug → label
+      for (const r of rows) {
+        const raw = cleanCell(r?.status);
+        if (!raw) continue;
+        const slug = norm(raw);
+        if (slug && !existingStatusSlugs.has(slug) && !newStatuses.has(slug)) {
+          // Title-case the original input for the label (e.g. "pre-auth_approved" → "Pre-Auth Approved").
+          const label = String(raw).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+            .replace(/\w\S*/g, (t) => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase());
+          newStatuses.set(slug, label || slug);
+        }
+      }
+      if (newStatuses.size) {
+        // Place new statuses after the existing ones so existing dashboards
+        // don't reorder unexpectedly.
+        const startOrder = await prisma.claimStatus.count();
+        const data = [...newStatuses.entries()].map(([slug, label], i) => ({
+          slug, label, color: 'gray', order: startOrder + i + 1, isActive: true,
+        }));
+        await prisma.claimStatus.createMany({ data, skipDuplicates: true });
+        const created = await prisma.claimStatus.findMany({
+          where: { slug: { in: [...newStatuses.keys()] } },
+          select: { slug: true, superAdminOnly: true },
+        });
+        statuses = statuses.concat(created);
+        autoCreated.statuses = created.map(c => c.slug);
+      }
     }
     const hospitalMap = new Map(hospitals.map(h => [norm(h.name), h]));
     const insurerMap  = new Map(insurers.map(i => [norm(i.name), i]));
@@ -837,7 +874,12 @@ exports.importClaims = async (req, res) => {
     existingClaims.forEach(c => {
       const ccn = (c.ccnNo || '').trim().toLowerCase();
       if (ccn) dbCcnKeys.add(ccn);
-      dbCompositeKeys.add(`${norm(c.patientName)}|${c.hospitalId || ''}|${dateKey(c.dateOfAdmit)}`);
+      // CCN is part of the composite so a patient who genuinely has multiple
+      // admissions on the same day at the same hospital with different CCNs
+      // (re-admission, transcription correction, etc.) is not blocked.
+      // Re-uploading the same file still blocks each row because the CCN
+      // (or the composite-with-blank-CCN) already matches the persisted row.
+      dbCompositeKeys.add(`${norm(c.patientName)}|${c.hospitalId || ''}|${dateKey(c.dateOfAdmit)}|${ccn}`);
     });
     // Track keys we create within this very batch so a file with duplicates inside it also dedups.
     const batchCcnKeys       = new Set();
@@ -1053,19 +1095,26 @@ exports.importClaims = async (req, res) => {
 
       // ── Duplicate detection ─────────────────────────────────────────
       //   Match if (a) same CCN already exists, or
-      //   (b) same patient + hospital + date-of-admit already exists.
+      //   (b) same patient + hospital + date-of-admit + CCN already exists.
+      // CCN is in the composite so genuine re-admissions (same patient/day,
+      // different CCN) aren't blocked, while re-uploading the same file
+      // still skips every row because the persisted CCNs match.
+      // Both checks are bypassed when the operator opts in to
+      // `allowDuplicates` — used to force-load known-good data.
       const ccnVal       = cleanCell(row.ccnNo);
       const ccnKey       = ccnVal ? ccnVal.toLowerCase() : null;
       const compositeKey = patientName && dateOfAdmit
-        ? `${norm(patientName)}|${hospitalId || ''}|${dateKey(dateOfAdmit)}`
+        ? `${norm(patientName)}|${hospitalId || ''}|${dateKey(dateOfAdmit)}|${ccnKey || ''}`
         : null;
       let isDuplicate = false;
-      if (ccnKey && (dbCcnKeys.has(ccnKey) || batchCcnKeys.has(ccnKey))) {
-        rowErrors.push(`Duplicate — a claim with CCN "${ccnVal}" already exists; skipped`);
-        isDuplicate = true;
-      } else if (compositeKey && (dbCompositeKeys.has(compositeKey) || batchCompositeKeys.has(compositeKey))) {
-        rowErrors.push(`Duplicate — "${patientName}" was already imported for this hospital + admit date; skipped`);
-        isDuplicate = true;
+      if (!shouldAllowDuplicates) {
+        if (ccnKey && (dbCcnKeys.has(ccnKey) || batchCcnKeys.has(ccnKey))) {
+          rowErrors.push(`Duplicate — a claim with CCN "${ccnVal}" already exists; skipped`);
+          isDuplicate = true;
+        } else if (compositeKey && (dbCompositeKeys.has(compositeKey) || batchCompositeKeys.has(compositeKey))) {
+          rowErrors.push(`Duplicate — "${patientName}" with CCN "${ccnVal || '(blank)'}" was already imported for this hospital + admit date; skipped`);
+          isDuplicate = true;
+        }
       }
 
       if (rowErrors.length) {
