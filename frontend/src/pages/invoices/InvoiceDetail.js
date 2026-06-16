@@ -11,9 +11,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
   getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, openInvoicePdf,
-  getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI,
+  getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI, createCashBankAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import CashBankFormModal from '../cashbank/CashBankFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
 
 const STATUS_COLORS = {
@@ -66,6 +67,9 @@ const InvoiceDetail = () => {
   const [payments, setPayments] = useState([]);
   const [payForm, setPayForm] = useState({ date: new Date().toISOString().slice(0,10), mode: 'cash', amount: 0, utrNumber: '', chequeNumber: '', notes: '' });
   const [payingNow, setPayingNow] = useState(false);
+  // Controls the "Mark as Paid" Cash/Bank entry modal — opens pre-linked to
+  // this invoice so the operator just confirms the mode/amount.
+  const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
   const toggleGroup = (key) => setExpandedGroups((s) => {
@@ -257,28 +261,29 @@ const InvoiceDetail = () => {
     }
   };
 
-  const markAsPaid = async () => {
+  const markAsPaid = () => {
     const pending = Math.max(0, Math.round(invoice.amountPending || 0));
     if (pending <= 0) {
       toast.info('Invoice is already fully paid');
       return;
     }
-    if (!(await confirm(
-      `Record a full payment of ₹${pending.toLocaleString('en-IN')} (Cash) and mark this invoice as Paid?`,
-      { title: 'Mark as Paid', confirmLabel: 'Mark Paid' },
-    ))) return;
+    setMarkPaidOpen(true);
+  };
+
+  const handleMarkPaidSave = async (form) => {
+    if (!invoice) return;
     setPayingNow(true);
     try {
-      await recordInvoicePaymentAPI(id, {
-        date: new Date().toISOString().slice(0, 10),
-        mode: 'cash',
-        amount: pending,
-        notes: 'Marked as paid',
+      await createCashBankAPI({
+        ...form,
+        direction: 'in',
+        invoiceId: invoice._id,
       });
-      toast.success('Invoice marked as paid');
+      toast.success('Payment recorded');
+      setMarkPaidOpen(false);
       reload();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to mark as paid');
+      toast.error(err.response?.data?.message || 'Failed to record payment');
     } finally {
       setPayingNow(false);
     }
@@ -819,6 +824,26 @@ const InvoiceDetail = () => {
           </div>
         </div>
       </div>
+
+      {/* Mark-as-paid: same Cash/Bank entry modal as CashBankList, pre-linked
+          to this invoice so the operator only has to confirm amount + mode. */}
+      <CashBankFormModal
+        open={markPaidOpen}
+        initial={invoice ? {
+          direction: 'in',
+          mode: 'cash',
+          amount: Math.max(0, Math.round(invoice.amountPending || 0)),
+          date: new Date().toISOString().slice(0, 10),
+          notes: '',
+          invoice: { _id: invoice._id },
+        } : null}
+        invoices={invoice ? [invoice] : []}
+        expenses={[]}
+        loadingInvoices={false}
+        loadingExpenses={false}
+        onClose={() => setMarkPaidOpen(false)}
+        onSave={handleMarkPaidSave}
+      />
     </div>
   );
 };
