@@ -11,7 +11,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getInvoicesAPI, deleteInvoiceAPI, getHospitalsAPI, openInvoicePdf,
-  createCashBankAPI,
+  createCashBankAPI, getBankAccountsAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
@@ -41,6 +41,9 @@ const InvoiceList = () => {
   const [items, setItems] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [loadingHospitals, setLoadingHospitals] = useState(true);
+  // Bank accounts feed the Mark-as-Paid modal's bank picker.
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ hospitalId: '', status: '', month: '' });
   const [page, setPage] = useState(1);
@@ -149,6 +152,10 @@ const InvoiceList = () => {
       const list = Array.isArray(data) ? data : data.hospitals;
       setHospitals((list || []).filter((h) => h.isActive !== false));
     }).catch(() => {}).finally(() => setLoadingHospitals(false));
+    getBankAccountsAPI({ active: 'true' })
+      .then(({ data }) => setBankAccounts(data || []))
+      .catch(() => setBankAccounts([]))
+      .finally(() => setLoadingBankAccounts(false));
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -368,8 +375,10 @@ const InvoiceList = () => {
         } : null}
         invoices={paymentInvoice ? [paymentInvoice] : []}
         expenses={[]}
+        bankAccounts={bankAccounts}
         loadingInvoices={false}
         loadingExpenses={false}
+        loadingBankAccounts={loadingBankAccounts}
         onClose={() => setPaymentInvoice(null)}
         onSave={handlePaymentSave}
       />

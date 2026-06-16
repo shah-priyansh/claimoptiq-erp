@@ -85,12 +85,25 @@ exports.uploadInvoiceLogo = async (req, res) => {
   }
 };
 
-// Helper for invoice rendering — returns the invoice template subset with defaults applied.
+// Helper for invoice rendering — returns the invoice template subset with
+// defaults applied. Bank fields are pulled from the default `BankAccount`
+// row (single source of truth) and overlay any stale legacy site_settings
+// values, so the PDF always shows the currently-default bank.
 exports.getInvoiceTemplate = async () => {
   const keys = Object.keys(DEFAULTS).filter((k) => k.startsWith('invoice_'));
-  const rows = await prisma.siteSetting.findMany({ where: { key: { in: keys } } });
+  const [rows, defaultBank] = await Promise.all([
+    prisma.siteSetting.findMany({ where: { key: { in: keys } } }),
+    prisma.bankAccount.findFirst({ where: { isDefault: true } }),
+  ]);
   const out = {};
   for (const k of keys) out[k] = DEFAULTS[k];
   for (const r of rows) out[r.key] = r.value;
+  if (defaultBank) {
+    out.invoice_bank_name = defaultBank.bankName || out.invoice_bank_name;
+    out.invoice_bank_account_holder = defaultBank.accountHolder || out.invoice_bank_account_holder;
+    out.invoice_bank_account_no = defaultBank.accountNumber || out.invoice_bank_account_no;
+    out.invoice_bank_ifsc = defaultBank.ifsc || out.invoice_bank_ifsc;
+    out.invoice_upi_id = defaultBank.upiId || out.invoice_upi_id;
+  }
   return out;
 };

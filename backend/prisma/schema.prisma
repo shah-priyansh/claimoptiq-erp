@@ -234,9 +234,12 @@ model CashBankEntry {
   amount        Float
   notes         String   @default("")
 
-  invoiceId     String?  @map("invoice_id")
-  expenseId     String?  @map("expense_id")
-  hospitalId    String?  @map("hospital_id")
+  invoiceId       String?  @map("invoice_id")
+  expenseId       String?  @map("expense_id")
+  hospitalId      String?  @map("hospital_id")
+  // When mode is 'bank' or 'upi', the operator picks which configured bank
+  // account this entry passes through. Required for bank/upi, null for cash.
+  bankAccountId   String?  @map("bank_account_id")
 
   utrNumber     String   @default("") @map("utr_number")
   chequeNumber  String   @default("") @map("cheque_number")
@@ -245,16 +248,42 @@ model CashBankEntry {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
-  expense       Expense?  @relation(fields: [expenseId], references: [id])
-  hospital      Hospital? @relation(fields: [hospitalId], references: [id])
-  createdBy     User?     @relation("CashBankCreatedBy", fields: [createdById], references: [id])
+  invoice       Invoice?     @relation(fields: [invoiceId], references: [id])
+  expense       Expense?     @relation(fields: [expenseId], references: [id])
+  hospital      Hospital?    @relation(fields: [hospitalId], references: [id])
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
+  createdBy     User?        @relation("CashBankCreatedBy", fields: [createdById], references: [id])
 
   @@index([date(sort: Desc)])
   @@index([direction, mode, date(sort: Desc)])
   @@index([invoiceId])
   @@index([expenseId])
+  @@index([bankAccountId])
   @@map("cash_bank_entries")
+}
+
+// Operator-managed bank accounts (multi-account support). The default account
+// is what's stamped onto issued invoices' footer + UPI QR; every non-default
+// account is also pickable inside the Cash/Bank entry modal so per-account
+// balances stay correct.
+model BankAccount {
+  id            String   @id @default(uuid())
+  bankName      String   @map("bank_name")
+  accountHolder String   @default("") @map("account_holder")
+  accountNumber String   @default("") @map("account_number")
+  ifsc          String   @default("")
+  upiId         String   @default("") @map("upi_id")
+  isDefault     Boolean  @default(false) @map("is_default")
+  isActive      Boolean  @default(true) @map("is_active")
+  order         Int      @default(0)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  cashBankEntries CashBankEntry[]
+
+  @@index([isDefault])
+  @@index([order])
+  @@map("bank_accounts")
 }
 
 model TdsRate {

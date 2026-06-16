@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getPublicStatsAPI, updateSiteSettingsAPI, uploadInvoiceLogoAPI, getTdsRatesAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import BankAccountsSection from './BankAccountsSection';
 
 const STATIC_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
 const resolveLogoSrc = (url) => {
@@ -24,8 +25,7 @@ const SiteSettings = () => {
     invoice_company_name: '', invoice_company_address: '', invoice_company_phone: '',
     invoice_company_email: '', invoice_company_website: '', invoice_logo_url: '',
     invoice_terms: '',
-    invoice_bank_name: '', invoice_bank_account_no: '', invoice_bank_ifsc: '',
-    invoice_bank_account_holder: '', invoice_upi_id: '', invoice_authorized_signatory: '',
+    invoice_authorized_signatory: '',
     invoice_default_gst_rate: '0',
     invoice_number_prefix: 'FCC',
     invoice_default_tds_rate_id: '',
@@ -258,32 +258,7 @@ const SiteSettings = () => {
               <textarea rows={5} value={form.invoice_terms} onChange={set('invoice_terms')} className={`${inputCls} resize-y font-mono`} />
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h2 className="text-base font-semibold text-gray-700 mb-1">Bank Details</h2>
-              <p className="text-xs text-gray-500 mb-4">Shown in the footer of every invoice. UPI ID enables an auto-generated payment QR code.</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
-                  <input value={form.invoice_bank_name} onChange={set('invoice_bank_name')} className={inputCls} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Account Holder Name</label>
-                  <input value={form.invoice_bank_account_holder} onChange={set('invoice_bank_account_holder')} className={inputCls} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
-                  <input value={form.invoice_bank_account_no} onChange={set('invoice_bank_account_no')} className={inputCls} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">IFSC Code</label>
-                  <input value={form.invoice_bank_ifsc} onChange={set('invoice_bank_ifsc')} className={inputCls} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">UPI ID (for QR)</label>
-                  <input value={form.invoice_upi_id} onChange={set('invoice_upi_id')} placeholder="e.g. company@hdfc" className={inputCls} />
-                </div>
-              </div>
-            </div>
+            <BankAccountsSection />
           </div>
         )}
 

@@ -126,6 +126,13 @@ export const updateCashBankAPI      = (id, data) => API.patch(`/cash-bank/${id}`
 export const deleteCashBankAPI      = (id) => API.delete(`/cash-bank/${id}`);
 export const recordInvoicePaymentAPI = (invoiceId, data) => API.post(`/invoices/${invoiceId}/payments`, data);
 
+// Bank accounts — operator-managed list, one flagged default for invoice PDF.
+export const getBankAccountsAPI    = (params) => API.get('/bank-accounts', { params });
+export const createBankAccountAPI  = (data) => API.post('/bank-accounts', data);
+export const updateBankAccountAPI  = (id, data) => API.patch(`/bank-accounts/${id}`, data);
+export const deleteBankAccountAPI  = (id) => API.delete(`/bank-accounts/${id}`);
+export const setDefaultBankAccountAPI = (id) => API.post(`/bank-accounts/${id}/set-default`);
+
 // Site settings — invoice logo upload (multipart/form-data)
 export const uploadInvoiceLogoAPI = (file) => {
   const fd = new FormData();
