@@ -229,7 +229,7 @@ const ClaimList = () => {
   useEffect(() => {
     const hospitalsP = isHospitalUser
       ? Promise.resolve({ data: [] })
-      : getHospitalsAPI({ active: 'true' }).catch(() => ({ data: [] }));
+      : getHospitalsAPI({ all: 'true', active: 'true' }).catch(() => ({ data: [] }));
     const statusesP = getClaimStatusesAPI().catch(() => ({ data: [] }));
     Promise.all([hospitalsP, statusesP]).then(([h, s]) => {
       setHospitals(h.data);

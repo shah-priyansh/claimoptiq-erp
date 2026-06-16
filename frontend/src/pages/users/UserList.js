@@ -22,7 +22,7 @@ const UserList = () => {
     try {
       const [usersRes, hospitalsRes, rolesRes] = await Promise.all([
         getUsersAPI(),
-        getHospitalsAPI({ active: 'true' }),
+        getHospitalsAPI({ all: 'true', active: 'true' }),
         getRolesAPI()
       ]);
       setUsers(usersRes.data);

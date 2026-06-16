@@ -70,7 +70,7 @@ const ClaimForm = () => {
 
   useEffect(() => {
     Promise.all([
-      getHospitalsAPI({ active: 'true' }),
+      getHospitalsAPI({ all: 'true', active: 'true' }),
       getInsuranceAPI(),
       getTPAAPI(),
     ]).then(([h, i, t]) => {
