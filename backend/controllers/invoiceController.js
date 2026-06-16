@@ -19,7 +19,7 @@ const parseMonth = (input) => {
 const monthEnd = (month) => new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1));
 
 const invoiceInclude = {
-  hospital: { select: { id: true, name: true, address: true, city: true, state: true, pincode: true, phone: true, gstRate: true, tdsRate: true, invoicePrefix: true } },
+  hospital: { select: { id: true, name: true, address: true, city: true, state: true, pincode: true, phone: true } },
   createdBy: { select: { id: true, name: true, email: true } },
   issuedBy: { select: { id: true, name: true, email: true } },
   tdsRateMaster: { select: { id: true, taxName: true, rate: true, section: true } },
@@ -55,7 +55,6 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     where: { id: hospitalId },
     include: {
       billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
-      tdsRateMaster: { select: { id: true, taxName: true, rate: true, section: true, isActive: true } },
     },
   });
   if (!hospital) {
@@ -173,29 +172,21 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   });
   const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
 
-  // Resolve TDS: per-invoice override wins, else the hospital's default master row,
-  // else the legacy hospital.tdsRate float.
-  const effectiveTdsRateId = tdsRateId || hospital.tdsRateId || null;
+  // Resolve TDS + GST: per-invoice override wins, otherwise the site-wide
+  // default from Settings → Tax & Numbering Defaults. The per-hospital
+  // gstRate/tdsRate/tdsRateId columns were retired 2026-06-16 — both are
+  // platform-wide now. One `getInvoiceTemplate()` call covers both lookups.
+  const tpl = await getInvoiceTemplate();
+  const effectiveTdsRateId = tdsRateId || tpl.invoice_default_tds_rate_id || null;
   const tds = effectiveTdsRateId
-    ? await resolveTdsRate(effectiveTdsRateId, hospital.tdsRate)
-    : { rate: hospital.tdsRate || 0, name: '', section: '' };
+    ? await resolveTdsRate(effectiveTdsRateId, 0)
+    : { rate: 0, name: '', section: '' };
 
-  // Resolve GST: explicit per-invoice override (operator typed it) wins, then
-  // the site-wide default from Settings → Invoice Template (the 'master'), then
-  // the legacy per-hospital gstRate field as a last resort, else 0.
-  // The site default sits ABOVE hospital.gstRate so that updating the master
-  // setting propagates to every new invoice without per-hospital cleanup.
   let effectiveGstRate = 0;
   if (gstRateOverride !== undefined && gstRateOverride !== null && gstRateOverride !== '') {
     effectiveGstRate = Number(gstRateOverride) || 0;
   } else {
-    const tpl = await getInvoiceTemplate();
-    const siteDefault = Number(tpl.invoice_default_gst_rate) || 0;
-    if (siteDefault > 0) {
-      effectiveGstRate = siteDefault;
-    } else if (hospital.gstRate) {
-      effectiveGstRate = Number(hospital.gstRate) || 0;
-    }
+    effectiveGstRate = Number(tpl.invoice_default_gst_rate) || 0;
   }
 
   const totals = calculateInvoiceTotals({
@@ -637,8 +628,11 @@ exports.issue = async (req, res) => {
       const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
       const grandTotal = (invoice.netTotal || 0) + previousBalance;
 
-      // Reserve invoice number atomically
-      const invoiceNumber = await reserveNextInvoiceNumber(tx, invoice.hospital.invoicePrefix || 'FCC', issuedAt);
+      // Reserve invoice number atomically. Prefix is platform-wide now —
+      // pulled from Site Settings → Invoice Template, not the hospital row.
+      const invoiceTemplate = await getInvoiceTemplate();
+      const invoicePrefix = (invoiceTemplate.invoice_number_prefix || 'FCC').toUpperCase().slice(0, 10) || 'FCC';
+      const invoiceNumber = await reserveNextInvoiceNumber(tx, invoicePrefix, issuedAt);
 
       // Flip linked claims to 'billed' and record their prior status on the
       // line item so a void can roll the claim back to where it was.
@@ -769,27 +763,24 @@ exports.previewPdf = async (req, res) => {
       where: { id: hospitalId },
       select: {
         id: true, name: true, address: true, city: true, state: true, pincode: true, phone: true,
-        gstRate: true, tdsRate: true, tdsRateId: true, invoicePrefix: true,
       },
     });
     if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
 
-    // GST/TDS resolution mirrors buildInvoiceLines so the preview matches what
-    // the saved invoice will store.
+    // GST + TDS resolution mirrors buildInvoiceLines: per-invoice override
+    // wins, otherwise the site-wide defaults.
+    const tpl = await getInvoiceTemplate();
     let effectiveGstRate = 0;
     if (gstRate !== undefined && gstRate !== null && gstRate !== '') {
       effectiveGstRate = Number(gstRate) || 0;
     } else {
-      const tpl = await getInvoiceTemplate();
-      const siteDefault = Number(tpl.invoice_default_gst_rate) || 0;
-      if (siteDefault > 0) effectiveGstRate = siteDefault;
-      else if (hospital.gstRate) effectiveGstRate = Number(hospital.gstRate) || 0;
+      effectiveGstRate = Number(tpl.invoice_default_gst_rate) || 0;
     }
 
-    const effectiveTdsRateId = tdsRateId || hospital.tdsRateId || null;
+    const effectiveTdsRateId = tdsRateId || tpl.invoice_default_tds_rate_id || null;
     const tds = effectiveTdsRateId
-      ? await resolveTdsRate(effectiveTdsRateId, hospital.tdsRate)
-      : { rate: hospital.tdsRate || 0, name: '', section: '' };
+      ? await resolveTdsRate(effectiveTdsRateId, 0)
+      : { rate: 0, name: '', section: '' };
 
     // Previous balance = open prior invoices for the hospital.
     const priorOpen = await prisma.invoice.findMany({

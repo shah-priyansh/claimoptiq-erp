@@ -9,7 +9,6 @@ const hospitalInclude = {
   billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
   doctors: true,
   reference: { select: { id: true, name: true, commissionRate: true, isActive: true } },
-  tdsRateMaster: { select: { id: true, taxName: true, rate: true, section: true, isActive: true } },
 };
 
 const hospitalListInclude = {
@@ -63,27 +62,10 @@ const buildHospitalData = async (body) => {
     pincode: body.pincode || '',
     isActive: body.isActive !== undefined ? body.isActive : true,
   };
-  if (body.gstRate !== undefined) {
-    const n = Number(body.gstRate);
-    data.gstRate = Number.isFinite(n) && n >= 0 ? n : 0;
-  }
-  if (body.tdsRate !== undefined) {
-    const n = Number(body.tdsRate);
-    data.tdsRate = Number.isFinite(n) && n >= 0 ? n : 0;
-  }
-  if (body.tdsRateId !== undefined) {
-    data.tdsRateId = body.tdsRateId || null;
-    // Keep the float column in sync so legacy callers / reports still resolve correctly.
-    if (body.tdsRateId) {
-      const r = await prisma.tdsRate.findUnique({ where: { id: body.tdsRateId }, select: { rate: true } });
-      if (r) data.tdsRate = r.rate;
-    } else if (body.tdsRate === undefined) {
-      data.tdsRate = 0;
-    }
-  }
-  if (body.invoicePrefix !== undefined) {
-    data.invoicePrefix = String(body.invoicePrefix || 'FCC').toUpperCase().slice(0, 10) || 'FCC';
-  }
+  // Per-hospital GST / TDS / invoicePrefix were retired 2026-06-16 — all
+  // three are now single platform-wide settings in Site Settings → Invoice
+  // Template. Any legacy clients still sending those fields are silently
+  // dropped (we just don't write them onto `data`).
   if (referenceId !== undefined) data.referenceId = referenceId;
   if (body.referenceBy !== undefined) data.referenceBy = body.referenceBy || '';
   else if (referenceByFromRef !== undefined) data.referenceBy = referenceByFromRef;
