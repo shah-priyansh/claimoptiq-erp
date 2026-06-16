@@ -202,7 +202,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
     if (!open) return;
     setRefLoading(true);
     Promise.all([
-      isHospitalUser ? Promise.resolve({ data: [] }) : getHospitalsAPI({ active: 'true' }).catch(() => ({ data: [] })),
+      isHospitalUser ? Promise.resolve({ data: [] }) : getHospitalsAPI({ all: 'true', active: 'true' }).catch(() => ({ data: [] })),
       getInsuranceAPI().catch(() => ({ data: [] })),
       getTPAAPI().catch(() => ({ data: [] })),
       getClaimStatusesAPI().catch(() => ({ data: [] })),

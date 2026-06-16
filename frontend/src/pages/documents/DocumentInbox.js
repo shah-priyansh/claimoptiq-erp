@@ -102,7 +102,7 @@ const DocumentInbox = () => {
 
   useEffect(() => {
     if (!isHospitalUser) {
-      getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
+      getHospitalsAPI({ all: 'true', active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
     }
     getClaimDocumentTypesAPI().then(({ data }) => setDocTypes(data)).catch(() => {});
   }, [isHospitalUser]);

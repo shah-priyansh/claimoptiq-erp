@@ -145,7 +145,7 @@ const InvoiceList = () => {
   };
 
   useEffect(() => {
-    getHospitalsAPI().then(({ data }) => {
+    getHospitalsAPI({ all: 'true' }).then(({ data }) => {
       const list = Array.isArray(data) ? data : data.hospitals;
       setHospitals((list || []).filter((h) => h.isActive !== false));
     }).catch(() => {}).finally(() => setLoadingHospitals(false));

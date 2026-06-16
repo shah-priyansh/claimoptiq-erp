@@ -131,7 +131,7 @@ const Reports = () => {
 
   useEffect(() => {
     if (!isHospitalUser) {
-      getHospitalsAPI({ active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
+      getHospitalsAPI({ all: 'true', active: 'true' }).then(({ data }) => setHospitals(data)).catch(() => {});
     }
     getClaimStatusesAPI()
       .then(({ data }) => setClaimStatuses(data.filter(s => s.isActive !== false && (!s.superAdminOnly || isSuperAdmin))))

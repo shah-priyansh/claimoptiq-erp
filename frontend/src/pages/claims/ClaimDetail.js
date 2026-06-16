@@ -314,7 +314,7 @@ const ClaimDetail = () => {
       .then(({ data }) => setDocTypes(Array.isArray(data) ? data.filter(d => d.isActive !== false) : []))
       .catch(() => toast.error('Failed to load document types'));
     Promise.all([
-      getHospitalsAPI({ active: 'true' }),
+      getHospitalsAPI({ all: 'true', active: 'true' }),
       getInsuranceAPI(),
       getTPAAPI(),
     ]).then(([h, i, t]) => {

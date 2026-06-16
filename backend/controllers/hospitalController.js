@@ -17,6 +17,14 @@ const hospitalListInclude = {
   reference: { select: { id: true, name: true } },
 };
 
+// Tiny include for dropdown callsites — only the fields a SearchableSelect
+// renders. Cuts the response by ~99% vs the full hospitalInclude, so
+// dropdowns can fetch every hospital in one shot without dragging billing
+// services / slabs / doctors over the wire.
+const hospitalDropdownSelect = {
+  id: true, name: true, isActive: true, referenceBy: true,
+};
+
 const validateHospitalFields = (body) => {
   if (body.phone && !isValidPhone(body.phone)) return 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
   if (body.email && !isValidEmail(body.email)) return 'Enter a valid email address';
@@ -190,7 +198,7 @@ exports.createHospital = async (req, res) => {
 
 exports.getHospitals = async (req, res) => {
   try {
-    const { search, active, page, limit = 25 } = req.query;
+    const { search, active, page, limit = 25, all } = req.query;
     const where = {};
 
     if (active !== undefined) where.isActive = active === 'true';
@@ -198,6 +206,18 @@ exports.getHospitals = async (req, res) => {
     const userHospId = req.user.hospitalId || req.user.hospital?.id;
     if (userHospId) {
       where.id = userHospId;
+    }
+
+    // Dropdown / "fetch everything" mode — pagination is explicitly
+    // bypassed and we serve a minimal payload so the response stays cheap
+    // even with hundreds of hospitals.
+    if (all === 'true' || all === '1') {
+      const hospitals = await prisma.hospital.findMany({
+        where,
+        select: hospitalDropdownSelect,
+        orderBy: { name: 'asc' },
+      });
+      return res.json(toResponse(hospitals));
     }
 
     if (page !== undefined) {
