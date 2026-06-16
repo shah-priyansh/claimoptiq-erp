@@ -23,15 +23,17 @@ const claimInclude = {
   tpa: { select: { id: true, name: true, address: true, mobile: true } },
 };
 
-// Lean include used for list views — drops billingServices/slabs which are only
-// needed by super-admins for filePrice calculation, and are stripped from the
-// response for everyone else anyway.
+// Lean include used for list views — keeps everything `claimInclude` did
+// EXCEPT `hospital.billingServices.slabs`. That nested relation balloons the
+// per-row payload (50 claims × N services × M slabs each) and was the main
+// reason `/api/claims?page=...` was slow. For super-admin we now compute
+// `filePrice` server-side using one batched hospital fetch in `getClaims`.
 const claimListInclude = {
   hospital: {
     select: { id: true, name: true, referenceBy: true, address: true, phone: true },
   },
-  insuranceCompany: { select: { id: true, name: true } },
-  tpa: { select: { id: true, name: true } },
+  insuranceCompany: { select: { id: true, name: true, address: true, mobile: true } },
+  tpa: { select: { id: true, name: true, address: true, mobile: true } },
 };
 
 const claimFullInclude = {
@@ -121,7 +123,7 @@ exports.createClaim = async (req, res) => {
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, page = 1, limit = 25, skipCount } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, page = 1, limit = 25, skipCount, includeTotals, idsOnly } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
@@ -180,10 +182,27 @@ exports.getClaims = async (req, res) => {
 
     const isSuperAdmin = req.user?.role?.slug === 'super_admin';
     const skipTotal = skipCount === 'true' || skipCount === '1';
+
+    // Lightweight path for the Claims Report bill-mode "select all across all
+    // pages" action — returns only IDs for the current filter scope so the
+    // client doesn't have to page through 100s of rows.
+    if (idsOnly === 'true' || idsOnly === '1') {
+      const idRows = await prisma.claim.findMany({
+        where,
+        select: { id: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      return res.json({ ids: idRows.map((r) => r.id) });
+    }
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    // Always use the lean include for list queries — including
+    // `hospital.billingServices.slabs` per row was joining hundreds of rows
+    // per page and dominating response time. File price (super-admin only)
+    // is now computed server-side using ONE batched hospital fetch below.
     const findManyP = prisma.claim.findMany({
       where,
-      include: isSuperAdmin ? claimInclude : claimListInclude,
+      include: claimListInclude,
       orderBy: { createdAt: 'desc' },
       skip,
       take: parseInt(limit),
@@ -193,17 +212,89 @@ exports.getClaims = async (req, res) => {
       : await Promise.all([findManyP, prisma.claim.count({ where })]);
 
     const claimsData = toResponse(claims);
-    const stripped = isSuperAdmin
-      ? claimsData
-      : claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
-          ...rest,
-          hospital: hospital ? (({ referenceBy, ...h }) => h)(hospital) : hospital,
-        }));
+
+    // For super-admin we need `filePrice` per row so the table column + export
+    // can render without pulling billingServices in the row join.
+    let stripped;
+    if (isSuperAdmin) {
+      const hospitalIds = [...new Set(claimsData.map((c) => c.hospitalId).filter(Boolean))];
+      const billingMap = {};
+      if (hospitalIds.length) {
+        const hosps = await prisma.hospital.findMany({
+          where: { id: { in: hospitalIds } },
+          select: { id: true, billingServices: { where: { isActive: true }, include: { slabs: { orderBy: { rangeStart: 'asc' } } } } },
+        });
+        hosps.forEach((h) => { billingMap[h.id] = h.billingServices; });
+      }
+      stripped = claimsData.map((c) => ({
+        ...c,
+        filePrice: c.filePriceOverridden && c.filePrice
+          ? c.filePrice
+          : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0),
+      }));
+    } else {
+      stripped = claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
+        ...rest,
+        hospital: hospital ? (({ referenceBy, ...h }) => h)(hospital) : hospital,
+      }));
+    }
+
+    // Optional aggregate sums for the matching filter scope (NOT the page).
+    // Used by the Claims Report summary cards so paginated rendering still
+    // shows the correct totals. For super_admin we additionally compute the
+    // file-price sum (requires per-hospital billing services), which is the
+    // pricey one — only ask for it when the client opts in.
+    let totals = null;
+    if (includeTotals === 'true' || includeTotals === '1') {
+      const agg = await prisma.claim.aggregate({
+        where,
+        _sum: { hospitalFinalBill: true, finalApprovalAmount: true, bankTransferAmount: true, settlementAmount: true, tds: true },
+      });
+      totals = {
+        hospitalFinalBill: agg._sum.hospitalFinalBill || 0,
+        finalApprovalAmount: agg._sum.finalApprovalAmount || 0,
+        bankTransferAmount: agg._sum.bankTransferAmount || 0,
+        settlementAmount: agg._sum.settlementAmount || 0,
+        tds: agg._sum.tds || 0,
+      };
+      if (isSuperAdmin) {
+        // File price needs per-claim calculation against the hospital's
+        // billing services — pull only the fields needed for the calc.
+        const priceRows = await prisma.claim.findMany({
+          where,
+          select: {
+            hospitalId: true,
+            hospitalFinalBill: true,
+            finalApprovalAmount: true,
+            filePrice: true,
+            filePriceOverridden: true,
+          },
+        });
+        const hospitalIds = [...new Set(priceRows.map((r) => r.hospitalId).filter(Boolean))];
+        const hospMap = {};
+        if (hospitalIds.length) {
+          const hosps = await prisma.hospital.findMany({
+            where: { id: { in: hospitalIds } },
+            select: { id: true, billingServices: { where: { isActive: true }, include: { slabs: { orderBy: { rangeStart: 'asc' } } } } },
+          });
+          hosps.forEach((h) => { hospMap[h.id] = h.billingServices; });
+        }
+        let totalFilePrice = 0;
+        for (const c of priceRows) {
+          totalFilePrice += c.filePriceOverridden && c.filePrice
+            ? c.filePrice
+            : calculateFilePrice(hospMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
+        }
+        totals.filePrice = totalFilePrice;
+      }
+    }
+
     res.json({
       claims: stripped,
       total,
       page: parseInt(page),
       pages: total === null ? null : Math.ceil(total / parseInt(limit)),
+      totals,
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

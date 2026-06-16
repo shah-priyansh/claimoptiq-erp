@@ -16,6 +16,7 @@ import TPAList from './pages/tpa/TPAList';
 import ReferenceList from './pages/references/ReferenceList';
 import InvoiceList from './pages/invoices/InvoiceList';
 import InvoiceWizard from './pages/invoices/InvoiceWizard';
+import BulkInvoiceWizard from './pages/invoices/BulkInvoiceWizard';
 import InvoiceDetail from './pages/invoices/InvoiceDetail';
 import TdsRateList from './pages/tds/TdsRateList';
 import ExpenseList from './pages/expenses/ExpenseList';
@@ -75,6 +76,7 @@ function App() {
             <Route path="/roles/:id/edit" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />
             <Route path="/invoices" element={<ProtectedRoute module="invoices"><InvoiceList /></ProtectedRoute>} />
             <Route path="/invoices/new" element={<ProtectedRoute module="invoices" requireManage><InvoiceWizard /></ProtectedRoute>} />
+            <Route path="/invoices/bulk/new" element={<ProtectedRoute module="invoices" requireManage><BulkInvoiceWizard /></ProtectedRoute>} />
             <Route path="/invoices/:id" element={<ProtectedRoute module="invoices"><InvoiceDetail /></ProtectedRoute>} />
             <Route path="/tds-rates" element={<ProtectedRoute module="tds_rates" requireManage><TdsRateList /></ProtectedRoute>} />
             <Route path="/expenses" element={<ProtectedRoute module="expenses"><ExpenseList /></ProtectedRoute>} />

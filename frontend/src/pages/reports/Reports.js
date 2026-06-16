@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -6,6 +7,7 @@ import { toast } from 'react-toastify';
 import { HiOutlineDownload, HiChevronDown, HiOutlineX, HiOutlineSearch } from 'react-icons/hi';
 import { formatCurrency, calculateFilePrice, formatDate as _formatDate } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import PaginationBar from '../../components/ui/PaginationBar';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
@@ -66,6 +68,7 @@ const DEFAULT_SELECTED_SA = BASE_FIELD_DEFS.filter(f => f.defaultOn).map(f => f.
 const Reports = () => {
   const { user, roleSlug } = useAuth();
   const confirm = useConfirm();
+  const navigate = useNavigate();
   const isHospitalUser = !!user?.hospital;
   const isSuperAdmin = roleSlug === 'super_admin';
 
@@ -94,6 +97,20 @@ const Reports = () => {
 
   const [billMode, setBillMode] = useState(false);
   const [selectedClaimIds, setSelectedClaimIds] = useState([]);
+
+  // Server-side pagination state. `claims` holds only the current page so
+  // rendering stays cheap even on 4500+-row datasets. `serverTotal` /
+  // `serverTotals` come from the backend so totals + pagination work across
+  // the entire filter scope, not just the page in memory.
+  const [tablePage, setTablePage] = useState(1);
+  const [tablePageSize, setTablePageSize] = useState(50);
+  const [serverTotal, setServerTotal] = useState(0);
+  const [serverTotals, setServerTotals] = useState(null);
+  // Cache the filters that produced the current result set so a paginate
+  // call refetches the same filter window even if the user later edits the
+  // filter inputs without re-clicking Generate.
+  const [activeFilters, setActiveFilters] = useState(null);
+  const [allMatchingIds, setAllMatchingIds] = useState([]); // populated on-demand for bill-mode select-all and exports
 
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef(null);
@@ -136,23 +153,77 @@ const Reports = () => {
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
-  const fetchClaims = async () => {
-    const params = { limit: 10000 };
-    if (filters.hospital) params.hospital = filters.hospital;
-    if (filters.dateFrom) params.dateFrom = filters.dateFrom;
-    if (filters.dateTo) params.dateTo = filters.dateTo;
-    if (filters.status) params.status = filters.status;
-    if (filters.directPatient) params.directPatient = filters.directPatient;
-    if (filters.reference && isSuperAdmin) params.reference = filters.reference;
+  // Build the filter param object once so paged + full fetches stay in sync.
+  const buildFilterParams = (src = filters) => {
+    const params = {};
+    if (src.hospital) params.hospital = src.hospital;
+    if (src.dateFrom) params.dateFrom = src.dateFrom;
+    if (src.dateTo) params.dateTo = src.dateTo;
+    if (src.status) params.status = src.status;
+    if (src.directPatient) params.directPatient = src.directPatient;
+    if (src.reference && isSuperAdmin) params.reference = src.reference;
+    return params;
+  };
+
+  // Fetch one page of claims. The first call (page 1) asks for `totals` too
+  // so the summary cards reflect the full filter scope, not just the page.
+  const fetchClaimsPage = async (page, pageSize, baseFilters, { withTotals } = {}) => {
+    const params = { ...buildFilterParams(baseFilters), page, limit: pageSize };
+    if (withTotals) params.includeTotals = 'true';
     const { data } = await getClaimsAPI(params);
-    return data.claims;
+    return { claims: data.claims || [], total: data.total || 0, totals: data.totals || null };
+  };
+
+  // Fetch every matching claim for exports (Excel / PDF) and per-hospital
+  // groupings. Uses a large limit to keep things single-shot.
+  const fetchAllClaims = async (baseFilters = filters) => {
+    const params = { ...buildFilterParams(baseFilters), limit: 10000 };
+    const { data } = await getClaimsAPI(params);
+    return data.claims || [];
+  };
+
+  // Fetch only the claim IDs for the current filter scope — used by bill-mode
+  // "select all" so we can mark every matching claim without paging through.
+  const fetchAllClaimIds = async (baseFilters = filters) => {
+    const params = { ...buildFilterParams(baseFilters), idsOnly: 'true' };
+    const { data } = await getClaimsAPI(params);
+    return data.ids || [];
   };
 
   const generateReport = async () => {
     setLoading(true);
-    try { setClaims(await fetchClaims()); }
-    catch { toast.error('Failed to generate report'); }
-    finally { setLoading(false); }
+    setTablePage(1);
+    setSelectedClaimIds([]);
+    setAllMatchingIds([]);
+    const snapshot = { ...filters };
+    setActiveFilters(snapshot);
+    try {
+      const { claims: pageClaims, total, totals } = await fetchClaimsPage(1, tablePageSize, snapshot, { withTotals: true });
+      setClaims(pageClaims);
+      setServerTotal(total);
+      setServerTotals(totals);
+    } catch {
+      toast.error('Failed to generate report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Re-fetch a specific page (and optionally a new page size) without
+  // touching totals — Generate already cached the aggregate counts.
+  const fetchPage = async (page, pageSize = tablePageSize) => {
+    if (!activeFilters) return;
+    setLoading(true);
+    try {
+      const { claims: pageClaims } = await fetchClaimsPage(page, pageSize, activeFilters);
+      setClaims(pageClaims);
+      setTablePage(page);
+      if (pageSize !== tablePageSize) setTablePageSize(pageSize);
+    } catch {
+      toast.error('Failed to load page');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ── Bill mode ─────────────────────────────────────────────────────────────
@@ -161,31 +232,17 @@ const Reports = () => {
     setSelectedClaimIds([]);
     setBillMode(true);
     if (claims.length > 0) return;
-    setLoading(true);
-    try { setClaims(await fetchClaims()); }
-    catch { toast.error('Failed to generate report'); }
-    finally { setLoading(false); }
+    await generateReport();
   };
 
   const handleCancelBillMode = () => { setBillMode(false); setSelectedClaimIds([]); };
 
-  const handleInitialBill = async () => {
-    const ids = selectedClaimIds;
-    if (!ids.length) return;
-    const ok = await confirm(
-      `This will mark ${ids.length} claim${ids.length !== 1 ? 's' : ''} as Billed. Continue?`,
-      { title: 'Initial Bill', confirmLabel: 'Mark as Billed', variant: 'primary' }
-    );
-    if (!ok) return;
-    setBillingLoading(true);
-    try {
-      await bulkBillAPI(ids, true);
-      setClaims(prev => prev.map(c => ids.includes(c._id) ? { ...c, isBilled: true } : c));
-      setSelectedClaimIds([]);
-      setBillMode(false);
-      toast.success(`${ids.length} claim${ids.length !== 1 ? 's' : ''} marked as Billed`);
-    } catch { toast.error('Failed to mark claims as billed'); }
-    finally { setBillingLoading(false); }
+  // Sends the selected claim IDs to the bulk invoice wizard, which groups them
+  // by hospital + discharge-month and walks the operator through one draft
+  // invoice per group (approve/reject) before generating all approved ones.
+  const handleGenerateInvoices = () => {
+    if (!selectedClaimIds.length) return;
+    navigate('/invoices/bulk/new', { state: { claimIds: selectedClaimIds } });
   };
 
   const handleToggleBillStatus = async (claim) => {
@@ -211,10 +268,30 @@ const Reports = () => {
     finally { setBillingLoading(false); }
   };
 
-  const allSelected = claims.length > 0 && claims.every(c => selectedClaimIds.includes(c._id));
+  // With server-side pagination, "select all" needs every matching ID, not
+  // just the rows currently rendered. We hydrate `allMatchingIds` lazily the
+  // first time the user toggles select-all so we don't pay that cost up front.
+  const totalMatching = serverTotal || claims.length;
+  const allSelected = totalMatching > 0 && selectedClaimIds.length >= totalMatching;
   const someSelected = selectedClaimIds.length > 0;
-  const toggleSelectAll = () => { if (allSelected) setSelectedClaimIds([]); else setSelectedClaimIds(claims.map(c => c._id)); };
+  const toggleSelectAll = async () => {
+    if (allSelected) { setSelectedClaimIds([]); return; }
+    if (allMatchingIds.length) {
+      setSelectedClaimIds(allMatchingIds);
+      return;
+    }
+    if (!activeFilters) { setSelectedClaimIds(claims.map((c) => c._id)); return; }
+    try {
+      const ids = await fetchAllClaimIds(activeFilters);
+      setAllMatchingIds(ids);
+      setSelectedClaimIds(ids);
+    } catch {
+      toast.error('Failed to load all claim IDs');
+    }
+  };
   const toggleClaim = (id) => setSelectedClaimIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+
+  const totalPages = Math.max(1, Math.ceil((serverTotal || 0) / tablePageSize));
 
   // ── Export helpers ────────────────────────────────────────────────────────
 
@@ -553,53 +630,49 @@ const Reports = () => {
 
   const runExport = async (action, fields) => {
     const dateStr = new Date().toISOString().slice(0, 10);
-    const groups = groupByHospital();
-
-    if (action === 'per-excel') {
-      if (!groups.length) return;
-      if (groups.length === 1) {
-        const wb = buildExcelWB(groups, fields);
-        XLSX.writeFile(wb, `claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.xlsx`);
-        return;
-      }
-      const zip = new JSZip();
-      groups.forEach(({ hospital, monthGroups }) => {
-        const wb = buildExcelWB([{ hospital, monthGroups }], fields);
-        zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.xlsx`, XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
-      });
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `claim_report_${dateStr}.zip` });
-      a.click(); URL.revokeObjectURL(a.href);
-      return;
-    }
-
-    if (action === 'per-pdf') {
-      if (!groups.length) return;
-      if (groups.length === 1) {
-        buildPDFDoc(groups, fields).save(`claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.pdf`);
-        return;
-      }
-      const zip = new JSZip();
-      groups.forEach(({ hospital, monthGroups }) => {
-        zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.pdf`, buildPDFDoc([{ hospital, monthGroups }], fields).output('arraybuffer'));
-      });
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `claim_report_${dateStr}.zip` });
-      a.click(); URL.revokeObjectURL(a.href);
-      return;
-    }
-
-    // all-excel / all-pdf: fetch fresh
     setLoading(true);
     try {
-      const fresh = await fetchClaims();
-      setClaims(fresh);
+      // Every export needs the full filter scope, not just the current page.
+      // We fetch fresh each time so the file always reflects the latest data.
+      const fresh = await fetchAllClaims(activeFilters || filters);
       if (!fresh.length) { toast.info('No claims match the current filters'); return; }
-      const freshGroups = groupByHospital(fresh);
+      const groups = groupByHospital(fresh);
+
+      if (action === 'per-excel') {
+        if (groups.length === 1) {
+          XLSX.writeFile(buildExcelWB(groups, fields), `claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.xlsx`);
+          return;
+        }
+        const zip = new JSZip();
+        groups.forEach(({ hospital, monthGroups }) => {
+          const wb = buildExcelWB([{ hospital, monthGroups }], fields);
+          zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.xlsx`, XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+        });
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `claim_report_${dateStr}.zip` });
+        a.click(); URL.revokeObjectURL(a.href);
+        return;
+      }
+
+      if (action === 'per-pdf') {
+        if (groups.length === 1) {
+          buildPDFDoc(groups, fields).save(`claim_${safeHospitalName(groups[0].hospital)}_${dateStr}.pdf`);
+          return;
+        }
+        const zip = new JSZip();
+        groups.forEach(({ hospital, monthGroups }) => {
+          zip.file(`claim_${safeHospitalName(hospital)}_${dateStr}.pdf`, buildPDFDoc([{ hospital, monthGroups }], fields).output('arraybuffer'));
+        });
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `claim_report_${dateStr}.zip` });
+        a.click(); URL.revokeObjectURL(a.href);
+        return;
+      }
+
       if (action === 'all-excel') {
-        XLSX.writeFile(buildExcelWB(freshGroups, fields), `claim_report_all_${dateStr}.xlsx`);
-      } else {
-        buildPDFDoc(freshGroups, fields).save(`claim_report_all_${dateStr}.pdf`);
+        XLSX.writeFile(buildExcelWB(groups, fields), `claim_report_all_${dateStr}.xlsx`);
+      } else if (action === 'all-pdf') {
+        buildPDFDoc(groups, fields).save(`claim_report_all_${dateStr}.pdf`);
       }
     } catch { toast.error('Failed to export'); }
     finally { setLoading(false); }
@@ -621,9 +694,11 @@ const Reports = () => {
 
   const getFileP = getFilePrice;
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
-  const totalBill = claims.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
-  const totalSettlement = claims.reduce((s, c) => s + (c.bankTransferAmount || 0), 0);
-  const totalFilePriceSum = claims.reduce((s, c) => s + getFileP(c), 0);
+  // Prefer server-side aggregates (full filter scope) over summing the page in
+  // memory — without this the cards would show the visible page total only.
+  const totalBill = serverTotals?.hospitalFinalBill ?? claims.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
+  const totalSettlement = serverTotals?.bankTransferAmount ?? claims.reduce((s, c) => s + (c.bankTransferAmount || 0), 0);
+  const totalFilePriceSum = serverTotals?.filePrice ?? claims.reduce((s, c) => s + getFileP(c), 0);
   const tableColCount = (isHospitalUser ? 9 : 10) + (isSuperAdmin ? 3 : 0) + (billMode ? 1 : 0);
 
   // ── Field modal helpers ───────────────────────────────────────────────────
@@ -660,9 +735,9 @@ const Reports = () => {
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-500">{selectedClaimIds.length} selected</span>
               <button onClick={handleCancelBillMode} className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">Cancel</button>
-              <button onClick={handleInitialBill} disabled={!someSelected || billingLoading}
-                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
-                {billingLoading ? 'Processing...' : 'Initial Bill'}
+              <button onClick={handleGenerateInvoices} disabled={!someSelected || billingLoading}
+                className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                Generate Invoices
               </button>
             </div>
           ) : (
@@ -783,7 +858,7 @@ const Reports = () => {
       {claims.length > 0 && (
         <div className={`grid grid-cols-1 gap-4 mb-6 ${isSuperAdmin ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <p className="text-2xl font-bold text-gray-800">{claims.length}</p>
+            <p className="text-2xl font-bold text-gray-800">{(serverTotal || claims.length).toLocaleString()}</p>
             <p className="text-xs text-gray-500">Total Claims</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
@@ -876,6 +951,17 @@ const Reports = () => {
             </tbody>
           </table>
         </div>
+        {serverTotal > 0 && (
+          <PaginationBar
+            page={tablePage}
+            pages={totalPages}
+            total={serverTotal}
+            pageSize={tablePageSize}
+            onPageChange={(p) => fetchPage(p)}
+            onPageSizeChange={(n) => fetchPage(1, n)}
+            label="claims"
+          />
+        )}
       </div>
 
       {/* Field Selection Modal */}

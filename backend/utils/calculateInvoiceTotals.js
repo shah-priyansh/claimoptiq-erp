@@ -13,7 +13,10 @@ const calculateInvoiceTotals = ({
   const subtotalAdjust = Math.round(sum(adjustmentLines));
   const gross = subtotalTpaDesk + subtotalServices + subtotalAdjust;
   const gstAmount = Math.round((gross * (Number(gstRate) || 0)) / 100);
-  const tdsAmount = Math.round((gross * (Number(tdsRate) || 0)) / 100);
+  // TDS is deducted on the GST-inclusive value (SubTotal + GST), not on the
+  // bare SubTotal — when GST applies it must be summed in first.
+  const tdsBase = gross + gstAmount;
+  const tdsAmount = Math.round((tdsBase * (Number(tdsRate) || 0)) / 100);
   const netTotal = gross + gstAmount - tdsAmount;
   const prev = Math.round(Number(previousBalance) || 0);
   const grandTotal = netTotal + prev;

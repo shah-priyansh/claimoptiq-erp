@@ -6,6 +6,8 @@ const { protect, checkPermission } = require('../middleware/auth');
 router.use(protect);
 
 router.post('/preview', checkPermission('invoices', 'view'), ctrl.preview);
+router.post('/preview-bulk', checkPermission('invoices', 'view'), ctrl.previewBulk);
+router.post('/preview-pdf', checkPermission('invoices', 'view'), ctrl.previewPdf);
 
 router.route('/')
   .get(checkPermission('invoices', 'view'), ctrl.list)
