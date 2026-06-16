@@ -9,6 +9,7 @@ const cashBankInclude = {
   invoice: { select: { id: true, invoiceNumber: true, hospital: { select: { id: true, name: true } } } },
   expense: { select: { id: true, amount: true, notes: true, category: { select: { id: true, label: true, slug: true } } } },
   hospital: { select: { id: true, name: true } },
+  bankAccount: { select: { id: true, bankName: true, accountNumber: true, ifsc: true } },
   createdBy: { select: { id: true, name: true } },
 };
 
@@ -52,6 +53,26 @@ const buildEntryData = async (body) => {
     if (!exp) throw { status: 400, message: 'Expense not found' };
   }
 
+  // Bank/UPI entries must reference a specific configured bank account so
+  // per-account balances stay correct. We accept it directly OR fall back
+  // to the default account when the client doesn't pick one.
+  let bankAccountId = body.bankAccountId || null;
+  if (mode === 'bank' || mode === 'upi') {
+    if (!bankAccountId) {
+      const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
+      bankAccountId = def?.id || null;
+    }
+    if (!bankAccountId) {
+      throw { status: 400, message: 'Bank / UPI entries need a bank account. Add one in Site Settings → Bank Accounts.' };
+    }
+    const acct = await prisma.bankAccount.findUnique({ where: { id: bankAccountId }, select: { id: true, isActive: true } });
+    if (!acct) throw { status: 400, message: 'Bank account not found' };
+    if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
+  } else {
+    // Cash entries never carry a bank account.
+    bankAccountId = null;
+  }
+
   return {
     date,
     direction,
@@ -61,6 +82,7 @@ const buildEntryData = async (body) => {
     invoiceId,
     expenseId,
     hospitalId,
+    bankAccountId,
     utrNumber: String(body.utrNumber || '').slice(0, 60),
     chequeNumber: String(body.chequeNumber || '').slice(0, 60),
   };
@@ -220,6 +242,7 @@ exports.update = async (req, res) => {
       invoiceId: req.body.invoiceId !== undefined ? req.body.invoiceId : existing.invoiceId,
       expenseId: req.body.expenseId !== undefined ? req.body.expenseId : existing.expenseId,
       hospitalId: req.body.hospitalId !== undefined ? req.body.hospitalId : existing.hospitalId,
+      bankAccountId: req.body.bankAccountId !== undefined ? req.body.bankAccountId : existing.bankAccountId,
       utrNumber: req.body.utrNumber ?? existing.utrNumber,
       chequeNumber: req.body.chequeNumber ?? existing.chequeNumber,
     });

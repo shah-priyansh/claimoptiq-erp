@@ -12,6 +12,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import {
   getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, openInvoicePdf,
   getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI, createCashBankAPI,
+  getBankAccountsAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
@@ -70,6 +71,15 @@ const InvoiceDetail = () => {
   // Controls the "Mark as Paid" Cash/Bank entry modal — opens pre-linked to
   // this invoice so the operator just confirms the mode/amount.
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
+
+  useEffect(() => {
+    getBankAccountsAPI({ active: 'true' })
+      .then(({ data }) => setBankAccounts(data || []))
+      .catch(() => setBankAccounts([]))
+      .finally(() => setLoadingBankAccounts(false));
+  }, []);
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
   const toggleGroup = (key) => setExpandedGroups((s) => {
@@ -839,8 +849,10 @@ const InvoiceDetail = () => {
         } : null}
         invoices={invoice ? [invoice] : []}
         expenses={[]}
+        bankAccounts={bankAccounts}
         loadingInvoices={false}
         loadingExpenses={false}
+        loadingBankAccounts={loadingBankAccounts}
         onClose={() => setMarkPaidOpen(false)}
         onSave={handleMarkPaidSave}
       />

@@ -12,11 +12,12 @@ const blank = {
   link: 'none',           // 'none' | 'invoice' | 'expense'
   invoiceId: '',
   expenseId: '',
+  bankAccountId: '',
   utrNumber: '',
   chequeNumber: '',
 };
 
-const CashBankFormModal = ({ open, initial, invoices, expenses, loadingInvoices = false, loadingExpenses = false, onClose, onSave }) => {
+const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
@@ -33,6 +34,7 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, loadingInvoices 
         link: linked,
         invoiceId: initial.invoice?._id || '',
         expenseId: initial.expense?._id || '',
+        bankAccountId: initial.bankAccount?._id || initial.bankAccountId || '',
         utrNumber: initial.utrNumber || '',
         chequeNumber: initial.chequeNumber || '',
       });
@@ -40,6 +42,21 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, loadingInvoices 
       setForm(blank);
     }
   }, [open, initial]);
+
+  // When mode flips to bank/upi and no account is picked yet, auto-select the
+  // operator's default account so the operator can just click Save.
+  useEffect(() => {
+    if (!open) return;
+    if ((form.mode === 'bank' || form.mode === 'upi') && !form.bankAccountId && bankAccounts.length) {
+      const def = bankAccounts.find((a) => a.isDefault) || bankAccounts[0];
+      if (def) setForm((f) => ({ ...f, bankAccountId: def._id }));
+    }
+    if (form.mode === 'cash' && form.bankAccountId) {
+      // Cash entries never carry a bank account — drop the leftover when the
+      // operator toggles back from bank/upi to cash.
+      setForm((f) => ({ ...f, bankAccountId: '' }));
+    }
+  }, [form.mode, form.bankAccountId, bankAccounts, open]);
 
   if (!open) return null;
 
@@ -56,6 +73,7 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, loadingInvoices 
         notes: form.notes,
         invoiceId: form.link === 'invoice' ? (form.invoiceId || null) : null,
         expenseId: form.link === 'expense' ? (form.expenseId || null) : null,
+        bankAccountId: (form.mode === 'bank' || form.mode === 'upi') ? (form.bankAccountId || null) : null,
         utrNumber: form.utrNumber,
         chequeNumber: form.chequeNumber,
       });
@@ -124,6 +142,28 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, loadingInvoices 
               ))}
             </div>
           </div>
+
+          {(form.mode === 'bank' || form.mode === 'upi') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account *</label>
+              <SearchableSelect
+                isLoading={loadingBankAccounts}
+                value={form.bankAccountId}
+                onChange={(v) => setForm((f) => ({ ...f, bankAccountId: v || '' }))}
+                placeholder={bankAccounts.length ? 'Select bank account' : 'No bank accounts configured'}
+                searchPlaceholder="Search bank accounts..."
+                options={bankAccounts.map((b) => ({
+                  value: b._id,
+                  label: `${b.bankName}${b.accountNumber ? ` • A/C ${b.accountNumber.slice(-4).padStart(4, '·')}` : ''}${b.isDefault ? ' (Default)' : ''}`,
+                }))}
+              />
+              {!bankAccounts.length && !loadingBankAccounts && (
+                <p className="text-xs text-amber-700 mt-1">
+                  Add an account in Settings → Bank Accounts before recording bank or UPI entries.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>

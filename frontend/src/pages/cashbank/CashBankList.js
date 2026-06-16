@@ -6,7 +6,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getCashBankAPI, getCashBankBalancesAPI, createCashBankAPI, updateCashBankAPI, deleteCashBankAPI,
-  getInvoicesAPI, getExpensesAPI,
+  getInvoicesAPI, getExpensesAPI, getBankAccountsAPI,
 } from '../../services/api';
 import CashBankFormModal from './CashBankFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
@@ -32,8 +32,10 @@ const CashBankList = () => {
   const [balances, setBalances] = useState({ cash: 0, bank: 0, upi: 0, total: 0 });
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
   const [loadingExpenses, setLoadingExpenses] = useState(true);
+  const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
   const [page, setPage] = useState(1);
@@ -70,6 +72,7 @@ const CashBankList = () => {
     // Load invoice/expense pickers (best-effort)
     getInvoicesAPI({ limit: 200 }).then(({ data }) => setInvoices((data.invoices || []).filter((i) => i.status === 'issued' || i.status === 'partially_paid'))).catch(() => {}).finally(() => setLoadingInvoices(false));
     getExpensesAPI({ limit: 200 }).then(({ data }) => setExpenses(data.expenses || [])).catch(() => {}).finally(() => setLoadingExpenses(false));
+    getBankAccountsAPI({ active: 'true' }).then(({ data }) => setBankAccounts(data || [])).catch(() => setBankAccounts([])).finally(() => setLoadingBankAccounts(false));
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,8 +268,10 @@ const CashBankList = () => {
         initial={modal.item}
         invoices={invoices}
         expenses={expenses}
+        bankAccounts={bankAccounts}
         loadingInvoices={loadingInvoices}
         loadingExpenses={loadingExpenses}
+        loadingBankAccounts={loadingBankAccounts}
         onClose={() => setModal({ open: false, item: null })}
         onSave={handleSave}
       />
