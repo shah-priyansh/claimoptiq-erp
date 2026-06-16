@@ -26,6 +26,14 @@ const invoiceInclude = {
   lineItems: { orderBy: { order: 'asc' } },
 };
 
+// Lean include for the invoice list view — drops `lineItems` (the main weight,
+// 50+ TPA Desk rows per invoice), createdBy/issuedBy/tdsRateMaster, and pares
+// `hospital` down to the columns the list table actually renders. Cuts the
+// response payload by ~95% on heavy months.
+const invoiceListInclude = {
+  hospital: { select: { id: true, name: true } },
+};
+
 const resolveTdsRate = async (tdsRateId, fallbackRate) => {
   if (!tdsRateId) return { rate: fallbackRate || 0, name: '', section: '' };
   const r = await prisma.tdsRate.findUnique({ where: { id: tdsRateId } });
@@ -389,7 +397,7 @@ exports.list = async (req, res) => {
     const [invoices, total] = await Promise.all([
       prisma.invoice.findMany({
         where,
-        include: invoiceInclude,
+        include: invoiceListInclude,
         orderBy: [{ month: 'desc' }, { createdAt: 'desc' }],
         skip,
         take,
