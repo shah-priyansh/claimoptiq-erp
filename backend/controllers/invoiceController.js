@@ -39,7 +39,10 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 
 // Build the line items + totals for a (hospital, month) without persisting.
 // Returns { lines, totals, hospital, claims }.
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride } = {}) => {
+// When `claimIds` is supplied, the line set is restricted to those claims (still
+// scoped by hospital + month) so the bulk "Generate Bill" flow can preview only
+// the claims the user actually selected, not every unbilled claim in the month.
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds } = {}) => {
   const hospital = await prisma.hospital.findUnique({
     where: { id: hospitalId },
     include: {
@@ -53,13 +56,18 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     throw err;
   }
 
+  const claimWhere = {
+    hospitalId,
+    dateOfDischarge: { gte: month, lt: monthEnd(month) },
+    isBilled: false,
+    status: { notIn: EXCLUDED_CLAIM_STATUSES },
+  };
+  if (Array.isArray(claimIds) && claimIds.length) {
+    claimWhere.id = { in: claimIds };
+  }
+
   const claims = await prisma.claim.findMany({
-    where: {
-      hospitalId,
-      dateOfDischarge: { gte: month, lt: monthEnd(month) },
-      isBilled: false,
-      status: { notIn: EXCLUDED_CLAIM_STATUSES },
-    },
+    where: claimWhere,
     select: {
       id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
       filePrice: true, filePriceOverridden: true,
@@ -201,10 +209,10 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
 
 exports.preview = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, adjustments, tdsRateId, gstRate } = req.body;
+    const { hospitalId, month: rawMonth, adjustments, tdsRateId, gstRate, claimIds } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds });
     res.json({
       hospital: toResponse(built.hospital),
       month,
@@ -218,9 +226,99 @@ exports.preview = async (req, res) => {
   }
 };
 
+// Group selected claims by (hospital, dischargeMonth) and return one draft
+// preview per group. Used by the "Generate Bill" flow on the Claims Report
+// page so the operator can step through every hospital invoice that the
+// selection produces before committing.
+exports.previewBulk = async (req, res) => {
+  try {
+    const { claimIds, tdsRateId, gstRate } = req.body;
+    if (!Array.isArray(claimIds) || !claimIds.length) {
+      return res.status(400).json({ message: 'claimIds (non-empty array) is required' });
+    }
+
+    // Pull every selected claim WITHOUT the billable filter so we can tell
+    // the user exactly which ones were skipped and why.
+    const allSelected = await prisma.claim.findMany({
+      where: { id: { in: claimIds } },
+      select: {
+        id: true, srNo: true, patientName: true, status: true,
+        isBilled: true, hospitalId: true, dateOfDischarge: true,
+      },
+    });
+
+    const skipped = [];
+    const claims = [];
+    for (const c of allSelected) {
+      if (c.isBilled) {
+        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'already billed' });
+      } else if (EXCLUDED_CLAIM_STATUSES.includes(c.status)) {
+        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: c.status });
+      } else if (!c.hospitalId) {
+        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no hospital' });
+      } else if (!c.dateOfDischarge) {
+        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no discharge date' });
+      } else {
+        claims.push(c);
+      }
+    }
+
+    if (!claims.length) {
+      return res.status(400).json({
+        message: 'No billable claims in selection',
+        skipped,
+      });
+    }
+
+    // Group by hospitalId + month (UTC year-month) → list of claimIds.
+    const groups = new Map();
+    for (const c of claims) {
+      const d = new Date(c.dateOfDischarge);
+      const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
+      const key = `${c.hospitalId}|${monthKey}`;
+      if (!groups.has(key)) groups.set(key, { hospitalId: c.hospitalId, month: new Date(monthKey), claimIds: [] });
+      groups.get(key).claimIds.push(c.id);
+    }
+
+    // Build a preview for each group (sequential — we hit Prisma per group anyway).
+    const previews = [];
+    for (const g of groups.values()) {
+      const built = await buildInvoiceLines(g.hospitalId, g.month, { tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds });
+      // Detect drafts that already exist for this (hospital, month) so the UI
+      // can warn the operator before they try to commit.
+      const existing = await prisma.invoice.findUnique({
+        where: { hospitalId_month: { hospitalId: g.hospitalId, month: g.month } },
+        select: { id: true, status: true, invoiceNumber: true },
+      });
+      previews.push({
+        hospitalId: g.hospitalId,
+        hospital: toResponse(built.hospital),
+        month: g.month,
+        claimIds: g.claimIds,
+        lines: built.lines,
+        totals: built.totals,
+        hasContent: built.lines.length > 0,
+        existingInvoice: existing ? toResponse(existing) : null,
+      });
+    }
+
+    // Stable ordering: month asc, then hospital name asc.
+    previews.sort((a, b) => {
+      const m = new Date(a.month) - new Date(b.month);
+      if (m !== 0) return m;
+      return (a.hospital?.name || '').localeCompare(b.hospital?.name || '');
+    });
+
+    res.json({ previews, skipped });
+  } catch (error) {
+    const status = error.status || 500;
+    res.status(status).json({ message: error.message || 'Server error' });
+  }
+};
+
 exports.create = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate } = req.body;
+    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
@@ -235,7 +333,7 @@ exports.create = async (req, res) => {
       return res.status(200).json(toResponse(existing));
     }
 
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds });
     if (!built.lines.length) {
       return res.status(400).json({ message: 'No claims or fixed services found for this month. Nothing to invoice.' });
     }
@@ -339,7 +437,8 @@ const recomputeInvoiceFromLines = async (tx, invoiceId) => {
   const adjust = sumBy('adjustment');
   const gross = Math.round(tpa + services + adjust);
   const gstAmount = Math.round((gross * (inv.gstRate || 0)) / 100);
-  const tdsAmount = Math.round((gross * (inv.tdsRate || 0)) / 100);
+  // TDS base = SubTotal + GST (matches `calculateInvoiceTotals`).
+  const tdsAmount = Math.round(((gross + gstAmount) * (inv.tdsRate || 0)) / 100);
   const netTotal = gross + gstAmount - tdsAmount;
   const grandTotal = netTotal + (inv.previousBalance || 0) + (inv.roundOff || 0);
   const amountPending = Math.round(grandTotal - (inv.amountPaid || 0));
@@ -645,6 +744,111 @@ exports.remove = async (req, res) => {
   } catch (error) {
     if (error.code === 'P2025') return res.status(404).json({ message: 'Not found' });
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Renders the *same* invoice PDF the issued/print flow uses, but for an
+// in-progress draft from the Bulk Invoice wizard — nothing is persisted.
+// Body shape: { hospitalId, month: 'YYYY-MM-01', lines: [{description, amount, lineType, claimId?}],
+//               gstRate?, tdsRateId?, roundOff?, notes? }
+exports.previewPdf = async (req, res) => {
+  try {
+    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes } = req.body;
+    const month = parseMonth(rawMonth);
+    if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month are required' });
+
+    const hospital = await prisma.hospital.findUnique({
+      where: { id: hospitalId },
+      select: {
+        id: true, name: true, address: true, city: true, state: true, pincode: true, phone: true,
+        gstRate: true, tdsRate: true, tdsRateId: true, invoicePrefix: true,
+      },
+    });
+    if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
+
+    // GST/TDS resolution mirrors buildInvoiceLines so the preview matches what
+    // the saved invoice will store.
+    let effectiveGstRate = 0;
+    if (gstRate !== undefined && gstRate !== null && gstRate !== '') {
+      effectiveGstRate = Number(gstRate) || 0;
+    } else {
+      const tpl = await getInvoiceTemplate();
+      const siteDefault = Number(tpl.invoice_default_gst_rate) || 0;
+      if (siteDefault > 0) effectiveGstRate = siteDefault;
+      else if (hospital.gstRate) effectiveGstRate = Number(hospital.gstRate) || 0;
+    }
+
+    const effectiveTdsRateId = tdsRateId || hospital.tdsRateId || null;
+    const tds = effectiveTdsRateId
+      ? await resolveTdsRate(effectiveTdsRateId, hospital.tdsRate)
+      : { rate: hospital.tdsRate || 0, name: '', section: '' };
+
+    // Previous balance = open prior invoices for the hospital.
+    const priorOpen = await prisma.invoice.findMany({
+      where: { hospitalId, status: { in: ['issued', 'partially_paid'] } },
+      select: { amountPending: true },
+    });
+    const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
+
+    const normalize = (l, idx) => ({
+      lineType: l.lineType || 'manual',
+      description: l.description || '',
+      amount: Math.round(Number(l.amount) || 0),
+      order: idx,
+      claimId: l.claimId || null,
+    });
+    const allLines = lines.map(normalize);
+    const tpaDeskLines = allLines.filter((l) => l.lineType === 'claim_tpa_desk' || l.lineType === 'service_percentage');
+    const fixedServiceLines = allLines.filter((l) => l.lineType === 'service_fixed' || l.lineType === 'manual');
+    const adjustmentLines = allLines.filter((l) => l.lineType === 'adjustment');
+
+    const totals = calculateInvoiceTotals({
+      tpaDeskLines, fixedServiceLines, adjustmentLines,
+      gstRate: effectiveGstRate, tdsRate: tds.rate, previousBalance,
+    });
+
+    const roundOffI = Math.round(Number(roundOff) || 0);
+    const grandTotalWithRound = totals.grandTotal + roundOffI;
+    const amountPending = grandTotalWithRound;
+
+    // Shape an in-memory invoice object that matches what renderInvoicePdf reads.
+    const fakeInvoice = {
+      id: 'preview',
+      invoiceNumber: null,
+      status: 'draft',
+      hospitalId,
+      hospital,
+      month,
+      createdAt: new Date(),
+      issuedAt: null,
+      dueDate: null,
+      notes: notes || '',
+      gstRate: effectiveGstRate,
+      gstAmount: totals.gstAmount,
+      tdsRate: tds.rate,
+      tdsAmount: totals.tdsAmount,
+      tdsName: tds.name,
+      tdsSection: tds.section,
+      subtotalTpaDesk: totals.subtotalTpaDesk,
+      subtotalServices: totals.subtotalServices,
+      subtotalAdjust: totals.subtotalAdjust,
+      gross: totals.gross,
+      netTotal: totals.netTotal,
+      previousBalance: totals.previousBalance,
+      roundOff: roundOffI,
+      grandTotal: grandTotalWithRound,
+      amountPaid: 0,
+      amountPending,
+      lineItems: allLines,
+    };
+
+    const template = await getInvoiceTemplate();
+    const buf = await renderInvoicePdf(fakeInvoice, hospital, template);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="preview-${hospital.name.replace(/[^a-zA-Z0-9]+/g, '_')}.pdf"`);
+    res.send(buf);
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Server error' });
   }
 };
 

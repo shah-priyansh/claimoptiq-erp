@@ -138,7 +138,8 @@ const InvoiceWizard = () => {
     const gross = Math.round(tpa + services + adjust);
     const effectiveGst = gstRate === '' ? (preview.totals.gstRate || 0) : (Number(gstRate) || 0);
     const gstAmount = Math.round((gross * effectiveGst) / 100);
-    const tdsAmount = Math.round((gross * (preview.totals.tdsRate || 0)) / 100);
+    // TDS base = SubTotal + GST (matches backend `calculateInvoiceTotals`).
+    const tdsAmount = Math.round(((gross + gstAmount) * (preview.totals.tdsRate || 0)) / 100);
     const netTotal = gross + gstAmount - tdsAmount;
     const grandTotal = netTotal + (preview.totals.previousBalance || 0) + (Math.round(Number(roundOff) || 0));
     return {

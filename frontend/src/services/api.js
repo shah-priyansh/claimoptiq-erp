@@ -67,6 +67,11 @@ export const deleteReferenceAPI = (id) => API.delete(`/references/${id}`);
 
 // Invoices
 export const previewInvoiceAPI = (data) => API.post('/invoices/preview', data);
+export const previewBulkInvoiceAPI = (data) => API.post('/invoices/preview-bulk', data);
+// Renders the same PDF as a saved invoice but for an unsaved draft from the
+// bulk wizard. Returns a Blob so callers can drop it into an <iframe> for
+// preview + print, and re-save it for download.
+export const previewInvoicePdfAPI = (data) => API.post('/invoices/preview-pdf', data, { responseType: 'blob' });
 export const createInvoiceAPI  = (data) => API.post('/invoices', data);
 export const getInvoicesAPI    = (params) => API.get('/invoices', { params });
 export const getInvoiceAPI     = (id) => API.get(`/invoices/${id}`);
