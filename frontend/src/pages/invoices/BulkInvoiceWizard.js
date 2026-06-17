@@ -53,19 +53,21 @@ const computeTotals = (editLines, settings, previewTotals, overrideTds) => {
   const services = sumBy(['service_fixed', 'manual']);
   const adjust = sumBy(['adjustment']);
   const gross = Math.round(tpa + services + adjust);
+  const discount = Math.min(Math.max(0, Math.round(Number(settings.discount) || 0)), gross);
+  const taxable = gross - discount;
   const effectiveGst = settings.gstRate === '' ? (previewTotals.gstRate || 0) : (Number(settings.gstRate) || 0);
-  const gstAmount = Math.round((gross * effectiveGst) / 100);
+  const gstAmount = Math.round((taxable * effectiveGst) / 100);
   const effectiveTdsRate = overrideTds ? (overrideTds.rate || 0) : (previewTotals.tdsRate || 0);
   const effectiveTdsSection = overrideTds ? (overrideTds.section || '') : (previewTotals.tdsSection || '');
-  // TDS base = SubTotal + GST (matches backend `calculateInvoiceTotals`).
-  const tdsAmount = Math.round(((gross + gstAmount) * effectiveTdsRate) / 100);
-  const netTotal = gross + gstAmount - tdsAmount;
+  // TDS base = Taxable + GST (matches backend `calculateInvoiceTotals`).
+  const tdsAmount = Math.round(((taxable + gstAmount) * effectiveTdsRate) / 100);
+  const netTotal = taxable + gstAmount - tdsAmount;
   const roundOff = Math.round(Number(settings.roundOff) || 0);
   const previousBalance = previewTotals.previousBalance || 0;
   const grandTotal = netTotal + previousBalance + roundOff;
   return {
     tpa: Math.round(tpa), services: Math.round(services), adjust: Math.round(adjust),
-    gross, gstAmount, tdsAmount, netTotal, roundOff, previousBalance, grandTotal,
+    gross, discount, taxable, gstAmount, tdsAmount, netTotal, roundOff, previousBalance, grandTotal,
     effectiveGst, tdsRate: effectiveTdsRate, tdsSection: effectiveTdsSection,
   };
 };
@@ -153,6 +155,7 @@ const BulkInvoiceWizard = () => {
             tdsRateId: '', // '' = use the rate that came back with the preview (hospital default)
             notes: '',
             roundOff: 0,
+            discount: 0,
           },
           status: 'pending', // pending | approved | rejected
         }));
@@ -278,6 +281,7 @@ const BulkInvoiceWizard = () => {
         ...(draft.settings.gstRate !== '' ? { gstRate: Number(draft.settings.gstRate) || 0 } : {}),
         ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
         roundOff: Number(draft.settings.roundOff) || 0,
+        discount: Math.max(0, Math.round(Number(draft.settings.discount) || 0)),
         notes: draft.settings.notes || '',
       });
       const url = URL.createObjectURL(data);
@@ -379,6 +383,7 @@ const BulkInvoiceWizard = () => {
     if (manualItems.length) patchPayload.manualItems = manualItems;
     if (removedLineIds.length) patchPayload.removedLineIds = removedLineIds;
     if (Number(draft.settings.roundOff) !== 0) patchPayload.roundOff = Math.round(Number(draft.settings.roundOff) || 0);
+    if (Number(draft.settings.discount) > 0) patchPayload.discount = Math.max(0, Math.round(Number(draft.settings.discount) || 0));
 
     if (Object.keys(patchPayload).length) {
       await updateInvoiceAPI(created._id, patchPayload);
@@ -766,7 +771,7 @@ const BulkInvoiceWizard = () => {
         </div>
 
         {/* Settings row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">GST Rate (%)</label>
             <input
@@ -790,6 +795,21 @@ const BulkInvoiceWizard = () => {
                 value: r._id,
                 label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
               }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Discount <span className="text-xs text-gray-400 font-normal">(max {formatINR(liveTotals?.gross || 0)})</span>
+            </label>
+            <input
+              type="number" min="0" max={liveTotals?.gross || 0}
+              value={current.settings.discount}
+              onChange={(e) => {
+                const cap = liveTotals?.gross || 0;
+                const v = Math.max(0, Math.min(Number(e.target.value) || 0, cap));
+                updateCurrentSettings({ discount: v });
+              }}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
           </div>
           <div>
@@ -940,6 +960,15 @@ const BulkInvoiceWizard = () => {
             <div />
             <div className="space-y-1 text-sm text-gray-600">
               <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(liveTotals.gross)}</span></div>
+              {liveTotals.discount > 0 && (
+                <>
+                  <div className="flex justify-between text-green-700">
+                    <span>Discount</span>
+                    <span className="tabular-nums">- {formatINR(liveTotals.discount)}</span>
+                  </div>
+                  <div className="flex justify-between"><span>Taxable Value</span><span className="tabular-nums">{formatINR(liveTotals.taxable)}</span></div>
+                </>
+              )}
               {liveTotals.effectiveGst > 0 && (
                 <div className="flex justify-between"><span>GST ({liveTotals.effectiveGst}%)</span><span className="tabular-nums">{formatINR(liveTotals.gstAmount)}</span></div>
               )}

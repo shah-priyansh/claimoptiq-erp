@@ -52,6 +52,7 @@ const InvoiceWizard = () => {
   const [month, setMonth] = useState(todayMonth());
   const [notes, setNotes] = useState('');
   const [roundOff, setRoundOff] = useState(0);
+  const [discount, setDiscount] = useState(0);
   const [gstRate, setGstRate] = useState('');
   const [preview, setPreview] = useState(null);
   // Editable working copy of the preview lines. Each row carries:
@@ -128,7 +129,7 @@ const InvoiceWizard = () => {
     }
   };
 
-  // Live totals computed from the edited rows, applying the preview's GST/TDS rates + roundOff.
+  // Live totals computed from the edited rows, applying the preview's GST/TDS rates + discount + roundOff.
   const liveTotals = useMemo(() => {
     if (!preview) return null;
     const sumBy = (types) => editLines.filter((r) => types.includes(r.lineType)).reduce((a, r) => a + (Number(r.amount) || 0), 0);
@@ -136,22 +137,25 @@ const InvoiceWizard = () => {
     const services = sumBy(['service_fixed', 'manual']);
     const adjust = sumBy(['adjustment']);
     const gross = Math.round(tpa + services + adjust);
+    // Pre-tax discount: clamped to [0, gross] so a typo can't flip the invoice negative.
+    const discountAmt = Math.min(Math.max(0, Math.round(Number(discount) || 0)), gross);
+    const taxable = gross - discountAmt;
     const effectiveGst = gstRate === '' ? (preview.totals.gstRate || 0) : (Number(gstRate) || 0);
-    const gstAmount = Math.round((gross * effectiveGst) / 100);
-    // TDS base = SubTotal + GST (matches backend `calculateInvoiceTotals`).
-    const tdsAmount = Math.round(((gross + gstAmount) * (preview.totals.tdsRate || 0)) / 100);
-    const netTotal = gross + gstAmount - tdsAmount;
+    const gstAmount = Math.round((taxable * effectiveGst) / 100);
+    // TDS base = Taxable + GST (matches backend `calculateInvoiceTotals`).
+    const tdsAmount = Math.round(((taxable + gstAmount) * (preview.totals.tdsRate || 0)) / 100);
+    const netTotal = taxable + gstAmount - tdsAmount;
     const grandTotal = netTotal + (preview.totals.previousBalance || 0) + (Math.round(Number(roundOff) || 0));
     return {
       tpa: Math.round(tpa),
       services: Math.round(services),
       adjust: Math.round(adjust),
-      gross, gstAmount, tdsAmount, netTotal,
+      gross, discount: discountAmt, taxable, gstAmount, tdsAmount, netTotal,
       previousBalance: preview.totals.previousBalance || 0,
       roundOff: Math.round(Number(roundOff) || 0),
       grandTotal,
     };
-  }, [editLines, preview, roundOff, gstRate]);
+  }, [editLines, preview, roundOff, discount, gstRate]);
 
   const create = async () => {
     if (!preview) return;
@@ -161,24 +165,29 @@ const InvoiceWizard = () => {
     }
     setCreating(true);
     try {
-      // 1. Create the draft. The backend auto-builds line items from the source claims.
+      // Collect manual rows up-front so the create call persists them atomically.
+      // Lets the operator bill a month with no claims/services using only manual items.
+      const manualItemsForCreate = editLines
+        .filter((row) => row._isManual)
+        .map((row) => ({ description: row.description || '', amount: Number(row.amount) || 0 }))
+        .filter((m) => (m.description || '').trim());
+
+      // 1. Create the draft. The backend builds claim/service lines, then appends manualItems.
       const { data: draft } = await createInvoiceAPI({
         hospitalId,
         month: month + '-01',
         notes,
         tdsRateId: tdsRateId || undefined,
         ...(gstRate !== '' ? { gstRate: Number(gstRate) || 0 } : {}),
+        ...(manualItemsForCreate.length ? { manualItems: manualItemsForCreate } : {}),
       });
 
-      // 2. Reconcile any operator edits / manual rows / round-off via PATCH.
+      // 2. Reconcile any operator edits on built lines + round-off + discount via PATCH.
       const origDescByOrder = (preview.lines || []).map((l) => l.description);
       const lineEdits = [];
-      const manualItems = [];
       // Match server-created lines by description (they're created in the same order as preview).
-      // We can fetch the draft to get the line ids — re-read.
       const { data: fresh } = await getInvoiceAPI(draft._id);
       const serverLines = (fresh.lineItems || []).slice();
-      // Map by description for diffing — duplicates are ordered.
       const idsByDesc = new Map();
       serverLines.forEach((s) => {
         const key = s.description;
@@ -187,11 +196,7 @@ const InvoiceWizard = () => {
       });
 
       editLines.forEach((row) => {
-        if (row._isManual) {
-          manualItems.push({ description: row.description, amount: Number(row.amount) || 0 });
-          return;
-        }
-        // Find the server id for this row's original description (by position).
+        if (row._isManual) return; // already persisted on create
         const origDesc = origDescByOrder.shift();
         const queue = idsByDesc.get(origDesc);
         const id = queue?.shift();
@@ -205,19 +210,14 @@ const InvoiceWizard = () => {
       });
 
       const removedLineIds = [];
-      // Rows the user trashed are simply missing from editLines; collect their ids.
-      const usedIds = new Set();
-      serverLines.forEach((s) => usedIds.add(s._id || s.id));
-      lineEdits.forEach((e) => usedIds.delete(e.id));
-      // Anything left in idsByDesc after editing represents trashed rows? Actually we don't track removed.
-      // Simpler: any server line whose id was NOT pulled from idsByDesc during the edit loop is removed.
+      // Any server line whose id was NOT pulled from idsByDesc during the edit loop is removed.
       idsByDesc.forEach((queue) => queue.forEach((id) => removedLineIds.push(id)));
 
       const patchPayload = {};
       if (lineEdits.length) patchPayload.lineEdits = lineEdits;
-      if (manualItems.length) patchPayload.manualItems = manualItems;
       if (removedLineIds.length) patchPayload.removedLineIds = removedLineIds;
       if (Number(roundOff) !== 0) patchPayload.roundOff = Math.round(Number(roundOff) || 0);
+      if (Number(discount) > 0) patchPayload.discount = Math.round(Number(discount) || 0);
 
       if (Object.keys(patchPayload).length) {
         await updateInvoiceAPI(draft._id, patchPayload);
@@ -448,14 +448,29 @@ const InvoiceWizard = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Round Off <span className="text-xs text-gray-400 font-normal">(+/- on Grand Total)</span>
-              </label>
-              <input type="number" value={roundOff}
-                onChange={(e) => setRoundOff(e.target.value)}
-                placeholder="0"
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Discount <span className="text-xs text-gray-400 font-normal">(max {formatINR(liveTotals?.gross || 0)})</span>
+                </label>
+                <input type="number" min="0" max={liveTotals?.gross || 0} value={discount}
+                  onChange={(e) => {
+                    const cap = liveTotals?.gross || 0;
+                    const v = Math.max(0, Math.min(Number(e.target.value) || 0, cap));
+                    setDiscount(v);
+                  }}
+                  placeholder="0"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Round Off <span className="text-xs text-gray-400 font-normal">(+/- on Grand Total)</span>
+                </label>
+                <input type="number" value={roundOff}
+                  onChange={(e) => setRoundOff(e.target.value)}
+                  placeholder="0"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
             </div>
             {(() => {
               const effGst = gstRate === '' ? (preview.totals.gstRate || 0) : (Number(gstRate) || 0);
@@ -466,6 +481,15 @@ const InvoiceWizard = () => {
               return (
                 <div className="space-y-1 text-sm text-gray-600">
                   <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(liveTotals?.gross || 0)}</span></div>
+                  {(liveTotals?.discount || 0) > 0 && (
+                    <>
+                      <div className="flex justify-between text-green-700">
+                        <span>Discount</span>
+                        <span className="tabular-nums">- {formatINR(liveTotals?.discount || 0)}</span>
+                      </div>
+                      <div className="flex justify-between"><span>Taxable Value</span><span className="tabular-nums">{formatINR(liveTotals?.taxable || 0)}</span></div>
+                    </>
+                  )}
                   {effGst > 0 && (
                     <div className="flex justify-between"><span>GST ({effGst}%)</span><span className="tabular-nums">{formatINR(liveTotals?.gstAmount || 0)}</span></div>
                   )}
@@ -487,7 +511,7 @@ const InvoiceWizard = () => {
                     <span>Current Balance</span><span className="tabular-nums">{formatINR(currentBalance)}</span>
                   </div>
                   <div className="flex justify-between font-bold text-gray-900">
-                    <span>Invoice Value Before TDS</span><span className="tabular-nums">{formatINR(liveTotals?.gross || 0)}</span>
+                    <span>Invoice Value Before TDS</span><span className="tabular-nums">{formatINR(liveTotals?.taxable || liveTotals?.gross || 0)}</span>
                   </div>
                   {(liveTotals?.roundOff || 0) !== 0 && (
                     <div className="flex justify-between"><span>Round Off</span><span className="tabular-nums">{formatINR(liveTotals?.roundOff || 0)}</span></div>
