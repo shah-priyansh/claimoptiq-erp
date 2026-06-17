@@ -6,7 +6,7 @@ import {
   HiChevronRight, HiChevronDown,
 } from 'react-icons/hi';
 import {
-  getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getInvoiceAPI, getTdsRatesAPI,
+  getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getTdsRatesAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
@@ -183,35 +183,37 @@ const InvoiceWizard = () => {
       });
 
       // 2. Reconcile any operator edits on built lines + round-off + discount via PATCH.
-      const origDescByOrder = (preview.lines || []).map((l) => l.description);
+      //    The create response already includes lineItems with IDs, so no extra GET.
       const lineEdits = [];
-      // Match server-created lines by description (they're created in the same order as preview).
-      const { data: fresh } = await getInvoiceAPI(draft._id);
-      const serverLines = (fresh.lineItems || []).slice();
-      const idsByDesc = new Map();
-      serverLines.forEach((s) => {
-        const key = s.description;
-        if (!idsByDesc.has(key)) idsByDesc.set(key, []);
-        idsByDesc.get(key).push(s._id || s.id);
-      });
-
-      editLines.forEach((row) => {
-        if (row._isManual) return; // already persisted on create
-        const origDesc = origDescByOrder.shift();
-        const queue = idsByDesc.get(origDesc);
-        const id = queue?.shift();
-        if (!id) return;
-        const newDesc = row.description || '';
-        const newAmt = Math.round(Number(row.amount) || 0);
-        const origAmt = Math.round(Number((preview.lines.find((l) => l.description === origDesc) || {}).amount) || 0);
-        if (newDesc !== origDesc || newAmt !== origAmt) {
-          lineEdits.push({ id, description: newDesc, amount: newAmt });
-        }
-      });
-
       const removedLineIds = [];
-      // Any server line whose id was NOT pulled from idsByDesc during the edit loop is removed.
-      idsByDesc.forEach((queue) => queue.forEach((id) => removedLineIds.push(id)));
+      if ((preview.lines || []).length) {
+        const origDescByOrder = preview.lines.map((l) => l.description);
+        // Built lines only (manual items were appended after; we don't diff them).
+        const builtServerLines = (draft.lineItems || []).filter((l) => l.lineType !== 'manual');
+        const idsByDesc = new Map();
+        builtServerLines.forEach((s) => {
+          const key = s.description;
+          if (!idsByDesc.has(key)) idsByDesc.set(key, []);
+          idsByDesc.get(key).push(s._id || s.id);
+        });
+
+        editLines.forEach((row) => {
+          if (row._isManual) return; // already persisted on create
+          const origDesc = origDescByOrder.shift();
+          const queue = idsByDesc.get(origDesc);
+          const id = queue?.shift();
+          if (!id) return;
+          const newDesc = row.description || '';
+          const newAmt = Math.round(Number(row.amount) || 0);
+          const origAmt = Math.round(Number((preview.lines.find((l) => l.description === origDesc) || {}).amount) || 0);
+          if (newDesc !== origDesc || newAmt !== origAmt) {
+            lineEdits.push({ id, description: newDesc, amount: newAmt });
+          }
+        });
+
+        // Any server line whose id was NOT pulled during the edit loop is removed.
+        idsByDesc.forEach((queue) => queue.forEach((id) => removedLineIds.push(id)));
+      }
 
       const patchPayload = {};
       if (lineEdits.length) patchPayload.lineEdits = lineEdits;
