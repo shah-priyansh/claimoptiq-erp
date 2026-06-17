@@ -329,11 +329,7 @@ exports.create = async (req, res) => {
     if (existing && existing.status !== 'draft') {
       return res.status(409).json({ message: `Invoice already ${existing.status} for this hospital and month`, invoice: toResponse(existing) });
     }
-    if (existing && existing.status === 'draft') {
-      return res.status(200).json(toResponse(existing));
-    }
 
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount });
     // Normalise manualItems passed alongside create — these let an operator
     // bill a month that has no claims/fixed services (e.g. a one-off charge).
     const normalisedManual = (Array.isArray(manualItems) ? manualItems : [])
@@ -342,6 +338,19 @@ exports.create = async (req, res) => {
         amount: Math.round(Number(m?.amount) || 0),
       }))
       .filter((m) => m.description);
+
+    // If a draft already exists, the wizard either re-submitted or this is a
+    // recovery save after an earlier partial commit. Hand back the existing
+    // draft unless it's empty AND the wizard is sending manual items — in that
+    // case, populate the empty draft so the operator's save isn't lost.
+    if (existing && existing.status === 'draft') {
+      const isEmpty = !(existing.lineItems || []).length;
+      if (!(isEmpty && normalisedManual.length)) {
+        return res.status(200).json(toResponse(existing));
+      }
+    }
+
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount });
     if (!built.lines.length && !normalisedManual.length) {
       return res.status(400).json({ message: 'No claims or fixed services found for this month. Add at least one manual item.' });
     }
@@ -372,29 +381,45 @@ exports.create = async (req, res) => {
         })
       : built.totals;
 
+    const persistedData = {
+      gstRate: built.totals.gstRate,
+      gstAmount: finalTotals.gstAmount,
+      tdsRate: built.totals.tdsRate,
+      tdsAmount: finalTotals.tdsAmount,
+      tdsRateId: built.totals.tdsRateId,
+      tdsName: built.totals.tdsName,
+      tdsSection: built.totals.tdsSection,
+      subtotalTpaDesk: finalTotals.subtotalTpaDesk,
+      subtotalServices: finalTotals.subtotalServices,
+      subtotalAdjust: finalTotals.subtotalAdjust,
+      gross: finalTotals.gross,
+      discount: finalTotals.discount,
+      netTotal: finalTotals.netTotal,
+      previousBalance: finalTotals.previousBalance,
+      grandTotal: finalTotals.grandTotal,
+      amountPending: finalTotals.amountPending,
+    };
+
     const invoice = await prisma.$transaction(async (tx) => {
+      // Recovery path: populate the existing empty draft.
+      if (existing) {
+        return tx.invoice.update({
+          where: { id: existing.id },
+          data: {
+            ...persistedData,
+            notes: notes || existing.notes || '',
+            lineItems: { create: allLines },
+          },
+          include: invoiceInclude,
+        });
+      }
       return tx.invoice.create({
         data: {
           hospitalId,
           month,
           status: 'draft',
           notes: notes || '',
-          gstRate: built.totals.gstRate,
-          gstAmount: finalTotals.gstAmount,
-          tdsRate: built.totals.tdsRate,
-          tdsAmount: finalTotals.tdsAmount,
-          tdsRateId: built.totals.tdsRateId,
-          tdsName: built.totals.tdsName,
-          tdsSection: built.totals.tdsSection,
-          subtotalTpaDesk: finalTotals.subtotalTpaDesk,
-          subtotalServices: finalTotals.subtotalServices,
-          subtotalAdjust: finalTotals.subtotalAdjust,
-          gross: finalTotals.gross,
-          discount: finalTotals.discount,
-          netTotal: finalTotals.netTotal,
-          previousBalance: finalTotals.previousBalance,
-          grandTotal: finalTotals.grandTotal,
-          amountPending: finalTotals.amountPending,
+          ...persistedData,
           createdById: req.user?.id || null,
           lineItems: { create: allLines },
         },
@@ -519,67 +544,63 @@ exports.update = async (req, res) => {
     const tdsResolvedId = tdsChanged ? (tdsRateId || null) : invoice.tdsRateId;
     const gstResolved = gstChanged ? (Math.max(0, Number(gstRate) || 0)) : invoice.gstRate;
     const discountResolved = discountChanged ? Math.max(0, Math.round(Number(discount) || 0)) : invoice.discount;
-    const partialEdit =
+
+    const hasAnyChange =
+      fullRebuild ||
+      tdsChanged ||
+      gstChanged ||
+      discountChanged ||
+      roundOff !== undefined ||
+      notes !== undefined ||
       Array.isArray(lineEdits) ||
       Array.isArray(manualItems) ||
-      Array.isArray(removedLineIds) ||
-      roundOff !== undefined ||
-      gstChanged ||
-      discountChanged;
+      Array.isArray(removedLineIds);
+    if (!hasAnyChange) return res.json(toResponse(invoice));
 
-    // --- Path 1: a full rebuild (adjustments[] sent) ---
-    // Keeps the existing behaviour for the original 'Save Draft' flow that
-    // wipes the line items and regenerates them from the source claims.
-    if (fullRebuild || tdsChanged || notes !== undefined) {
+    // --- Full rebuild path (adjustments[] sent) ---
+    // Wipes line items and regenerates them from the source claims.
+    // Used by the original wizard "Save Draft" flow that re-derives everything.
+    if (fullRebuild) {
       const built = await buildInvoiceLines(invoice.hospitalId, invoice.month, { adjustments, tdsRateId: tdsResolvedId, gstRateOverride: gstResolved, discount: discountResolved });
       const updated = await prisma.$transaction(async (tx) => {
-        if (fullRebuild) {
-          await tx.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
-        }
+        await tx.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
             ...(notes !== undefined ? { notes: String(notes || '') } : {}),
             ...(roundOff !== undefined ? { roundOff: Math.round(Number(roundOff) || 0) } : {}),
-            ...(discountChanged ? { discount: discountResolved } : {}),
-            ...((fullRebuild || tdsChanged)
-              ? {
-                  subtotalTpaDesk: built.totals.subtotalTpaDesk,
-                  subtotalServices: built.totals.subtotalServices,
-                  subtotalAdjust: built.totals.subtotalAdjust,
-                  gross: built.totals.gross,
-                  discount: built.totals.discount,
-                  gstRate: built.totals.gstRate,
-                  gstAmount: built.totals.gstAmount,
-                  tdsRate: built.totals.tdsRate,
-                  tdsAmount: built.totals.tdsAmount,
-                  tdsRateId: built.totals.tdsRateId,
-                  tdsName: built.totals.tdsName,
-                  tdsSection: built.totals.tdsSection,
-                  netTotal: built.totals.netTotal,
-                  previousBalance: built.totals.previousBalance,
-                  grandTotal: built.totals.grandTotal,
-                  amountPending: built.totals.grandTotal - (invoice.amountPaid || 0),
-                  ...(fullRebuild ? { lineItems: { create: built.lines } } : {}),
-                }
-              : {}),
+            subtotalTpaDesk: built.totals.subtotalTpaDesk,
+            subtotalServices: built.totals.subtotalServices,
+            subtotalAdjust: built.totals.subtotalAdjust,
+            gross: built.totals.gross,
+            discount: built.totals.discount,
+            gstRate: built.totals.gstRate,
+            gstAmount: built.totals.gstAmount,
+            tdsRate: built.totals.tdsRate,
+            tdsAmount: built.totals.tdsAmount,
+            tdsRateId: built.totals.tdsRateId,
+            tdsName: built.totals.tdsName,
+            tdsSection: built.totals.tdsSection,
+            netTotal: built.totals.netTotal,
+            previousBalance: built.totals.previousBalance,
+            grandTotal: built.totals.grandTotal,
+            amountPending: built.totals.grandTotal - (invoice.amountPaid || 0),
+            lineItems: { create: built.lines },
           },
         });
-        // Round-off / discount makes the persisted grandTotal drift from built.totals;
-        // recompute from the actual line items to keep it consistent.
-        if ((roundOff !== undefined || gstChanged || discountChanged) && !fullRebuild && !tdsChanged) {
-          await recomputeInvoiceFromLines(tx, invoice.id);
-        }
         return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude });
       });
       return res.json(toResponse(updated));
     }
 
-    // --- Path 2: partial edits on existing line items + round-off + discount ---
-    if (!partialEdit) return res.json(toResponse(invoice));
-
+    // --- Incremental path: apply partial line edits + setting changes, then
+    // recompute totals from the final line set. Replaces the old mutually
+    // exclusive Path 1/Path 2 split where sending tdsRateId alongside a manual
+    // item silently dropped the manual item.
     const validIds = new Set(invoice.lineItems.map((l) => l.id));
     const updated = await prisma.$transaction(async (tx) => {
+      // 1. Apply line-item operations first so the recompute at the end sees
+      //    the final set of rows.
       if (Array.isArray(removedLineIds)) {
         const toRemove = removedLineIds.filter((id) => validIds.has(id));
         if (toRemove.length) await tx.invoiceLineItem.deleteMany({ where: { id: { in: toRemove } } });
@@ -618,16 +639,27 @@ exports.update = async (req, res) => {
           });
         }
       }
-      if (roundOff !== undefined || gstChanged || discountChanged) {
-        await tx.invoice.update({
-          where: { id: invoice.id },
-          data: {
-            ...(roundOff !== undefined ? { roundOff: Math.round(Number(roundOff) || 0) } : {}),
-            ...(gstChanged ? { gstRate: gstResolved } : {}),
-            ...(discountChanged ? { discount: discountResolved } : {}),
-          },
-        });
+
+      // 2. Apply settings changes. TDS change pulls the new rate/section so
+      //    recomputeInvoiceFromLines uses the updated value.
+      const settingsData = {};
+      if (notes !== undefined) settingsData.notes = String(notes || '');
+      if (roundOff !== undefined) settingsData.roundOff = Math.round(Number(roundOff) || 0);
+      if (gstChanged) settingsData.gstRate = gstResolved;
+      if (discountChanged) settingsData.discount = discountResolved;
+      if (tdsChanged) {
+        const tds = await resolveTdsRate(tdsResolvedId, 0);
+        settingsData.tdsRateId = tdsResolvedId;
+        settingsData.tdsRate = tds.rate;
+        settingsData.tdsName = tds.name;
+        settingsData.tdsSection = tds.section;
       }
+      if (Object.keys(settingsData).length) {
+        await tx.invoice.update({ where: { id: invoice.id }, data: settingsData });
+      }
+
+      // 3. Always recompute totals from the final line set so gross/GST/TDS/
+      //    grandTotal/amountPending stay consistent with what was persisted.
       await recomputeInvoiceFromLines(tx, invoice.id);
       return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude });
     });

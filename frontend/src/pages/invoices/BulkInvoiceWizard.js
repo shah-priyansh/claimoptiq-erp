@@ -7,7 +7,7 @@ import {
   HiOutlineExternalLink, HiOutlineDownload, HiOutlinePrinter,
 } from 'react-icons/hi';
 import {
-  previewBulkInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getInvoiceAPI, getTdsRatesAPI,
+  previewBulkInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getTdsRatesAPI,
   previewInvoicePdfAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -332,9 +332,16 @@ const BulkInvoiceWizard = () => {
   };
 
   // Create one invoice + reconcile edits (mirrors InvoiceWizard.create()).
+  // Single POST when possible: manual items go in the create call, and the
+  // create response already carries lineItems with IDs (no extra GET round-trip).
   const commitDraft = async (draft) => {
     const monthIso = new Date(draft.month).toISOString().slice(0, 10); // YYYY-MM-DD
     const monthArg = monthIso.slice(0, 7) + '-01';
+    const manualItemsForCreate = draft.editLines
+      .filter((row) => row._isManual)
+      .map((row) => ({ description: row.description || '', amount: Number(row.amount) || 0 }))
+      .filter((m) => (m.description || '').trim());
+
     const { data: created } = await createInvoiceAPI({
       hospitalId: draft.hospitalId,
       month: monthArg,
@@ -342,45 +349,40 @@ const BulkInvoiceWizard = () => {
       ...(draft.settings.gstRate !== '' ? { gstRate: Number(draft.settings.gstRate) || 0 } : {}),
       ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
       claimIds: draft.claimIds,
-    });
-
-    const origDescByOrder = (draft.previewLines || []).map((l) => l.description);
-    const { data: fresh } = await getInvoiceAPI(created._id);
-    const serverLines = (fresh.lineItems || []).slice();
-    const idsByDesc = new Map();
-    serverLines.forEach((s) => {
-      const key = s.description;
-      if (!idsByDesc.has(key)) idsByDesc.set(key, []);
-      idsByDesc.get(key).push(s._id || s.id);
+      ...(manualItemsForCreate.length ? { manualItems: manualItemsForCreate } : {}),
     });
 
     const lineEdits = [];
-    const manualItems = [];
-
-    draft.editLines.forEach((row) => {
-      if (row._isManual) {
-        manualItems.push({ description: row.description, amount: Number(row.amount) || 0 });
-        return;
-      }
-      const origDesc = origDescByOrder.shift();
-      const queue = idsByDesc.get(origDesc);
-      const id = queue?.shift();
-      if (!id) return;
-      const newDesc = row.description || '';
-      const newAmt = Math.round(Number(row.amount) || 0);
-      const origAmt = Math.round(Number((draft.previewLines.find((l) => l.description === origDesc) || {}).amount) || 0);
-      if (newDesc !== origDesc || newAmt !== origAmt) {
-        lineEdits.push({ id, description: newDesc, amount: newAmt });
-      }
-    });
-
-    // Anything left in idsByDesc represents trashed rows.
     const removedLineIds = [];
-    idsByDesc.forEach((queue) => queue.forEach((id) => removedLineIds.push(id)));
+    if ((draft.previewLines || []).length) {
+      const origDescByOrder = draft.previewLines.map((l) => l.description);
+      const builtServerLines = (created.lineItems || []).filter((l) => l.lineType !== 'manual');
+      const idsByDesc = new Map();
+      builtServerLines.forEach((s) => {
+        const key = s.description;
+        if (!idsByDesc.has(key)) idsByDesc.set(key, []);
+        idsByDesc.get(key).push(s._id || s.id);
+      });
+
+      draft.editLines.forEach((row) => {
+        if (row._isManual) return;
+        const origDesc = origDescByOrder.shift();
+        const queue = idsByDesc.get(origDesc);
+        const id = queue?.shift();
+        if (!id) return;
+        const newDesc = row.description || '';
+        const newAmt = Math.round(Number(row.amount) || 0);
+        const origAmt = Math.round(Number((draft.previewLines.find((l) => l.description === origDesc) || {}).amount) || 0);
+        if (newDesc !== origDesc || newAmt !== origAmt) {
+          lineEdits.push({ id, description: newDesc, amount: newAmt });
+        }
+      });
+
+      idsByDesc.forEach((queue) => queue.forEach((id) => removedLineIds.push(id)));
+    }
 
     const patchPayload = {};
     if (lineEdits.length) patchPayload.lineEdits = lineEdits;
-    if (manualItems.length) patchPayload.manualItems = manualItems;
     if (removedLineIds.length) patchPayload.removedLineIds = removedLineIds;
     if (Number(draft.settings.roundOff) !== 0) patchPayload.roundOff = Math.round(Number(draft.settings.roundOff) || 0);
     if (Number(draft.settings.discount) > 0) patchPayload.discount = Math.max(0, Math.round(Number(draft.settings.discount) || 0));
