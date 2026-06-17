@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getPublicStatsAPI, updateSiteSettingsAPI, uploadInvoiceLogoAPI, getTdsRatesAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -35,6 +35,7 @@ const SiteSettings = () => {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [tdsRates, setTdsRates] = useState([]);
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
+  const bankSectionRef = useRef(null);
 
   useEffect(() => {
     getPublicStatsAPI()
@@ -53,6 +54,11 @@ const SiteSettings = () => {
     e.preventDefault();
     setSaving(true);
     try {
+      // Commit any unsaved bank-account rows first — operators repeatedly
+      // missed the per-row Save button and lost their edits, so the page-level
+      // Save now flushes both. Halt if validation there fails (toast shown).
+      const bankResult = await bankSectionRef.current?.flushDirty();
+      if (bankResult && bankResult.ok === false) return;
       await updateSiteSettingsAPI(form);
       toast.success('Settings saved');
     } catch {
@@ -260,7 +266,7 @@ const SiteSettings = () => {
               <textarea rows={5} value={form.invoice_terms} onChange={set('invoice_terms')} className={`${inputCls} resize-y font-mono`} />
             </div>
 
-            <BankAccountsSection />
+            <BankAccountsSection ref={bankSectionRef} />
           </div>
         )}
 
