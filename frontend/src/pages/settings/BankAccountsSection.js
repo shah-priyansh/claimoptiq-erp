@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineCheck, HiOutlineStar, HiStar as HiStarSolid } from 'react-icons/hi';
 import {
@@ -22,7 +22,7 @@ const blankRow = () => ({
   isActive: true,
 });
 
-const BankAccountsSection = () => {
+const BankAccountsSection = forwardRef((_props, ref) => {
   const confirm = useConfirm();
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -112,6 +112,55 @@ const BankAccountsSection = () => {
     }
   };
 
+  // Saves every dirty/draft row sequentially so the page-level "Save Settings"
+  // button can commit bank rows alongside the invoice template fields. Returns
+  // { ok } so the parent can halt its own save if validation fails here.
+  const flushDirty = async () => {
+    const dirty = accounts.filter((a) => a._dirty);
+    if (dirty.length === 0) return { ok: true };
+    for (const row of dirty) {
+      if (!row.bankName.trim()) {
+        toast.error('Bank name is required on every bank account');
+        return { ok: false };
+      }
+    }
+    setSavingId('flush');
+    try {
+      for (const row of dirty) {
+        const payload = {
+          bankName: row.bankName,
+          accountHolder: row.accountHolder,
+          accountNumber: row.accountNumber,
+          ifsc: row.ifsc,
+          upiId: row.upiId,
+          isActive: row.isActive,
+        };
+        if (row.isDefault) payload.isDefault = true;
+        if (row._draft) {
+          await createBankAccountAPI(payload);
+        } else {
+          await updateBankAccountAPI(row._id, payload);
+        }
+      }
+      await load();
+      return { ok: true };
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to save bank accounts');
+      return { ok: false };
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      flushDirty,
+      hasDirty: () => accounts.some((a) => a._dirty),
+    }),
+    [accounts] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   const promoteDefault = async (idx) => {
     const row = accounts[idx];
     if (row.isDefault) return;
@@ -165,17 +214,24 @@ const BankAccountsSection = () => {
               className={`border rounded-xl p-4 ${a.isDefault ? 'border-primary-200 bg-primary-50/30' : 'border-gray-200'}`}
             >
               <div className="flex items-center justify-between mb-3">
-                <button
-                  type="button"
-                  onClick={() => promoteDefault(idx)}
-                  disabled={a.isDefault || savingId !== null}
-                  className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${
-                    a.isDefault ? 'text-primary-700' : 'text-gray-500 hover:text-primary-600'
-                  } disabled:opacity-80`}
-                >
-                  {a.isDefault ? <HiStarSolid className="w-4 h-4 text-primary-600" /> : <HiOutlineStar className="w-4 h-4" />}
-                  {a.isDefault ? 'Default' : 'Make default'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => promoteDefault(idx)}
+                    disabled={a.isDefault || savingId !== null}
+                    className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${
+                      a.isDefault ? 'text-primary-700' : 'text-gray-500 hover:text-primary-600'
+                    } disabled:opacity-80`}
+                  >
+                    {a.isDefault ? <HiStarSolid className="w-4 h-4 text-primary-600" /> : <HiOutlineStar className="w-4 h-4" />}
+                    {a.isDefault ? 'Default' : 'Make default'}
+                  </button>
+                  {a._dirty && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-200">
+                      Unsaved
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <label className="flex items-center gap-1.5 text-xs text-gray-600">
                     <input
@@ -234,6 +290,8 @@ const BankAccountsSection = () => {
       )}
     </div>
   );
-};
+});
+
+BankAccountsSection.displayName = 'BankAccountsSection';
 
 export default BankAccountsSection;
