@@ -61,6 +61,7 @@ const InvoiceDetail = () => {
   const [editLines, setEditLines] = useState([]);
   const [originalLines, setOriginalLines] = useState([]);
   const [roundOff, setRoundOff] = useState(0);
+  const [discount, setDiscount] = useState(0);
   const [tdsRateId, setTdsRateId] = useState('');
   const [gstRate, setGstRate] = useState(0);
   const [tdsRates, setTdsRates] = useState([]);
@@ -109,6 +110,39 @@ const InvoiceDetail = () => {
     return order.map((k) => map.get(k));
   }, [editLines]);
 
+  // Live totals for the draft editor — recomputed on every keystroke from
+  // editLines + discount + GST/TDS + roundOff so the operator sees the
+  // discount and other tweaks reflected before clicking Save Draft. Mirrors
+  // the formulas in calculateInvoiceTotals: discount comes off the bare
+  // SubTotal pre-GST, TDS applies on (taxable + GST).
+  const liveTotals = useMemo(() => {
+    const sumBy = (types) => editLines.filter((r) => types.includes(r.lineType)).reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    const tpaSum = sumBy(['claim_tpa_desk', 'service_percentage']);
+    const servicesSum = sumBy(['service_fixed', 'manual']);
+    const adjustSum = sumBy(['adjustment']);
+    const gross = Math.round(tpaSum + servicesSum + adjustSum);
+    const discountAmt = Math.min(Math.max(0, Math.round(Number(discount) || 0)), gross);
+    const taxable = gross - discountAmt;
+    const effectiveGst = Number(gstRate) || 0;
+    const gstAmount = Math.round((taxable * effectiveGst) / 100);
+    const selectedTds = tdsRateId ? tdsRates.find((r) => r._id === tdsRateId) : null;
+    const effectiveTdsRate = selectedTds ? Number(selectedTds.rate) || 0 : (invoice?.tdsRate || 0);
+    const effectiveTdsSection = selectedTds ? (selectedTds.section || '') : (invoice?.tdsSection || '');
+    const tdsAmount = Math.round(((taxable + gstAmount) * effectiveTdsRate) / 100);
+    const netTotal = taxable + gstAmount - tdsAmount;
+    const roundOffI = Math.round(Number(roundOff) || 0);
+    const previousBalance = invoice?.previousBalance || 0;
+    const amountPaid = invoice?.amountPaid || 0;
+    const thisBalance = netTotal + roundOffI - amountPaid;
+    const currentBalance = thisBalance + previousBalance;
+    return {
+      tpa: Math.round(tpaSum), services: Math.round(servicesSum), adjust: Math.round(adjustSum),
+      gross, discount: discountAmt, taxable, gstAmount, tdsAmount, netTotal,
+      effectiveGst, tdsRate: effectiveTdsRate, tdsSection: effectiveTdsSection,
+      roundOff: roundOffI, previousBalance, amountPaid, thisBalance, currentBalance,
+    };
+  }, [editLines, discount, gstRate, tdsRateId, tdsRates, roundOff, invoice]);
+
   const reload = async () => {
     setLoading(true);
     try {
@@ -117,6 +151,7 @@ const InvoiceDetail = () => {
       setNotes(data.notes || '');
       setTdsRateId(data.tdsRateId || '');
       setRoundOff(data.roundOff || 0);
+      setDiscount(data.discount || 0);
       setGstRate(data.gstRate ?? 0);
       setAdjustments((data.lineItems || []).filter((l) => l.lineType === 'adjustment').map((l) => ({
         description: l.description, amount: l.amount,
@@ -190,6 +225,7 @@ const InvoiceDetail = () => {
         notes,
         tdsRateId: tdsRateId || null,
         roundOff: Math.round(Number(roundOff) || 0),
+        discount: Math.max(0, Math.round(Number(discount) || 0)),
         gstRate: Math.max(0, Number(gstRate) || 0),
       };
       if (lineEdits.length) payload.lineEdits = lineEdits;
@@ -566,7 +602,7 @@ const InvoiceDetail = () => {
               Tip: use a negative amount for a discount, positive for an extra charge. Claim-linked rows update the claim's file price when the invoice is issued.
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   GST Rate (%) <span className="text-xs text-gray-400 font-normal">(applied to Sub Total)</span>
@@ -593,6 +629,21 @@ const InvoiceDetail = () => {
                     label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
                   }))}
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Discount <span className="text-xs text-gray-400 font-normal">(max {formatINR(liveTotals.gross)})</span>
+                </label>
+                <input
+                  type="number" min="0" max={liveTotals.gross}
+                  value={discount}
+                  onChange={(e) => {
+                    const cap = liveTotals.gross;
+                    const v = Math.max(0, Math.min(Number(e.target.value) || 0, cap));
+                    setDiscount(v);
+                  }}
+                  placeholder="0"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -788,51 +839,106 @@ const InvoiceDetail = () => {
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">Totals</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-          <div className="space-y-1 text-gray-600">
-            <div className="flex justify-between"><span>Subtotal — TPA Desk</span><span className="tabular-nums">{formatINR(invoice.subtotalTpaDesk)}</span></div>
-            <div className="flex justify-between"><span>Subtotal — Services</span><span className="tabular-nums">{formatINR(invoice.subtotalServices)}</span></div>
-            {invoice.subtotalAdjust !== 0 && (
-              <div className="flex justify-between"><span>Adjustments</span><span className="tabular-nums">{formatINR(invoice.subtotalAdjust)}</span></div>
-            )}
-            <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-200 pt-1 mt-1">
-              <span>Gross</span><span className="tabular-nums">{formatINR(invoice.gross)}</span>
-            </div>
-          </div>
-          <div className="space-y-1 text-gray-600">
-            <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(invoice.gross)}</span></div>
-            {invoice.gstAmount > 0 && (
-              <div className="flex justify-between"><span>GST ({invoice.gstRate}%)</span><span className="tabular-nums">{formatINR(invoice.gstAmount)}</span></div>
-            )}
-            {invoice.tdsAmount > 0 && (
-              <div className="flex justify-between text-red-600">
-                <span>TDS@{invoice.tdsRate}%{invoice.tdsSection ? `(${invoice.tdsSection})` : ''}</span>
-                <span className="tabular-nums">{formatINR(invoice.tdsAmount)}</span>
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">
+          Totals
+          {isDraft && <span className="ml-2 text-xs font-normal text-gray-400">(live — Save Draft to persist)</span>}
+        </h2>
+        {(() => {
+          // In draft mode, show the live preview so the operator can see the
+          // effect of discount/GST/TDS/roundOff edits before saving. Once
+          // issued, the persisted totals are authoritative.
+          const t = isDraft ? {
+            subtotalTpaDesk: liveTotals.tpa,
+            subtotalServices: liveTotals.services,
+            subtotalAdjust: liveTotals.adjust,
+            gross: liveTotals.gross,
+            discount: liveTotals.discount,
+            gstRate: liveTotals.effectiveGst,
+            gstAmount: liveTotals.gstAmount,
+            tdsRate: liveTotals.tdsRate,
+            tdsSection: liveTotals.tdsSection,
+            tdsAmount: liveTotals.tdsAmount,
+            netTotal: liveTotals.netTotal,
+            amountPaid: liveTotals.amountPaid,
+            roundOff: liveTotals.roundOff,
+            previousBalance: liveTotals.previousBalance,
+            thisBalance: liveTotals.thisBalance,
+            amountPending: liveTotals.currentBalance,
+          } : {
+            subtotalTpaDesk: invoice.subtotalTpaDesk,
+            subtotalServices: invoice.subtotalServices,
+            subtotalAdjust: invoice.subtotalAdjust,
+            gross: invoice.gross,
+            discount: invoice.discount || 0,
+            gstRate: invoice.gstRate,
+            gstAmount: invoice.gstAmount,
+            tdsRate: invoice.tdsRate,
+            tdsSection: invoice.tdsSection,
+            tdsAmount: invoice.tdsAmount,
+            netTotal: invoice.netTotal,
+            amountPaid: invoice.amountPaid || 0,
+            roundOff: invoice.roundOff || 0,
+            previousBalance: invoice.previousBalance || 0,
+            thisBalance: (invoice.netTotal || 0) + (invoice.roundOff || 0) - (invoice.amountPaid || 0),
+            amountPending: invoice.amountPending || 0,
+          };
+          const taxable = (t.gross || 0) - (t.discount || 0);
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+              <div className="space-y-1 text-gray-600">
+                <div className="flex justify-between"><span>Subtotal — TPA Desk</span><span className="tabular-nums">{formatINR(t.subtotalTpaDesk)}</span></div>
+                <div className="flex justify-between"><span>Subtotal — Services</span><span className="tabular-nums">{formatINR(t.subtotalServices)}</span></div>
+                {t.subtotalAdjust !== 0 && (
+                  <div className="flex justify-between"><span>Adjustments</span><span className="tabular-nums">{formatINR(t.subtotalAdjust)}</span></div>
+                )}
+                <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-200 pt-1 mt-1">
+                  <span>Gross</span><span className="tabular-nums">{formatINR(t.gross)}</span>
+                </div>
               </div>
-            )}
-            <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1 mt-1">
-              <span>Total</span><span className="tabular-nums">{formatINR(invoice.netTotal)}</span>
+              <div className="space-y-1 text-gray-600">
+                <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(t.gross)}</span></div>
+                {(t.discount || 0) > 0 && (
+                  <>
+                    <div className="flex justify-between text-green-700">
+                      <span>Discount</span>
+                      <span className="tabular-nums">- {formatINR(t.discount)}</span>
+                    </div>
+                    <div className="flex justify-between"><span>Taxable Value</span><span className="tabular-nums">{formatINR(taxable)}</span></div>
+                  </>
+                )}
+                {t.gstAmount > 0 && (
+                  <div className="flex justify-between"><span>GST ({t.gstRate}%)</span><span className="tabular-nums">{formatINR(t.gstAmount)}</span></div>
+                )}
+                {t.tdsAmount > 0 && (
+                  <div className="flex justify-between text-red-600">
+                    <span>TDS@{t.tdsRate}%{t.tdsSection ? `(${t.tdsSection})` : ''}</span>
+                    <span className="tabular-nums">{formatINR(t.tdsAmount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1 mt-1">
+                  <span>Total</span><span className="tabular-nums">{formatINR(t.netTotal)}</span>
+                </div>
+                <div className="flex justify-between"><span>Received</span><span className="tabular-nums">{formatINR(t.amountPaid)}</span></div>
+                <div className="flex justify-between">
+                  <span>Balance</span>
+                  <span className="tabular-nums">{formatINR(t.thisBalance)}</span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
+                  <span>Previous Balance</span><span className="tabular-nums">{formatINR(t.previousBalance)}</span>
+                </div>
+                <div className={`flex justify-between font-bold ${(t.amountPending || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  <span>Current Balance</span><span className="tabular-nums">{formatINR(t.amountPending)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-gray-900">
+                  <span>Invoice Value Before TDS</span><span className="tabular-nums">{formatINR(taxable)}</span>
+                </div>
+                {t.roundOff !== 0 && (
+                  <div className="flex justify-between"><span>Round Off</span><span className="tabular-nums">{formatINR(t.roundOff)}</span></div>
+                )}
+              </div>
             </div>
-            <div className="flex justify-between"><span>Received</span><span className="tabular-nums">{formatINR(invoice.amountPaid || 0)}</span></div>
-            <div className="flex justify-between">
-              <span>Balance</span>
-              <span className="tabular-nums">{formatINR((invoice.netTotal || 0) + (invoice.roundOff || 0) - (invoice.amountPaid || 0))}</span>
-            </div>
-            <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
-              <span>Previous Balance</span><span className="tabular-nums">{formatINR(invoice.previousBalance || 0)}</span>
-            </div>
-            <div className={`flex justify-between font-bold ${(invoice.amountPending || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              <span>Current Balance</span><span className="tabular-nums">{formatINR(invoice.amountPending || 0)}</span>
-            </div>
-            <div className="flex justify-between font-bold text-gray-900">
-              <span>Invoice Value Before TDS</span><span className="tabular-nums">{formatINR(invoice.gross)}</span>
-            </div>
-            {invoice.roundOff !== 0 && (
-              <div className="flex justify-between"><span>Round Off</span><span className="tabular-nums">{formatINR(invoice.roundOff)}</span></div>
-            )}
-          </div>
-        </div>
+          );
+        })()}
       </div>
 
       {/* Mark-as-paid: same Cash/Bank entry modal as CashBankList, pre-linked

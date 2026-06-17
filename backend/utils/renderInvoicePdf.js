@@ -395,9 +395,11 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       doc.roundedRect(totalsCardX, totalsStartY, totalsCardW, 0, 6); // ranged later
 
       const gross = Number(invoice.gross) || 0;
+      const discount = Number(invoice.discount) || 0;
+      const taxable = Math.max(0, gross - discount);
       const tdsAmt = Number(invoice.tdsAmount) || 0;
       const gstAmt = Number(invoice.gstAmount) || 0;
-      const netTotal = Number(invoice.netTotal) || (gross + gstAmt - tdsAmt);
+      const netTotal = Number(invoice.netTotal) || (taxable + gstAmt - tdsAmt);
       const amountPaid = Number(invoice.amountPaid) || 0;
       const roundOff = Number(invoice.roundOff) || 0;
       const previousBalance = Number(invoice.previousBalance) || 0;
@@ -405,6 +407,10 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
       const currentBalance = thisBalance + previousBalance;
 
       drawTotalRow('Sub Total', formatINR(gross), { faint: true });
+      if (discount) {
+        drawTotalRow('Discount', `- ${formatINR(discount)}`, { faint: true, valueColor: COLORS.green });
+        drawTotalRow('Taxable Value', formatINR(taxable), { faint: true });
+      }
       if (gstAmt) drawTotalRow(`GST (${invoice.gstRate}%)`, formatINR(gstAmt), { faint: true });
       if (tdsAmt) {
         const section = invoice.tdsSection ? `(${invoice.tdsSection})` : '';
@@ -417,7 +423,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
 
       drawTotalRow('Previous Balance', formatINR(previousBalance), { faint: true, divider: true });
       drawTotalRow('Current Balance', formatINR(currentBalance), { bold: true, valueColor: currentBalance > 0 ? COLORS.red : COLORS.green });
-      drawTotalRow('Invoice Value Before TDS', formatINR(gross), { bold: true });
+      drawTotalRow('Invoice Value Before TDS', formatINR(taxable), { bold: true });
       if (roundOff) drawTotalRow('Round Off', formatINR(roundOff), { faint: true });
 
       // Frame the totals card after we know its height

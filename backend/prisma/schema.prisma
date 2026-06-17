@@ -131,6 +131,7 @@ model Invoice {
   tdsSection        String   @default("") @map("tds_section")
   netTotal          Float    @default(0) @map("net_total")
   previousBalance   Float    @default(0) @map("previous_balance")
+  discount          Float    @default(0) @map("discount")
   roundOff          Float    @default(0) @map("round_off")
   grandTotal        Float    @default(0) @map("grand_total")
   amountPaid        Float    @default(0) @map("amount_paid")
