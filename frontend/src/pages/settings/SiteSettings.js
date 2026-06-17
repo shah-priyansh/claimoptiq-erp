@@ -241,13 +241,15 @@ const SiteSettings = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Prefix</label>
                   <input
                     type="text"
-                    maxLength={10}
+                    maxLength={30}
                     value={form.invoice_number_prefix}
-                    onChange={(e) => set('invoice_number_prefix')({ target: { value: e.target.value.toUpperCase().slice(0, 10) } })}
+                    onChange={(e) => set('invoice_number_prefix')({ target: { value: e.target.value.slice(0, 30) } })}
                     placeholder="FCC"
                     className={inputCls}
                   />
-                  <p className="text-xs text-gray-400 mt-1">Appears as PREFIX/YYYY-YY/0001 on issued invoices.</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Drives the invoice number. Trailing digits act as a starting seed — set <code className="bg-gray-100 px-1 rounded">26/0</code> and the next invoice becomes <code className="bg-gray-100 px-1 rounded">26/1</code>, then <code className="bg-gray-100 px-1 rounded">26/2</code>, … A plain <code className="bg-gray-100 px-1 rounded">FCC</code> becomes <code className="bg-gray-100 px-1 rounded">FCC/1</code>.
+                  </p>
                 </div>
               </div>
             </div>

@@ -625,7 +625,7 @@ const HospitalForm = () => {
                     return (
                       <>
                         <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">{isInsWise ? 'Per Claim (Rs)' : 'Fixed Amount (Rs)'}</label>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">{isInsWise ? 'Per Company (Rs)' : 'Fixed Amount (Rs)'}</label>
                           <AmountInput value={svc.fixedAmount} onChange={(v) => handleServiceChange(idx, 'fixedAmount', v)}
                             className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                         </div>
