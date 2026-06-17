@@ -101,6 +101,11 @@ model ReferenceApplicableService {
   id                   String @id @default(uuid())
   referenceId          String @map("reference_id")
   billingServiceNameId String @map("billing_service_name_id")
+  // Per-service commission settings. 'percentage' (default) keeps the legacy
+  // behaviour where the value is a % of the matching line amount; 'fixed' /
+  // 'per_claim' / 'one_time' mirror the Hospital Billing Service shape.
+  commissionType       String @default("percentage") @map("commission_type")
+  commissionValue      Float  @default(0) @map("commission_value")
 
   reference            Reference          @relation(fields: [referenceId], references: [id], onDelete: Cascade)
   billingServiceName   BillingServiceName @relation(fields: [billingServiceNameId], references: [id], onDelete: Cascade)

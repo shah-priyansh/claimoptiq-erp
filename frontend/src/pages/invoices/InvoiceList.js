@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
   HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
+  HiOutlineChartBar,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -178,14 +179,21 @@ const InvoiceList = () => {
 
   return (
     <div>
-      {canCreate && (
-        <div className="flex justify-end mb-4 gap-2">
+      <div className="flex justify-end mb-4 gap-2">
+        <button
+          onClick={() => navigate('/reports/claims')}
+          className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+          title="Open the original claim-level report"
+        >
+          <HiOutlineChartBar className="w-4 h-4 text-primary-600" /> Claims Report
+        </button>
+        {canCreate && (
           <button onClick={() => navigate('/invoices/new')}
             className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
             <HiOutlinePlus className="w-4 h-4" /> New Invoice
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-3">

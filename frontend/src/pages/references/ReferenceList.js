@@ -140,7 +140,6 @@ const ReferenceList = () => {
                 <tr>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Name</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Mobile</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Commission %</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Applicable Services</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
@@ -151,14 +150,23 @@ const ReferenceList = () => {
                   <tr key={r._id} className="hover:bg-gray-50">
                     <td className="py-3 px-4 font-medium text-gray-800">{r.name}</td>
                     <td className="py-3 px-4 text-gray-600">{r.mobile || '-'}</td>
-                    <td className="py-3 px-4 text-gray-600">{r.commissionRate}%</td>
                     <td className="py-3 px-4 text-gray-600">
                       <div className="flex flex-wrap gap-1">
-                        {(r.applicableServices || []).map((s) => (
-                          <span key={s._id} className="px-2 py-0.5 text-xs bg-primary-50 text-primary-700 rounded">
-                            {s.billingServiceName?.name}
-                          </span>
-                        ))}
+                        {(r.applicableServices || []).map((s) => {
+                          const type = s.commissionType || 'percentage';
+                          const val = s.commissionValue ?? 0;
+                          const suffix = type === 'percentage'
+                            ? `${val}%`
+                            : type === 'fixed' ? `₹${val} fixed`
+                            : type === 'per_claim' ? `₹${val}/claim`
+                            : type === 'one_time' ? `₹${val} one-time`
+                            : `${val}`;
+                          return (
+                            <span key={s._id} className="px-2 py-0.5 text-xs bg-primary-50 text-primary-700 rounded">
+                              {s.billingServiceName?.name} · {suffix}
+                            </span>
+                          );
+                        })}
                       </div>
                     </td>
                     <td className="py-3 px-4">

@@ -1,44 +1,111 @@
-// Phase 2.5 — Reference Commission Auto Flow.
+// Reference Commission Auto Flow.
 //
-// When an invoice is issued, look up the hospital's linked Reference and,
-// for every line item whose billingServiceNameId is in the reference's
-// applicableServices list, write an Expense row with
-//   sourceType='invoice_commission', sourceLineId=lineItem.id
-// (the @@unique([sourceType, sourceLineId]) index on Expense gives free
-// idempotency).
+// When an invoice is issued, look up the hospital's linked Reference and, for
+// every applicableServices entry whose billingServiceNameId matches an invoice
+// line item, write Expense rows according to that entry's commissionType and
+// commissionValue. Idempotent via the @@unique([sourceType, sourceLineId])
+// index on Expense — line id encodes one expense row.
 //
-// Reads the reference rate + applicable services LIVE at issue time and
-// snapshots the computed amount into Expense. Rate/service changes later
-// do not mutate already-written rows.
-//
-// Both functions must be called inside a $transaction `tx`.
+// Commission types:
+//   percentage : value % of the matching line's amount, one Expense per line
+//   fixed      : flat `value`, one Expense per applicable-service entry per
+//                invoice (rolled up across all matching lines)
+//   per_claim  : `value` × count of matching TPA-Desk lines on this invoice
+//   one_time   : `value`, only on the first ever invoice for this
+//                (reference, billingServiceName) combo
 
 const SUPPORTED_LINE_TYPES = new Set(['claim_tpa_desk', 'service_fixed', 'service_percentage']);
 const SOURCE_TYPE = 'invoice_commission';
 
-// Pure: given an invoice and the hospital's reference (with applicableServices),
-// produce the rows that should be written. No side effects.
-const computeCommissionRows = (invoice, reference) => {
-  if (!reference || !reference.isActive) return { rows: [], skipped: true, reason: reference ? 'reference inactive' : 'no reference' };
-  const rate = Number(reference.commissionRate) || 0;
-  if (rate <= 0) return { rows: [], skipped: true, reason: 'commission rate is zero' };
+// Pure-ish: given an invoice, the hospital's reference (with applicableServices),
+// and a lookup of whether each (referenceId, billingServiceNameId) pair has
+// produced a one_time expense before, build the rows to insert.
+//
+// onetimeAlreadyUsed: Set<billingServiceNameId> of pairs that already have a
+//   prior one_time expense — those rows are skipped.
+//
+// Each returned row uses `lineId` as the dedupe key (matches the existing
+// Expense.sourceLineId unique constraint). Non-line-bound rows (fixed,
+// per_claim, one_time) synthesise a stable key: `${invoice.id}:${entryId}`.
+const computeCommissionRows = (invoice, reference, onetimeAlreadyUsed = new Set()) => {
+  if (!reference || !reference.isActive) {
+    return { rows: [], skipped: true, reason: reference ? 'reference inactive' : 'no reference' };
+  }
+  const entries = (reference.applicableServices || []).filter((s) => s.billingServiceNameId);
+  if (entries.length === 0) {
+    return { rows: [], skipped: true, reason: 'no applicable services configured' };
+  }
 
-  const applicable = new Set((reference.applicableServices || []).map((s) => s.billingServiceNameId).filter(Boolean));
-  if (applicable.size === 0) return { rows: [], skipped: true, reason: 'no applicable services configured' };
-
-  const rows = [];
+  // Bucket lines by billingServiceNameId so we can apply fixed/per_claim/
+  // one_time once per applicable-service entry.
+  const linesByNameId = new Map();
   for (const line of invoice.lineItems || []) {
     if (!SUPPORTED_LINE_TYPES.has(line.lineType)) continue;
     if (!line.billingServiceNameId) continue;
-    if (!applicable.has(line.billingServiceNameId)) continue;
-    const amount = Math.round((Number(line.amount) || 0) * rate / 100);
-    if (amount <= 0) continue;
-    rows.push({
-      lineId: line.id,
-      amount,
-      description: line.description,
-    });
+    if (!linesByNameId.has(line.billingServiceNameId)) linesByNameId.set(line.billingServiceNameId, []);
+    linesByNameId.get(line.billingServiceNameId).push(line);
   }
+
+  const rows = [];
+  for (const entry of entries) {
+    const matching = linesByNameId.get(entry.billingServiceNameId);
+    if (!matching || !matching.length) continue;
+    const value = Number(entry.commissionValue) || 0;
+    if (value <= 0) continue;
+    const type = entry.commissionType || 'percentage';
+
+    if (type === 'percentage') {
+      for (const line of matching) {
+        const amount = Math.round((Number(line.amount) || 0) * value / 100);
+        if (amount <= 0) continue;
+        rows.push({
+          dedupeKey: line.id,
+          amount,
+          description: `${line.description} (${value}%)`,
+        });
+      }
+      continue;
+    }
+
+    if (type === 'fixed') {
+      const amount = Math.round(value);
+      if (amount <= 0) continue;
+      rows.push({
+        dedupeKey: `${invoice.id}:fixed:${entry.id}`,
+        amount,
+        description: `${entry.billingServiceName?.name || 'Service'} — Fixed`,
+      });
+      continue;
+    }
+
+    if (type === 'per_claim') {
+      // Only TPA Desk lines count as "claims"; service_fixed / service_percentage
+      // don't represent individual claims.
+      const claimCount = matching.filter((l) => l.lineType === 'claim_tpa_desk').length;
+      if (claimCount <= 0) continue;
+      const amount = Math.round(value * claimCount);
+      if (amount <= 0) continue;
+      rows.push({
+        dedupeKey: `${invoice.id}:per_claim:${entry.id}`,
+        amount,
+        description: `${entry.billingServiceName?.name || 'Service'} — ${claimCount} claim${claimCount === 1 ? '' : 's'} × ₹${value}`,
+      });
+      continue;
+    }
+
+    if (type === 'one_time') {
+      if (onetimeAlreadyUsed.has(entry.billingServiceNameId)) continue;
+      const amount = Math.round(value);
+      if (amount <= 0) continue;
+      rows.push({
+        dedupeKey: `${invoice.id}:one_time:${entry.id}`,
+        amount,
+        description: `${entry.billingServiceName?.name || 'Service'} — One-time`,
+      });
+      continue;
+    }
+  }
+
   return { rows, skipped: false, reason: null };
 };
 
@@ -47,13 +114,31 @@ const writeReferenceCommissionFlow = async (tx, invoice, hospital) => {
   if (!hospital?.referenceId || !reference) {
     return { rowsCreated: 0, totalAmount: 0, skipped: true, reason: 'no reference' };
   }
-  const { rows, skipped, reason } = computeCommissionRows(invoice, reference);
+  // For one_time entries, find any prior Expense already written for this
+  // (reference, billingServiceName) pair on a *different* invoice so we don't
+  // double-bill the one-time fee. Issuing the same invoice twice is a no-op
+  // because of the (sourceType, sourceLineId) unique constraint below.
+  const onetimeEntries = (reference.applicableServices || []).filter((s) => s.commissionType === 'one_time');
+  const onetimeAlreadyUsed = new Set();
+  for (const entry of onetimeEntries) {
+    const anyPrior = await tx.expense.findFirst({
+      where: {
+        referenceId: hospital.referenceId,
+        sourceType: SOURCE_TYPE,
+        sourceLineId: { endsWith: `:one_time:${entry.id}` },
+        NOT: { sourceId: invoice.id },
+      },
+      select: { id: true },
+    });
+    if (anyPrior) onetimeAlreadyUsed.add(entry.billingServiceNameId);
+  }
+
+  const { rows, skipped, reason } = computeCommissionRows(invoice, reference, onetimeAlreadyUsed);
   if (skipped) return { rowsCreated: 0, totalAmount: 0, skipped: true, reason };
   if (!rows.length) return { rowsCreated: 0, totalAmount: 0, skipped: false, reason: null };
 
   const category = await tx.expenseCategory.findUnique({ where: { slug: 'reference_commission' } });
   if (!category) {
-    // Fail loud — system seed is broken if this is missing.
     const err = new Error('expense category "reference_commission" not found — re-run seed');
     err.status = 500;
     throw err;
@@ -73,15 +158,15 @@ const writeReferenceCommissionFlow = async (tx, invoice, hospital) => {
           referenceId: hospital.referenceId,
           sourceType: SOURCE_TYPE,
           sourceId: invoice.id,
-          sourceLineId: row.lineId,
+          sourceLineId: row.dedupeKey,
           createdById: invoice.issuedById || null,
         },
       });
       rowsCreated += 1;
       totalAmount += row.amount;
     } catch (err) {
-      // The @@unique([sourceType, sourceLineId]) gives us idempotency for free.
-      // P2002 = unique-constraint violation → the row was already written.
+      // P2002 = unique-constraint violation on (sourceType, sourceLineId)
+      // → idempotency hit, row already written.
       if (err.code !== 'P2002') throw err;
     }
   }
@@ -89,7 +174,6 @@ const writeReferenceCommissionFlow = async (tx, invoice, hospital) => {
 };
 
 // Called from invoice void. Removes any auto-rows the engine previously wrote.
-// Returns the count of rows removed.
 const clearReferenceCommissionFlow = async (tx, invoiceId) => {
   const result = await tx.expense.deleteMany({
     where: { sourceType: SOURCE_TYPE, sourceId: invoiceId },

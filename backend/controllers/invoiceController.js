@@ -140,16 +140,35 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     : [];
   const fixedNameMap = new Map(fixedNameRows.map((r) => [r.name, r.id]));
 
-  const fixedServiceLines = fixedSvcRowsAll.map((s) => ({
-    lineType: 'service_fixed',
-    description: `${s.serviceName} — ${s.billingType === 'fixed_monthly' ? 'Monthly' : 'One-time'}`,
-    amount: Number(s.fixedAmount) || 0,
-    order: order++,
-    claimId: null,
-    billingServiceId: s.id,
-    billingServiceNameId: fixedNameMap.get(s.serviceName) || null,
-    meta: { billingType: s.billingType },
-  }));
+  const fixedServiceLines = fixedSvcRowsAll.map((s) => {
+    const isOneTime = s.billingType === 'fixed_onetime';
+    const isInsWise = Boolean(s.overLimitInsuranceWise);
+    const insurerIds = Array.isArray(s.overLimitInsurerIds) ? s.overLimitInsurerIds : [];
+    // For fixed_onetime + Insurance Wise: the configured amount is the
+    // per-company fee (e.g. empanelment tie-up). Multiply by the number of
+    // selected insurance companies. The same flag on fixed_monthly drives a
+    // different feature (over-limit insurer filter), so we don't multiply.
+    const companyCount = (isOneTime && isInsWise) ? insurerIds.length : 0;
+    const perAmount = Number(s.fixedAmount) || 0;
+    const amount = companyCount > 0 ? perAmount * companyCount : perAmount;
+    const billingLabel = isOneTime ? 'One-time' : 'Monthly';
+    const description = companyCount > 0
+      ? `${s.serviceName} — ${billingLabel} (${companyCount} companies × ₹${perAmount.toLocaleString('en-IN')})`
+      : `${s.serviceName} — ${billingLabel}`;
+    return {
+      lineType: 'service_fixed',
+      description,
+      amount,
+      order: order++,
+      claimId: null,
+      billingServiceId: s.id,
+      billingServiceNameId: fixedNameMap.get(s.serviceName) || null,
+      meta: {
+        billingType: s.billingType,
+        ...(companyCount > 0 ? { perCompanyAmount: perAmount, companyCount } : {}),
+      },
+    };
+  });
 
   // 3. Adjustments (operator-supplied)
   const adjustmentLines = (Array.isArray(adjustments) ? adjustments : [])
@@ -401,7 +420,8 @@ exports.create = async (req, res) => {
     };
 
     const invoice = await prisma.$transaction(async (tx) => {
-      // Recovery path: populate the existing empty draft.
+      // Recovery path: populate the existing empty draft. Keep its existing
+      // invoiceNumber (if any) — don't burn a new sequence slot.
       if (existing) {
         return tx.invoice.update({
           where: { id: existing.id },
@@ -413,11 +433,21 @@ exports.create = async (req, res) => {
           include: invoiceInclude,
         });
       }
+      // Reserve the next sequential invoice number on draft creation so the
+      // operator sees a real number instead of "Draft-XXX". The configured
+      // prefix in Site Settings drives the format — its trailing digits act
+      // as a seed and each new invoice increments by 1 (see invoiceSequence).
+      // Number is final and survives draft → issued; deleted drafts leave a
+      // gap in the sequence, which matches typical Indian invoicing practice.
+      const invoiceTemplate = await getInvoiceTemplate();
+      const invoicePrefix = invoiceTemplate.invoice_number_prefix || 'FCC';
+      const invoiceNumber = await reserveNextInvoiceNumber(tx, invoicePrefix);
       return tx.invoice.create({
         data: {
           hospitalId,
           month,
           status: 'draft',
+          invoiceNumber,
           notes: notes || '',
           ...persistedData,
           createdById: req.user?.id || null,
@@ -706,11 +736,15 @@ exports.issue = async (req, res) => {
       const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
       const grandTotal = (invoice.netTotal || 0) + previousBalance;
 
-      // Reserve invoice number atomically. Prefix is platform-wide now —
-      // pulled from Site Settings → Invoice Template, not the hospital row.
-      const invoiceTemplate = await getInvoiceTemplate();
-      const invoicePrefix = (invoiceTemplate.invoice_number_prefix || 'FCC').toUpperCase().slice(0, 10) || 'FCC';
-      const invoiceNumber = await reserveNextInvoiceNumber(tx, invoicePrefix, issuedAt);
+      // Drafts created via exports.create already hold a reserved
+      // invoiceNumber. Reserve a fresh one only for legacy drafts that
+      // pre-date that change (invoiceNumber === null).
+      let invoiceNumber = invoice.invoiceNumber;
+      if (!invoiceNumber) {
+        const invoiceTemplate = await getInvoiceTemplate();
+        const invoicePrefix = invoiceTemplate.invoice_number_prefix || 'FCC';
+        invoiceNumber = await reserveNextInvoiceNumber(tx, invoicePrefix);
+      }
 
       // Flip linked claims to 'billed' and record their prior status on the
       // line item so a void can roll the claim back to where it was.

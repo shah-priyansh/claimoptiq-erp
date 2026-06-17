@@ -20,10 +20,38 @@ const referenceInclude = {
   },
 };
 
-const buildApplicableServicesCreate = (ids) =>
-  Array.isArray(ids)
-    ? [...new Set(ids.filter(Boolean))].map((billingServiceNameId) => ({ billingServiceNameId }))
-    : [];
+const VALID_COMMISSION_TYPES = new Set(['percentage', 'fixed', 'per_claim', 'one_time']);
+
+// Normalise the operator-supplied per-service commission rows. Accepts the
+// new `applicableServices` shape ([{billingServiceNameId, commissionType,
+// commissionValue}]) and the legacy `applicableServiceIds` array (treated as
+// commissionType=percentage, commissionValue=parentCommissionRate so old
+// clients don't lose behaviour). Dedupes by billingServiceNameId.
+const buildApplicableServicesCreate = (body) => {
+  const rows = [];
+  const seen = new Set();
+  const fallbackRate = Number(body.commissionRate) || 0;
+  if (Array.isArray(body.applicableServices)) {
+    for (const r of body.applicableServices) {
+      const id = r?.billingServiceNameId;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const type = VALID_COMMISSION_TYPES.has(r.commissionType) ? r.commissionType : 'percentage';
+      const value = Math.max(0, Number(r.commissionValue) || 0);
+      rows.push({ billingServiceNameId: id, commissionType: type, commissionValue: value });
+    }
+  } else if (Array.isArray(body.applicableServiceIds)) {
+    for (const id of body.applicableServiceIds) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      rows.push({ billingServiceNameId: id, commissionType: 'percentage', commissionValue: fallbackRate });
+    }
+  }
+  return rows;
+};
+
+const willReplaceApplicableServices = (body) =>
+  Array.isArray(body.applicableServices) || Array.isArray(body.applicableServiceIds);
 
 exports.create = async (req, res) => {
   try {
@@ -32,7 +60,7 @@ exports.create = async (req, res) => {
     const item = await prisma.reference.create({
       data: {
         ...data,
-        applicableServices: { create: buildApplicableServicesCreate(req.body.applicableServiceIds) },
+        applicableServices: { create: buildApplicableServicesCreate(req.body) },
       },
       include: referenceInclude,
     });
@@ -79,7 +107,7 @@ exports.update = async (req, res) => {
     if (!existing) return res.status(404).json({ message: 'Not found' });
 
     const data = pickFields(req.body);
-    const willReplaceServices = Array.isArray(req.body.applicableServiceIds);
+    const willReplaceServices = willReplaceApplicableServices(req.body);
 
     const item = await prisma.$transaction(async (tx) => {
       if (willReplaceServices) {
@@ -90,7 +118,7 @@ exports.update = async (req, res) => {
         data: {
           ...data,
           ...(willReplaceServices
-            ? { applicableServices: { create: buildApplicableServicesCreate(req.body.applicableServiceIds) } }
+            ? { applicableServices: { create: buildApplicableServicesCreate(req.body) } }
             : {}),
         },
         include: referenceInclude,
