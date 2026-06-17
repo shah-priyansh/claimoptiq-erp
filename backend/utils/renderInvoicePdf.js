@@ -5,6 +5,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const amountInWords = require('./amountInWords');
+const { parseSelected, resolveColumns } = require('./invoiceSummaryFields');
 
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
@@ -71,7 +72,8 @@ const baseServiceName = (description, fallback) => {
   return (parts[0] || description).trim() || fallback;
 };
 
-const renderInvoicePdf = async (invoice, hospital, template = {}) => {
+const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => {
+  const { claimsById = new Map() } = opts;
   const upiId = template.invoice_upi_id || '';
   const upiPayload = upiId
     ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(template.invoice_company_name || '')}&am=${Math.round(invoice.amountPending || invoice.grandTotal || 0)}&cu=INR`
@@ -452,77 +454,180 @@ const renderInvoicePdf = async (invoice, hospital, template = {}) => {
           PAD, footerY - 4, { width: W - 2 * PAD, align: 'center' },
         );
 
-      // ===== Page 2: Claims Summary =====
+      // ===== Page 2: Claims Summary (landscape, so many columns fit) =====
       const claimLines = (invoice.lineItems || []).filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId);
       if (claimLines.length) {
-        doc.addPage();
-        doc.rect(0, 0, W, 6).fill(COLORS.primary600);
-        let cy = 24;
+        // Columns are operator-configurable via Settings → invoice_summary_columns.
+        const selectedKeys = parseSelected(template.invoice_summary_columns);
+        const pickedFields = resolveColumns(selectedKeys);
+        // Preserve operator ordering.
+        const orderedFields = selectedKeys
+          .map((k) => pickedFields.find((f) => f.key === k))
+          .filter(Boolean);
+        const safeFields = orderedFields.length
+          ? orderedFields
+          : resolveColumns(['patientName', 'doctorName', 'insuranceCompany', 'ccnNo', 'tpa', 'dateOfDischarge', 'finalApprovalDate', 'tpaFee']);
+
+        // Landscape A4 → 842 × 595. Way more horizontal room for the summary.
+        doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
+        const LW = doc.page.width;
+        const LH = doc.page.height;
+        const LPAD = 28;
+        const LRIGHT = LW - LPAD;
+
+        const tableX = LPAD;
+        const tableW = LW - 2 * LPAD;
+        const srW = 26;
+        const remainingW = tableW - srW;
+        const totalFlex = safeFields.reduce((s, f) => s + (Number(f.flex) || 1), 0) || 1;
+
+        const buildCols = (xStart) => {
+          const cols = [{ key: '__sr', label: '#', x: xStart, w: srW, align: 'center', isAmount: false }];
+          let cx = xStart + srW;
+          safeFields.forEach((f) => {
+            const w = Math.max(54, Math.floor((remainingW * (Number(f.flex) || 1)) / totalFlex));
+            cols.push({ key: f.key, label: f.label, x: cx, w, align: f.align || 'left', isAmount: !!f.isAmount, field: f });
+            cx += w;
+          });
+          // Stretch the final column to the right edge to absorb any rounding gap.
+          const last = cols[cols.length - 1];
+          last.w = (tableX + tableW) - last.x;
+          return cols;
+        };
+
+        const drawHeaderBand = (cy) => {
+          const cols = buildCols(tableX);
+          doc.rect(tableX, cy, tableW, 26).fill(COLORS.primary50);
+          doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(8);
+          cols.forEach((c) =>
+            doc.text(c.label.toUpperCase(), c.x + 4, cy + 9, {
+              width: c.w - 8,
+              align: c.align,
+              characterSpacing: 0.4,
+              lineBreak: false,
+              ellipsis: true,
+            }),
+          );
+          return { cols, nextY: cy + 26 };
+        };
+
+        // Top accent
+        doc.rect(0, 0, LW, 6).fill(COLORS.primary600);
+        let cy = 22;
 
         // Header line
         doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(16)
-          .text('Claims Summary', PAD, cy);
+          .text('Claims Summary', LPAD, cy);
         const monthLbl = invoice.month
           ? new Date(invoice.month).toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
           : '';
         doc.fillColor(COLORS.muted).font('Helvetica').fontSize(9)
           .text(
             `Invoice ${invoice.invoiceNumber || 'Draft'}${monthLbl ? '  ·  ' + monthLbl : ''}  ·  ${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}`,
-            PAD, cy, { width: W - 2 * PAD, align: 'right' },
+            LPAD, cy, { width: LW - 2 * LPAD, align: 'right' },
           );
         cy += 30;
 
-        const sumCols = [
-          { key: 'sr',      label: '#',         x: PAD,        w: 30,  align: 'center' },
-          { key: 'patient', label: 'Patient',   x: PAD + 30,   w: 200, align: 'left' },
-          { key: 'ccn',     label: 'CCN No.',   x: PAD + 230,  w: 110, align: 'left' },
-          { key: 'final',   label: 'Final Approval', x: PAD + 340, w: 100, align: 'right' },
-          { key: 'amount',  label: 'TPA Fee',   x: PAD + 440,  w: RIGHT - (PAD + 440), align: 'right' },
-        ];
+        let header = drawHeaderBand(cy);
+        let cols = header.cols;
+        cy = header.nextY;
 
-        doc.rect(PAD, cy, W - 2 * PAD, 24).fill(COLORS.primary50);
-        doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(9);
-        sumCols.forEach((c) => doc.text(c.label.toUpperCase(), c.x + 4, cy + 8, { width: c.w - 8, align: c.align, characterSpacing: 0.5 }));
-        cy += 24;
-
-        doc.font('Helvetica').fontSize(9).fillColor(COLORS.ink);
-        let total = 0;
         const sumRowH = 20;
+        const totals = {};
+        safeFields.forEach((f) => { if (f.isAmount) totals[f.key] = 0; });
+
+        // Description fallback so rows still show patient / CCN if the underlying
+        // claim record was deleted (line items keep claimId as a string but the
+        // FK isn't enforced — line.description always has "TPA Desk — NAME (CCN xxx)").
+        const parseDescription = (desc) => {
+          if (!desc) return { patient: '', ccn: '' };
+          const m = desc.match(/[—-]\s*(.+?)\s*(?:\(CCN\s*(.+?)\))?$/);
+          return { patient: (m?.[1] || desc).trim(), ccn: (m?.[2] || '').trim() };
+        };
+
         claimLines.forEach((line, i) => {
-          if (cy > 740) { doc.addPage(); cy = PAD; }
-          if (i % 2 === 1) {
-            doc.rect(PAD, cy, W - 2 * PAD, sumRowH).fill(COLORS.alt);
+          // Leave room for the bottom rule + totals band (~ 50px) before page-breaking.
+          if (cy > LH - 70) {
+            doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
+            doc.rect(0, 0, LW, 6).fill(COLORS.primary600);
+            cy = LPAD;
+            header = drawHeaderBand(cy);
+            cols = header.cols;
+            cy = header.nextY;
           }
-          const finalApproval = line.meta?.finalApprovalAmount || 0;
-          const patientMatch = (line.description || '').match(/[—-]\s*(.+?)\s*(\(CCN\s*(.+?)\))?$/);
-          const patient = patientMatch?.[1] || line.description;
-          const ccn = patientMatch?.[3] || '';
-          total += Number(line.amount) || 0;
-          const data = {
-            sr:      String(i + 1),
-            patient,
-            ccn:     ccn || '-',
-            final:   formatINR(finalApproval),
-            amount:  formatINR(line.amount),
-          };
-          sumCols.forEach((c) => {
-            doc.fillColor(COLORS.ink).font(c.key === 'patient' || c.key === 'amount' ? 'Helvetica-Bold' : 'Helvetica')
-              .fontSize(9.5)
-              .text(data[c.key], c.x + 4, cy + 6, { width: c.w - 8, align: c.align });
+          if (i % 2 === 1) doc.rect(tableX, cy, tableW, sumRowH).fill(COLORS.alt);
+
+          const claim = claimsById.get(line.claimId);
+          const fallback = claim ? null : parseDescription(line.description);
+
+          cols.forEach((c) => {
+            let text;
+            if (c.key === '__sr') {
+              text = String(i + 1);
+            } else if (c.key === 'tpaFee') {
+              text = formatINR(line.amount);
+              totals.tpaFee = (totals.tpaFee || 0) + (Number(line.amount) || 0);
+            } else {
+              const f = c.field;
+              let raw;
+              if (claim && f && typeof f.get === 'function') {
+                raw = f.get(claim);
+              } else if (!claim && fallback && c.key === 'patientName') {
+                raw = fallback.patient || '-';
+              } else if (!claim && fallback && c.key === 'ccnNo') {
+                raw = fallback.ccn || '-';
+              } else {
+                raw = '-';
+              }
+              if (f && f.isAmount) {
+                const num = Number(raw) || 0;
+                totals[c.key] = (totals[c.key] || 0) + num;
+                text = formatINR(num);
+              } else {
+                text = (raw === '' || raw == null) ? '-' : String(raw);
+              }
+            }
+            const bold = c.key === 'patientName' || c.key === 'tpaFee';
+            doc.fillColor(COLORS.ink)
+              .font(bold ? 'Helvetica-Bold' : 'Helvetica')
+              .fontSize(8.5)
+              .text(text, c.x + 4, cy + 6, {
+                width: c.w - 8,
+                align: c.align,
+                ellipsis: true,
+                lineBreak: false,
+              });
           });
+
           cy += sumRowH;
         });
 
-        // Bottom rule + total
+        // Bottom rule
         doc.lineWidth(0.5).strokeColor(COLORS.border)
-          .moveTo(PAD, cy).lineTo(RIGHT, cy).stroke();
+          .moveTo(tableX, cy).lineTo(tableX + tableW, cy).stroke();
         cy += 8;
 
-        if (cy > 740) { doc.addPage(); cy = PAD; }
-        doc.rect(PAD, cy, W - 2 * PAD, 28).fill(COLORS.primary600);
-        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11);
-        doc.text(`Total — ${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}`, PAD + 12, cy + 9);
-        doc.text(formatINR(total), sumCols[4].x + 4, cy + 9, { width: sumCols[4].w - 8, align: 'right' });
+        // Totals band — sums every amount column.
+        if (cy > LH - 36) {
+          doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
+          doc.rect(0, 0, LW, 6).fill(COLORS.primary600);
+          cy = LPAD;
+        }
+        doc.rect(tableX, cy, tableW, 28).fill(COLORS.primary600);
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11)
+          .text(`Total — ${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}`, tableX + 12, cy + 9, { lineBreak: false });
+        cols.forEach((c) => {
+          if (c.isAmount && totals[c.key] != null) {
+            doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10.5)
+              .text(formatINR(totals[c.key]), c.x + 4, cy + 9, {
+                width: c.w - 8,
+                align: 'right',
+                lineBreak: false,
+              });
+          }
+        });
+        // Keep LRIGHT referenced for symmetry / future use.
+        void LRIGHT;
       }
 
       doc.end();

@@ -32,6 +32,10 @@ const DEFAULTS = {
   // per-hospital tdsRate / tdsRateId columns were retired 2026-06-16; this
   // is now the single fallback when an invoice doesn't carry an override.
   invoice_default_tds_rate_id:    '',
+  // Comma-separated list of column keys for the Claims Summary table that
+  // gets appended after the invoice on page 2. Operator-configurable from
+  // the Invoices page settings button. See utils/invoiceSummaryFields.js.
+  invoice_summary_columns:        'patientName,doctorName,insuranceCompany,ccnNo,tpa,dateOfDischarge,finalApprovalDate,tpaFee',
 };
 
 // Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them

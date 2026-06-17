@@ -956,7 +956,25 @@ exports.previewPdf = async (req, res) => {
     };
 
     const template = await getInvoiceTemplate();
-    const buf = await renderInvoicePdf(fakeInvoice, hospital, template);
+
+    // Same claim hydration as the issued-invoice PDF endpoint so the preview
+    // reflects the operator's chosen summary columns.
+    const previewClaimIds = allLines
+      .filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId)
+      .map((l) => l.claimId);
+    const previewClaims = previewClaimIds.length
+      ? await prisma.claim.findMany({
+          where: { id: { in: previewClaimIds } },
+          include: {
+            hospital:         { select: { id: true, name: true } },
+            insuranceCompany: { select: { id: true, name: true } },
+            tpa:              { select: { id: true, name: true } },
+          },
+        })
+      : [];
+    const previewClaimsById = new Map(previewClaims.map((c) => [c.id, c]));
+
+    const buf = await renderInvoicePdf(fakeInvoice, hospital, template, { claimsById: previewClaimsById });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="preview-${hospital.name.replace(/[^a-zA-Z0-9]+/g, '_')}.pdf"`);
     res.send(buf);
@@ -973,7 +991,26 @@ exports.pdf = async (req, res) => {
     });
     if (!invoice) return res.status(404).json({ message: 'Not found' });
     const template = await getInvoiceTemplate();
-    const buf = await renderInvoicePdf(invoice, invoice.hospital, template);
+
+    // Pull the full claim records for every claim_tpa_desk line so the Claims
+    // Summary table on page 2 can render any column the operator picked in
+    // the column-picker modal.
+    const claimIds = (invoice.lineItems || [])
+      .filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId)
+      .map((l) => l.claimId);
+    const claims = claimIds.length
+      ? await prisma.claim.findMany({
+          where: { id: { in: claimIds } },
+          include: {
+            hospital:         { select: { id: true, name: true } },
+            insuranceCompany: { select: { id: true, name: true } },
+            tpa:              { select: { id: true, name: true } },
+          },
+        })
+      : [];
+    const claimsById = new Map(claims.map((c) => [c.id, c]));
+
+    const buf = await renderInvoicePdf(invoice, invoice.hospital, template, { claimsById });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${invoice.invoiceNumber || 'draft-' + invoice.id.slice(0, 8)}.pdf"`);
     res.send(buf);
