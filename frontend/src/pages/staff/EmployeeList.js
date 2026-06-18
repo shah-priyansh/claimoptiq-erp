@@ -9,7 +9,7 @@ import { formatCurrency } from '../../utils/format';
 
 const emptyForm = {
   name: '', basicSalary: '', shiftStart: '09:00', shiftEnd: '18:00',
-  standardHours: '9', userId: '', allowances: [],
+  standardHours: '9', userId: '', allowances: [], dailyOtEnabled: true,
 };
 
 const EmployeeForm = ({ emp, users, onSave, onClose }) => {
@@ -19,6 +19,7 @@ const EmployeeForm = ({ emp, users, onSave, onClose }) => {
           name: emp.name, basicSalary: emp.basicSalary, shiftStart: emp.shiftStart,
           shiftEnd: emp.shiftEnd, standardHours: emp.standardHours,
           userId: emp.userId || '', allowances: emp.allowances || [],
+          dailyOtEnabled: emp.dailyOtEnabled !== false,
         }
       : { ...emptyForm }
   );
@@ -121,6 +122,14 @@ const EmployeeForm = ({ emp, users, onSave, onClose }) => {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 py-2 border-t border-gray-100">
+            <div>
+              <p className="text-xs font-semibold text-gray-700">Count Daily OT</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">Pay overtime for extra hours on regular weekdays. Sunday/Holiday OT is unaffected.</p>
+            </div>
+            <Toggle checked={form.dailyOtEnabled} onChange={() => set('dailyOtEnabled', !form.dailyOtEnabled)} />
           </div>
 
           <div className="flex gap-3 pt-2">

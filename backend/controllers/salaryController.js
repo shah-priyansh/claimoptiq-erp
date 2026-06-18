@@ -19,6 +19,7 @@ const computeSalary = (
   // Re-classify each attendance row using the current holiday list so that
   // adding a holiday AFTER attendance is saved still rolls up correctly.
   const stdMin = Math.round(employee.standardHours * 60);
+  const dailyOtEnabled = employee.dailyOtEnabled !== false;
   const classified = attendance.filter(a => a.outTime).map(a => {
     const isSun = new Date(a.date).getUTCDay() === 0;
     const isHol = holidaySet.has(isoDateUTC(a.date));
@@ -26,7 +27,7 @@ const computeSalary = (
     let type, mins;
     if (isSun)      { type = 'sunday';  mins = total; }
     else if (isHol) { type = 'holiday'; mins = total; }
-    else            { type = 'daily';   mins = Math.max(0, total - stdMin); }
+    else            { type = 'daily';   mins = dailyOtEnabled ? Math.max(0, total - stdMin) : 0; }
     return { ...a, _otType: type, _otMinutes: mins };
   });
 
