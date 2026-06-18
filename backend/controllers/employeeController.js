@@ -57,7 +57,7 @@ exports.getMyEmployee = async (req, res) => {
 
 exports.createEmployee = async (req, res) => {
   try {
-    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, allowances = [] } = req.body;
+    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, allowances = [], dailyOtEnabled } = req.body;
     const empNumber = await generateEmpNumber();
     const employee = await prisma.employee.create({
       data: {
@@ -68,6 +68,7 @@ exports.createEmployee = async (req, res) => {
         shiftEnd,
         standardHours: parseFloat(standardHours),
         userId: userId || null,
+        dailyOtEnabled: dailyOtEnabled !== undefined ? !!dailyOtEnabled : true,
         allowances: {
           create: allowances.map(a => ({ name: a.name, amount: parseFloat(a.amount) })),
         },
@@ -83,7 +84,7 @@ exports.createEmployee = async (req, res) => {
 
 exports.updateEmployee = async (req, res) => {
   try {
-    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, isActive, allowances } = req.body;
+    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, isActive, allowances, dailyOtEnabled } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (basicSalary !== undefined) data.basicSalary = parseFloat(basicSalary);
@@ -92,6 +93,7 @@ exports.updateEmployee = async (req, res) => {
     if (standardHours !== undefined) data.standardHours = parseFloat(standardHours);
     if (userId !== undefined) data.userId = userId || null;
     if (isActive !== undefined) data.isActive = isActive;
+    if (dailyOtEnabled !== undefined) data.dailyOtEnabled = !!dailyOtEnabled;
 
     if (allowances !== undefined) {
       await prisma.employeeAllowance.deleteMany({ where: { employeeId: req.params.id } });
