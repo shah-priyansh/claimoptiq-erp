@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 const path = require('path');
 require('dotenv').config();
 
@@ -52,6 +53,13 @@ app.get('/api/health', (req, res) => {
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  if (err instanceof multer.MulterError) {
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    const message = err.code === 'LIMIT_FILE_SIZE'
+      ? `File "${err.field || 'upload'}" exceeds the 50MB size limit`
+      : err.message;
+    return res.status(status).json({ message, code: err.code });
+  }
   res.status(500).json({ message: 'Something went wrong', error: err.message });
 });
 
