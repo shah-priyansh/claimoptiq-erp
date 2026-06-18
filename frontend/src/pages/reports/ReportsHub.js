@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  HiOutlineChartBar, HiOutlineCurrencyRupee, HiOutlineCash, HiOutlineUserGroup,
+  HiOutlineCurrencyRupee, HiOutlineCash, HiOutlineUserGroup,
   HiOutlineDocumentText, HiOutlineTrendingUp, HiOutlineTrendingDown, HiOutlineArrowRight,
+  HiOutlineScale, HiOutlineReceiptTax,
 } from 'react-icons/hi';
 import { getReportDashboardAPI } from '../../services/api';
 import { formatINR } from './reportUtils';
@@ -13,7 +14,8 @@ const CARDS = [
   { to: '/reports/profit', title: 'Profit', desc: 'Sales − Expenses, monthly', icon: HiOutlineTrendingUp, color: 'bg-green-50 text-green-700' },
   { to: '/reports/references', title: 'References', desc: 'Business vs commission', icon: HiOutlineUserGroup, color: 'bg-purple-50 text-purple-700' },
   { to: '/reports/cash-bank', title: 'Cash / Bank', desc: 'In/Out + running balance', icon: HiOutlineCash, color: 'bg-blue-50 text-blue-700' },
-  { to: '/reports/claims', title: 'Claims', desc: 'Original claim-level report', icon: HiOutlineChartBar, color: 'bg-gray-100 text-gray-700' },
+  { to: '/reports/balance-sheet', title: 'Balance Sheet', desc: 'Assets vs Liabilities, as on date', icon: HiOutlineScale, color: 'bg-indigo-50 text-indigo-700' },
+  { to: '/reports/taxes', title: 'Taxes & Discounts', desc: 'Discount, TDS in/out, GST in/out', icon: HiOutlineReceiptTax, color: 'bg-rose-50 text-rose-700' },
 ];
 
 const ReportsHub = () => {

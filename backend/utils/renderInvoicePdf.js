@@ -37,12 +37,6 @@ const formatDate = (d) => {
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
 };
 
-const formatTime = (d) => {
-  if (!d) return '';
-  const dt = new Date(d);
-  return dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-};
-
 const fetchBuffer = (url) =>
   new Promise((resolve) => {
     if (!url || typeof url !== 'string') return resolve(null);
@@ -146,7 +140,6 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       const invoiceMeta = [
         ['Invoice No.', invoice.invoiceNumber || `Draft-${(invoice.id || '').slice(0, 8)}`],
         ['Date', formatDate(invoice.issuedAt || invoice.createdAt)],
-        ['Time', formatTime(invoice.issuedAt || invoice.createdAt)],
         ['Due', invoice.dueDate ? formatDate(invoice.dueDate) : null],
       ].filter(([, v]) => v);
       let metaY = logoBoxY + 36;
@@ -162,52 +155,40 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       y = Math.max(logoBoxY + logoBoxH, metaY) + 22;
 
       // ===== Bill To card =====
-      const billH = 88;
-      doc.lineWidth(1).strokeColor(COLORS.border);
-      doc.roundedRect(PAD, y, W - 2 * PAD, billH, 6).fillAndStroke(COLORS.alt, COLORS.border);
-
       const cardPad = 16;
-      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
-        .text('BILL TO', PAD + cardPad, y + cardPad - 2, { characterSpacing: 1 });
-      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(13)
-        .text(hospital.name || '-', PAD + cardPad, y + cardPad + 11, { width: (W - 2 * PAD) / 2 - cardPad });
+      const billCardW = W - 2 * PAD;
+      const billContentW = billCardW - 2 * cardPad;
 
+      // Pre-measure the content so the card hugs it instead of leaving dead space.
+      const nameH = doc.font('Helvetica-Bold').fontSize(13)
+        .heightOfString(hospital.name || '-', { width: billContentW });
       const addrPieces = [
         hospital.address,
         [hospital.city, hospital.state, hospital.pincode].filter(Boolean).join(', '),
         hospital.phone ? `Phone: ${hospital.phone}` : '',
       ].filter(Boolean);
+      doc.font('Helvetica').fontSize(8.5);
+      const addrH = addrPieces.reduce(
+        (acc, line) => acc + doc.heightOfString(line, { width: billContentW }) + 2,
+        0,
+      );
+      // 8 (BILL TO label) + 3 gap + nameH + 4 gap + addrH + cardPad top/bottom
+      const billH = Math.max(72, cardPad + 8 + 3 + nameH + 4 + addrH + cardPad);
+
+      doc.lineWidth(1).strokeColor(COLORS.border);
+      doc.roundedRect(PAD, y, billCardW, billH, 6).fillAndStroke(COLORS.alt, COLORS.border);
+
+      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
+        .text('BILL TO', PAD + cardPad, y + cardPad - 2, { characterSpacing: 1 });
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(13)
+        .text(hospital.name || '-', PAD + cardPad, y + cardPad + 11, { width: billContentW });
+
       doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5);
       let bly = doc.y + 4;
       addrPieces.forEach((line) => {
-        doc.text(line, PAD + cardPad, bly, { width: (W - 2 * PAD) / 2 - cardPad });
+        doc.text(line, PAD + cardPad, bly, { width: billContentW });
         bly = doc.y + 2;
       });
-
-      // Right side of Bill To — invoice status + balance due preview
-      const statusX = PAD + (W - 2 * PAD) / 2;
-      const statusW = (W - 2 * PAD) / 2 - cardPad;
-      const isOverdue =
-        (invoice.status === 'issued' || invoice.status === 'partially_paid') &&
-        Number(invoice.amountPending || 0) > 0 &&
-        invoice.dueDate && new Date(invoice.dueDate) < new Date();
-      const statusLabel = isOverdue
-        ? 'OVERDUE'
-        : (invoice.status || 'draft').replace('_', ' ').toUpperCase();
-      const statusColor = isOverdue ? COLORS.red
-        : invoice.status === 'paid' ? COLORS.green
-        : invoice.status === 'void' ? COLORS.red
-        : invoice.status === 'partially_paid' ? '#f59e0b'
-        : COLORS.primary600;
-      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
-        .text('STATUS', statusX, y + cardPad - 2, { width: statusW, align: 'right', characterSpacing: 1 });
-      doc.fillColor(statusColor).font('Helvetica-Bold').fontSize(13)
-        .text(statusLabel, statusX, y + cardPad + 11, { width: statusW, align: 'right' });
-      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5)
-        .text('Balance Due', statusX, y + cardPad + 38, { width: statusW, align: 'right' });
-      doc.fillColor(invoice.amountPending > 0 ? COLORS.red : COLORS.green)
-        .font('Helvetica-Bold').fontSize(12)
-        .text(formatINR(invoice.amountPending), statusX, y + cardPad + 50, { width: statusW, align: 'right' });
 
       y += billH + 20;
 
@@ -297,7 +278,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       const leftStart = y;
       const rightColXBottom = PAD + colsBottomW + 14;
 
-      // ----- LEFT column -----
+      // ----- LEFT column (top): Amount in words → Terms -----
       let leftY = leftStart;
 
       // Amount in words
@@ -321,49 +302,6 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
         });
         leftY += 14;
       }
-
-      // Bank Details
-      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
-        .text('BANK DETAILS', PAD, leftY, { characterSpacing: 1 });
-      leftY = doc.y + 6;
-
-      const bankCardH = 110;
-      doc.roundedRect(PAD, leftY, colsBottomW, bankCardH, 6).fillAndStroke(COLORS.alt, COLORS.border);
-
-      const qrSize = 84;
-      const qrX = PAD + 14;
-      const qrY = leftY + (bankCardH - qrSize) / 2;
-      if (qrDataUrl) {
-        const base64 = qrDataUrl.split(',')[1];
-        try { doc.image(Buffer.from(base64, 'base64'), qrX, qrY, { width: qrSize, height: qrSize }); }
-        catch { /* skip */ }
-      } else {
-        doc.lineWidth(0.5).strokeColor(COLORS.border)
-          .roundedRect(qrX, qrY, qrSize, qrSize, 4).stroke();
-        doc.font('Helvetica-Oblique').fontSize(7).fillColor(COLORS.faint)
-          .text('Scan to pay\n(UPI not\nconfigured)', qrX, qrY + 30, { width: qrSize, align: 'center' });
-      }
-
-      const bankTextX = qrX + qrSize + 14;
-      const bankTextW = colsBottomW - (qrSize + 42);
-      const bankFieldH = 22;
-      const bankLines = [
-        ['BANK',     template.invoice_bank_name],
-        ['A/C NO.',  template.invoice_bank_account_no],
-        ['IFSC',     template.invoice_bank_ifsc],
-        ['HOLDER',   template.invoice_bank_account_holder],
-      ].filter(([, v]) => v);
-      const bankBlockH = bankLines.length * bankFieldH;
-      let bankY = leftY + (bankCardH - bankBlockH) / 2;
-      bankLines.forEach(([label, val]) => {
-        doc.font('Helvetica').fontSize(7).fillColor(COLORS.faint)
-          .text(label, bankTextX, bankY, { width: bankTextW, characterSpacing: 0.8 });
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COLORS.ink)
-          .text(val, bankTextX, bankY + 9, { width: bankTextW });
-        bankY += bankFieldH;
-      });
-
-      leftY += bankCardH + 14;
 
       // ----- RIGHT column: totals card -----
       let rightY = leftStart;
@@ -432,20 +370,96 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       doc.lineWidth(1).strokeColor(COLORS.border)
         .roundedRect(totalsCardX, totalsStartY, totalsCardW, rightY - totalsStartY, 6).stroke();
 
-      // Signature block
-      rightY += 36;
-      const sigW = totalsCardW - 24;
-      const sigX = totalsCardX + 12;
+      // ===== Bottom block: Bank Details (left) + Signatory (right) =====
+      // Flows naturally just below the taller of {terms, totals card} with a
+      // small clearance, but is clamped so it never crashes into the footer.
+      const footerY = H - 24;
+      const footerRuleY = footerY - 8;
+      const bankCardH = 118;
+      const bottomBlockTop = Math.min(
+        Math.max(leftY + 6, rightY + 16),
+        footerRuleY - 12 - bankCardH,
+      );
+
+      // Section label header above the card (left)
+      doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(8)
+        .text('BANK DETAILS', PAD, bottomBlockTop - 14, { characterSpacing: 1 });
+
+      doc.lineWidth(1).strokeColor(COLORS.border);
+      doc.roundedRect(PAD, bottomBlockTop, colsBottomW, bankCardH, 8)
+        .fillAndStroke(COLORS.alt, COLORS.border);
+
+      // QR panel — white left strip with a "SCAN TO PAY" header and a UPI
+      // wallet caption underneath. Slightly tighter than before so the bank
+      // text area gets more room (avoids HOLDER name wrapping).
+      const qrSize = 78;
+      const qrPanelW = qrSize + 16;
+      const qrPanelX = PAD;
+      doc.roundedRect(qrPanelX, bottomBlockTop, qrPanelW, bankCardH, 8).fill('#ffffff');
+      doc.lineWidth(1).strokeColor(COLORS.border)
+        .roundedRect(PAD, bottomBlockTop, colsBottomW, bankCardH, 8).stroke();
+      doc.lineWidth(0.5).strokeColor(COLORS.border)
+        .moveTo(qrPanelX + qrPanelW, bottomBlockTop + 6)
+        .lineTo(qrPanelX + qrPanelW, bottomBlockTop + bankCardH - 6).stroke();
+
+      doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(7)
+        .text('SCAN TO PAY', qrPanelX, bottomBlockTop + 8, { width: qrPanelW, align: 'center', characterSpacing: 1 });
+
+      const qrX = qrPanelX + (qrPanelW - qrSize) / 2;
+      const qrY = bottomBlockTop + 20;
+      if (qrDataUrl) {
+        const base64 = qrDataUrl.split(',')[1];
+        try { doc.image(Buffer.from(base64, 'base64'), qrX, qrY, { width: qrSize, height: qrSize }); }
+        catch { /* skip */ }
+      } else {
+        doc.lineWidth(0.5).strokeColor(COLORS.border)
+          .roundedRect(qrX, qrY, qrSize, qrSize, 4).stroke();
+        doc.font('Helvetica-Oblique').fontSize(7).fillColor(COLORS.faint)
+          .text('UPI not\nconfigured', qrX, qrY + 28, { width: qrSize, align: 'center' });
+      }
+      doc.fillColor(COLORS.faint).font('Helvetica').fontSize(6)
+        .text('UPI · GPay · PhonePe', qrPanelX, bottomBlockTop + bankCardH - 10,
+          { width: qrPanelW, align: 'center', characterSpacing: 0.3 });
+
+      // Bank fields on the right side of the card — wider gutter so the
+      // holder/IFSC values stay on one line.
+      const bankTextX = qrPanelX + qrPanelW + 12;
+      const bankTextW = PAD + colsBottomW - bankTextX - 10;
+      const bankLines = [
+        ['BANK',     template.invoice_bank_name],
+        ['A/C NO.',  template.invoice_bank_account_no],
+        ['IFSC',     template.invoice_bank_ifsc],
+        ['HOLDER',   template.invoice_bank_account_holder],
+      ].filter(([, v]) => v);
+      const bankFieldH = 21;
+      const bankBlockH = bankLines.length * bankFieldH;
+      let bankRowY = bottomBlockTop + (bankCardH - bankBlockH) / 2;
+      bankLines.forEach(([label, val]) => {
+        doc.font('Helvetica').fontSize(6.5).fillColor(COLORS.faint)
+          .text(label, bankTextX, bankRowY, { width: bankTextW, characterSpacing: 0.8 });
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.ink)
+          .text(val, bankTextX, bankRowY + 9, { width: bankTextW, lineBreak: false, ellipsis: true });
+        bankRowY += bankFieldH;
+      });
+
+      // ----- Signatory block (right column, same baseline as bank card) -----
+      // Subtle dotted box around the signing area so it doesn't read as
+      // accidental whitespace.
+      const sigW = totalsCardW;
+      const sigX = totalsCardX;
+      doc.lineWidth(0.6).strokeColor(COLORS.border).dash(2, { space: 3 })
+        .roundedRect(sigX, bottomBlockTop, sigW, bankCardH, 8).stroke();
+      doc.undash();
+      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(9)
+        .text(`for ${template.invoice_company_name || 'Company'}`, sigX + 10, bottomBlockTop + 8,
+          { width: sigW - 20, align: 'center' });
+      const sigLineY = bottomBlockTop + bankCardH - 22;
       doc.lineWidth(0.8).strokeColor(COLORS.faint)
-        .moveTo(sigX, rightY).lineTo(sigX + sigW, rightY).stroke();
-      rightY += 6;
-      doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5)
-        .text(`for ${template.invoice_company_name || 'Company'}`, sigX, rightY, { width: sigW, align: 'center' });
-      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9.5)
-        .text('Authorized Signatory', sigX, doc.y + 2, { width: sigW, align: 'center' });
+        .moveTo(sigX + 24, sigLineY).lineTo(sigX + sigW - 24, sigLineY).stroke();
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(10)
+        .text('Authorized Signatory', sigX + 10, sigLineY + 4, { width: sigW - 20, align: 'center' });
 
       // ===== Footer =====
-      const footerY = H - 24;
       doc.lineWidth(0.5).strokeColor(COLORS.border)
         .moveTo(PAD, footerY - 8).lineTo(RIGHT, footerY - 8).stroke();
       doc.fillColor(COLORS.faint).font('Helvetica-Oblique').fontSize(7.5)

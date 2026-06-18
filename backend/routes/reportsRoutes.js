@@ -11,5 +11,7 @@ router.get('/expenses',   checkPermission('reports', 'view'), ctrl.expenses);
 router.get('/profit',     checkPermission('reports', 'view'), ctrl.profit);
 router.get('/references', checkPermission('reports', 'view'), ctrl.references);
 router.get('/cash-bank',  checkPermission('reports', 'view'), ctrl.cashBank);
+router.get('/balance-sheet', checkPermission('reports', 'view'), ctrl.balanceSheet);
+router.get('/taxes',         checkPermission('reports', 'view'), ctrl.taxesDiscount);
 
 module.exports = router;
