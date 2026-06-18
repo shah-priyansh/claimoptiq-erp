@@ -5,7 +5,7 @@ import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
   HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
-  HiOutlineChartBar, HiOutlineCog,
+  HiOutlineChartBar,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -16,7 +16,6 @@ import {
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
-import ClaimSummaryColumnsModal from './ClaimSummaryColumnsModal';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -57,7 +56,6 @@ const InvoiceList = () => {
   // When set, the Cash/Bank entry modal opens pre-filled to record a receipt
   // against this invoice. The user can adjust mode/amount/UTR before saving.
   const [paymentInvoice, setPaymentInvoice] = useState(null);
-  const [columnsModalOpen, setColumnsModalOpen] = useState(false);
   const actionMenuRef = useRef(null);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -188,13 +186,6 @@ const InvoiceList = () => {
           title="Open the original claim-level report"
         >
           <HiOutlineChartBar className="w-4 h-4 text-primary-600" /> Claims Report
-        </button>
-        <button
-          onClick={() => setColumnsModalOpen(true)}
-          className="flex items-center justify-center bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-          title="Choose which claim fields appear in the summary table appended to invoices"
-        >
-          <HiOutlineCog className="w-4 h-4 text-primary-600" />
         </button>
         {canCreate && (
           <button onClick={() => navigate('/invoices/new')}
@@ -378,11 +369,6 @@ const InvoiceList = () => {
         })(),
         document.body,
       )}
-
-      <ClaimSummaryColumnsModal
-        open={columnsModalOpen}
-        onClose={() => setColumnsModalOpen(false)}
-      />
 
       {/* Cash/Bank receipt modal, pre-linked to the chosen invoice. */}
       <CashBankFormModal

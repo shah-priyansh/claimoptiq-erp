@@ -4,10 +4,11 @@ import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getRef
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
-import { HiOutlineDownload, HiChevronDown, HiOutlineX, HiOutlineSearch } from 'react-icons/hi';
+import { HiOutlineDownload, HiChevronDown, HiOutlineX, HiOutlineSearch, HiOutlineCog } from 'react-icons/hi';
 import { formatCurrency, calculateFilePrice, formatDate as _formatDate } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
+import ClaimSummaryColumnsModal from '../invoices/ClaimSummaryColumnsModal';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
@@ -114,6 +115,7 @@ const Reports = () => {
 
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef(null);
+  const [columnsModalOpen, setColumnsModalOpen] = useState(false);
 
   // Field selection modal
   const [fieldModal, setFieldModal] = useState({ open: false, pendingAction: null });
@@ -741,10 +743,19 @@ const Reports = () => {
               </button>
             </div>
           ) : (
-            <button onClick={handleGenerateBill} disabled={loading}
-              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
-              {loading ? 'Loading...' : 'Generate Bill'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={handleGenerateBill} disabled={loading}
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                {loading ? 'Loading...' : 'Generate Bill'}
+              </button>
+              <button
+                onClick={() => setColumnsModalOpen(true)}
+                className="flex items-center justify-center bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                title="Choose which claim fields appear in the summary table appended to invoices"
+              >
+                <HiOutlineCog className="w-4 h-4 text-primary-600" />
+              </button>
+            </div>
           )
         )}
       </div>
@@ -1093,6 +1104,11 @@ const Reports = () => {
         </div>
         );
       })()}
+
+      <ClaimSummaryColumnsModal
+        open={columnsModalOpen}
+        onClose={() => setColumnsModalOpen(false)}
+      />
     </div>
   );
 };

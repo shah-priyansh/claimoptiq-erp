@@ -27,7 +27,7 @@ exports.updateOtSettings = async (req, res) => {
     if (holidayMultiplier !== undefined) data.holidayMultiplier = parseFloat(holidayMultiplier);
 
     for (const [k, v] of Object.entries(data)) {
-      if (isNaN(v) || v <= 0) return res.status(400).json({ message: `${k} must be a positive number` });
+      if (isNaN(v) || v < 0) return res.status(400).json({ message: `${k} must be zero or a positive number` });
     }
 
     const existing = await prisma.otSettings.findFirst();
