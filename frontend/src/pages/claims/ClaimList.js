@@ -1652,68 +1652,102 @@ const ClaimList = () => {
             }
           `}</style>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] print:rounded-none print:shadow-none print:max-w-full print:max-h-full">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 print:hidden">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">Courier Stickers</h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {stickerPreviewClaims.length} sticker{stickerPreviewClaims.length > 1 ? 's' : ''} · A4 portrait · stacked vertically
-                </p>
-              </div>
-              <button onClick={closeStickerPreview}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
-                <HiOutlineX className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div id="courier-stickers-print" className="overflow-y-auto flex-1 px-6 py-5 font-sans text-gray-900 bg-gray-100">
-              <div className="sticker-stack flex flex-col gap-5">
-                {stickerPreviewClaims.map((c) => {
-                  const recipient = c.tpa?.name
-                    ? { label: 'TPA', name: c.tpa.name, address: c.tpa.address, mobile: c.tpa.mobile }
-                    : { label: 'Insurance Company', name: c.insuranceCompany?.name, address: c.insuranceCompany?.address, mobile: c.insuranceCompany?.mobile };
-                  const sender = c.isDirectPatient
-                    ? { name: 'Direct Patient', address: '', phone: '' }
-                    : { name: c.hospital?.name, address: c.hospital?.address, phone: c.hospital?.phone };
-                  const claimNo = c.ccnNo || (c.monthClaimNo ? `M${c.monthClaimNo}` : (c._id?.slice(-8).toUpperCase() || ''));
-                  return (
-                    <div key={c._id} className="sticker-card bg-white border-2 border-gray-900 rounded-lg shadow-sm overflow-hidden">
-                      <div className="p-4 space-y-3">
-                        <div>
-                          <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">TO · {recipient.label}</p>
-                          <p className="text-lg font-extrabold leading-tight text-gray-900">{recipient.name || '—'}</p>
-                          {recipient.address && (
-                            <p className="mt-1 text-sm leading-snug whitespace-pre-line text-gray-700">{recipient.address}</p>
-                          )}
-                          {recipient.mobile && (
-                            <p className="mt-1 text-sm text-gray-700"><span className="font-semibold">Mobile:</span> {recipient.mobile}</p>
-                          )}
-                        </div>
-
-                        <div className="border-t-2 border-dashed border-gray-400" />
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">FROM</p>
-                            <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
-                            {sender.address && (
-                              <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
-                            )}
-                            {sender.phone && (
-                              <p className="mt-0.5 text-xs text-gray-600">M: {sender.phone}</p>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">CLAIM</p>
-                            <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {c.patientName || '—'}</p>
-                            <p className="mt-0.5 text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
-                          </div>
-                        </div>
-                      </div>
+            {(() => {
+              // Group claims by recipient (TPA takes priority, else insurance company)
+              // and by sender so a single sticker carries one TO + one FROM with all
+              // claim/patient rows for that combination listed below.
+              const groups = [];
+              const byKey = new Map();
+              for (const c of stickerPreviewClaims) {
+                const recipient = c.tpa?.name
+                  ? { label: 'TPA', name: c.tpa.name, address: c.tpa.address, mobile: c.tpa.mobile, key: `tpa:${c.tpa._id || c.tpa.id || c.tpa.name}` }
+                  : { label: 'Insurance Company', name: c.insuranceCompany?.name, address: c.insuranceCompany?.address, mobile: c.insuranceCompany?.mobile, key: `ic:${c.insuranceCompany?._id || c.insuranceCompany?.id || c.insuranceCompany?.name || 'none'}` };
+                const sender = c.isDirectPatient
+                  ? { name: 'Direct Patient', address: '', phone: '', key: 'direct' }
+                  : { name: c.hospital?.name, address: c.hospital?.address, phone: c.hospital?.phone, key: `h:${c.hospital?._id || c.hospital?.id || c.hospital?.name || 'none'}` };
+                const groupKey = `${recipient.key}|${sender.key}`;
+                let g = byKey.get(groupKey);
+                if (!g) {
+                  g = { recipient, sender, claims: [] };
+                  byKey.set(groupKey, g);
+                  groups.push(g);
+                }
+                g.claims.push(c);
+              }
+              const totalStickers = groups.length;
+              return (
+                <>
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 print:hidden">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900">Courier Stickers</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {totalStickers} sticker{totalStickers > 1 ? 's' : ''} for {stickerPreviewClaims.length} claim{stickerPreviewClaims.length > 1 ? 's' : ''} · A4 portrait · stacked vertically
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
+                    <button onClick={closeStickerPreview}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                      <HiOutlineX className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div id="courier-stickers-print" className="overflow-y-auto flex-1 px-6 py-5 font-sans text-gray-900 bg-gray-100">
+                    <div className="sticker-stack flex flex-col gap-5">
+                      {groups.map((g, gi) => {
+                        const { recipient, sender, claims } = g;
+                        return (
+                          <div key={gi} className="sticker-card bg-white border-2 border-gray-900 rounded-lg shadow-sm overflow-hidden">
+                            <div className="p-4 space-y-3">
+                              <div>
+                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">TO · {recipient.label}</p>
+                                <p className="text-lg font-extrabold leading-tight text-gray-900">{recipient.name || '—'}</p>
+                                {recipient.address && (
+                                  <p className="mt-1 text-sm leading-snug whitespace-pre-line text-gray-700">{recipient.address}</p>
+                                )}
+                                {recipient.mobile && (
+                                  <p className="mt-1 text-sm text-gray-700"><span className="font-semibold">Mobile:</span> {recipient.mobile}</p>
+                                )}
+                              </div>
+
+                              <div className="border-t-2 border-dashed border-gray-400" />
+
+                              <div>
+                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">FROM</p>
+                                <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
+                                {sender.address && (
+                                  <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
+                                )}
+                                {sender.phone && (
+                                  <p className="mt-0.5 text-xs text-gray-600">M: {sender.phone}</p>
+                                )}
+                              </div>
+
+                              <div className="border-t-2 border-dashed border-gray-400" />
+
+                              <div>
+                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
+                                  CLAIM{claims.length > 1 ? `S · ${claims.length}` : ''}
+                                </p>
+                                <div className="divide-y divide-gray-200">
+                                  {claims.map((c, ci) => {
+                                    const claimNo = c.ccnNo || (c.monthClaimNo ? `M${c.monthClaimNo}` : (c._id?.slice(-8).toUpperCase() || ''));
+                                    return (
+                                      <div key={c._id} className={`grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 ${ci === 0 ? 'pt-0' : 'pt-1.5'} ${ci === claims.length - 1 ? 'pb-0' : 'pb-1.5'}`}>
+                                        <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {c.patientName || '—'}</p>
+                                        <p className="text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
 
             <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl print:hidden">
               <button onClick={closeStickerPreview}
