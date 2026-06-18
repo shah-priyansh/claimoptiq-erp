@@ -363,6 +363,315 @@ exports.cashBank = async (req, res) => {
   }
 };
 
+// === TAXES & DISCOUNTS ====================================================
+// Consolidated tax & discount summary across the [from, to] window.
+//
+// Sourced from invoices (sales side): Discount given, TDS deducted at source
+// (Receivable), Output GST collected (Payable). Expense-side counterparts
+// (TDS Payable on vendor payments, Input GST on purchases) are not modeled
+// on Expense yet, so they're returned as zero with a `notTracked: true` hint
+// so the UI can flag them.
+exports.taxesDiscount = async (req, res) => {
+  try {
+    const { from, to, filtersOut } = resolveRange(req.query);
+
+    const invoices = await prisma.invoice.findMany({
+      where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to } },
+      select: {
+        id: true, hospitalId: true, issuedAt: true,
+        discount: true, gstAmount: true, gstRate: true,
+        tdsAmount: true, tdsRate: true, tdsName: true, tdsSection: true,
+        netTotal: true, gross: true,
+        hospital: { select: { id: true, name: true } },
+      },
+    });
+
+    // Generic monthly / per-hospital / per-bucket grouper. Reads `fieldFn(inv)`
+    // for the value so the same body handles discount, tds, gst.
+    const groupAll = (fieldFn, extraKeyFn) => {
+      const byMonth = new Map();
+      const byHospital = new Map();
+      const byBucket = extraKeyFn ? new Map() : null;
+      let total = 0;
+      let count = 0;
+      for (const inv of invoices) {
+        const v = fieldFn(inv) || 0;
+        if (!v) continue;
+        total += v;
+        count += 1;
+        const m = monthStart(inv.issuedAt);
+        const mk = monthKey(m);
+        const mCur = byMonth.get(mk) || { key: mk, label: monthLabel(m), value: 0, count: 0 };
+        mCur.value += v; mCur.count += 1; byMonth.set(mk, mCur);
+        const hCur = byHospital.get(inv.hospitalId) || { key: inv.hospitalId, label: inv.hospital?.name || '—', value: 0, count: 0 };
+        hCur.value += v; hCur.count += 1; byHospital.set(inv.hospitalId, hCur);
+        if (extraKeyFn) {
+          const ek = extraKeyFn(inv);
+          if (ek) {
+            const bCur = byBucket.get(ek.key) || { key: ek.key, label: ek.label, value: 0, count: 0, ...ek.extra };
+            bCur.value += v; bCur.count += 1; byBucket.set(ek.key, bCur);
+          }
+        }
+      }
+      const finalize = (m, sortKey) => Array.from(m.values())
+        .map((r) => ({ ...r, value: Math.round(r.value) }))
+        .sort((a, b) => sortKey === 'month' ? a.key.localeCompare(b.key) : b.value - a.value);
+      return {
+        total: Math.round(total),
+        count,
+        byMonth: finalize(byMonth, 'month'),
+        byHospital: finalize(byHospital),
+        ...(byBucket ? { byBucket: finalize(byBucket) } : {}),
+      };
+    };
+
+    const discount = groupAll((i) => i.discount);
+    const tdsReceivable = groupAll(
+      (i) => i.tdsAmount,
+      (i) => {
+        const label = i.tdsSection || i.tdsName || (i.tdsRate ? `${i.tdsRate}%` : 'Unspecified');
+        const key = `${i.tdsSection || ''}|${i.tdsName || ''}|${i.tdsRate || 0}`;
+        return { key, label, extra: { section: i.tdsSection || '', name: i.tdsName || '', rate: i.tdsRate || 0 } };
+      },
+    );
+    const gstPayable = groupAll(
+      (i) => i.gstAmount,
+      (i) => {
+        const rate = i.gstRate || 0;
+        return { key: `rate:${rate}`, label: `${rate}% GST`, extra: { rate } };
+      },
+    );
+
+    res.json({
+      filters: filtersOut,
+      discount,
+      tdsReceivable,
+      gstPayable,
+      tdsPayable: { total: 0, count: 0, byMonth: [], byHospital: [], notTracked: true,
+        note: 'TDS deducted while paying vendors is not tracked on Expense yet. Add a tdsAmount field on Expense to populate this.' },
+      gstReceivable: { total: 0, count: 0, byMonth: [], byHospital: [], notTracked: true,
+        note: 'Input GST on purchases is not tracked on Expense yet. Add a gstAmount field on Expense to populate this.' },
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// === BALANCE SHEET =========================================================
+// As-on snapshot of assets and liabilities for the given date.
+//
+// Assets are derived from on-hand cash balances (cash/upi by mode + bank
+// balances broken down per BankAccount), outstanding invoice receivables
+// (Sundry Debtors by hospital), and the TDS withheld on issued invoices
+// (treated as a receivable from the income tax dept).
+//
+// Liabilities side has the GST collected on issued invoices (Output GST
+// payable), and the equity bucket: Retained Earnings = lifetime income −
+// lifetime expenses up to `asOn`. The remaining gap to make Assets =
+// Liabilities + Equity is reported as "Owner's Capital" (opening capital
+// + adjustments not tracked in the system).
+exports.balanceSheet = async (req, res) => {
+  try {
+    // Date semantics:
+    //   to / asOn  - the snapshot date everything is measured up to (defaults to today)
+    //   from       - optional period start. When set, Retained Earnings is scoped to
+    //                [from, to]; lifetime profit before `from` rolls into Owner's Capital
+    //                (matches the Tally "01-Apr → 30-Jun" balance-sheet convention).
+    const to = parseDate(req.query.to) || parseDate(req.query.asOn) || new Date();
+    to.setUTCHours(23, 59, 59, 999);
+    const from = parseDate(req.query.from);
+    if (from) from.setUTCHours(0, 0, 0, 0);
+
+    const periodInvoiceWhere = from
+      ? { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to } }
+      : { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { lte: to } };
+    const periodExpenseWhere = from
+      ? { date: { gte: from, lte: to } }
+      : { date: { lte: to } };
+
+    const [
+      bankAccounts,
+      cashAgg,
+      contraTo,
+      contraFrom,
+      openInvoices,
+      issuedAgg,
+      expenseAgg,
+      periodIncomeAgg,
+      periodExpenseAgg,
+    ] = await Promise.all([
+      prisma.bankAccount.findMany({
+        where: { isActive: true },
+        select: { id: true, bankName: true, isDefault: true, order: true },
+        orderBy: [{ isDefault: 'desc' }, { order: 'asc' }],
+      }),
+      prisma.cashBankEntry.groupBy({
+        by: ['mode', 'direction', 'bankAccountId'],
+        where: { date: { lte: to } },
+        _sum: { amount: true },
+      }),
+      prisma.accountEntry.groupBy({
+        where: { entryType: 'contra', date: { lte: to } },
+        by: ['toMode'],
+        _sum: { amount: true },
+      }),
+      prisma.accountEntry.groupBy({
+        where: { entryType: 'contra', date: { lte: to } },
+        by: ['fromMode'],
+        _sum: { amount: true },
+      }),
+      // Issued invoices up to `to` — the receivable side (always lifetime-up-to-`to`)
+      prisma.invoice.findMany({
+        where: {
+          status: { in: ACTIVE_INVOICE_STATUSES },
+          issuedAt: { lte: to },
+        },
+        select: {
+          hospitalId: true, grandTotal: true, amountPaid: true,
+          hospital: { select: { id: true, name: true } },
+        },
+      }),
+      // Lifetime tax pools (GST / TDS) up to `to`
+      prisma.invoice.aggregate({
+        where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { lte: to } },
+        _sum: { netTotal: true, gstAmount: true, tdsAmount: true },
+      }),
+      prisma.expense.aggregate({
+        where: { date: { lte: to } },
+        _sum: { amount: true },
+      }),
+      // Period totals — drive Retained Earnings when `from` is set.
+      prisma.invoice.aggregate({
+        where: periodInvoiceWhere,
+        _sum: { netTotal: true },
+      }),
+      prisma.expense.aggregate({
+        where: periodExpenseWhere,
+        _sum: { amount: true },
+      }),
+    ]);
+
+    // --- Cash balance per mode + per bank account ---
+    // 'cash' / 'upi' are single buckets (no per-account split). 'bank' is split
+    // by bankAccountId from CashBankEntry. Contras adjust at the mode level
+    // only (AccountEntry has no bankAccountId), so bank-side contras are
+    // attributed to the default bank account.
+    const cashBucket = { cash: 0, upi: 0 };
+    const bankByAccount = new Map(); // bankAccountId -> running balance
+    let bankNullBucket = 0;          // bank entries with no bankAccountId
+    for (const row of cashAgg) {
+      const sign = row.direction === 'in' ? 1 : -1;
+      const amt = sign * (row._sum.amount || 0);
+      if (row.mode === 'bank') {
+        if (row.bankAccountId) {
+          bankByAccount.set(row.bankAccountId, (bankByAccount.get(row.bankAccountId) || 0) + amt);
+        } else {
+          bankNullBucket += amt;
+        }
+      } else if (row.mode === 'cash' || row.mode === 'upi') {
+        cashBucket[row.mode] += amt;
+      }
+    }
+
+    let bankContraNet = 0;
+    for (const row of contraTo) {
+      if (!row.toMode) continue;
+      const amt = row._sum.amount || 0;
+      if (row.toMode === 'bank') bankContraNet += amt;
+      else if (row.toMode === 'cash' || row.toMode === 'upi') cashBucket[row.toMode] += amt;
+    }
+    for (const row of contraFrom) {
+      if (!row.fromMode) continue;
+      const amt = row._sum.amount || 0;
+      if (row.fromMode === 'bank') bankContraNet -= amt;
+      else if (row.fromMode === 'cash' || row.fromMode === 'upi') cashBucket[row.fromMode] -= amt;
+    }
+
+    const defaultBank = bankAccounts.find((b) => b.isDefault) || bankAccounts[0];
+    const unallocatedBank = bankNullBucket + bankContraNet;
+    if (defaultBank && unallocatedBank) {
+      bankByAccount.set(defaultBank.id, (bankByAccount.get(defaultBank.id) || 0) + unallocatedBank);
+    }
+
+    const bankRows = bankAccounts
+      .map((ba) => ({ key: ba.id, label: ba.bankName, value: Math.round(bankByAccount.get(ba.id) || 0) }))
+      .filter((r) => r.value !== 0);
+    const bankTotal = bankRows.reduce((a, r) => a + r.value, 0);
+    const cashTotal = Math.round(cashBucket.cash);
+    const upiTotal = Math.round(cashBucket.upi);
+
+    // --- Sundry Debtors (per hospital, outstanding > 0) ---
+    const debtorMap = new Map();
+    for (const inv of openInvoices) {
+      const due = (inv.grandTotal || 0) - (inv.amountPaid || 0);
+      if (Math.abs(due) < 0.5) continue;
+      const cur = debtorMap.get(inv.hospitalId) || { key: inv.hospitalId, label: inv.hospital?.name || '—', value: 0 };
+      cur.value += due;
+      debtorMap.set(inv.hospitalId, cur);
+    }
+    const debtorRows = Array.from(debtorMap.values())
+      .map((r) => ({ ...r, value: Math.round(r.value) }))
+      .filter((r) => r.value !== 0)
+      .sort((a, b) => b.value - a.value);
+    const debtorsTotal = debtorRows.reduce((a, r) => a + r.value, 0);
+
+    // --- Tax pools ---
+    const tdsReceivable = Math.round(issuedAgg._sum.tdsAmount || 0);
+    const gstPayable = Math.round(issuedAgg._sum.gstAmount || 0);
+
+    // --- Equity ---
+    // Retained Earnings is scoped to the [from, to] window when `from` is set;
+    // otherwise it's lifetime-up-to-`to`. Either way, Owner's Capital absorbs
+    // the remainder so the sheet balances by construction.
+    const periodIncome = periodIncomeAgg._sum.netTotal || 0;
+    const periodExpense = periodExpenseAgg._sum.amount || 0;
+    const retainedEarnings = Math.round(periodIncome - periodExpense);
+
+    const totalAssets = bankTotal + cashTotal + upiTotal + debtorsTotal + tdsReceivable;
+    const knownLiabilities = gstPayable + retainedEarnings;
+    const ownersCapital = totalAssets - knownLiabilities;
+    const totalLiabilities = ownersCapital + retainedEarnings + gstPayable;
+
+    res.json({
+      filters: {
+        from: from ? from.toISOString() : null,
+        to: to.toISOString(),
+        asOn: to.toISOString(),
+      },
+      assets: {
+        sundryDebtors: { label: 'Sundry Debtors', total: debtorsTotal, items: debtorRows },
+        bankAccounts:  { label: 'Bank Accounts',  total: bankTotal,    items: bankRows },
+        cashAccount:   { label: 'Cash in Hand',   total: cashTotal,    items: cashTotal !== 0 ? [{ key: 'cash', label: 'Cash', value: cashTotal }] : [] },
+        upiAccount:    { label: 'UPI',            total: upiTotal,     items: upiTotal !== 0 ? [{ key: 'upi', label: 'UPI', value: upiTotal }] : [] },
+        tdsReceivable: { label: 'TDS Receivable', total: tdsReceivable, items: tdsReceivable !== 0 ? [{ key: 'tds', label: 'TDS deducted on invoices', value: tdsReceivable }] : [] },
+      },
+      liabilities: {
+        capitalAccount: {
+          label: 'Capital Account',
+          ownersCapital,
+          retainedEarnings,
+          periodIncome: Math.round(periodIncome),
+          periodExpense: Math.round(periodExpense),
+          lifetimeIncome: Math.round(issuedAgg._sum.netTotal || 0),
+          lifetimeExpense: Math.round(expenseAgg._sum.amount || 0),
+          total: ownersCapital + retainedEarnings,
+        },
+        outwardDutiesTaxes: {
+          label: 'Outward Duties & Taxes',
+          total: gstPayable,
+          items: gstPayable !== 0 ? [{ key: 'gst_out', label: 'Output GST', value: gstPayable }] : [],
+        },
+      },
+      totals: {
+        assets: totalAssets,
+        liabilities: totalLiabilities,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 // === DASHBOARD =============================================================
 // Summary tiles: this month's sales, expense, profit, cash balance, top hospital, top reference.
 exports.dashboard = async (req, res) => {

@@ -147,6 +147,8 @@ export const getReportExpensesAPI    = (params) => API.get('/reports/expenses', 
 export const getReportProfitAPI      = (params) => API.get('/reports/profit', { params });
 export const getReportReferencesAPI  = (params) => API.get('/reports/references', { params });
 export const getReportCashBankAPI    = (params) => API.get('/reports/cash-bank', { params });
+export const getReportBalanceSheetAPI = (params) => API.get('/reports/balance-sheet', { params });
+export const getReportTaxesAPI       = (params) => API.get('/reports/taxes', { params });
 
 // Account entries (General + Contra)
 export const getAccountEntriesAPI       = (params) => API.get('/account-entries', { params });

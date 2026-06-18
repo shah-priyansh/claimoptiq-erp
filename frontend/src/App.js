@@ -34,6 +34,8 @@ import ExpensesReport from './pages/reports/ExpensesReport';
 import ProfitReport from './pages/reports/ProfitReport';
 import ReferencesReport from './pages/reports/ReferencesReport';
 import CashBankReport from './pages/reports/CashBankReport';
+import BalanceSheetReport from './pages/reports/BalanceSheetReport';
+import TaxesReport from './pages/reports/TaxesReport';
 import RoleList from './pages/roles/RoleList';
 import RoleForm from './pages/roles/RoleForm';
 import ClaimStatusMaster from './pages/claimstatus/ClaimStatusMaster';
@@ -90,6 +92,8 @@ function App() {
             <Route path="/reports/profit" element={<ProtectedRoute module="reports"><ProfitReport /></ProtectedRoute>} />
             <Route path="/reports/references" element={<ProtectedRoute module="reports"><ReferencesReport /></ProtectedRoute>} />
             <Route path="/reports/cash-bank" element={<ProtectedRoute module="reports"><CashBankReport /></ProtectedRoute>} />
+            <Route path="/reports/balance-sheet" element={<ProtectedRoute module="reports"><BalanceSheetReport /></ProtectedRoute>} />
+            <Route path="/reports/taxes" element={<ProtectedRoute module="reports"><TaxesReport /></ProtectedRoute>} />
             <Route path="/claim-statuses" element={<ProtectedRoute module="claim_statuses" requireManage><ClaimStatusMaster /></ProtectedRoute>} />
             <Route path="/claim-document-types" element={<ProtectedRoute module="claim_document_types" requireManage><ClaimDocumentTypeMaster /></ProtectedRoute>} />
             <Route path="/billing-service-names" element={<ProtectedRoute module="billing_service_names" requireManage><BillingServiceNameList /></ProtectedRoute>} />
