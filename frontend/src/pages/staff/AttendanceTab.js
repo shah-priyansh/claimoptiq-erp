@@ -443,6 +443,7 @@ const AdminAttendanceView = () => {
 const MyAttendanceView = () => {
   const [today, setToday] = useState(null);
   const [employee, setEmployee] = useState(null);
+  const [profileError, setProfileError] = useState('');
   const [holidays, setHolidays] = useState([]);
   const [clocking, setClocking] = useState(false);
   const now = new Date();
@@ -454,7 +455,10 @@ const MyAttendanceView = () => {
       const { data } = await getTodayAttendanceAPI();
       setToday(data.record);
       setEmployee(data.employee);
-    } catch { }
+      setProfileError('');
+    } catch (err) {
+      setProfileError(err.response?.data?.message || 'Failed to load attendance profile');
+    }
   }, []);
 
   useEffect(() => { loadToday(); }, [loadToday]);
@@ -525,17 +529,17 @@ const MyAttendanceView = () => {
       </div>
 
       {/* Monthly attendance grid (editable) */}
-      {employee && (
-        <div>
-          <div className="flex items-center gap-3 mb-3">
-            <h3 className="font-semibold text-gray-700 text-sm">Attendance</h3>
-            <NativeSelect value={selMonth} onChange={e => setSelMonth(Number(e.target.value))}>
-              {months.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-            </NativeSelect>
-            <NativeSelect value={selYear} onChange={e => setSelYear(Number(e.target.value))}>
-              {[now.getFullYear() - 1, now.getFullYear()].map(y => <option key={y} value={y}>{y}</option>)}
-            </NativeSelect>
-          </div>
+      <div>
+        <div className="flex items-center gap-3 mb-3">
+          <h3 className="font-semibold text-gray-700 text-sm">Attendance</h3>
+          <NativeSelect value={selMonth} onChange={e => setSelMonth(Number(e.target.value))}>
+            {months.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </NativeSelect>
+          <NativeSelect value={selYear} onChange={e => setSelYear(Number(e.target.value))}>
+            {[now.getFullYear() - 1, now.getFullYear()].map(y => <option key={y} value={y}>{y}</option>)}
+          </NativeSelect>
+        </div>
+        {employee ? (
           <MonthGrid
             key={`${employee.id}-${selMonth}-${selYear}`}
             employee={employee}
@@ -545,8 +549,20 @@ const MyAttendanceView = () => {
             fetchFn={({ month, year }) => getMyAttendanceAPI({ month, year }).then(r => r.data.records)}
             saveFn={addMyAttendanceAPI}
           />
-        </div>
-      )}
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 py-12 text-center">
+            <HiOutlineExclamation className="w-8 h-8 mx-auto mb-2 text-amber-500" />
+            <p className="text-sm font-medium text-gray-700">
+              {profileError || 'Loading attendance profile…'}
+            </p>
+            {profileError && (
+              <p className="text-xs text-gray-500 mt-1">
+                Ask an admin to link your user to an employee record from the Staff → Employees screen.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

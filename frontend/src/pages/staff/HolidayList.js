@@ -143,7 +143,7 @@ const OtSettingsCard = ({ canEdit }) => {
                 {canEdit ? (
                   <input
                     type="number"
-                    min="1"
+                    min="0"
                     step="0.1"
                     value={form[key]}
                     onChange={e => set(key, e.target.value)}
