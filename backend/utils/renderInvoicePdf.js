@@ -278,61 +278,81 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       const leftStart = y;
       const rightColXBottom = PAD + colsBottomW + 14;
 
-      // ----- LEFT column (top): Amount in words → Terms -----
+      // ----- LEFT column (top): Amount-in-words card → Terms card -----
       let leftY = leftStart;
 
-      // Amount in words
-      doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
-        .text('INVOICE AMOUNT IN WORDS', PAD, leftY, { characterSpacing: 1 });
-      leftY = doc.y + 6;
-      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9.5)
-        .text(amountInWords(invoice.gross), PAD, leftY, { width: colsBottomW });
-      leftY = doc.y + 18;
+      // Amount in words — primary-accented card with a left stripe
+      const wordsText = amountInWords(invoice.gross);
+      const wordsTextW = colsBottomW - 22;
+      const wordsTextH = doc.font('Helvetica-Bold').fontSize(11)
+        .heightOfString(wordsText, { width: wordsTextW });
+      const wordsCardH = Math.max(48, 14 + wordsTextH + 12);
+      doc.roundedRect(PAD, leftY, colsBottomW, wordsCardH, 8)
+        .fillAndStroke(COLORS.primary50, COLORS.primary100);
+      doc.rect(PAD, leftY, 3, wordsCardH).fill(COLORS.primary600);
+      doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(7)
+        .text('INVOICE AMOUNT IN WORDS', PAD + 12, leftY + 8,
+          { width: wordsTextW, characterSpacing: 1 });
+      doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(11)
+        .text(wordsText, PAD + 12, leftY + 20, { width: wordsTextW });
+      leftY += wordsCardH + 12;
 
-      // Terms
+      // Terms — soft card with primary section header
       if (template.invoice_terms) {
-        doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
-          .text('TERMS & CONDITIONS', PAD, leftY, { characterSpacing: 1 });
-        leftY = doc.y + 6;
-        doc.fillColor(COLORS.body).font('Helvetica').fontSize(8.5);
         const termsLines = template.invoice_terms.split('\n').filter((s) => s.trim());
+        doc.font('Helvetica').fontSize(8.5);
+        const termTextW = colsBottomW - 24;
+        const termsBodyH = termsLines.reduce(
+          (acc, line) => acc + doc.heightOfString(`•  ${line.trim()}`, { width: termTextW, lineGap: 3 }) + 4,
+          0,
+        );
+        const termsCardH = 22 + termsBodyH + 8;
+        doc.roundedRect(PAD, leftY, colsBottomW, termsCardH, 8)
+          .fillAndStroke(COLORS.alt, COLORS.border);
+        doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(7)
+          .text('TERMS & CONDITIONS', PAD + 12, leftY + 8,
+            { width: termTextW, characterSpacing: 1 });
+        let termY = leftY + 22;
+        doc.font('Helvetica').fontSize(8.5).fillColor(COLORS.body);
         termsLines.forEach((line) => {
-          doc.text(`• ${line.trim()}`, PAD, leftY, { width: colsBottomW, lineGap: 2 });
-          leftY = doc.y + 4;
+          doc.text(`•  ${line.trim()}`, PAD + 12, termY, { width: termTextW, lineGap: 3 });
+          termY = doc.y + 4;
         });
-        leftY += 14;
+        leftY += termsCardH + 12;
       }
 
       // ----- RIGHT column: totals card -----
-      let rightY = leftStart;
-
-      doc.roundedRect(rightColXBottom, rightY, colsBottomW, 0.1, 6); // placeholder for layout reasoning
-
       const totalsCardX = rightColXBottom;
       const totalsCardW = colsBottomW;
-      const totalsStartY = rightY;
+      const totalsStartY = leftStart;
+      let rightY = totalsStartY;
 
-      const drawTotalRow = (label, value, opts = {}) => {
-        const { bold, valueColor, big, divider, faint } = opts;
-        const lineH = big ? 36 : 26;
-        if (divider) {
-          doc.lineWidth(0.5).strokeColor(COLORS.border)
-            .moveTo(totalsCardX + 14, rightY).lineTo(totalsCardX + totalsCardW - 14, rightY).stroke();
+      // Tighter row engine. Each row paints its own background (zebra / band)
+      // so the card reads as a single composed block instead of a list with
+      // ad-hoc dividers between sections.
+      const ROW_H = 22;
+      const BAND_H = 28;
+      const drawRow = (label, value, opts = {}) => {
+        const { bold, valueColor, faint, band } = opts;
+        const h = band ? BAND_H : ROW_H;
+        if (band) {
+          doc.rect(totalsCardX, rightY, totalsCardW, h).fill(band);
         }
-        const textY = rightY + (big ? 12 : 8);
+        const textY = rightY + (h - 11) / 2 + 1;
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
-          .fontSize(big ? 11 : 9.5)
+          .fontSize(band ? 10.5 : 9)
           .fillColor(faint ? COLORS.muted : COLORS.ink)
-          .text(label, totalsCardX + 14, textY, { width: totalsCardW / 2 - 14, align: 'left' });
+          .text(label, totalsCardX + 14, textY, { width: totalsCardW / 2, align: 'left', lineBreak: false });
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
-          .fontSize(big ? 13 : 9.5)
-          .fillColor(valueColor || COLORS.ink)
-          .text(value, totalsCardX + totalsCardW / 2, textY - (big ? 1 : 0), { width: totalsCardW / 2 - 14, align: 'right' });
-        rightY += lineH;
+          .fontSize(band ? 11 : 9)
+          .fillColor(valueColor || (band ? COLORS.ink : COLORS.ink))
+          .text(value, totalsCardX + totalsCardW / 2, textY, { width: totalsCardW / 2 - 14, align: 'right', lineBreak: false });
+        rightY += h;
       };
-
-      // Light card background
-      doc.roundedRect(totalsCardX, totalsStartY, totalsCardW, 0, 6); // ranged later
+      const drawDivider = () => {
+        doc.lineWidth(0.5).strokeColor(COLORS.border)
+          .moveTo(totalsCardX + 14, rightY).lineTo(totalsCardX + totalsCardW - 14, rightY).stroke();
+      };
 
       const gross = Number(invoice.gross) || 0;
       const discount = Number(invoice.discount) || 0;
@@ -346,29 +366,41 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       const thisBalance = netTotal + roundOff - amountPaid;
       const currentBalance = thisBalance + previousBalance;
 
-      drawTotalRow('Sub Total', formatINR(gross), { faint: true });
+      // ---- Section 1: charges build-up ----
+      drawRow('Sub Total', formatINR(gross), { faint: true });
       if (discount) {
-        drawTotalRow('Discount', `- ${formatINR(discount)}`, { faint: true, valueColor: COLORS.green });
-        drawTotalRow('Taxable Value', formatINR(taxable), { faint: true });
+        drawRow('Discount', `- ${formatINR(discount)}`, { faint: true, valueColor: COLORS.green });
+        drawRow('Taxable Value', formatINR(taxable), { faint: true });
       }
-      if (gstAmt) drawTotalRow(`GST (${invoice.gstRate}%)`, formatINR(gstAmt), { faint: true });
+      if (gstAmt) drawRow(`GST (${invoice.gstRate}%)`, formatINR(gstAmt), { faint: true });
       if (tdsAmt) {
-        const section = invoice.tdsSection ? `(${invoice.tdsSection})` : '';
-        drawTotalRow(`TDS@${invoice.tdsRate}%${section}`, formatINR(tdsAmt), { faint: true, valueColor: COLORS.red });
+        const section = invoice.tdsSection ? ` (${invoice.tdsSection})` : '';
+        drawRow(`TDS @ ${invoice.tdsRate}%${section}`, `- ${formatINR(tdsAmt)}`, { faint: true, valueColor: COLORS.red });
       }
+      if (roundOff) drawRow('Round Off', formatINR(roundOff), { faint: true });
 
-      drawTotalRow('Total', formatINR(netTotal), { bold: true, divider: true });
-      drawTotalRow('Received', formatINR(amountPaid), { faint: true, valueColor: amountPaid ? COLORS.green : undefined });
-      drawTotalRow('Balance', formatINR(thisBalance), { faint: true });
+      // ---- Section 2: net total band (primary tint) ----
+      drawRow('Total', formatINR(netTotal), { bold: true, band: COLORS.primary50, valueColor: COLORS.primary600 });
 
-      drawTotalRow('Previous Balance', formatINR(previousBalance), { faint: true, divider: true });
-      drawTotalRow('Current Balance', formatINR(currentBalance), { bold: true, valueColor: currentBalance > 0 ? COLORS.red : COLORS.green });
-      drawTotalRow('Invoice Value Before TDS', formatINR(taxable), { bold: true });
-      if (roundOff) drawTotalRow('Round Off', formatINR(roundOff), { faint: true });
+      // ---- Section 3: payment status ----
+      drawDivider();
+      drawRow('Received', formatINR(amountPaid), { faint: true, valueColor: amountPaid ? COLORS.green : undefined });
+      drawRow('Balance', formatINR(thisBalance), { faint: true });
+      drawDivider();
+      drawRow('Previous Balance', formatINR(previousBalance), { faint: true });
 
-      // Frame the totals card after we know its height
+      // ---- Section 4: current balance band (red/green by sign) ----
+      const balanceBg = currentBalance > 0 ? '#fef2f2' : '#f0fdf4'; // soft red / green
+      const balanceFg = currentBalance > 0 ? COLORS.red : COLORS.green;
+      drawRow('Current Balance', formatINR(currentBalance), { bold: true, band: balanceBg, valueColor: balanceFg });
+
+      drawDivider();
+      drawRow('Invoice Value Before TDS', formatINR(taxable), { bold: true });
+
+      // Frame the totals card after we know its height (drawn on top so the
+      // bands stay clipped to the rounded corners visually).
       doc.lineWidth(1).strokeColor(COLORS.border)
-        .roundedRect(totalsCardX, totalsStartY, totalsCardW, rightY - totalsStartY, 6).stroke();
+        .roundedRect(totalsCardX, totalsStartY, totalsCardW, rightY - totalsStartY, 8).stroke();
 
       // ===== Bottom block: Bank Details (left) + Signatory (right) =====
       // Flows naturally just below the taller of {terms, totals card} with a
