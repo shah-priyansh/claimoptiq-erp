@@ -372,7 +372,7 @@ const DocumentUpload = () => {
 
   const makeFileEntry = (file) => {
     if (!file) return null;
-    if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name}: too large (max 10 MB)`); return null; }
+    if (file.size > 50 * 1024 * 1024) { toast.error(`${file.name}: too large (max 50 MB)`); return null; }
     return { id: ++idRef.current, file, preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null };
   };
 
