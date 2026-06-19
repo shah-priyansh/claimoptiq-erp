@@ -714,7 +714,7 @@ const ClaimDetail = () => {
         )}
       </div>
       {canUpload && (
-        <p className="text-[11px] text-gray-400 mb-3">Up to {MAX_FILES_PER_UPLOAD} files per upload · {MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG</p>
+        <p className="text-xs font-medium text-gray-600 mb-3">Up to {MAX_FILES_PER_UPLOAD} files per upload · {MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG</p>
       )}
       <PendingDocGrid
         files={pendingFiles[pendingKey]}
