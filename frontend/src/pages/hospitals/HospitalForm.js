@@ -278,10 +278,19 @@ const HospitalForm = () => {
                     searchPlaceholder="Search references..."
                     noneLabel="— No reference —"
                     allowClear
-                    options={references.map((r) => ({
-                      value: r._id,
-                      label: `${r.name} (${r.commissionRate}%)`,
-                    }))}
+                    options={references.map((r) => {
+                      const svcs = r.applicableServices || [];
+                      const pctSvcs = svcs.filter((s) => s.commissionType === 'percentage');
+                      let suffix = '';
+                      if (r.commissionRate > 0) {
+                        suffix = ` (${r.commissionRate}%)`;
+                      } else if (pctSvcs.length && pctSvcs.every((s) => s.commissionValue === pctSvcs[0].commissionValue)) {
+                        suffix = ` (${pctSvcs[0].commissionValue}%)`;
+                      } else if (svcs.length) {
+                        suffix = ` (${svcs.length} service${svcs.length === 1 ? '' : 's'})`;
+                      }
+                      return { value: r._id, label: `${r.name}${suffix}` };
+                    })}
                   />
                   {!form.referenceId && form.referenceBy && (
                     <p className="text-xs text-gray-400 mt-1">Legacy text: "{form.referenceBy}" (saved as-is until you pick a reference)</p>
