@@ -203,6 +203,10 @@ const DocMiniGrid = ({ docs, onPreview, onDelete, isEditable, deletingDocId }) =
   );
 };
 
+const MAX_FILES_PER_UPLOAD = 50;
+const MAX_FILE_SIZE_MB = 50;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 // Reusable upload button label
 const UploadLabel = ({ onChange, label }) => (
   <label className="inline-flex items-center gap-2 text-sm font-medium text-primary-600 border border-primary-200 hover:bg-primary-50 px-3 py-1.5 rounded-lg cursor-pointer transition-all">
@@ -444,14 +448,33 @@ const ClaimDetail = () => {
 
   const handleFileSelect = (e, category) => {
     const files = Array.from(e.target.files);
+    e.target.value = '';
     if (!files.length) return;
-    const entries = files.map(f => ({
+
+    const oversized = files.filter(f => f.size > MAX_FILE_SIZE_BYTES);
+    const accepted = files.filter(f => f.size <= MAX_FILE_SIZE_BYTES);
+    if (oversized.length) {
+      toast.error(`${oversized.length} file${oversized.length > 1 ? 's' : ''} skipped — max ${MAX_FILE_SIZE_MB} MB per file`);
+    }
+    if (!accepted.length) return;
+
+    const currentCount = (pendingFiles[category] || []).length;
+    const remaining = MAX_FILES_PER_UPLOAD - currentCount;
+    if (remaining <= 0) {
+      toast.error(`Upload limit reached — max ${MAX_FILES_PER_UPLOAD} files per upload. Save current attachments first.`);
+      return;
+    }
+    const toAdd = accepted.slice(0, remaining);
+    if (accepted.length > remaining) {
+      toast.error(`Only ${remaining} more file${remaining > 1 ? 's' : ''} can be added (max ${MAX_FILES_PER_UPLOAD} per upload)`);
+    }
+
+    const entries = toAdd.map(f => ({
       file: f,
       previewUrl: URL.createObjectURL(f),
       ...(category === 'other' ? { category: '' } : {}),
     }));
     setPendingFiles(p => ({ ...p, [category]: [...p[category], ...entries] }));
-    e.target.value = '';
   };
 
   const updatePendingOtherCategory = (idx, cat) => {
@@ -684,12 +707,15 @@ const ClaimDetail = () => {
   // Shared documents subsection used in Discharge / File&Submit / Settlement tabs
   const DocsSubsection = ({ category, pendingKey, uploadLabel }) => (
     <div className="mt-6 pt-5 border-t border-gray-100">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Attachments</p>
         {canUpload && (
           <UploadLabel label={uploadLabel} onChange={e => handleFileSelect(e, pendingKey)} />
         )}
       </div>
+      {canUpload && (
+        <p className="text-[11px] text-gray-400 mb-3">Up to {MAX_FILES_PER_UPLOAD} files per upload · {MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG</p>
+      )}
       <PendingDocGrid
         files={pendingFiles[pendingKey]}
         onPreview={e => setPendingPreview({ url: e.previewUrl, name: e.file.name })}
