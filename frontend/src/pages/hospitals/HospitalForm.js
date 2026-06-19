@@ -56,6 +56,7 @@ const HospitalForm = () => {
   const [form, setForm] = useState({
     name: '', contact: '', email: '', phone: '', address: '',
     city: '', state: '', pincode: '', referenceBy: '', referenceId: '',
+    isActive: true,
     doctors: [],
     billingServices: [],
   });
@@ -83,6 +84,7 @@ const HospitalForm = () => {
       getHospitalAPI(id).then(({ data }) => setForm({
         ...data,
         referenceId: data.referenceId || data.reference?._id || '',
+        isActive: data.isActive !== false,
       })).catch(() => {
         toast.error('Hospital not found');
         navigate('/hospitals');
@@ -218,7 +220,24 @@ const HospitalForm = () => {
       <form onSubmit={handleSubmit}>
         {/* Basic Info */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">Basic Information</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">Basic Information</h2>
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+              <span className="text-sm font-medium text-gray-700">Status</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.isActive}
+                onClick={() => setForm(f => ({ ...f, isActive: !f.isActive }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.isActive ? 'bg-green-500' : 'bg-gray-300'}`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${form.isActive ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+              <span className={`text-xs font-semibold ${form.isActive ? 'text-green-700' : 'text-gray-500'}`}>
+                {form.isActive ? 'Active' : 'Inactive'}
+              </span>
+            </label>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Hospital Name *</label>

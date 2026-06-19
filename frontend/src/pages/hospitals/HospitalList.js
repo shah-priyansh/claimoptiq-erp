@@ -44,7 +44,7 @@ const HospitalList = () => {
   const fetchHospitals = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await getHospitalsAPI({ search, active: 'true', page, limit: pageSize });
+      const { data } = await getHospitalsAPI({ search, page, limit: pageSize });
       setHospitals(data.hospitals);
       setTotal(data.total);
       setPages(data.pages);
@@ -131,7 +131,14 @@ const HospitalList = () => {
                         <HiOutlineOfficeBuilding className="w-5 h-5 text-primary-600" />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-semibold text-gray-800 truncate">{h.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-gray-800 truncate">{h.name}</p>
+                          {h.isActive === false ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 flex-shrink-0">Inactive</span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700 flex-shrink-0">Active</span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-500 mt-0.5">
                           {[h.city, h.state].filter(Boolean).join(', ') || 'Location not set'}
                         </p>
@@ -193,14 +200,15 @@ const HospitalList = () => {
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">City</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reference By</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Services</th>
+                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
                 <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={7} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={8} className="py-8 text-center text-gray-400">Loading...</td></tr>
               ) : hospitals.length === 0 ? (
-                <tr><td colSpan={7} className="py-8 text-center text-gray-400">No hospitals found</td></tr>
+                <tr><td colSpan={8} className="py-8 text-center text-gray-400">No hospitals found</td></tr>
               ) : (
                 hospitals.map((h, idx) => (
                   <tr
@@ -214,6 +222,13 @@ const HospitalList = () => {
                     <td className="py-3 px-4 text-sm text-gray-600">{h.city || '-'}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.referenceBy || '-'}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.billingServices?.length || 0}</td>
+                    <td className="py-3 px-4 text-center">
+                      {h.isActive === false ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Inactive</span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Active</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                         {can('hospitals', 'edit') && (
