@@ -541,19 +541,50 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           return cols;
         };
 
+        // Pre-truncate to fit a column width — PDFKit's `ellipsis` is unreliable
+        // when combined with `lineBreak: false`, so we measure & trim ourselves.
+        const truncateToFit = (text, maxWidth, fontName, fontSize) => {
+          const s = String(text == null ? '' : text);
+          doc.font(fontName).fontSize(fontSize);
+          if (doc.widthOfString(s) <= maxWidth) return s;
+          const ell = '…';
+          if (doc.widthOfString(ell) > maxWidth) return '';
+          let lo = 0;
+          let hi = s.length;
+          while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (doc.widthOfString(s.slice(0, mid) + ell) <= maxWidth) lo = mid;
+            else hi = mid - 1;
+          }
+          return s.slice(0, lo).trimEnd() + ell;
+        };
+
+        // Shrink font size until text fits — used for amounts in the totals
+        // band so big numbers never wrap or get truncated.
+        const shrinkToFit = (text, maxWidth, fontName, baseSize, minSize) => {
+          let size = baseSize;
+          doc.font(fontName).fontSize(size);
+          while (size > minSize && doc.widthOfString(String(text)) > maxWidth) {
+            size -= 0.25;
+            doc.fontSize(size);
+          }
+          return size;
+        };
+
         const drawHeaderBand = (cy) => {
           const cols = buildCols(tableX);
           doc.rect(tableX, cy, tableW, 26).fill(COLORS.primary50);
-          doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(8);
-          cols.forEach((c) =>
-            doc.text(c.label.toUpperCase(), c.x + 4, cy + 9, {
-              width: c.w - 8,
-              align: c.align,
-              characterSpacing: 0.4,
-              lineBreak: false,
-              ellipsis: true,
-            }),
-          );
+          doc.fillColor(COLORS.primary600);
+          cols.forEach((c) => {
+            const label = truncateToFit(c.label.toUpperCase(), c.w - 8, 'Helvetica-Bold', 8);
+            doc.font('Helvetica-Bold').fontSize(8)
+              .text(label, c.x + 4, cy + 9, {
+                width: c.w - 8,
+                align: c.align,
+                characterSpacing: 0.4,
+                lineBreak: false,
+              });
+          });
           return { cols, nextY: cy + 26 };
         };
 
@@ -634,13 +665,14 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
               }
             }
             const bold = c.key === 'patientName' || c.key === 'tpaFee';
+            const fontName = bold ? 'Helvetica-Bold' : 'Helvetica';
+            const fit = truncateToFit(text, c.w - 8, fontName, 8.5);
             doc.fillColor(COLORS.ink)
-              .font(bold ? 'Helvetica-Bold' : 'Helvetica')
+              .font(fontName)
               .fontSize(8.5)
-              .text(text, c.x + 4, cy + 6, {
+              .text(fit, c.x + 4, cy + 6, {
                 width: c.w - 8,
                 align: c.align,
-                ellipsis: true,
                 lineBreak: false,
               });
           });
@@ -664,8 +696,10 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           .text(`Total — ${claimLines.length} claim${claimLines.length === 1 ? '' : 's'}`, tableX + 12, cy + 9, { lineBreak: false });
         cols.forEach((c) => {
           if (c.isAmount && totals[c.key] != null) {
-            doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10.5)
-              .text(formatINR(totals[c.key]), c.x + 4, cy + 9, {
+            const txt = formatINR(totals[c.key]);
+            const size = shrinkToFit(txt, c.w - 8, 'Helvetica-Bold', 10.5, 7);
+            doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(size)
+              .text(txt, c.x + 4, cy + 9 + (10.5 - size) / 2, {
                 width: c.w - 8,
                 align: 'right',
                 lineBreak: false,
