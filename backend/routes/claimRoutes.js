@@ -26,7 +26,7 @@ router.route('/:id')
   .get(checkPermission('claims', 'view'), getClaim)
   .put(checkPermission('claims', 'edit'), updateClaim)
   .delete(checkPermission('claims', 'delete'), deleteClaim);
-router.post('/:id/documents', checkPermission('claims', 'view'), upload.array('files', 10), uploadDocuments);
+router.post('/:id/documents', checkPermission('claims', 'view'), upload.array('files', 50), uploadDocuments);
 router.delete('/:id/documents/:docId', checkPermission('claims', 'delete'), deleteDocument);
 
 module.exports = router;
