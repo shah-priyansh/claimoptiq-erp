@@ -696,7 +696,13 @@ const ClaimDetail = () => {
   const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white transition-colors';
   const labelCls = 'block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5';
 
-  const hospitalOptions  = hospitals.map(h => ({ value: h._id, label: h.name }));
+  const hospitalOptions = (() => {
+    const opts = hospitals.map(h => ({ value: h._id, label: h.name }));
+    if (claim?.hospital?._id && !opts.find(o => o.value === claim.hospital._id)) {
+      opts.push({ value: claim.hospital._id, label: `${claim.hospital.name} (Inactive)` });
+    }
+    return opts;
+  })();
   const insuranceOptions = insurances.map(i => ({ value: i._id, label: i.name }));
   const tpaOptions       = tpas.map(t => ({ value: t._id, label: t.name }));
   const selectedAdmissionHospital = hospitals.find(h => h._id === admissionForm.hospital);

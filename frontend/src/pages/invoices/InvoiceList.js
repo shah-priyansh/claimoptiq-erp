@@ -149,9 +149,9 @@ const InvoiceList = () => {
   };
 
   useEffect(() => {
-    getHospitalsAPI({ all: 'true' }).then(({ data }) => {
+    getHospitalsAPI({ all: 'true', active: 'true' }).then(({ data }) => {
       const list = Array.isArray(data) ? data : data.hospitals;
-      setHospitals((list || []).filter((h) => h.isActive !== false));
+      setHospitals(list || []);
     }).catch(() => {}).finally(() => setLoadingHospitals(false));
     getBankAccountsAPI({ active: 'true' })
       .then(({ data }) => setBankAccounts(data || []))

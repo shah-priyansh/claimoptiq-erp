@@ -59,6 +59,7 @@ const ClaimForm = () => {
   const [existingAdmissionDocs, setExistingAdmissionDocs] = useState([]);
   const [deletingDocId, setDeletingDocId] = useState(null);
   const [pendingPreview, setPendingPreview] = useState(null);
+  const [loadedHospital, setLoadedHospital] = useState(null);
 
   const [form, setForm] = useState({
     hospital: user?.hospital?._id || '', month: new Date().toISOString().slice(0, 7),
@@ -104,6 +105,9 @@ const ClaimForm = () => {
           diagnosis: data.diagnosis || '',
           surgeryName: data.surgeryName || '',
         });
+        if (data.hospital?._id || data.hospital?.id) {
+          setLoadedHospital({ _id: data.hospital._id || data.hospital.id, name: data.hospital.name });
+        }
         setExistingAdmissionDocs(
           (data.documents || []).filter(d => d.category === 'admission')
         );
@@ -216,7 +220,13 @@ const ClaimForm = () => {
     }
   };
 
-  const hospitalOptions  = hospitals.map(h => ({ value: h._id, label: h.name }));
+  const hospitalOptions = (() => {
+    const opts = hospitals.map(h => ({ value: h._id, label: h.name }));
+    if (loadedHospital?._id && !opts.find(o => o.value === loadedHospital._id)) {
+      opts.push({ value: loadedHospital._id, label: `${loadedHospital.name} (Inactive)` });
+    }
+    return opts;
+  })();
   const insuranceOptions = insurances.map(i => ({ value: i._id, label: i.name }));
   const tpaOptions       = tpas.map(t => ({ value: t._id, label: t.name }));
 

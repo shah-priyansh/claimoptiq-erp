@@ -88,9 +88,9 @@ const InvoiceWizard = () => {
   }, [editLines]);
 
   useEffect(() => {
-    getHospitalsAPI({ all: 'true' }).then(({ data }) => {
+    getHospitalsAPI({ all: 'true', active: 'true' }).then(({ data }) => {
       const list = Array.isArray(data) ? data : data.hospitals;
-      setHospitals((list || []).filter((h) => h.isActive !== false));
+      setHospitals(list || []);
     }).catch(() => toast.error('Failed to load hospitals')).finally(() => setLoadingHospitals(false));
     getTdsRatesAPI({ active: 'true' })
       .then(({ data }) => setTdsRates(data || []))
