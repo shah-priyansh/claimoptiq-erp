@@ -5,7 +5,7 @@ import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
   HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
-  HiOutlineChartBar,
+  HiOutlineChartBar, HiOutlinePencil,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -37,6 +37,7 @@ const InvoiceList = () => {
   const confirm = useConfirm();
   const { can } = useAuth();
   const canCreate = can('invoices', 'create');
+  const canEdit = can('invoices', 'edit');
   const canDelete = can('invoices', 'delete');
 
   const [items, setItems] = useState([]);
@@ -334,6 +335,13 @@ const InvoiceList = () => {
                 className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                 <HiOutlineEye className="w-4 h-4 text-primary-600" /> View
               </button>
+              {canEdit && inv.status !== 'void' && (
+                <button
+                  onClick={() => { setActionMenu(null); navigate(`/invoices/${inv._id}`); }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                  <HiOutlinePencil className="w-4 h-4 text-primary-600" /> Edit
+                </button>
+              )}
               <button
                 onClick={() => { setActionMenu(null); downloadPdf(inv); }}
                 className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">

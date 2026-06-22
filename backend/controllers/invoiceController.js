@@ -6,6 +6,7 @@ const { reserveNextInvoiceNumber } = require('../utils/invoiceSequence');
 const renderInvoicePdf = require('../utils/renderInvoicePdf');
 const { getInvoiceTemplate } = require('./siteSettingController');
 const { writeReferenceCommissionFlow, clearReferenceCommissionFlow } = require('../utils/referenceCommissionFlow');
+const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
 
 const EXCLUDED_CLAIM_STATUSES = ['rejected', 'cancelled'];
 
@@ -559,7 +560,7 @@ exports.update = async (req, res) => {
       include: { lineItems: true },
     });
     if (!invoice) return res.status(404).json({ message: 'Not found' });
-    if (invoice.status !== 'draft') return res.status(400).json({ message: 'Only drafts can be edited' });
+    if (invoice.status === 'void') return res.status(400).json({ message: 'Voided invoices cannot be edited' });
 
     const {
       notes, adjustments, tdsRateId, gstRate,
@@ -618,6 +619,7 @@ exports.update = async (req, res) => {
             lineItems: { create: built.lines },
           },
         });
+        await recomputeInvoicePaidStatus(tx, invoice.id);
         return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude });
       });
       return res.json(toResponse(updated));
@@ -691,6 +693,9 @@ exports.update = async (req, res) => {
       // 3. Always recompute totals from the final line set so gross/GST/TDS/
       //    grandTotal/amountPending stay consistent with what was persisted.
       await recomputeInvoiceFromLines(tx, invoice.id);
+      // 4. Re-derive payment status (paid / partially_paid / issued) in case the
+      //    grandTotal moved relative to amountPaid. draft and void are left alone.
+      await recomputeInvoicePaidStatus(tx, invoice.id);
       return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude });
     });
     res.json(toResponse(updated));
