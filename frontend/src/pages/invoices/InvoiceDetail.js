@@ -233,7 +233,7 @@ const InvoiceDetail = () => {
       if (removedLineIds.length) payload.removedLineIds = removedLineIds;
 
       await updateInvoiceAPI(id, payload);
-      toast.success('Draft saved');
+      toast.success(invoice.status === 'draft' ? 'Draft saved' : 'Invoice updated');
       reload();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Save failed');
@@ -396,17 +396,17 @@ const InvoiceDetail = () => {
               </>
             )}
           </button>
+          {!isVoid && canEdit && (
+            <button onClick={saveDraft} disabled={saving}
+              className="flex items-center gap-2 bg-white border border-primary-600 text-primary-700 hover:bg-primary-50 disabled:opacity-50 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+              <HiOutlineSave className="w-4 h-4" /> {saving ? 'Saving...' : (isDraft ? 'Save Draft' : 'Save Changes')}
+            </button>
+          )}
           {isDraft && canEdit && (
-            <>
-              <button onClick={saveDraft} disabled={saving}
-                className="flex items-center gap-2 bg-white border border-primary-600 text-primary-700 hover:bg-primary-50 disabled:opacity-50 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
-                <HiOutlineSave className="w-4 h-4" /> {saving ? 'Saving...' : 'Save Draft'}
-              </button>
-              <button onClick={handleIssue} disabled={saving}
-                className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
-                <HiOutlineCheck className="w-4 h-4" /> Issue
-              </button>
-            </>
+            <button onClick={handleIssue} disabled={saving}
+              className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+              <HiOutlineCheck className="w-4 h-4" /> Issue
+            </button>
           )}
           {isDraft && canDelete && (
             <button onClick={handleDelete}
@@ -464,7 +464,7 @@ const InvoiceDetail = () => {
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-gray-800">Line items</h2>
-          {isDraft && canEdit && (
+          {!isVoid && canEdit && (
             <button
               onClick={() => setEditLines((rows) => [...rows, { _origId: null, description: '', amount: 0, lineType: 'manual', claimId: null }])}
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg border border-primary-200">
@@ -473,7 +473,7 @@ const InvoiceDetail = () => {
           )}
         </div>
 
-        {isDraft && canEdit ? (
+        {!isVoid && canEdit ? (
           <>
             <div className="overflow-x-auto border border-gray-100 rounded-lg">
               <table className="w-full text-sm">
