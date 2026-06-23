@@ -119,6 +119,7 @@ const buildDoctors = (doctors) =>
 exports.bulkImportHospitals = async (req, res) => {
   try {
     const { rows } = req.body;
+    const mode = req.body.mode === 'replace' ? 'replace' : 'skip';
     if (!Array.isArray(rows) || !rows.length) {
       return res.status(400).json({ message: 'rows (non-empty array) is required' });
     }
@@ -134,6 +135,8 @@ exports.bulkImportHospitals = async (req, res) => {
 
     const seenInBatch = new Set();
     const created = [];
+    const updated = [];
+    const skipped = [];
     const errors = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] || {};
@@ -142,34 +145,61 @@ exports.bulkImportHospitals = async (req, res) => {
       const key = name.toLowerCase();
       const rowErrors = [];
       if (!name) rowErrors.push('Name is required');
-      else if (activeMap.has(key)) rowErrors.push(`"${name}" already exists`);
       else if (seenInBatch.has(key)) rowErrors.push(`"${name}" is duplicated in the file`);
       const fieldErr = validateHospitalFields({ phone: row.phone, email: row.email, pincode: row.pincode });
       if (fieldErr) rowErrors.push(fieldErr);
 
       if (rowErrors.length) { errors.push({ row: rowNum, name, errors: rowErrors }); continue; }
+
+      const activeExisting = activeMap.get(key);
+      if (activeExisting && mode === 'skip') {
+        seenInBatch.add(key);
+        skipped.push({ row: rowNum, id: activeExisting.id, name });
+        continue;
+      }
+
       try {
         const data = await buildHospitalData({
           name, contact: row.contact, email: row.email, phone: row.phone, address: row.address,
           city: row.city, state: row.state, pincode: row.pincode, referenceBy: row.referenceBy,
         });
         const inactive = inactiveMap.get(key);
-        const hospital = inactive
-          ? await prisma.hospital.update({
-              where: { id: inactive.id },
-              data: { ...data, isActive: true },
-              select: { id: true, name: true },
-            })
-          : await prisma.hospital.create({ data, select: { id: true, name: true } });
-        seenInBatch.add(key);
-        created.push({ row: rowNum, id: hospital.id, name: hospital.name });
+        if (activeExisting) {
+          const hospital = await prisma.hospital.update({
+            where: { id: activeExisting.id },
+            data,
+            select: { id: true, name: true },
+          });
+          seenInBatch.add(key);
+          updated.push({ row: rowNum, id: hospital.id, name: hospital.name });
+        } else if (inactive) {
+          const hospital = await prisma.hospital.update({
+            where: { id: inactive.id },
+            data: { ...data, isActive: true },
+            select: { id: true, name: true },
+          });
+          seenInBatch.add(key);
+          updated.push({ row: rowNum, id: hospital.id, name: hospital.name });
+        } else {
+          const hospital = await prisma.hospital.create({ data, select: { id: true, name: true } });
+          seenInBatch.add(key);
+          created.push({ row: rowNum, id: hospital.id, name: hospital.name });
+        }
       } catch (e) {
         errors.push({ row: rowNum, name, errors: [e.message || 'Failed to save'] });
       }
     }
-    res.status(errors.length && !created.length ? 400 : 200).json({
-      message: `Imported ${created.length} of ${rows.length} hospital(s)`,
-      created, errors, totalRows: rows.length, successCount: created.length, errorCount: errors.length,
+    const successCount = created.length + updated.length;
+    res.status(errors.length && !successCount && !skipped.length ? 400 : 200).json({
+      message: `Imported ${successCount} of ${rows.length} hospital(s)`,
+      created, updated, skipped, errors,
+      totalRows: rows.length,
+      successCount,
+      createdCount: created.length,
+      updatedCount: updated.length,
+      skippedCount: skipped.length,
+      errorCount: errors.length,
+      mode,
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

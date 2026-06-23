@@ -27,12 +27,13 @@ export const formatDateTime = (input, dash = '-') => {
   return `${date} ${hh}:${mi}`;
 };
 
-// Month label: `Jun 2026` — for invoice month columns / summary headers.
+// Month label: `Jun/2026` — for invoice month columns / summary headers.
 export const formatMonthLabel = (input, dash = '-') => {
   if (!input) return dash;
   const dt = input instanceof Date ? input : new Date(input);
   if (isNaN(dt.getTime())) return dash;
-  return dt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  const mmm = dt.toLocaleDateString('en-IN', { month: 'short' });
+  return `${mmm}/${dt.getFullYear()}`;
 };
 
 export const formatCurrency = (amount) => `Rs ${formatINR(amount)}`;
