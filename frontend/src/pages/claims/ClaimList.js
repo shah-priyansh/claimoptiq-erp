@@ -13,6 +13,7 @@ import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ImportClaimsModal from './ImportClaimsModal';
+import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 // Claim-type display config — keeps label, dot color, and outlined-tag style in sync.
 // Type uses an outlined tag (border + colored dot) so it visually contrasts with
@@ -123,10 +124,19 @@ const ClaimList = () => {
   const [rejectionInput, setRejectionInput] = useState('');
 
   const initStatus = new URLSearchParams(location.search).get('status') || '';
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = usePersistedFilters('claims:filters', {
     search: '', hospital: '', status: initStatus, claimType: '', month: '',
     dateFrom: '', dateTo: '', directPatient: '', reference: '', page: 1, limit: 25,
   });
+  // A `?status=` query param wins over what we restored from session — it
+  // means the user clicked a "show me X" link and shouldn't be hijacked by a
+  // stale previous filter.
+  useEffect(() => {
+    if (initStatus && filters.status !== initStatus) {
+      setFilters((f) => ({ ...f, status: initStatus, page: 1 }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initStatus]);
 
   // Distinct, sorted referenceBy values from active hospitals (for super-admin filter dropdown)
   const referenceOptions = React.useMemo(() => {
@@ -134,7 +144,7 @@ const ClaimList = () => {
     hospitals.forEach(h => { if (h.referenceBy && h.referenceBy.trim()) seen.add(h.referenceBy.trim()); });
     return Array.from(seen).sort((a, b) => a.localeCompare(b)).map(r => ({ value: r, label: r }));
   }, [hospitals]);
-  const [searchInput, setSearchInput] = useState('');
+  const [searchInput, setSearchInput] = useState(() => filters.search || '');
 
   useEffect(() => {
     const t = setTimeout(() => {

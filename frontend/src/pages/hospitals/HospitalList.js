@@ -7,6 +7,7 @@ import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiOutlineOfficeBuilding, HiOutlineUpload } from 'react-icons/hi';
 import MasterImportModal from '../../components/master/MasterImportModal';
 import PaginationBar from '../../components/ui/PaginationBar';
+import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const HOSPITAL_IMPORT_CONFIG = {
   title: 'Import Hospitals',
@@ -33,10 +34,10 @@ const HospitalList = () => {
   const { can } = useAuth();
   const confirm = useConfirm();
   const [hospitals, setHospitals] = useState([]);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = usePersistedFilters('hospitals:search', '');
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = usePersistedFilters('hospitals:page', 1);
+  const [pageSize, setPageSize] = usePersistedFilters('hospitals:pageSize', 25);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [importOpen, setImportOpen] = useState(false);

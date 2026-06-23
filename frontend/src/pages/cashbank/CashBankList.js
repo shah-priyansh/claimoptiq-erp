@@ -10,6 +10,7 @@ import {
 } from '../../services/api';
 import CashBankFormModal from './CashBankFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
+import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const formatDate = (d) => _formatDate(d);
@@ -38,10 +39,10 @@ const CashBankList = () => {
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = usePersistedFilters('cashbank:page', 1);
+  const [pageSize, setPageSize] = usePersistedFilters('cashbank:pageSize', 25);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = useState({ direction: '', mode: '', from: monthStart(), to: todayIso(), q: '' });
+  const [filters, setFilters] = usePersistedFilters('cashbank:filters', { direction: '', mode: '', from: monthStart(), to: todayIso(), q: '' });
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
