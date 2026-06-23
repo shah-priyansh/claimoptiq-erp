@@ -152,6 +152,7 @@ const ClaimList = () => {
   const [stickerMode, setStickerMode] = useState(false);
   const [stickerSelectedIds, setStickerSelectedIds] = useState([]);
   const [stickerPreviewClaims, setStickerPreviewClaims] = useState(null);
+  const [loadingAllStickers, setLoadingAllStickers] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
@@ -218,6 +219,28 @@ const ClaimList = () => {
   const toggleStickerSelect = (id) => setStickerSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const openStickerPreview = (claimsToPrint) => setStickerPreviewClaims(claimsToPrint);
   const closeStickerPreview = () => setStickerPreviewClaims(null);
+
+  // Fetch every claim matching the current filter set (with relations populated
+  // so the sticker preview can read tpa / insuranceCompany / hospital fields)
+  // and open the preview against the full list — not just the current page.
+  const printAllStickers = async () => {
+    setLoadingAllStickers(true);
+    try {
+      const params = { limit: 10000 };
+      Object.entries(filters).forEach(([k, v]) => { if (v && k !== 'page' && k !== 'limit') params[k] = v; });
+      const { data } = await getClaimsAPI(params);
+      const all = data.claims || [];
+      if (!all.length) {
+        toast.info('No claims match the current filters');
+        return;
+      }
+      openStickerPreview(all);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to load claims');
+    } finally {
+      setLoadingAllStickers(false);
+    }
+  };
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -1599,11 +1622,21 @@ const ClaimList = () => {
 
       {/* Sticker mode hint banner */}
       {stickerMode && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40 bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-2 rounded-full shadow-md text-sm font-medium flex items-center gap-2">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40 bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-2 rounded-full shadow-md text-sm font-medium flex items-center gap-3">
           <HiOutlinePrinter className="w-4 h-4" />
-          {stickerSelectedIds.length === 0
-            ? 'Tap rows to select claims, then click Print at the bottom.'
-            : `${stickerSelectedIds.length} claim${stickerSelectedIds.length > 1 ? 's' : ''} selected.`}
+          <span>
+            {stickerSelectedIds.length === 0
+              ? 'Tap rows to select claims, then click Print at the bottom.'
+              : `${stickerSelectedIds.length} claim${stickerSelectedIds.length > 1 ? 's' : ''} selected.`}
+          </span>
+          <button
+            onClick={printAllStickers}
+            disabled={loadingAllStickers}
+            className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 underline disabled:opacity-50 disabled:cursor-wait"
+            title="Print stickers for every claim that matches the current filters"
+          >
+            {loadingAllStickers ? 'Loading…' : `Print all (${total || claims.length})`}
+          </button>
         </div>
       )}
 
@@ -1617,6 +1650,10 @@ const ClaimList = () => {
           <button onClick={() => openStickerPreview(claims.filter(c => stickerSelectedIds.includes(c._id)))}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium">
             <HiOutlinePrinter className="w-4 h-4" /> Print {stickerSelectedIds.length} Sticker{stickerSelectedIds.length > 1 ? 's' : ''}
+          </button>
+          <button onClick={printAllStickers} disabled={loadingAllStickers}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-wait">
+            <HiOutlinePrinter className="w-4 h-4" /> {loadingAllStickers ? 'Loading…' : `Print All (${total || claims.length})`}
           </button>
         </div>
       )}

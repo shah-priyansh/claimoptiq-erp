@@ -7,6 +7,7 @@ router.use(protect);
 
 router.get('/balances', checkPermission('cash_bank', 'view'), ctrl.balances);
 router.get('/summary', checkPermission('cash_bank', 'view'), ctrl.summary);
+router.post('/bulk-receipt', checkPermission('cash_bank', 'create'), ctrl.bulkReceipt);
 
 router.route('/')
   .get(checkPermission('cash_bank', 'view'), ctrl.list)

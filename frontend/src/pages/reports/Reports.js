@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI } from '../../services/api';
+import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI, getPublicStatsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -65,6 +65,70 @@ const BASE_FIELD_DEFS = [
 const DEFAULT_SELECTED    = BASE_FIELD_DEFS.filter(f => f.defaultOn && !f.superAdminOnly).map(f => f.key);
 const DEFAULT_SELECTED_SA = BASE_FIELD_DEFS.filter(f => f.defaultOn).map(f => f.key);
 
+// ─── Table column definitions ─────────────────────────────────────────────────
+// Keyed by the same field keys saved by ClaimSummaryColumnsModal so the gear
+// icon directly controls what columns the table renders.
+const TABLE_COL_DEFS = {
+  patientName:               { label: 'Patient',              cellClass: 'py-2 px-3 font-medium text-gray-800 whitespace-nowrap', get: (c) => c.patientName || '-' },
+  doctorName:                { label: 'Doctor',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.doctorName || '-' },
+  patientMobile:             { label: 'Mobile',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.patientMobile || '-' },
+  claimType:                 { label: 'Type',                 cellClass: 'py-2 px-3 capitalize',                                   get: (c) => c.claimType || '-' },
+  policyNo:                  { label: 'Policy No',            cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.policyNo || '-' },
+  clientId:                  { label: 'Client ID',            cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.clientId || '-' },
+  directPatient:             { label: 'Direct Patient',       cellClass: 'py-2 px-3',                                              get: (c) => c.isDirectPatient ? 'Yes' : 'No' },
+  hospital:                  { label: 'Hospital',             cellClass: 'py-2 px-3 text-gray-600 whitespace-nowrap',              render: (c) => (
+    <div className="flex items-center gap-1.5">
+      <span>{c.hospital?.name || '-'}</span>
+      {c.isDirectPatient && (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
+      )}
+    </div>
+  ) },
+  insuranceCompany:          { label: 'Company',              cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.insuranceCompany?.name || '-' },
+  tpa:                       { label: 'TPA',                  cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.tpa?.name || '-' },
+  ccnNo:                     { label: 'CCN No',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.ccnNo || '-' },
+  treatmentType:             { label: 'Treatment',            cellClass: 'py-2 px-3',                                              get: (c) => c.treatmentType || '-' },
+  diagnosis:                 { label: 'Diagnosis',            cellClass: 'py-2 px-3',                                              get: (c) => c.diagnosis || '-' },
+  surgeryName:               { label: 'Surgery',              cellClass: 'py-2 px-3',                                              get: (c) => c.surgeryName || '-' },
+  month:                     { label: 'Month',                cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.month || '-' },
+  dateOfAdmit:               { label: 'D.O.A.',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.dateOfAdmit) || '-' },
+  dateOfDischarge:           { label: 'D.O.D.',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.dateOfDischarge) || '-' },
+  finalApprovalDate:         { label: 'Approval Date',        cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.finalApprovalDate) || '-' },
+  fileReceivedDate:          { label: 'File Received',        cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.fileReceivedDate) || '-' },
+  settlementDate:            { label: 'Settlement Date',      cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.settlementDate) || '-' },
+  submitMode:                { label: 'Submit Mode',          cellClass: 'py-2 px-3',                                              get: (c) => c.submitMode || '-' },
+  courierSubmitDate:         { label: 'Courier Date',         cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.courierSubmitDate) || '-' },
+  onlineSubmitDate:          { label: 'Online Date',          cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.onlineSubmitDate) || '-' },
+  courierCompanyName:        { label: 'Courier Company',      cellClass: 'py-2 px-3',                                              get: (c) => c.courierCompanyName || '-' },
+  podNumber:                 { label: 'POD No',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.podNumber || '-' },
+  hospitalFinalBill:         { label: 'Hospital Bill',        cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.hospitalFinalBill },
+  mouDiscount:               { label: 'MOU Discount',         cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.mouDiscount },
+  deduction:                 { label: 'Deduction',            cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.deduction },
+  finalApprovalAmount:       { label: 'Approval',             cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.finalApprovalAmount },
+  settlementAmount:          { label: 'Settlement',           cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.settlementAmount },
+  settlementAmountDeduction: { label: 'Settle Deduction',     cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.settlementAmountDeduction },
+  mouDiscountOnSettlement:   { label: 'MOU Disc on Settle',   cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.mouDiscountOnSettlement },
+  tds:                       { label: 'TDS',                  cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.tds },
+  bankTransferAmount:        { label: 'Bank Amt',             cellClass: 'py-2 px-3', isAmount: true, get: (c) => c.bankTransferAmount },
+  tpaFee:                    { label: 'File Price',           cellClass: 'py-2 px-3', isAmount: true, superAdminOnly: true, get: (c, ctx) => ctx.getFilePrice(c) },
+  neftNo:                    { label: 'NEFT No',              cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.neftNo || '-' },
+  remarks:                   { label: 'Remarks',              cellClass: 'py-2 px-3',                                              get: (c) => c.remarks || '-' },
+  rejectedReason:            { label: 'Rejected Reason',      cellClass: 'py-2 px-3',                                              get: (c) => c.rejectedReason || '-' },
+  status:                    { label: 'Status',               cellClass: 'py-2 px-3 capitalize',                                   get: (c) => (c.status || '').replace(/_/g, ' ') },
+};
+
+const TABLE_DEFAULT_COLS = [
+  'patientName',
+  'hospital',
+  'claimType',
+  'hospitalFinalBill',
+  'finalApprovalAmount',
+  'settlementAmount',
+  'tds',
+  'bankTransferAmount',
+  'status',
+];
+
 // ─── Component ────────────────────────────────────────────────────────────────
 const Reports = () => {
   const { user, roleSlug } = useAuth();
@@ -116,6 +180,23 @@ const Reports = () => {
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef(null);
   const [columnsModalOpen, setColumnsModalOpen] = useState(false);
+  const [summaryCols, setSummaryCols] = useState(TABLE_DEFAULT_COLS);
+
+  // Load (and reload after the gear-modal closes) the column selection
+  // configured in the Claims Summary Columns site setting.
+  useEffect(() => {
+    if (columnsModalOpen) return;
+    getPublicStatsAPI()
+      .then(({ data }) => {
+        const raw = data?.invoice_summary_columns;
+        const parsed = String(raw || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        setSummaryCols(parsed.length ? parsed : TABLE_DEFAULT_COLS);
+      })
+      .catch(() => setSummaryCols(TABLE_DEFAULT_COLS));
+  }, [columnsModalOpen]);
 
   // Field selection modal
   const [fieldModal, setFieldModal] = useState({ open: false, pendingAction: null });
@@ -245,6 +326,31 @@ const Reports = () => {
   const handleGenerateInvoices = () => {
     if (!selectedClaimIds.length) return;
     navigate('/invoices/bulk/new', { state: { claimIds: selectedClaimIds } });
+  };
+
+  // Bulk-marks every selected claim as Billed after a confirmation prompt.
+  // Mirrors the per-row toggle but operates on the bill-mode selection set.
+  const handleMarkSelectedBilled = async () => {
+    if (!selectedClaimIds.length) return;
+    const count = selectedClaimIds.length;
+    const ok = await confirm(
+      `Mark ${count} selected claim${count !== 1 ? 's' : ''} as Billed?`,
+      { title: 'Mark as Billed', confirmLabel: 'Mark as Billed', variant: 'primary' }
+    );
+    if (!ok) return;
+    setBillingLoading(true);
+    try {
+      await bulkBillAPI(selectedClaimIds, true);
+      const selectedSet = new Set(selectedClaimIds);
+      setClaims(prev => prev.map(c => selectedSet.has(c._id) ? { ...c, isBilled: true } : c));
+      toast.success(`${count} claim${count !== 1 ? 's' : ''} marked as Billed`);
+      setSelectedClaimIds([]);
+      setBillMode(false);
+    } catch {
+      toast.error('Failed to mark claims as billed');
+    } finally {
+      setBillingLoading(false);
+    }
   };
 
   const handleToggleBillStatus = async (claim) => {
@@ -701,7 +807,18 @@ const Reports = () => {
   const totalBill = serverTotals?.hospitalFinalBill ?? claims.reduce((s, c) => s + (c.hospitalFinalBill || 0), 0);
   const totalSettlement = serverTotals?.bankTransferAmount ?? claims.reduce((s, c) => s + (c.bankTransferAmount || 0), 0);
   const totalFilePriceSum = serverTotals?.filePrice ?? claims.reduce((s, c) => s + getFileP(c), 0);
-  const tableColCount = (isHospitalUser ? 9 : 10) + (isSuperAdmin ? 3 : 0) + (billMode ? 1 : 0);
+
+  // Resolve the saved column keys to TABLE_COL_DEFS entries, filtering out keys
+  // that don't apply to this role/user (hospital users hide the hospital
+  // column, non-super-admins hide the file price column).
+  const visibleCols = summaryCols
+    .map((key) => ({ key, def: TABLE_COL_DEFS[key] }))
+    .filter(({ def }) => !!def)
+    .filter(({ key }) => !(isHospitalUser && key === 'hospital'))
+    .filter(({ def }) => !(def.superAdminOnly && !isSuperAdmin));
+
+  const tableColCount = 1 /* SR */ + visibleCols.length + (isSuperAdmin ? 1 : 0) /* Bill Status */ + (billMode ? 1 : 0);
+  const cellCtx = { getFilePrice: getFileP };
 
   // ── Field modal helpers ───────────────────────────────────────────────────
 
@@ -737,6 +854,10 @@ const Reports = () => {
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-500">{selectedClaimIds.length} selected</span>
               <button onClick={handleCancelBillMode} className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">Cancel</button>
+              <button onClick={handleMarkSelectedBilled} disabled={!someSelected || billingLoading}
+                className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                {billingLoading ? 'Marking...' : 'Mark as Billed'}
+              </button>
               <button onClick={handleGenerateInvoices} disabled={!someSelected || billingLoading}
                 className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
                 Generate Invoices
@@ -901,15 +1022,19 @@ const Reports = () => {
                       className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer" />
                   </th>
                 )}
-                {['SR', 'Patient', ...(!isHospitalUser ? ['Hospital'] : []), 'Type', 'Hospital Bill', 'Approval', 'Settlement', 'TDS', 'Bank Amt', 'Status', ...(isSuperAdmin ? ['Reference By', 'Bill Status', 'File Price'] : [])].map(h => (
-                  <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">SR</th>
+                {visibleCols.map(({ key, def }) => (
+                  <th key={key} className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{def.label}</th>
                 ))}
+                {isSuperAdmin && (
+                  <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Bill Status</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {claims.length === 0 ? (
                 <tr><td colSpan={tableColCount} className="py-8 text-center text-gray-400">
-                  {loading ? 'Loading...' : 'Click "Generate" to view report'}
+                  {loading ? 'Loading...' : (visibleCols.length === 0 ? 'No columns selected. Click the gear icon to choose columns.' : 'Click "Generate" to view report')}
                 </td></tr>
               ) : claims.map(c => (
                 <tr key={c._id} className={`hover:bg-gray-50 text-sm ${billMode && selectedClaimIds.includes(c._id) ? 'bg-purple-50' : ''}`}>
@@ -920,42 +1045,32 @@ const Reports = () => {
                     </td>
                   )}
                   <td className="py-2 px-3 text-gray-500">{c.srNo}</td>
-                  <td className="py-2 px-3 font-medium text-gray-800 whitespace-nowrap">{c.patientName}</td>
-                  {!isHospitalUser && (
-                    <td className="py-2 px-3 text-gray-600 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <span>{c.hospital?.name || '-'}</span>
-                        {c.isDirectPatient && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
-                        )}
-                      </div>
-                    </td>
-                  )}
-                  <td className="py-2 px-3 capitalize">{c.claimType}</td>
-                  <td className="py-2 px-3">{formatAmount(c.hospitalFinalBill)}</td>
-                  <td className="py-2 px-3">{formatAmount(c.finalApprovalAmount)}</td>
-                  <td className="py-2 px-3">{formatAmount(c.settlementAmount)}</td>
-                  <td className="py-2 px-3">{formatAmount(c.tds)}</td>
-                  <td className="py-2 px-3">{formatAmount(c.bankTransferAmount)}</td>
-                  <td className="py-2 px-3 capitalize">{c.status.replace('_', ' ')}</td>
+                  {visibleCols.map(({ key, def }) => {
+                    let content;
+                    if (def.render) {
+                      content = def.render(c, cellCtx);
+                    } else {
+                      const val = def.get ? def.get(c, cellCtx) : '';
+                      content = def.isAmount ? formatAmount(val) : (val ?? '-');
+                    }
+                    return (
+                      <td key={key} className={def.cellClass || 'py-2 px-3'}>{content}</td>
+                    );
+                  })}
                   {isSuperAdmin && (
-                    <>
-                      <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{c.hospital?.referenceBy || '-'}</td>
-                      <td className="py-2 px-3">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleBillStatus(c)}
-                          disabled={billMode || billingLoading}
-                          title={billMode ? '' : (c.isBilled ? 'Click to move back to Pending (Unbilled)' : 'Click to mark as Billed')}
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                            c.isBilled ? 'bg-teal-100 text-teal-800 hover:bg-teal-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          } ${billMode || billingLoading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
-                        >
-                          {c.isBilled ? 'Billed' : 'Unbilled'}
-                        </button>
-                      </td>
-                      <td className="py-2 px-3">{formatAmount(getFileP(c))}</td>
-                    </>
+                    <td className="py-2 px-3">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleBillStatus(c)}
+                        disabled={billMode || billingLoading}
+                        title={billMode ? '' : (c.isBilled ? 'Click to move back to Pending (Unbilled)' : 'Click to mark as Billed')}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                          c.isBilled ? 'bg-teal-100 text-teal-800 hover:bg-teal-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        } ${billMode || billingLoading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        {c.isBilled ? 'Billed' : 'Unbilled'}
+                      </button>
+                    </td>
                   )}
                 </tr>
               ))}

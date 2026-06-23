@@ -541,24 +541,6 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           return cols;
         };
 
-        // Pre-truncate to fit a column width — PDFKit's `ellipsis` is unreliable
-        // when combined with `lineBreak: false`, so we measure & trim ourselves.
-        const truncateToFit = (text, maxWidth, fontName, fontSize) => {
-          const s = String(text == null ? '' : text);
-          doc.font(fontName).fontSize(fontSize);
-          if (doc.widthOfString(s) <= maxWidth) return s;
-          const ell = '…';
-          if (doc.widthOfString(ell) > maxWidth) return '';
-          let lo = 0;
-          let hi = s.length;
-          while (lo < hi) {
-            const mid = (lo + hi + 1) >> 1;
-            if (doc.widthOfString(s.slice(0, mid) + ell) <= maxWidth) lo = mid;
-            else hi = mid - 1;
-          }
-          return s.slice(0, lo).trimEnd() + ell;
-        };
-
         // Shrink font size until text fits — used for amounts in the totals
         // band so big numbers never wrap or get truncated.
         const shrinkToFit = (text, maxWidth, fontName, baseSize, minSize) => {
@@ -571,21 +553,36 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           return size;
         };
 
+        // Header band — measure wrapped header text per column so multi-word
+        // labels (e.g. "FINAL APPROVAL AMOUNT") stay on screen instead of
+        // being cut off with an ellipsis.
         const drawHeaderBand = (cy) => {
           const cols = buildCols(tableX);
-          doc.rect(tableX, cy, tableW, 26).fill(COLORS.primary50);
-          doc.fillColor(COLORS.primary600);
+          const headerFont = 'Helvetica-Bold';
+          const headerSize = 8;
+          let maxH = 16;
           cols.forEach((c) => {
-            const label = truncateToFit(c.label.toUpperCase(), c.w - 8, 'Helvetica-Bold', 8);
-            doc.font('Helvetica-Bold').fontSize(8)
-              .text(label, c.x + 4, cy + 9, {
+            doc.font(headerFont).fontSize(headerSize);
+            const h = doc.heightOfString(c.label.toUpperCase(), {
+              width: c.w - 8,
+              characterSpacing: 0.4,
+              align: c.align,
+            });
+            if (h > maxH) maxH = h;
+          });
+          const bandH = Math.max(26, Math.ceil(maxH) + 10);
+          doc.rect(tableX, cy, tableW, bandH).fill(COLORS.primary50);
+          doc.fillColor(COLORS.primary600);
+          const textY = cy + (bandH - maxH) / 2;
+          cols.forEach((c) => {
+            doc.font(headerFont).fontSize(headerSize)
+              .text(c.label.toUpperCase(), c.x + 4, textY, {
                 width: c.w - 8,
                 align: c.align,
                 characterSpacing: 0.4,
-                lineBreak: false,
               });
           });
-          return { cols, nextY: cy + 26 };
+          return { cols, nextY: cy + bandH };
         };
 
         // Top accent
@@ -623,27 +620,21 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
         };
 
         claimLines.forEach((line, i) => {
-          // Leave room for the bottom rule + totals band (~ 50px) before page-breaking.
-          if (cy > LH - 70) {
-            doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
-            doc.rect(0, 0, LW, 6).fill(COLORS.primary600);
-            cy = LPAD;
-            header = drawHeaderBand(cy);
-            cols = header.cols;
-            cy = header.nextY;
-          }
-          if (i % 2 === 1) doc.rect(tableX, cy, tableW, sumRowH).fill(COLORS.alt);
-
           const claim = claimsById.get(line.claimId);
           const fallback = claim ? null : parseDescription(line.description);
 
-          cols.forEach((c) => {
+          // Pre-compute the rendered text + font for each cell so we can
+          // measure the wrapped height before drawing the row.
+          const cellData = cols.map((c) => {
             let text;
+            let isAmountCell = false;
+            let amountValue = 0;
             if (c.key === '__sr') {
               text = String(i + 1);
             } else if (c.key === 'tpaFee') {
               text = formatINR(line.amount);
-              totals.tpaFee = (totals.tpaFee || 0) + (Number(line.amount) || 0);
+              isAmountCell = true;
+              amountValue = Number(line.amount) || 0;
             } else {
               const f = c.field;
               let raw;
@@ -658,26 +649,70 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
               }
               if (f && f.isAmount) {
                 const num = Number(raw) || 0;
-                totals[c.key] = (totals[c.key] || 0) + num;
                 text = formatINR(num);
+                isAmountCell = true;
+                amountValue = num;
               } else {
                 text = (raw === '' || raw == null) ? '-' : String(raw);
               }
             }
             const bold = c.key === 'patientName' || c.key === 'tpaFee';
             const fontName = bold ? 'Helvetica-Bold' : 'Helvetica';
-            const fit = truncateToFit(text, c.w - 8, fontName, 8.5);
-            doc.fillColor(COLORS.ink)
-              .font(fontName)
-              .fontSize(8.5)
-              .text(fit, c.x + 4, cy + 6, {
-                width: c.w - 8,
-                align: c.align,
-                lineBreak: false,
-              });
+            return { col: c, text, fontName, isAmountCell, amountValue };
           });
 
-          cy += sumRowH;
+          // Measure the row height — text cells wrap to as many lines as the
+          // column allows; amount cells stay on a single line and shrink to
+          // fit so currency never wraps awkwardly.
+          let rowTextH = 11;
+          cellData.forEach((cell) => {
+            if (cell.isAmountCell || cell.col.key === '__sr') return;
+            doc.font(cell.fontName).fontSize(8.5);
+            const h = doc.heightOfString(cell.text, {
+              width: cell.col.w - 8,
+              align: cell.col.align,
+            });
+            if (h > rowTextH) rowTextH = h;
+          });
+          const rowH = Math.max(sumRowH, Math.ceil(rowTextH) + 10);
+
+          // Leave room for the bottom rule + totals band (~ 50px) before
+          // page-breaking. Account for the variable row height.
+          if (cy + rowH > LH - 70) {
+            doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
+            doc.rect(0, 0, LW, 6).fill(COLORS.primary600);
+            cy = LPAD;
+            header = drawHeaderBand(cy);
+            cols = header.cols;
+            cy = header.nextY;
+          }
+          if (i % 2 === 1) doc.rect(tableX, cy, tableW, rowH).fill(COLORS.alt);
+
+          cellData.forEach((cell) => {
+            const c = cell.col;
+            if (cell.isAmountCell) {
+              totals[c.key] = (totals[c.key] || 0) + cell.amountValue;
+              const size = shrinkToFit(cell.text, c.w - 8, cell.fontName, 8.5, 6);
+              doc.fillColor(COLORS.ink)
+                .font(cell.fontName)
+                .fontSize(size)
+                .text(cell.text, c.x + 4, cy + (rowH - size) / 2, {
+                  width: c.w - 8,
+                  align: c.align,
+                  lineBreak: false,
+                });
+            } else {
+              doc.fillColor(COLORS.ink)
+                .font(cell.fontName)
+                .fontSize(8.5)
+                .text(cell.text, c.x + 4, cy + 5, {
+                  width: c.w - 8,
+                  align: c.align,
+                });
+            }
+          });
+
+          cy += rowH;
         });
 
         // Bottom rule

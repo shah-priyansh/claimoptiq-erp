@@ -203,6 +203,7 @@ const ExpenseList = () => {
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Category</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Reference</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Party</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Notes</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
@@ -221,19 +222,20 @@ const ExpenseList = () => {
                       </div>
                     </td>
                     <td className="py-3 px-4 text-gray-600">{e.reference?.name || <span className="text-gray-300">—</span>}</td>
-                    <td className="py-3 px-4 text-gray-600 max-w-xs truncate">{e.notes || <span className="text-gray-300">—</span>}</td>
+                    <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{e.partyName || <span className="text-gray-300">—</span>}</td>
+                    <td className="py-3 px-4 text-gray-600 max-w-xs truncate" title={e.notes || ''}>{e.notes || <span className="text-gray-300">—</span>}</td>
                     <td className={`py-3 px-4 text-right font-medium ${e.amount < 0 ? 'text-red-600' : 'text-gray-800'}`}>
                       {formatINR(e.amount)}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex justify-end gap-1">
-                        {canEdit && !e.sourceType && (
+                        {canEdit && (
                           <button onClick={() => setModal({ open: true, item: e })}
                             className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
                             <HiOutlinePencil className="w-4 h-4" />
                           </button>
                         )}
-                        {canDelete && !e.sourceType && (
+                        {canDelete && (
                           <button onClick={() => handleDelete(e)}
                             className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
                             <HiOutlineTrash className="w-4 h-4" />
@@ -246,7 +248,7 @@ const ExpenseList = () => {
               </tbody>
               <tfoot className="bg-gray-50">
                 <tr>
-                  <td colSpan={4} className="py-3 px-4 text-right text-xs uppercase text-gray-500 font-semibold">Filtered total</td>
+                  <td colSpan={5} className="py-3 px-4 text-right text-xs uppercase text-gray-500 font-semibold">Filtered total</td>
                   <td className="py-3 px-4 text-right font-semibold text-gray-800">{formatINR(sumAmount)}</td>
                   <td />
                 </tr>

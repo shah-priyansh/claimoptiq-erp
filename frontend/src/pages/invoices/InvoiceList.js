@@ -5,7 +5,7 @@ import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
   HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
-  HiOutlineChartBar, HiOutlinePencil,
+  HiOutlineChartBar, HiOutlinePencil, HiOutlineCash,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -16,6 +16,7 @@ import {
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
+import BulkReceivePaymentModal from './BulkReceivePaymentModal';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -57,6 +58,9 @@ const InvoiceList = () => {
   // When set, the Cash/Bank entry modal opens pre-filled to record a receipt
   // against this invoice. The user can adjust mode/amount/UTR before saving.
   const [paymentInvoice, setPaymentInvoice] = useState(null);
+  // Bulk-receive selection — only payable invoices from a single hospital.
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const actionMenuRef = useRef(null);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -132,6 +136,60 @@ const InvoiceList = () => {
     }
   };
 
+  // An invoice is selectable for bulk-receive when it's been issued and still
+  // has a pending balance. Drafts, voided, and fully-paid rows are skipped.
+  const isPayable = (inv) => (
+    (inv.status === 'issued' || inv.status === 'partially_paid')
+    && (inv.amountPending || 0) > 0
+  );
+
+  const toggleRow = (inv) => {
+    if (!isPayable(inv)) return;
+    setSelectedIds((prev) => {
+      if (prev.includes(inv._id)) return prev.filter((x) => x !== inv._id);
+      // Restrict selection to a single hospital — bulk-receive can't span hospitals.
+      const first = items.find((x) => prev.includes(x._id));
+      if (first && first.hospital?._id !== inv.hospital?._id) {
+        toast.warn('Selected invoices must all belong to the same hospital');
+        return prev;
+      }
+      return [...prev, inv._id];
+    });
+  };
+
+  // Reset selection any time the visible result set changes (filter/page).
+  // Avoids surfacing a stale selection that no longer matches what the
+  // operator sees on screen.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setSelectedIds([]); }, [page, pageSize, filters.hospitalId, filters.status, filters.month]);
+
+  const selectedInvoices = items.filter((x) => selectedIds.includes(x._id));
+  const selectionHospitalId = selectedInvoices[0]?.hospital?._id || null;
+
+  // Selecting "all" only picks payable rows from the same hospital as the
+  // current selection (or every payable row when nothing's selected yet).
+  const allSelectableIds = items
+    .filter(isPayable)
+    .filter((inv) => !selectionHospitalId || inv.hospital?._id === selectionHospitalId)
+    .map((inv) => inv._id);
+  const allSelected = allSelectableIds.length > 0 && allSelectableIds.every((id) => selectedIds.includes(id));
+
+  const toggleSelectAll = () => {
+    if (allSelected) setSelectedIds([]);
+    else {
+      // No prior selection → pick the first payable hospital's payable rows.
+      if (!selectionHospitalId) {
+        const firstPayable = items.find(isPayable);
+        if (!firstPayable) return;
+        setSelectedIds(items.filter(isPayable)
+          .filter((inv) => inv.hospital?._id === firstPayable.hospital?._id)
+          .map((inv) => inv._id));
+      } else {
+        setSelectedIds(allSelectableIds);
+      }
+    }
+  };
+
   const fetchInvoices = async () => {
     setLoading(true);
     try {
@@ -181,6 +239,19 @@ const InvoiceList = () => {
   return (
     <div>
       <div className="flex justify-end mb-4 gap-2">
+        {selectedIds.length > 0 && (
+          <div className="flex items-center gap-3 mr-auto text-sm text-gray-600">
+            <span><span className="font-semibold text-gray-800">{selectedIds.length}</span> selected · {selectedInvoices[0]?.hospital?.name}</span>
+            <button onClick={() => setSelectedIds([])}
+              className="text-xs text-gray-500 hover:text-gray-700 underline">Clear</button>
+          </div>
+        )}
+        {selectedIds.length > 0 && (
+          <button onClick={() => setBulkOpen(true)}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+            <HiOutlineCash className="w-4 h-4" /> Receive Payment
+          </button>
+        )}
         <button
           onClick={() => navigate('/reports/claims')}
           className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
@@ -252,6 +323,16 @@ const InvoiceList = () => {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
+                  <th className="py-3 px-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      disabled={allSelectableIds.length === 0}
+                      title="Select payable invoices from the same hospital"
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:cursor-not-allowed"
+                    />
+                  </th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Invoice #</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Hospital</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Month</th>
@@ -263,8 +344,27 @@ const InvoiceList = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {items.map((inv) => (
-                  <tr key={inv._id} className="hover:bg-gray-50">
+                {items.map((inv) => {
+                  const payable = isPayable(inv);
+                  const sameHospital = !selectionHospitalId || inv.hospital?._id === selectionHospitalId;
+                  const checked = selectedIds.includes(inv._id);
+                  const disabled = !payable || !sameHospital;
+                  return (
+                  <tr key={inv._id} className={`hover:bg-gray-50 ${checked ? 'bg-primary-50/40' : ''}`}>
+                    <td className="py-3 px-3">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => toggleRow(inv)}
+                        title={
+                          !payable ? 'Only issued/partially-paid invoices with pending balance can be paid'
+                          : !sameHospital ? 'Bulk receive supports one hospital at a time'
+                          : ''
+                        }
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                      />
+                    </td>
                     <td className="py-3 px-4 font-medium text-gray-800">
                       <Link to={`/invoices/${inv._id}`} className="text-primary-600 hover:underline">
                         {inv.invoiceNumber || `Draft-${(inv._id || '').slice(0, 8)}`}
@@ -299,7 +399,8 @@ const InvoiceList = () => {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -397,6 +498,17 @@ const InvoiceList = () => {
         loadingBankAccounts={loadingBankAccounts}
         onClose={() => setPaymentInvoice(null)}
         onSave={handlePaymentSave}
+      />
+
+      <BulkReceivePaymentModal
+        open={bulkOpen}
+        invoices={selectedInvoices}
+        bankAccounts={bankAccounts}
+        onClose={() => setBulkOpen(false)}
+        onSaved={() => {
+          setSelectedIds([]);
+          fetchInvoices();
+        }}
       />
     </div>
   );

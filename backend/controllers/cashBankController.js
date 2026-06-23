@@ -279,6 +279,108 @@ exports.remove = async (req, res) => {
   }
 };
 
+// POST /api/cash-bank/bulk-receipt — record one payment from a hospital that
+// is split across multiple of that hospital's invoices. Creates one
+// cashBankEntry per allocation inside a single transaction so paid status on
+// every invoice updates atomically.
+exports.bulkReceipt = async (req, res) => {
+  try {
+    const { hospitalId, date, mode, bankAccountId, utrNumber, chequeNumber, notes, allocations } = req.body;
+
+    if (!hospitalId) throw { status: 400, message: 'hospitalId is required' };
+    if (!Array.isArray(allocations) || !allocations.length) {
+      throw { status: 400, message: 'At least one invoice allocation is required' };
+    }
+
+    const parsedDate = parseDate(date);
+    if (!parsedDate) throw { status: 400, message: 'Valid date is required' };
+    if (!VALID_MODES.includes(mode)) {
+      throw { status: 400, message: `mode must be one of: ${VALID_MODES.join(', ')}` };
+    }
+
+    // Normalise + validate allocations.
+    const normalised = allocations
+      .map((a) => ({ invoiceId: String(a?.invoiceId || ''), amount: Math.round(Number(a?.amount) || 0) }))
+      .filter((a) => a.invoiceId);
+    if (!normalised.length) throw { status: 400, message: 'Allocations missing invoiceId' };
+    for (const a of normalised) {
+      if (a.amount <= 0) throw { status: 400, message: 'Each allocation amount must be greater than zero' };
+    }
+    const invoiceIds = normalised.map((a) => a.invoiceId);
+    if (new Set(invoiceIds).size !== invoiceIds.length) {
+      throw { status: 400, message: 'Duplicate invoice in allocations' };
+    }
+
+    const invoices = await prisma.invoice.findMany({
+      where: { id: { in: invoiceIds } },
+      select: { id: true, status: true, hospitalId: true },
+    });
+    if (invoices.length !== invoiceIds.length) {
+      throw { status: 400, message: 'One or more invoices not found' };
+    }
+    for (const inv of invoices) {
+      if (inv.hospitalId !== hospitalId) {
+        throw { status: 400, message: 'All invoices must belong to the same hospital' };
+      }
+      if (inv.status === 'draft') {
+        throw { status: 400, message: 'Cannot record payment against a draft invoice. Issue it first.' };
+      }
+      if (inv.status === 'void') {
+        throw { status: 400, message: 'Cannot record payment against a voided invoice.' };
+      }
+    }
+
+    // Bank account resolution mirrors buildEntryData() — bank/upi need one.
+    let resolvedBankAccountId = bankAccountId || null;
+    if (mode === 'bank' || mode === 'upi') {
+      if (!resolvedBankAccountId) {
+        const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
+        resolvedBankAccountId = def?.id || null;
+      }
+      if (!resolvedBankAccountId) {
+        throw { status: 400, message: 'Bank / UPI entries need a bank account. Add one in Site Settings → Bank Accounts.' };
+      }
+      const acct = await prisma.bankAccount.findUnique({ where: { id: resolvedBankAccountId }, select: { id: true, isActive: true } });
+      if (!acct) throw { status: 400, message: 'Bank account not found' };
+      if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
+    } else {
+      resolvedBankAccountId = null;
+    }
+
+    const sharedData = {
+      date: parsedDate,
+      direction: 'in',
+      mode,
+      hospitalId,
+      bankAccountId: resolvedBankAccountId,
+      utrNumber: String(utrNumber || '').slice(0, 60),
+      chequeNumber: String(chequeNumber || '').slice(0, 60),
+      notes: String(notes || '').slice(0, 1000),
+      expenseId: null,
+    };
+
+    const entries = await prisma.$transaction(async (tx) => {
+      const created = [];
+      for (const a of normalised) {
+        const e = await tx.cashBankEntry.create({
+          data: { ...sharedData, amount: a.amount, invoiceId: a.invoiceId, createdById: req.user?.id || null },
+          include: cashBankInclude,
+        });
+        created.push(e);
+      }
+      for (const a of normalised) {
+        await recomputeInvoicePaidStatus(tx, a.invoiceId);
+      }
+      return created;
+    });
+
+    res.status(201).json({ entries: toResponse(entries) });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ message: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 // POST /api/invoices/:id/payments — convenience wrapper for the invoice detail UI.
 exports.recordInvoicePayment = async (req, res) => {
   try {
