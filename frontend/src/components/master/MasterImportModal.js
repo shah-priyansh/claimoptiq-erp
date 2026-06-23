@@ -26,11 +26,12 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
   const [rows, setRows] = useState([]);
   const [fileName, setFileName] = useState('');
   const [importing, setImporting] = useState(false);
+  const [importingMode, setImportingMode] = useState(null);
   const [result, setResult] = useState(null);
   const [previewLimit, setPreviewLimit] = useState(200);
 
   useEffect(() => {
-    if (!open) { setStep('upload'); setRows([]); setFileName(''); setResult(null); setPreviewLimit(200); }
+    if (!open) { setStep('upload'); setRows([]); setFileName(''); setResult(null); setPreviewLimit(200); setImportingMode(null); }
   }, [open]);
 
   const labelToKey = (label) => {
@@ -113,15 +114,21 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
     reader.readAsBinaryString(file);
   };
 
-  const handleImport = async () => {
+  const handleImport = async (mode = 'skip') => {
     setImporting(true);
+    setImportingMode(mode);
     try {
-      const { data } = await config.uploadAPI(rows);
+      const { data } = await config.uploadAPI(rows, mode);
       setResult(data);
       setStep('result');
-      if (data.successCount > 0) {
-        toast.success(`Imported ${data.successCount} of ${data.totalRows} ${config.entityLabel}(s)`);
-        onImported?.();
+      const changed = (data.successCount || 0);
+      if (changed > 0 || (data.skippedCount || 0) > 0) {
+        const parts = [];
+        if (data.createdCount) parts.push(`${data.createdCount} added`);
+        if (data.updatedCount) parts.push(`${data.updatedCount} replaced`);
+        if (data.skippedCount) parts.push(`${data.skippedCount} skipped`);
+        toast.success(parts.length ? parts.join(', ') : `Imported ${changed} of ${data.totalRows}`);
+        if (changed > 0) onImported?.();
       } else {
         toast.error('No records were imported — check the error list');
       }
@@ -129,6 +136,7 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
       toast.error(err.response?.data?.message || 'Import failed');
     } finally {
       setImporting(false);
+      setImportingMode(null);
     }
   };
 
@@ -236,6 +244,13 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
 
           {step === 'preview' && (
             <div className="space-y-3">
+              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex gap-2 text-xs text-amber-900">
+                <HiOutlineInformationCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+                <div className="space-y-0.5">
+                  <p><span className="font-semibold">Skip All</span> — existing {config.entityLabel}s (matched by name) are left untouched; only new rows are added.</p>
+                  <p><span className="font-semibold">Replace All</span> — existing {config.entityLabel}s are overwritten with the values from this file.</p>
+                </div>
+              </div>
               <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <div className="overflow-x-auto max-h-[50vh]">
                   <table className="w-full text-xs">
@@ -274,14 +289,22 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
 
           {step === 'result' && result && (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="bg-gray-50 rounded-lg p-3 text-center">
                   <p className="text-xs text-gray-500">Total Rows</p>
                   <p className="text-2xl font-bold text-gray-800 mt-1">{result.totalRows}</p>
                 </div>
                 <div className="bg-emerald-50 rounded-lg p-3 text-center">
-                  <p className="text-xs text-emerald-700">Imported</p>
-                  <p className="text-2xl font-bold text-emerald-700 mt-1">{result.successCount}</p>
+                  <p className="text-xs text-emerald-700">Added</p>
+                  <p className="text-2xl font-bold text-emerald-700 mt-1">{result.createdCount ?? result.successCount ?? 0}</p>
+                </div>
+                <div className="bg-blue-50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-blue-700">Replaced</p>
+                  <p className="text-2xl font-bold text-blue-700 mt-1">{result.updatedCount ?? 0}</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-slate-700">Skipped</p>
+                  <p className="text-2xl font-bold text-slate-700 mt-1">{result.skippedCount ?? 0}</p>
                 </div>
                 <div className="bg-red-50 rounded-lg p-3 text-center">
                   <p className="text-xs text-red-700">Failed</p>
@@ -343,10 +366,19 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
                 );
               })()}
 
-              {result.successCount > 0 && (
+              {(result.successCount > 0 || (result.skippedCount ?? 0) > 0) && (
                 <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex gap-2 text-xs text-emerald-800">
                   <HiOutlineCheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>{result.successCount} {config.entityLabel}(s) added.</span>
+                  <span>
+                    {(() => {
+                      const parts = [];
+                      if (result.createdCount) parts.push(`${result.createdCount} added`);
+                      if (result.updatedCount) parts.push(`${result.updatedCount} replaced`);
+                      if (result.skippedCount) parts.push(`${result.skippedCount} skipped`);
+                      const summary = parts.length ? parts.join(', ') : `${result.successCount} added`;
+                      return `${summary} (${config.entityLabel}s).`;
+                    })()}
+                  </span>
                 </div>
               )}
             </div>
@@ -361,12 +393,22 @@ const MasterImportModal = ({ open, onClose, onImported, config }) => {
             <>
               <button onClick={resetAndUploadAgain} disabled={importing}
                 className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium disabled:opacity-50">Back</button>
-              <button onClick={handleImport} disabled={importing}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-semibold disabled:opacity-50">
-                {importing ? (
-                  <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Importing…</>
+              <button onClick={() => handleImport('skip')} disabled={importing}
+                title="Existing records (matched by name) are left untouched"
+                className="flex items-center gap-1.5 px-4 py-2 text-sm border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 rounded-lg font-semibold disabled:opacity-50">
+                {importing && importingMode === 'skip' ? (
+                  <><div className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" /> Skipping…</>
                 ) : (
-                  <><HiOutlineUpload className="w-4 h-4" /> Import {rows.length} record(s)</>
+                  <>Skip All</>
+                )}
+              </button>
+              <button onClick={() => handleImport('replace')} disabled={importing}
+                title="Existing records (matched by name) are overwritten with the new data"
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-semibold disabled:opacity-50">
+                {importing && importingMode === 'replace' ? (
+                  <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Replacing…</>
+                ) : (
+                  <><HiOutlineUpload className="w-4 h-4" /> Replace All</>
                 )}
               </button>
             </>

@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload, HiChevronDown, HiOutlineX, HiOutlineSearch, HiOutlineCog } from 'react-icons/hi';
-import { formatCurrency, calculateFilePrice, formatDate as _formatDate } from '../../utils/format';
+import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
 import ClaimSummaryColumnsModal from '../invoices/ClaimSummaryColumnsModal';
@@ -20,7 +20,7 @@ import JSZip from 'jszip';
 // in the operations team's reference workbook so imports/exports stay aligned.
 const fmtDateCell = (d) => _formatDate(d, '');
 const BASE_FIELD_DEFS = [
-  { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => c.month || '' },
+  { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => formatMonthLabel(c.month, '') },
   { key: 'hospital',                  label: 'HOSPITAL',               width: 26, pdfW: 32, defaultOn: true,  nonHospitalOnly: true, getValue: c => c.isDirectPatient ? (c.hospital?.name ? `${c.hospital.name} (Direct)` : 'Direct Patient') : (c.hospital?.name || '-') },
   { key: 'doctorName',                label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
   { key: 'patientName',               label: 'PATIENT NAME',           width: 22, pdfW: 28, defaultOn: true,  getValue: c => c.patientName || '' },
@@ -90,7 +90,7 @@ const TABLE_COL_DEFS = {
   treatmentType:             { label: 'Treatment',            cellClass: 'py-2 px-3',                                              get: (c) => c.treatmentType || '-' },
   diagnosis:                 { label: 'Diagnosis',            cellClass: 'py-2 px-3',                                              get: (c) => c.diagnosis || '-' },
   surgeryName:               { label: 'Surgery',              cellClass: 'py-2 px-3',                                              get: (c) => c.surgeryName || '-' },
-  month:                     { label: 'Month',                cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.month || '-' },
+  month:                     { label: 'Month',                cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => formatMonthLabel(c.month) },
   dateOfAdmit:               { label: 'D.O.A.',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.dateOfAdmit) || '-' },
   dateOfDischarge:           { label: 'D.O.D.',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.dateOfDischarge) || '-' },
   finalApprovalDate:         { label: 'Approval Date',        cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.finalApprovalDate) || '-' },

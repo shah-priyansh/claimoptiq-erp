@@ -54,6 +54,7 @@ exports.update = async (req, res) => {
 exports.bulkImport = async (req, res) => {
   try {
     const { rows } = req.body;
+    const mode = req.body.mode === 'replace' ? 'replace' : 'skip';
     if (!Array.isArray(rows) || !rows.length) {
       return res.status(400).json({ message: 'rows (non-empty array) is required' });
     }
@@ -69,6 +70,8 @@ exports.bulkImport = async (req, res) => {
 
     const seenInBatch = new Set();
     const created = [];
+    const updated = [];
+    const skipped = [];
     const errors = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] || {};
@@ -77,29 +80,56 @@ exports.bulkImport = async (req, res) => {
       const key = name.toLowerCase();
       const rowErrors = [];
       if (!name) rowErrors.push('Name is required');
-      else if (activeMap.has(key)) rowErrors.push(`"${name}" already exists`);
       else if (seenInBatch.has(key)) rowErrors.push(`"${name}" is duplicated in the file`);
 
       if (rowErrors.length) { errors.push({ row: rowNum, name, errors: rowErrors }); continue; }
+
+      const activeExisting = activeMap.get(key);
+      if (activeExisting && mode === 'skip') {
+        seenInBatch.add(key);
+        skipped.push({ row: rowNum, id: activeExisting.id, name });
+        continue;
+      }
+
       try {
         const data = pickFields({ name, address: row.address, contactPerson: row.contactPerson, mobile: row.mobile, email: row.email });
         const inactive = inactiveMap.get(key);
-        const item = inactive
-          ? await prisma.insuranceCompany.update({
-              where: { id: inactive.id },
-              data: { ...data, isActive: true },
-              select: { id: true, name: true },
-            })
-          : await prisma.insuranceCompany.create({ data, select: { id: true, name: true } });
-        seenInBatch.add(key);
-        created.push({ row: rowNum, id: item.id, name: item.name });
+        if (activeExisting) {
+          const item = await prisma.insuranceCompany.update({
+            where: { id: activeExisting.id },
+            data,
+            select: { id: true, name: true },
+          });
+          seenInBatch.add(key);
+          updated.push({ row: rowNum, id: item.id, name: item.name });
+        } else if (inactive) {
+          const item = await prisma.insuranceCompany.update({
+            where: { id: inactive.id },
+            data: { ...data, isActive: true },
+            select: { id: true, name: true },
+          });
+          seenInBatch.add(key);
+          updated.push({ row: rowNum, id: item.id, name: item.name });
+        } else {
+          const item = await prisma.insuranceCompany.create({ data, select: { id: true, name: true } });
+          seenInBatch.add(key);
+          created.push({ row: rowNum, id: item.id, name: item.name });
+        }
       } catch (e) {
         errors.push({ row: rowNum, name, errors: [e.message || 'Failed to save'] });
       }
     }
-    res.status(errors.length && !created.length ? 400 : 200).json({
-      message: `Imported ${created.length} of ${rows.length} insurance company(s)`,
-      created, errors, totalRows: rows.length, successCount: created.length, errorCount: errors.length,
+    const successCount = created.length + updated.length;
+    res.status(errors.length && !successCount && !skipped.length ? 400 : 200).json({
+      message: `Imported ${successCount} of ${rows.length} insurance company(s)`,
+      created, updated, skipped, errors,
+      totalRows: rows.length,
+      successCount,
+      createdCount: created.length,
+      updatedCount: updated.length,
+      skippedCount: skipped.length,
+      errorCount: errors.length,
+      mode,
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

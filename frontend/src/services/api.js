@@ -42,21 +42,21 @@ export const getHospitalAPI = (id) => API.get(`/hospitals/${id}`);
 export const createHospitalAPI = (data) => API.post('/hospitals', data);
 export const updateHospitalAPI = (id, data) => API.put(`/hospitals/${id}`, data);
 export const deleteHospitalAPI = (id) => API.delete(`/hospitals/${id}`);
-export const importHospitalsAPI = (rows) => API.post('/hospitals/import', { rows });
+export const importHospitalsAPI = (rows, mode = 'skip') => API.post('/hospitals/import', { rows, mode });
 
 // Insurance
 export const getInsuranceAPI = () => API.get('/insurance');
 export const createInsuranceAPI = (data) => API.post('/insurance', data);
 export const updateInsuranceAPI = (id, data) => API.put(`/insurance/${id}`, data);
 export const deleteInsuranceAPI = (id) => API.delete(`/insurance/${id}`);
-export const importInsuranceAPI = (rows) => API.post('/insurance/import', { rows });
+export const importInsuranceAPI = (rows, mode = 'skip') => API.post('/insurance/import', { rows, mode });
 
 // TPA
 export const getTPAAPI = () => API.get('/tpa');
 export const createTPAAPI = (data) => API.post('/tpa', data);
 export const updateTPAAPI = (id, data) => API.put(`/tpa/${id}`, data);
 export const deleteTPAAPI = (id) => API.delete(`/tpa/${id}`);
-export const importTPAAPI = (rows) => API.post('/tpa/import', { rows });
+export const importTPAAPI = (rows, mode = 'skip') => API.post('/tpa/import', { rows, mode });
 
 // References (Commission Master)
 export const getReferencesAPI = (params) => API.get('/references', { params });
