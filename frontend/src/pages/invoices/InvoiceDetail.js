@@ -146,7 +146,14 @@ const InvoiceDetail = () => {
   const reload = async () => {
     setLoading(true);
     try {
-      const { data } = await getInvoiceAPI(id);
+      // Fetch the invoice and its payments in parallel — they're independent
+      // and the payments query was previously chained, doubling the load
+      // time on the detail page.
+      const [invRes, paysRes] = await Promise.all([
+        getInvoiceAPI(id),
+        getCashBankAPI({ invoiceId: id, limit: 200 }).catch(() => ({ data: { entries: [] } })),
+      ]);
+      const data = invRes.data;
       setInvoice(data);
       setNotes(data.notes || '');
       setTdsRateId(data.tdsRateId || '');
@@ -167,12 +174,8 @@ const InvoiceDetail = () => {
       }));
       setEditLines(items);
       setOriginalLines(items.map((x) => ({ ...x })));
-      // Load payments for this invoice
-      try {
-        const pays = await getCashBankAPI({ invoiceId: id, limit: 200 });
-        setPayments(pays.data.entries || []);
-        setPayForm((f) => ({ ...f, amount: Math.max(0, (data.amountPending || 0)) }));
-      } catch { /* non-fatal */ }
+      setPayments(paysRes.data?.entries || []);
+      setPayForm((f) => ({ ...f, amount: Math.max(0, (data.amountPending || 0)) }));
     } catch {
       toast.error('Invoice not found');
       navigate('/invoices');

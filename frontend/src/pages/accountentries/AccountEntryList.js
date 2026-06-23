@@ -10,6 +10,7 @@ import {
 } from '../../services/api';
 import AccountEntryFormModal from './AccountEntryFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
+import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const formatDate = (d) => _formatDate(d);
@@ -30,10 +31,10 @@ const AccountEntryList = () => {
   const [summary, setSummary] = useState({ generalDebit: 0, generalCredit: 0, contraCount: 0 });
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = usePersistedFilters('accountEntries:page', 1);
+  const [pageSize, setPageSize] = usePersistedFilters('accountEntries:pageSize', 25);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = useState({ entryType: '', from: monthStart(), to: todayIso(), q: '' });
+  const [filters, setFilters] = usePersistedFilters('accountEntries:filters', { entryType: '', from: monthStart(), to: todayIso(), q: '' });
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
 

@@ -17,6 +17,7 @@ import {
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import BulkReceivePaymentModal from './BulkReceivePaymentModal';
+import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -48,9 +49,9 @@ const InvoiceList = () => {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ hospitalId: '', status: '', month: '' });
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [filters, setFilters] = usePersistedFilters('invoices:filters', { hospitalId: '', status: '', month: '' });
+  const [page, setPage] = usePersistedFilters('invoices:page', 1);
+  const [pageSize, setPageSize] = usePersistedFilters('invoices:pageSize', 25);
   const [total, setTotal] = useState(0);
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
   const [actionMenu, setActionMenu] = useState(null); // { id, top?, bottom?, left }
@@ -384,7 +385,7 @@ const InvoiceList = () => {
                         )}
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-right text-gray-800 font-medium">{formatINR(inv.grandTotal)}</td>
+                    <td className="py-3 px-4 text-right text-gray-800 font-medium">{formatINR((inv.grandTotal || 0) - (inv.previousBalance || 0))}</td>
                     <td className="py-3 px-4 text-right text-gray-600">{formatINR(inv.amountPaid)}</td>
                     <td className="py-3 px-4 text-right text-gray-600">{formatINR(inv.amountPending)}</td>
                     <td className="py-3 px-4 text-right">

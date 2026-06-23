@@ -11,6 +11,7 @@ import {
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import ExpenseFormModal from './ExpenseFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
+import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const formatDate = (d) => _formatDate(d);
@@ -35,11 +36,11 @@ const ExpenseList = () => {
   const [summary, setSummary] = useState({ rows: [], grandTotal: 0 });
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = usePersistedFilters('expenses:page', 1);
+  const [pageSize, setPageSize] = usePersistedFilters('expenses:pageSize', 25);
   const [total, setTotal] = useState(0);
   const [sumAmount, setSumAmount] = useState(0);
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = usePersistedFilters('expenses:filters', {
     categoryId: '',
     referenceId: '',
     from: monthStart(),
