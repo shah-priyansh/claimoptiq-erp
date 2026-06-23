@@ -157,7 +157,12 @@ model Invoice {
   lineItems InvoiceLineItem[]
   payments  CashBankEntry[]
 
-  @@unique([hospitalId, month])
+  // Uniqueness on (hospitalId, month) is enforced via a *partial* unique
+  // index in PostgreSQL (status <> 'void') — see migration
+  // 20260623120000_invoice_unique_excludes_void. Prisma can't model partial
+  // indexes, so this is a plain @@index here. A new invoice may be created
+  // for the same hospital+month once any prior invoice has been voided.
+  @@index([hospitalId, month])
   @@index([status])
   @@index([month])
   @@map("invoices")
@@ -184,6 +189,7 @@ model Expense {
   categoryId   String   @map("category_id")
   amount       Float
   notes        String   @default("")
+  partyName    String   @default("") @map("party_name")
   referenceId  String?  @map("reference_id")
 
   sourceType   String?  @map("source_type")

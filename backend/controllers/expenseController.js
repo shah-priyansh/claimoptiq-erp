@@ -36,6 +36,7 @@ const pickFields = (body) => {
     data.amount = Math.round(n);
   }
   if (body.notes !== undefined) data.notes = String(body.notes || '').slice(0, 1000);
+  if (body.partyName !== undefined) data.partyName = String(body.partyName || '').slice(0, 200);
   if (body.referenceId !== undefined) data.referenceId = body.referenceId || null;
   return data;
 };
@@ -151,9 +152,6 @@ exports.update = async (req, res) => {
   try {
     const existing = await prisma.expense.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: 'Not found' });
-    if (existing.sourceType) {
-      return res.status(400).json({ message: 'Auto-generated expenses cannot be edited. Add a manual offset row instead.' });
-    }
     const data = pickFields(req.body);
     const item = await prisma.expense.update({
       where: { id: req.params.id },
@@ -172,9 +170,6 @@ exports.remove = async (req, res) => {
   try {
     const existing = await prisma.expense.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: 'Not found' });
-    if (existing.sourceType) {
-      return res.status(400).json({ message: 'Auto-generated expenses cannot be deleted. Add a manual offset row instead.' });
-    }
     await prisma.expense.delete({ where: { id: req.params.id } });
     res.json({ message: 'Deleted' });
   } catch (error) {

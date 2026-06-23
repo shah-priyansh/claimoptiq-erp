@@ -4,7 +4,7 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', referenceId: '' };
+const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', partyName: '', referenceId: '' };
 
 const ExpenseFormModal = ({ open, initial, categories, references, loadingRefs = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
@@ -18,6 +18,7 @@ const ExpenseFormModal = ({ open, initial, categories, references, loadingRefs =
         categoryId: initial.category?._id || initial.categoryId || '',
         amount: initial.amount ?? 0,
         notes: initial.notes || '',
+        partyName: initial.partyName || '',
         referenceId: initial.reference?._id || initial.referenceId || '',
       });
     } else {
@@ -37,6 +38,7 @@ const ExpenseFormModal = ({ open, initial, categories, references, loadingRefs =
         categoryId: form.categoryId,
         amount: Number(form.amount) || 0,
         notes: form.notes,
+        partyName: form.partyName,
         referenceId: form.referenceId || null,
       });
     } finally {
@@ -101,6 +103,13 @@ const ExpenseFormModal = ({ open, initial, categories, references, loadingRefs =
             {showRefHint && (
               <p className="text-xs text-amber-600 mt-1">No reference picked — this row will show as "unattributed" in reports.</p>
             )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Party Name</label>
+            <input type="text" value={form.partyName} maxLength={200}
+              onChange={(e) => setForm((f) => ({ ...f, partyName: e.target.value }))}
+              placeholder="Vendor / payee"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>

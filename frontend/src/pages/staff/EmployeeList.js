@@ -5,6 +5,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineX, HiOutlineTrash } from 'react-icons/hi';
 import Toggle from '../../components/ui/Toggle';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 import { formatCurrency } from '../../utils/format';
 
 const emptyForm = {
@@ -12,7 +13,7 @@ const emptyForm = {
   standardHours: '9', userId: '', allowances: [], dailyOtEnabled: true,
 };
 
-const EmployeeForm = ({ emp, users, onSave, onClose }) => {
+const EmployeeForm = ({ emp, users, loadingUsers, onSave, onClose }) => {
   const [form, setForm] = useState(
     emp
       ? {
@@ -92,11 +93,16 @@ const EmployeeForm = ({ emp, users, onSave, onClose }) => {
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Link to System User (for self-service)</label>
-            <select value={form.userId} onChange={e => set('userId', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-              <option value="">— None —</option>
-              {users.map(u => <option key={u._id} value={u._id}>{u.name} ({u.email})</option>)}
-            </select>
+            <SearchableSelect
+              value={form.userId}
+              onChange={(v) => set('userId', v || '')}
+              options={users.map(u => ({ value: u._id, label: `${u.name} (${u.email})` }))}
+              placeholder="— None —"
+              searchPlaceholder="Search users..."
+              noneLabel="— None —"
+              isLoading={loadingUsers}
+              allowClear
+            />
           </div>
 
           {/* Fixed Allowances */}
@@ -151,18 +157,20 @@ const EmployeeList = ({ canEdit }) => {
   const [employees, setEmployees] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editEmp, setEditEmp] = useState(null);
   const [search, setSearch] = useState('');
 
   const load = async () => {
     setLoading(true);
+    setLoadingUsers(true);
     try {
       const [empRes, usersRes] = await Promise.all([getEmployeesAPI(), getUsersAPI()]);
       setEmployees(empRes.data);
       setUsers(usersRes.data);
     } catch { toast.error('Failed to load employees'); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setLoadingUsers(false); }
   };
 
   useEffect(() => { load(); }, []);
@@ -258,6 +266,7 @@ const EmployeeList = ({ canEdit }) => {
         <EmployeeForm
           emp={editEmp}
           users={users}
+          loadingUsers={loadingUsers}
           onSave={() => { setShowForm(false); load(); }}
           onClose={() => setShowForm(false)}
         />
