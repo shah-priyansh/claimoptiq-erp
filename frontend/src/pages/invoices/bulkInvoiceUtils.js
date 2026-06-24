@@ -86,6 +86,7 @@ export const commitDraft = async (draft, { autoIssue = false } = {}) => {
     ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
     claimIds: draft.claimIds,
     ...(manualItemsForCreate.length ? { manualItems: manualItemsForCreate } : {}),
+    ...(draft.isDirectPatient ? { isDirectPatient: true } : {}),
   });
 
   const lineEdits = [];
