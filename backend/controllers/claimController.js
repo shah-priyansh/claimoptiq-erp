@@ -123,7 +123,7 @@ exports.createClaim = async (req, res) => {
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, page = 1, limit = 25, skipCount, includeTotals, idsOnly } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, isBilled, page = 1, limit = 25, skipCount, includeTotals, idsOnly } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);
@@ -148,6 +148,8 @@ exports.getClaims = async (req, res) => {
     }
 
     if (status) where.status = status;
+    if (isBilled === 'true') where.isBilled = true;
+    else if (isBilled === 'false') where.isBilled = false;
     if (claimType) where.claimType = claimType;
     if (month) {
       const d = new Date(month);
