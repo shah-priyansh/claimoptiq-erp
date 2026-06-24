@@ -214,20 +214,57 @@ exports.getClaims = async (req, res) => {
       : await Promise.all([findManyP, prisma.claim.count({ where })]);
 
     const claimsData = toResponse(claims);
+    const wantTotals = includeTotals === 'true' || includeTotals === '1';
+
+    // Kick off the aggregate sums and the totals-scope priceRows fetch in
+    // parallel — neither depends on the rendered page. Previously these
+    // ran sequentially after the page query resolved and dominated the
+    // Claims Report response time.
+    const pageHospitalIds = isSuperAdmin
+      ? [...new Set(claimsData.map((c) => c.hospitalId).filter(Boolean))]
+      : [];
+    const [agg, priceRows] = await Promise.all([
+      wantTotals
+        ? prisma.claim.aggregate({
+            where,
+            _sum: { hospitalFinalBill: true, finalApprovalAmount: true, bankTransferAmount: true, settlementAmount: true, tds: true },
+          })
+        : Promise.resolve(null),
+      (wantTotals && isSuperAdmin)
+        ? prisma.claim.findMany({
+            where,
+            select: {
+              hospitalId: true,
+              hospitalFinalBill: true,
+              finalApprovalAmount: true,
+              filePrice: true,
+              filePriceOverridden: true,
+            },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    // Union the hospital IDs across page + totals scope and pull billing
+    // services *once* for all of them — used to be two separate fetches.
+    const billingMap = {};
+    if (isSuperAdmin) {
+      const allHospitalIds = new Set(pageHospitalIds);
+      if (priceRows) {
+        for (const r of priceRows) if (r.hospitalId) allHospitalIds.add(r.hospitalId);
+      }
+      if (allHospitalIds.size) {
+        const hosps = await prisma.hospital.findMany({
+          where: { id: { in: [...allHospitalIds] } },
+          select: { id: true, billingServices: { where: { isActive: true }, include: { slabs: { orderBy: { rangeStart: 'asc' } } } } },
+        });
+        hosps.forEach((h) => { billingMap[h.id] = h.billingServices; });
+      }
+    }
 
     // For super-admin we need `filePrice` per row so the table column + export
     // can render without pulling billingServices in the row join.
     let stripped;
     if (isSuperAdmin) {
-      const hospitalIds = [...new Set(claimsData.map((c) => c.hospitalId).filter(Boolean))];
-      const billingMap = {};
-      if (hospitalIds.length) {
-        const hosps = await prisma.hospital.findMany({
-          where: { id: { in: hospitalIds } },
-          select: { id: true, billingServices: { where: { isActive: true }, include: { slabs: { orderBy: { rangeStart: 'asc' } } } } },
-        });
-        hosps.forEach((h) => { billingMap[h.id] = h.billingServices; });
-      }
       stripped = claimsData.map((c) => ({
         ...c,
         filePrice: c.filePriceOverridden && c.filePrice
@@ -241,17 +278,11 @@ exports.getClaims = async (req, res) => {
       }));
     }
 
-    // Optional aggregate sums for the matching filter scope (NOT the page).
-    // Used by the Claims Report summary cards so paginated rendering still
-    // shows the correct totals. For super_admin we additionally compute the
-    // file-price sum (requires per-hospital billing services), which is the
-    // pricey one — only ask for it when the client opts in.
+    // Aggregate sums for the matching filter scope (NOT the page) drive the
+    // Claims Report summary cards. Reuses `agg`, `priceRows`, and
+    // `billingMap` computed above.
     let totals = null;
-    if (includeTotals === 'true' || includeTotals === '1') {
-      const agg = await prisma.claim.aggregate({
-        where,
-        _sum: { hospitalFinalBill: true, finalApprovalAmount: true, bankTransferAmount: true, settlementAmount: true, tds: true },
-      });
+    if (wantTotals && agg) {
       totals = {
         hospitalFinalBill: agg._sum.hospitalFinalBill || 0,
         finalApprovalAmount: agg._sum.finalApprovalAmount || 0,
@@ -259,33 +290,12 @@ exports.getClaims = async (req, res) => {
         settlementAmount: agg._sum.settlementAmount || 0,
         tds: agg._sum.tds || 0,
       };
-      if (isSuperAdmin) {
-        // File price needs per-claim calculation against the hospital's
-        // billing services — pull only the fields needed for the calc.
-        const priceRows = await prisma.claim.findMany({
-          where,
-          select: {
-            hospitalId: true,
-            hospitalFinalBill: true,
-            finalApprovalAmount: true,
-            filePrice: true,
-            filePriceOverridden: true,
-          },
-        });
-        const hospitalIds = [...new Set(priceRows.map((r) => r.hospitalId).filter(Boolean))];
-        const hospMap = {};
-        if (hospitalIds.length) {
-          const hosps = await prisma.hospital.findMany({
-            where: { id: { in: hospitalIds } },
-            select: { id: true, billingServices: { where: { isActive: true }, include: { slabs: { orderBy: { rangeStart: 'asc' } } } } },
-          });
-          hosps.forEach((h) => { hospMap[h.id] = h.billingServices; });
-        }
+      if (isSuperAdmin && priceRows) {
         let totalFilePrice = 0;
         for (const c of priceRows) {
           totalFilePrice += c.filePriceOverridden && c.filePrice
             ? c.filePrice
-            : calculateFilePrice(hospMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
+            : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
         }
         totals.filePrice = totalFilePrice;
       }
@@ -324,7 +334,16 @@ exports.getClaim = async (req, res) => {
 
 exports.updateClaim = async (req, res) => {
   try {
-    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    // Fetch the claim and (if a status change is requested) the target
+    // claim-status row in parallel. They're independent reads — running
+    // them sequentially was costing an extra roundtrip per save.
+    const wantsStatusChange = !!req.body.status;
+    const [claim, targetStatus] = await Promise.all([
+      prisma.claim.findUnique({ where: { id: req.params.id } }),
+      wantsStatusChange
+        ? prisma.claimStatus.findUnique({ where: { slug: req.body.status } })
+        : Promise.resolve(null),
+    ]);
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
     const userHospitalId = getUserHospitalId(req.user);
@@ -332,12 +351,9 @@ exports.updateClaim = async (req, res) => {
       return res.status(403).json({ message: "You can only update your own hospital's claims" });
     }
 
-    // Only super admin can set super-admin-only statuses (e.g. 'billed')
-    if (req.body.status) {
-      const targetStatus = await prisma.claimStatus.findUnique({ where: { slug: req.body.status } });
-      if (targetStatus?.superAdminOnly && req.user?.role?.slug !== 'super_admin') {
-        return res.status(403).json({ message: 'You do not have permission to set this status' });
-      }
+    // Only super admin can set super-admin-only statuses (e.g. 'billed').
+    if (wantsStatusChange && targetStatus?.superAdminOnly && req.user?.role?.slug !== 'super_admin') {
+      return res.status(403).json({ message: 'You do not have permission to set this status' });
     }
 
     const data = { updatedById: req.user.id };

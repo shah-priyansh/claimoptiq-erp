@@ -56,6 +56,11 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
   const [skippedDismissed, setSkippedDismissed] = useState(false);
   const [expanded, setExpanded] = useState({}); // { [draftIdx]: bool }
   const [progress, setProgress] = useState(0);
+  // Snapshot of how many invoices the current generate run is committing.
+  // Without this the denominator would be `approvedDrafts.length`, which
+  // shrinks as drafts get marked status='success' — pushing the bar to
+  // "4 of 1 / 400%" mid-run.
+  const [progressTotal, setProgressTotal] = useState(0);
 
   // PDF preview modal state — same pattern as the legacy wizard.
   const [previewIdx, setPreviewIdx] = useState(null);
@@ -72,6 +77,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
     setSkippedDismissed(false);
     setExpanded({});
     setProgress(0);
+    setProgressTotal(0);
     setPreviewIdx(null);
     if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
     setPdfBlobUrl(null);
@@ -105,6 +111,16 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
         setPhase('reviewing');
       } catch (e) {
         if (cancelled) return;
+        // The backend returns 400 + { skipped: [...] } when every selected
+        // claim is unbillable (rejected, cancelled, already billed, missing
+        // discharge date). Surface those reasons in the empty phase instead
+        // of closing the drawer with a generic toast.
+        const errSkipped = e.response?.data?.skipped;
+        if (Array.isArray(errSkipped) && errSkipped.length) {
+          setSkipped(errSkipped);
+          setPhase('empty');
+          return;
+        }
         const baseMsg = e.response?.data?.message || 'Failed to load previews';
         toast.error(baseMsg);
         onClose();
@@ -165,12 +181,15 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
     }
     setPhase('generating');
     setProgress(0);
+    setProgressTotal(targets.length);
     let allOk = true;
     const results = [];
     for (let i = 0; i < targets.length; i++) {
       const { d, idx } = targets[i];
       try {
-        const inv = await commitDraft(d);
+        // autoIssue: bulk generate goes straight to "issued" so operators
+        // don't have to open each draft afterward and click Issue.
+        const inv = await commitDraft(d, { autoIssue: true });
         updateDraft(idx, { status: 'success', invoice: inv, error: '' });
         results.push({ ok: true, invoice: inv });
       } catch (e) {
@@ -302,12 +321,34 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
           )}
 
           {phase === 'empty' && (
-            <div className="py-12 text-center">
-              <p className="text-gray-700 font-medium">No billable invoices.</p>
-              <p className="text-sm text-gray-500 mt-1">
-                All {skipped.length} selected claim{skipped.length === 1 ? ' was' : 's were'} skipped
-                (rejected, cancelled, already billed, or missing a discharge date).
-              </p>
+            <div className="py-8">
+              <div className="text-center mb-5">
+                <p className="text-gray-800 font-semibold">No billable invoices.</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  All {skipped.length} selected claim{skipped.length === 1 ? ' was' : 's were'} skipped.
+                  Fix the issues below and try again.
+                </p>
+              </div>
+              <div className="border border-amber-200 bg-amber-50/40 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-amber-100/60 text-amber-900">
+                    <tr>
+                      <th className="text-left py-2 px-3 text-xs font-semibold uppercase">SR</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold uppercase">Patient</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold uppercase">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-amber-100">
+                    {skipped.map((s, i) => (
+                      <tr key={s.id || i} className="hover:bg-amber-50">
+                        <td className="py-2 px-3 text-amber-900 tabular-nums">{s.srNo || '-'}</td>
+                        <td className="py-2 px-3 text-amber-900">{s.patientName || '-'}</td>
+                        <td className="py-2 px-3 text-amber-800 capitalize">{s.reason || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -339,15 +380,15 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
               {phase === 'generating' && (
                 <div className="mb-4">
                   <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>{progress} of {approvedDrafts.length}</span>
+                    <span>{progress} of {progressTotal}</span>
                     <span>
-                      {approvedDrafts.length ? Math.round((progress / approvedDrafts.length) * 100) : 0}%
+                      {progressTotal ? Math.round((progress / progressTotal) * 100) : 0}%
                     </span>
                   </div>
                   <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary-600 transition-all"
-                      style={{ width: `${approvedDrafts.length ? (progress / approvedDrafts.length) * 100 : 0}%` }}
+                      style={{ width: `${progressTotal ? (progress / progressTotal) * 100 : 0}%` }}
                     />
                   </div>
                 </div>
@@ -487,7 +528,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
                     className="px-4 py-2.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium"
                   >
                     {phase === 'generating'
-                      ? `Generating ${progress}/${approvedDrafts.length}…`
+                      ? `Generating ${progress}/${progressTotal}…`
                       : `Generate ${approvedDrafts.length} Invoice${approvedDrafts.length === 1 ? '' : 's'}`}
                   </button>
                 </div>

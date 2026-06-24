@@ -239,6 +239,19 @@ const Reports = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isSuperAdmin]);
 
+  // Auto-refresh the report whenever any filter changes (hospital, reference,
+  // patient type, date range, status). Debounced 300ms so typing into a date
+  // input doesn't spam the API. Skipped until the first-load handler has
+  // committed so we don't fire a redundant fetch alongside it.
+  useEffect(() => {
+    if (!didInitialLoadRef.current) return;
+    const t = setTimeout(() => {
+      generateReport();
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.hospital, filters.reference, filters.directPatient, filters.dateFrom, filters.dateTo, filters.status]);
+
   const getFilePrice = useCallback(
     (c) => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0),
     []
@@ -254,10 +267,10 @@ const Reports = () => {
   // ── Data ──────────────────────────────────────────────────────────────────
 
   // Build the filter param object once so paged + full fetches stay in sync.
-  // `status: '__unbilled'` is a synthetic value from the dropdown — it maps to
-  // the backend's `isBilled=false` flag, not a real claim-status slug. Bill
-  // mode also forces `isBilled=false` so already-billed claims never appear
-  // in the selection set.
+  // `status: '__unbilled' | '__billed'` are synthetic values from the dropdown
+  // — they map to the backend's `isBilled` flag, not a real claim-status slug.
+  // Bill mode also forces `isBilled=false` so already-billed claims never
+  // appear in the selection set (and overrides any explicit __billed pick).
   const buildFilterParams = (src = filters, { billModeOverride } = {}) => {
     const params = {};
     if (src.hospital) params.hospital = src.hospital;
@@ -353,11 +366,24 @@ const Reports = () => {
 
   // Opens the in-page BulkInvoiceDrawer. Snapshots the current selection so
   // toggling rows on the report behind the drawer doesn't drift the working
-  // set mid-batch. (The legacy /invoices/bulk/new wizard route still exists
-  // for power users who navigate to it directly.)
-  const handleGenerateInvoices = () => {
-    if (!selectedClaimIds.length) return;
-    setDrawerClaimIds([...selectedClaimIds]);
+  // set mid-batch. If nothing is explicitly ticked we treat the entire
+  // filtered set as the selection — bill mode already forces isBilled=false
+  // so this still scopes to unbilled claims.
+  const handleGenerateInvoices = async () => {
+    let ids = selectedClaimIds;
+    if (!ids.length) {
+      try {
+        ids = await fetchAllClaimIds();
+      } catch {
+        toast.error('Failed to load claims for batch');
+        return;
+      }
+      if (!ids.length) {
+        toast.info('No claims to bill');
+        return;
+      }
+    }
+    setDrawerClaimIds([...ids]);
     setDrawerOpen(true);
   };
 
@@ -891,8 +917,12 @@ const Reports = () => {
                 className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
                 {billingLoading ? 'Marking...' : 'Mark as Billed'}
               </button>
-              <button onClick={handleGenerateInvoices} disabled={!someSelected || billingLoading}
-                className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+              <button
+                onClick={handleGenerateInvoices}
+                disabled={billingLoading || (serverTotal === 0 && !someSelected)}
+                title={someSelected ? '' : 'No selection — generates invoices for every unbilled claim in the current filter'}
+                className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+              >
                 Generate Invoices
               </button>
             </div>
@@ -966,19 +996,14 @@ const Reports = () => {
             isLoading={statusesLoading}
             allowClear
           />
-          <div className="flex gap-2">
-            <button onClick={generateReport} disabled={loading}
-              className="flex-1 bg-primary-600 hover:bg-primary-700 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">
-              {loading ? 'Loading...' : 'Generate'}
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setExportMenuOpen(o => !o)}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 whitespace-nowrap"
+            >
+              <HiOutlineDownload className="w-4 h-4" /> Export <HiChevronDown className={`w-4 h-4 transition-transform ${exportMenuOpen ? 'rotate-180' : ''}`} />
             </button>
-            <div className="relative" ref={exportMenuRef}>
-              <button
-                onClick={() => setExportMenuOpen(o => !o)}
-                disabled={loading}
-                className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 whitespace-nowrap h-full"
-              >
-                <HiOutlineDownload className="w-4 h-4" /> Export <HiChevronDown className={`w-4 h-4 transition-transform ${exportMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
               {exportMenuOpen && (
                 <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 w-52 py-1">
                   {isHospitalUser ? (
@@ -1017,7 +1042,6 @@ const Reports = () => {
                   )}
                 </div>
               )}
-            </div>
           </div>
         </div>
       </div>
@@ -1047,7 +1071,21 @@ const Reports = () => {
       )}
 
       {/* Results Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden relative">
+        {/* Indeterminate top progress bar — visible whenever the filters are
+            (re-)fetching. Sits above the table so the operator gets feedback
+            even when the table already has data from a prior fetch. */}
+        {loading && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 overflow-hidden bg-primary-100 z-10">
+            <div className="h-full w-1/3 bg-primary-600 animate-[reports-indeterminate_1.1s_ease-in-out_infinite]" style={{ animationName: 'reports-indeterminate' }} />
+            <style>{`
+              @keyframes reports-indeterminate {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(400%); }
+              }
+            `}</style>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -1069,8 +1107,13 @@ const Reports = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {claims.length === 0 ? (
-                <tr><td colSpan={tableColCount} className="py-8 text-center text-gray-400">
-                  {loading ? 'Loading...' : (visibleCols.length === 0 ? 'No columns selected. Click the gear icon to choose columns.' : 'Click "Generate" to view report')}
+                <tr><td colSpan={tableColCount} className="py-10 text-center text-gray-400">
+                  {loading ? (
+                    <div className="flex items-center justify-center gap-2 text-gray-500">
+                      <div className="w-4 h-4 border-2 border-gray-300 border-t-primary-600 rounded-full animate-spin" />
+                      <span className="text-sm">Loading claims…</span>
+                    </div>
+                  ) : (visibleCols.length === 0 ? 'No columns selected. Click the gear icon to choose columns.' : 'No claims match the current filters.')}
                 </td></tr>
               ) : claims.map(c => (
                 <tr key={c._id} className={`hover:bg-gray-50 text-sm ${billMode && selectedClaimIds.includes(c._id) ? 'bg-purple-50' : ''}`}>
@@ -1266,10 +1309,13 @@ const Reports = () => {
         claimIds={drawerClaimIds}
         onClose={() => setDrawerOpen(false)}
         onGenerated={() => {
-          // Full success → exit bill mode and clear the selection so the
-          // operator returns to a clean reports view.
+          // Full success → exit bill mode, clear the selection, and re-run
+          // the report so the freshly-billed claims drop off the Unbilled
+          // list. Pass billModeOverride=false because the setBillMode(false)
+          // we just queued won't be visible to generateReport's closure yet.
           setSelectedClaimIds([]);
           setBillMode(false);
+          generateReport({ billModeOverride: false });
         }}
       />
     </div>
