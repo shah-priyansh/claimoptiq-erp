@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   createClaim, getClaims, getClaim, updateClaim,
-  uploadDocuments, deleteDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims, importClaims,
+  uploadDocuments, deleteDocument, streamDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims, importClaims,
   deleteClaim, deleteAllClaims
 } = require('../controllers/claimController');
 const { protect, checkPermission } = require('../middleware/auth');
@@ -27,6 +27,7 @@ router.route('/:id')
   .put(checkPermission('claims', 'edit'), updateClaim)
   .delete(checkPermission('claims', 'delete'), deleteClaim);
 router.post('/:id/documents', checkPermission('claims', 'view'), upload.array('files', 50), uploadDocuments);
+router.get('/:id/documents/:docId/file', checkPermission('claims', 'view'), streamDocument);
 router.delete('/:id/documents/:docId', checkPermission('claims', 'delete'), deleteDocument);
 
 module.exports = router;

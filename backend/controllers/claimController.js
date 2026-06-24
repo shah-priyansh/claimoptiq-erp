@@ -3,9 +3,29 @@ const path = require('path');
 const fs = require('fs');
 const { toResponse } = require('../utils/toResponse');
 const calculateFilePrice = require('../utils/calculateFilePrice');
+const { streamFileToResponse } = require('../services/fileRetrieval');
+const backupService = require('../services/backupService');
+const { loadConfig: loadBackupConfig } = require('../utils/backupConfig');
 
 const getUserHospitalId = (user) => {
   return user.hospitalId || user.hospital?.id || null;
+};
+
+// Fire-and-forget: when claim(s) are settled, offload their files. The
+// on-settled toggle, global enable, and disk-pressure gate are all enforced
+// inside backupService.runBackup, so this just checks the toggle then runs.
+// `claimId` may be a single id or a Prisma filter like { in: [...] }.
+const maybeBackupSettledClaims = (claimId, userId) => {
+  loadBackupConfig()
+    .then((cfg) => {
+      if (!cfg.bool('backup_enabled') || !cfg.bool('backup_trigger_on_settled')) return;
+      return backupService.runBackup({
+        trigger: 'on_settled',
+        triggeredById: userId || null,
+        fileFilter: { claimId },
+      });
+    })
+    .catch(() => { /* never block the request on backup */ });
 };
 
 const claimInclude = {
@@ -384,6 +404,13 @@ exports.updateClaim = async (req, res) => {
       data,
       include: claimInclude,
     });
+
+    // On completion, offload this claim's files (fire-and-forget; respects the
+    // global enable + on-settled toggle + disk-pressure gate inside runBackup).
+    if (statusChanged && updated.status === 'settled') {
+      maybeBackupSettledClaims(updated.id, req.user.id);
+    }
+
     res.json(toResponse(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -442,9 +469,39 @@ exports.deleteDocument = async (req, res) => {
 
     if (fs.existsSync(doc.filePath)) fs.unlinkSync(doc.filePath);
     await prisma.claimDocument.delete({ where: { id: req.params.docId } });
+    // Remove any offloaded remote copies + their location rows (fire-and-forget).
+    backupService.deleteRemoteCopies('claim_document', doc.id).catch(() => {});
     res.json({ message: 'Document deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Stream a claim document to the browser, whether it's on local disk or has
+// been offloaded to a remote backup server. Supports HTTP Range and a
+// `?download=1` flag (attachment, no deletion / no sync-state change).
+exports.streamDocument = async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    if (!claim) return res.status(404).json({ message: 'Claim not found' });
+
+    const userHospitalId = getUserHospitalId(req.user);
+    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+      return res.status(403).json({ message: "You can only access your own hospital's claims" });
+    }
+
+    const doc = await prisma.claimDocument.findFirst({
+      where: { id: req.params.docId, claimId: req.params.id },
+    });
+    if (!doc) return res.status(404).json({ message: 'Document not found' });
+
+    return streamFileToResponse(req, res, {
+      record: doc,
+      sourceType: 'claim_document',
+      download: req.query.download === '1' || req.query.download === 'true',
+    });
+  } catch (error) {
+    if (!res.headersSent) res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
@@ -469,7 +526,7 @@ exports.deleteClaim = async (req, res) => {
 
     const docs = await prisma.claimDocument.findMany({
       where: { claimId: claim.id },
-      select: { filePath: true },
+      select: { id: true, filePath: true },
     });
 
     await prisma.$transaction(async (tx) => {
@@ -479,6 +536,8 @@ exports.deleteClaim = async (req, res) => {
     });
 
     removeClaimFiles(docs.map(d => d.filePath));
+    // Sweep any offloaded remote copies + orphan location rows (polymorphic — no FK cascade).
+    for (const d of docs) backupService.deleteRemoteCopies('claim_document', d.id).catch(() => {});
     res.json({ message: 'Claim deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -508,7 +567,7 @@ exports.deleteAllClaims = async (req, res) => {
 
     const docs = await prisma.claimDocument.findMany({
       where: { claimId: { in: ids } },
-      select: { filePath: true },
+      select: { id: true, filePath: true },
     });
 
     const result = await prisma.$transaction(async (tx) => {
@@ -534,6 +593,7 @@ exports.deleteAllClaims = async (req, res) => {
     });
 
     removeClaimFiles(docs.map(d => d.filePath));
+    for (const d of docs) backupService.deleteRemoteCopies('claim_document', d.id).catch(() => {});
     res.json({ message: `${result} claim(s) deleted`, count: result });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -570,6 +630,9 @@ exports.bulkUpdateStatus = async (req, res) => {
           changedById: req.user.id,
         })),
       });
+      if (status === 'settled') {
+        maybeBackupSettledClaims({ in: claimsToUpdate.map(c => c.id) }, req.user.id);
+      }
     }
     res.json({ message: `${count} claims updated to "${status}"`, count });
   } catch (error) {

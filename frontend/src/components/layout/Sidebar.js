@@ -225,6 +225,13 @@ const Sidebar = ({ isOpen, onClose }) => {
           />
 
           {isSuperAdmin && (
+            <NavLink to="/backup" className={linkClass} onClick={onClose}>
+              <HiOutlineCloudUpload className="w-5 h-5 flex-shrink-0" />
+              Backup &amp; Storage
+            </NavLink>
+          )}
+
+          {isSuperAdmin && (
             <NavLink to="/settings" className={linkClass} onClick={onClose}>
               <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
               Settings

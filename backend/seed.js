@@ -8,7 +8,7 @@ const allModules = [
   'claim_document_types', 'document_submissions', 'staff',
   'references', 'invoices', 'tds_rates',
   'expenses', 'expense_categories',
-  'cash_bank', 'account_entries',
+  'cash_bank', 'account_entries', 'backup',
 ];
 
 const buildPermissions = (config) =>
@@ -45,6 +45,7 @@ const defaultRoles = [
       claim_statuses:       { view: true, create: true, edit: true, delete: true },
       claim_document_types: { view: true, create: true, edit: true, delete: true },
       document_submissions: { view: true, create: true, edit: true, delete: true },
+      backup:               { view: true, edit: true },
     }),
   },
   {
