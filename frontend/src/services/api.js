@@ -68,6 +68,10 @@ export const deleteReferenceAPI = (id) => API.delete(`/references/${id}`);
 // Invoices
 export const previewInvoiceAPI = (data) => API.post('/invoices/preview', data);
 export const previewBulkInvoiceAPI = (data) => API.post('/invoices/preview-bulk', data);
+// Direct-patient claims don't carry a hospital relation. The drawer collects a
+// target hospital from the operator and posts here to compute the preview as
+// if those claims were billed against the chosen hospital.
+export const previewDirectPatientInvoiceAPI = (data) => API.post('/invoices/preview-direct-patient', data);
 // Renders the same PDF as a saved invoice but for an unsaved draft from the
 // bulk wizard. Returns a Blob so callers can drop it into an <iframe> for
 // preview + print, and re-save it for download.

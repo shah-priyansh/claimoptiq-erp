@@ -51,12 +51,18 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 // When `claimIds` is supplied, the line set is restricted to those claims (still
 // scoped by hospital + month) so the bulk "Generate Bill" flow can preview only
 // the claims the user actually selected, not every unbilled claim in the month.
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0 } = {}) => {
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false } = {}) => {
+  // For direct-patient invoices the claims have no hospital relation of
+  // their own — `hospitalId` is the chosen *target* hospital (used for
+  // billing services + template lookups). The claim query must skip the
+  // hospitalId filter in that case; the caller is expected to pre-validate
+  // the claim IDs all belong together (isDirectPatient=true, same month).
   const claimWhere = {
-    hospitalId,
+    ...(isDirectPatient ? {} : { hospitalId }),
     dateOfDischarge: { gte: month, lt: monthEnd(month) },
     isBilled: false,
     status: { notIn: EXCLUDED_CLAIM_STATUSES },
+    ...(isDirectPatient ? { isDirectPatient: true } : {}),
   };
   if (Array.isArray(claimIds) && claimIds.length) {
     claimWhere.id = { in: claimIds };
@@ -271,26 +277,33 @@ exports.previewBulk = async (req, res) => {
       select: {
         id: true, srNo: true, patientName: true, status: true,
         isBilled: true, hospitalId: true, dateOfDischarge: true,
+        isDirectPatient: true,
       },
     });
 
     const skipped = [];
-    const claims = [];
+    const hospitalClaims = [];
+    const directPatientClaims = [];
     for (const c of allSelected) {
       if (c.isBilled) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'already billed' });
       } else if (EXCLUDED_CLAIM_STATUSES.includes(c.status)) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: c.status });
-      } else if (!c.hospitalId) {
-        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no hospital' });
       } else if (!c.dateOfDischarge) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no discharge date' });
+      } else if (c.isDirectPatient) {
+        // Direct-patient claims are billable, but only once the operator
+        // picks a target hospital in the drawer. They flow into their own
+        // grouping bucket below.
+        directPatientClaims.push(c);
+      } else if (!c.hospitalId) {
+        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no hospital' });
       } else {
-        claims.push(c);
+        hospitalClaims.push(c);
       }
     }
 
-    if (!claims.length) {
+    if (!hospitalClaims.length && !directPatientClaims.length) {
       return res.status(400).json({
         message: 'No billable claims in selection',
         skipped,
@@ -299,12 +312,23 @@ exports.previewBulk = async (req, res) => {
 
     // Group by hospitalId + month (UTC year-month) → list of claimIds.
     const groups = new Map();
-    for (const c of claims) {
+    for (const c of hospitalClaims) {
       const d = new Date(c.dateOfDischarge);
       const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
       const key = `${c.hospitalId}|${monthKey}`;
       if (!groups.has(key)) groups.set(key, { hospitalId: c.hospitalId, month: new Date(monthKey), claimIds: [] });
       groups.get(key).claimIds.push(c.id);
+    }
+
+    // Group direct-patient claims by month only — they share no hospital, so
+    // the operator picks a target hospital in the UI for each month's group.
+    const directGroups = new Map();
+    for (const c of directPatientClaims) {
+      const d = new Date(c.dateOfDischarge);
+      const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
+      const key = `direct|${monthKey}`;
+      if (!directGroups.has(key)) directGroups.set(key, { month: new Date(monthKey), claimIds: [] });
+      directGroups.get(key).claimIds.push(c.id);
     }
 
     // Build a preview for each group (sequential — we hit Prisma per group anyway).
@@ -331,10 +355,30 @@ exports.previewBulk = async (req, res) => {
       });
     }
 
-    // Stable ordering: month asc, then hospital name asc.
+    // Emit a placeholder card per direct-patient month group. No lines /
+    // totals yet — the UI must collect the target hospital from the
+    // operator and POST /invoices/preview-direct-patient to fill them in.
+    for (const g of directGroups.values()) {
+      previews.push({
+        hospitalId: null,
+        hospital: null,
+        month: g.month,
+        claimIds: g.claimIds,
+        lines: [],
+        totals: null,
+        hasContent: false,
+        existingInvoice: null,
+        isDirectPatient: true,
+        requiresHospitalPick: true,
+      });
+    }
+
+    // Stable ordering: month asc, then hospital name asc. Direct-patient
+    // cards (no hospital name) sort to the end of their month.
     previews.sort((a, b) => {
       const m = new Date(a.month) - new Date(b.month);
       if (m !== 0) return m;
+      if (a.isDirectPatient !== b.isDirectPatient) return a.isDirectPatient ? 1 : -1;
       return (a.hospital?.name || '').localeCompare(b.hospital?.name || '');
     });
 
@@ -345,16 +389,51 @@ exports.previewBulk = async (req, res) => {
   }
 };
 
+// Build a preview for direct-patient claims against a chosen target hospital.
+// Mirrors `preview` but takes the supplied hospital as the billing reference
+// (slabs, GST/TDS, etc.) — the claims themselves carry no hospital relation.
+exports.previewDirectPatient = async (req, res) => {
+  try {
+    const { hospitalId, month: rawMonth, claimIds, tdsRateId, gstRate, discount } = req.body;
+    const month = parseMonth(rawMonth);
+    if (!hospitalId || !month) {
+      return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
+    }
+    if (!Array.isArray(claimIds) || !claimIds.length) {
+      return res.status(400).json({ message: 'claimIds (non-empty array) is required' });
+    }
+    const built = await buildInvoiceLines(hospitalId, month, {
+      tdsRateId, gstRateOverride: gstRate, claimIds, discount, isDirectPatient: true,
+    });
+    res.json({
+      hospitalId,
+      hospital: toResponse(built.hospital),
+      month,
+      claimIds,
+      lines: built.lines,
+      totals: built.totals,
+      hasContent: built.lines.length > 0,
+      isDirectPatient: true,
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    res.status(status).json({ message: error.message || 'Server error' });
+  }
+};
+
 exports.create = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems } = req.body;
+    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems, isDirectPatient } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
     // Uniqueness is enforced via a partial unique index (status <> 'void'),
     // so findFirst with the same predicate stands in for findUnique here.
+    // Direct-patient invoices live in a separate slot per hospital+month —
+    // they don't conflict with a regular invoice for the same hospital+month.
+    const isDirectPatientInvoice = !!isDirectPatient;
     const existing = await prisma.invoice.findFirst({
-      where: { hospitalId, month, status: { not: 'void' } },
+      where: { hospitalId, month, isDirectPatient: isDirectPatientInvoice, status: { not: 'void' } },
       include: invoiceInclude,
     });
     if (existing && existing.status !== 'draft') {
@@ -381,7 +460,7 @@ exports.create = async (req, res) => {
       }
     }
 
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, isDirectPatient: isDirectPatientInvoice });
     if (!built.lines.length && !normalisedManual.length) {
       return res.status(400).json({ message: 'No claims or fixed services found for this month. Add at least one manual item.' });
     }
@@ -429,6 +508,7 @@ exports.create = async (req, res) => {
       previousBalance: finalTotals.previousBalance,
       grandTotal: finalTotals.grandTotal,
       amountPending: finalTotals.amountPending,
+      isDirectPatient: isDirectPatientInvoice,
     };
 
     const invoice = await prisma.$transaction(async (tx) => {
