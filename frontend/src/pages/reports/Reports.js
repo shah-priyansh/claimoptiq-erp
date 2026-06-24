@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI, getPublicStatsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -8,6 +7,7 @@ import { HiOutlineDownload, HiChevronDown, HiOutlineX, HiOutlineSearch, HiOutlin
 import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
+import BulkInvoiceDrawer from '../invoices/BulkInvoiceDrawer';
 import ClaimSummaryColumnsModal from '../invoices/ClaimSummaryColumnsModal';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import * as XLSX from 'xlsx-js-style';
@@ -133,7 +133,6 @@ const TABLE_DEFAULT_COLS = [
 const Reports = () => {
   const { user, roleSlug } = useAuth();
   const confirm = useConfirm();
-  const navigate = useNavigate();
   const isHospitalUser = !!user?.hospital;
   const isSuperAdmin = roleSlug === 'super_admin';
 
@@ -162,6 +161,8 @@ const Reports = () => {
 
   const [billMode, setBillMode] = useState(false);
   const [selectedClaimIds, setSelectedClaimIds] = useState([]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerClaimIds, setDrawerClaimIds] = useState([]);
 
   // Server-side pagination state. `claims` holds only the current page so
   // rendering stays cheap even on 4500+-row datasets. `serverTotal` /
@@ -222,6 +223,22 @@ const Reports = () => {
       .finally(() => setStatusesLoading(false));
   }, [isHospitalUser]);
 
+  // First-load: default the status filter to Unbilled for super-admin and
+  // auto-run the report so the page renders with data instead of waiting on
+  // the operator to click Generate. Guarded by a one-shot flag and the auth
+  // user being present so we don't double-fetch or misread the role.
+  const didInitialLoadRef = useRef(false);
+  useEffect(() => {
+    if (didInitialLoadRef.current) return;
+    if (!user) return;
+    didInitialLoadRef.current = true;
+    const initialStatus = isSuperAdmin ? '__unbilled' : '';
+    const initialFilters = { ...filters, status: initialStatus };
+    if (initialStatus) setFilters(initialFilters);
+    generateReport({ filtersOverride: initialFilters });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isSuperAdmin]);
+
   const getFilePrice = useCallback(
     (c) => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0),
     []
@@ -237,21 +254,28 @@ const Reports = () => {
   // ── Data ──────────────────────────────────────────────────────────────────
 
   // Build the filter param object once so paged + full fetches stay in sync.
-  const buildFilterParams = (src = filters) => {
+  // `status: '__unbilled'` is a synthetic value from the dropdown — it maps to
+  // the backend's `isBilled=false` flag, not a real claim-status slug. Bill
+  // mode also forces `isBilled=false` so already-billed claims never appear
+  // in the selection set.
+  const buildFilterParams = (src = filters, { billModeOverride } = {}) => {
     const params = {};
     if (src.hospital) params.hospital = src.hospital;
     if (src.dateFrom) params.dateFrom = src.dateFrom;
     if (src.dateTo) params.dateTo = src.dateTo;
-    if (src.status) params.status = src.status;
+    if (src.status === '__unbilled') params.isBilled = 'false';
+    else if (src.status) params.status = src.status;
     if (src.directPatient) params.directPatient = src.directPatient;
     if (src.reference && isSuperAdmin) params.reference = src.reference;
+    const bm = billModeOverride !== undefined ? billModeOverride : billMode;
+    if (bm) params.isBilled = 'false';
     return params;
   };
 
   // Fetch one page of claims. The first call (page 1) asks for `totals` too
   // so the summary cards reflect the full filter scope, not just the page.
-  const fetchClaimsPage = async (page, pageSize, baseFilters, { withTotals } = {}) => {
-    const params = { ...buildFilterParams(baseFilters), page, limit: pageSize };
+  const fetchClaimsPage = async (page, pageSize, baseFilters, { withTotals, billModeOverride } = {}) => {
+    const params = { ...buildFilterParams(baseFilters, { billModeOverride }), page, limit: pageSize };
     if (withTotals) params.includeTotals = 'true';
     const { data } = await getClaimsAPI(params);
     return { claims: data.claims || [], total: data.total || 0, totals: data.totals || null };
@@ -273,15 +297,15 @@ const Reports = () => {
     return data.ids || [];
   };
 
-  const generateReport = async () => {
+  const generateReport = async ({ billModeOverride, filtersOverride } = {}) => {
     setLoading(true);
     setTablePage(1);
     setSelectedClaimIds([]);
     setAllMatchingIds([]);
-    const snapshot = { ...filters };
+    const snapshot = { ...(filtersOverride || filters) };
     setActiveFilters(snapshot);
     try {
-      const { claims: pageClaims, total, totals } = await fetchClaimsPage(1, tablePageSize, snapshot, { withTotals: true });
+      const { claims: pageClaims, total, totals } = await fetchClaimsPage(1, tablePageSize, snapshot, { withTotals: true, billModeOverride });
       setClaims(pageClaims);
       setServerTotal(total);
       setServerTotals(totals);
@@ -314,18 +338,27 @@ const Reports = () => {
   const handleGenerateBill = async () => {
     setSelectedClaimIds([]);
     setBillMode(true);
-    if (claims.length > 0) return;
-    await generateReport();
+    // Always re-fetch so the isBilled=false constraint applied by
+    // buildFilterParams in bill mode is reflected in the visible page,
+    // pagination, and bill-mode select-all set.
+    await generateReport({ billModeOverride: true });
   };
 
-  const handleCancelBillMode = () => { setBillMode(false); setSelectedClaimIds([]); };
+  const handleCancelBillMode = async () => {
+    setBillMode(false);
+    setSelectedClaimIds([]);
+    // Re-fetch so billed claims reappear after exiting bill mode.
+    await generateReport({ billModeOverride: false });
+  };
 
-  // Sends the selected claim IDs to the bulk invoice wizard, which groups them
-  // by hospital + discharge-month and walks the operator through one draft
-  // invoice per group (approve/reject) before generating all approved ones.
+  // Opens the in-page BulkInvoiceDrawer. Snapshots the current selection so
+  // toggling rows on the report behind the drawer doesn't drift the working
+  // set mid-batch. (The legacy /invoices/bulk/new wizard route still exists
+  // for power users who navigate to it directly.)
   const handleGenerateInvoices = () => {
     if (!selectedClaimIds.length) return;
-    navigate('/invoices/bulk/new', { state: { claimIds: selectedClaimIds } });
+    setDrawerClaimIds([...selectedClaimIds]);
+    setDrawerOpen(true);
   };
 
   // Bulk-marks every selected claim as Billed after a confirmation prompt.
@@ -922,7 +955,10 @@ const Reports = () => {
           <input type="date" value={filters.dateTo} onChange={e => setFilters({ ...filters, dateTo: e.target.value })}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           <SearchableSelect
-            options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700' }))}
+            options={[
+              ...claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700' })),
+              { value: '__unbilled', label: 'Unbilled', badgeClass: 'bg-gray-100 text-gray-600' },
+            ]}
             value={filters.status}
             onChange={val => setFilters({ ...filters, status: val })}
             placeholder="All Status"
@@ -1223,6 +1259,18 @@ const Reports = () => {
       <ClaimSummaryColumnsModal
         open={columnsModalOpen}
         onClose={() => setColumnsModalOpen(false)}
+      />
+
+      <BulkInvoiceDrawer
+        open={drawerOpen}
+        claimIds={drawerClaimIds}
+        onClose={() => setDrawerOpen(false)}
+        onGenerated={() => {
+          // Full success → exit bill mode and clear the selection so the
+          // operator returns to a clean reports view.
+          setSelectedClaimIds([]);
+          setBillMode(false);
+        }}
       />
     </div>
   );
