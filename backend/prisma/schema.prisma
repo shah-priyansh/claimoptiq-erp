@@ -408,6 +408,7 @@ model User {
   expensesUpdated            Expense[]            @relation("ExpenseUpdatedBy")
   cashBankCreated            CashBankEntry[]      @relation("CashBankCreatedBy")
   accountEntriesCreated      AccountEntry[]       @relation("AccountEntryCreatedBy")
+  backupRunsTriggered        BackupRun[]          @relation("BackupRunTriggeredBy")
 
   @@map("users")
 }
@@ -563,8 +564,15 @@ model ClaimDocument {
   fileSize     Int?     @map("file_size")
   category     String   @default("other")
   uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  // ─── Backup / offload tracking ───
+  isSynced        Boolean   @default(false) @map("is_synced")
+  storageLocation String    @default("local") @map("storage_location") // 'local' | 'remote'
+  remoteKey       String?   @map("remote_key")
+  syncedAt        DateTime? @map("synced_at")
+  localDeletedAt  DateTime? @map("local_deleted_at")
   claim        Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
+  @@index([isSynced, storageLocation])
   @@map("claim_documents")
 }
 
@@ -584,6 +592,12 @@ model DocumentSubmission {
   uploadedById      String?           @map("uploaded_by_id")
   statusChangedById String?           @map("status_changed_by_id")
   statusChangedAt   DateTime?         @map("status_changed_at")
+  // ─── Backup / offload tracking ───
+  isSynced        Boolean   @default(false) @map("is_synced")
+  storageLocation String    @default("local") @map("storage_location") // 'local' | 'remote'
+  remoteKey       String?   @map("remote_key")
+  syncedAt        DateTime? @map("synced_at")
+  localDeletedAt  DateTime? @map("local_deleted_at")
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
   hospital          Hospital          @relation(fields: [hospitalId], references: [id])
@@ -592,6 +606,7 @@ model DocumentSubmission {
   uploadedBy        User?             @relation("SubmissionUploadedBy", fields: [uploadedById], references: [id])
   statusChangedBy   User?             @relation("SubmissionStatusChangedBy", fields: [statusChangedById], references: [id])
 
+  @@index([isSynced, storageLocation])
   @@map("document_submissions")
 }
 
@@ -707,4 +722,82 @@ model SiteSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("site_settings")
+}
+
+// ─── File Backup / Offload Module ──────────────────────────────────
+
+// Admin-configured remote SFTP targets. Secrets are AES-256-GCM
+// ciphertext blobs (see utils/cryptoBackup.js); they are never returned
+// to the client in plaintext. Exactly one enabled server is the primary,
+// whose byte-verified copy gates local deletion.
+model BackupServer {
+  id             String   @id @default(uuid())
+  name           String
+  host           String
+  port           Int      @default(22)
+  username       String
+  authType       String   @default("password") @map("auth_type") // 'password' | 'key'
+  encPassword    String?  @map("enc_password")
+  encPrivateKey  String?  @map("enc_private_key")
+  encPassphrase  String?  @map("enc_passphrase")
+  remoteBasePath String   @default("/backups") @map("remote_base_path")
+  hostFingerprint String? @map("host_fingerprint")
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  isEnabled      Boolean  @default(true) @map("is_enabled")
+  order          Int      @default(0)
+  lastTestedAt   DateTime? @map("last_tested_at")
+  lastTestOk     Boolean?  @map("last_test_ok")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  locations      FileBackupLocation[]
+
+  @@index([isEnabled, order])
+  @@map("backup_servers")
+}
+
+// Polymorphic per-file × per-server tracking. sourceType/sourceId mirror
+// the Expense.sourceType/sourceId convention since Prisma can't FK across
+// ClaimDocument and DocumentSubmission. The unique constraint is the
+// idempotency backbone: one row per file per server, re-runs upsert.
+model FileBackupLocation {
+  id         String   @id @default(uuid())
+  sourceType String   @map("source_type") // 'claim_document' | 'document_submission'
+  sourceId   String   @map("source_id")
+  serverId   String   @map("server_id")
+  remoteKey  String   @map("remote_key")
+  remoteSize Int?     @map("remote_size")
+  status     String   @default("pending") // 'pending'|'uploaded'|'verified'|'failed'|'deleted'
+  error      String?
+  uploadedAt DateTime? @map("uploaded_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  server     BackupServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceType, sourceId, serverId])
+  @@index([sourceType, sourceId])
+  @@index([serverId, status])
+  @@map("file_backup_locations")
+}
+
+// Run log / audit for backup executions.
+model BackupRun {
+  id            String    @id @default(uuid())
+  trigger       String    // 'manual' | 'cron' | 'on_settled'
+  status        String    @default("running") // 'running'|'success'|'partial'|'failed'|'interrupted'|'skipped'
+  triggeredById String?   @map("triggered_by_id")
+  filesScanned  Int       @default(0) @map("files_scanned")
+  filesUploaded Int       @default(0) @map("files_uploaded")
+  filesDeleted  Int       @default(0) @map("files_deleted")
+  bytesFreed    BigInt    @default(0) @map("bytes_freed")
+  errorCount    Int       @default(0) @map("error_count")
+  log           String    @default("")
+  startedAt     DateTime  @default(now()) @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+
+  triggeredBy   User?     @relation("BackupRunTriggeredBy", fields: [triggeredById], references: [id])
+
+  @@index([startedAt(sort: Desc)])
+  @@map("backup_runs")
 }

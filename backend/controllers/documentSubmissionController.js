@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const { toResponse } = require('../utils/toResponse');
 const { notifyRoles, notifyUser } = require('../utils/createNotifications');
+const { streamFileToResponse } = require('../services/fileRetrieval');
+const backupService = require('../services/backupService');
 
 const getUserHospitalId = (user) => {
   return user.hospitalId || user.hospital?.id || null;
@@ -105,16 +107,15 @@ exports.download = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const filePath = path.resolve(submission.filePath);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: 'File not found on disk' });
-    }
-
-    res.setHeader('Content-Disposition', `attachment; filename="${submission.originalName}"`);
-    res.setHeader('Content-Type', submission.fileType || 'application/octet-stream');
-    fs.createReadStream(filePath).pipe(res);
+    // Streams from local disk or, if offloaded, from a remote backup server.
+    // Honors HTTP Range; `?download=0` serves inline (view) instead of attachment.
+    return streamFileToResponse(req, res, {
+      record: submission,
+      sourceType: 'document_submission',
+      download: req.query.download !== '0' && req.query.download !== 'false',
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    if (!res.headersSent) res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
@@ -173,6 +174,7 @@ exports.remove = async (req, res) => {
 
     if (fs.existsSync(submission.filePath)) fs.unlinkSync(submission.filePath);
     await prisma.documentSubmission.delete({ where: { id: req.params.id } });
+    backupService.deleteRemoteCopies('document_submission', submission.id).catch(() => {});
     res.json({ message: 'Submission deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

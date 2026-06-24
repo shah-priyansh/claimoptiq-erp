@@ -24,6 +24,14 @@ API.interceptors.response.use(
   }
 );
 
+// Build an authenticated URL for streaming a claim document (works in <img>/<a>
+// since the JWT rides as a query param; the file may be local or offloaded).
+export const getClaimDocFileURL = (claimId, docId, download = false) => {
+  const base = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+  const token = localStorage.getItem('token') || '';
+  return `${base}/claims/${claimId}/documents/${docId}/file?download=${download ? 1 : 0}&token=${encodeURIComponent(token)}`;
+};
+
 // Auth
 export const loginAPI = (data) => API.post('/auth/login', data);
 export const getMeAPI = () => API.get('/auth/me');
@@ -133,6 +141,19 @@ export const createBankAccountAPI  = (data) => API.post('/bank-accounts', data);
 export const updateBankAccountAPI  = (id, data) => API.patch(`/bank-accounts/${id}`, data);
 export const deleteBankAccountAPI  = (id) => API.delete(`/bank-accounts/${id}`);
 export const setDefaultBankAccountAPI = (id) => API.post(`/bank-accounts/${id}/set-default`);
+
+// Backup & storage
+export const getBackupConfigAPI       = () => API.get('/backup/config');
+export const updateBackupConfigAPI    = (data) => API.put('/backup/config', data);
+export const runBackupAPI             = (params) => API.post('/backup/run', {}, { params });
+export const getBackupRunsAPI         = (params) => API.get('/backup/runs', { params });
+export const getBackupServersAPI      = () => API.get('/backup/servers');
+export const createBackupServerAPI    = (data) => API.post('/backup/servers', data);
+export const updateBackupServerAPI    = (id, data) => API.patch(`/backup/servers/${id}`, data);
+export const deleteBackupServerAPI    = (id) => API.delete(`/backup/servers/${id}`);
+export const testBackupServerAPI      = (id) => API.post(`/backup/servers/${id}/test`);
+export const setPrimaryBackupServerAPI = (id) => API.post(`/backup/servers/${id}/set-primary`);
+export const replicateBackupServerAPI = (id) => API.post(`/backup/servers/${id}/replicate`);
 
 // Site settings — invoice logo upload (multipart/form-data)
 export const uploadInvoiceLogoAPI = (file) => {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { getClaimAPI, updateClaimAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI } from '../../services/api';
+import { getClaimAPI, updateClaimAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, getClaimDocFileURL } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -175,10 +175,13 @@ const DocMiniGrid = ({ docs, onPreview, onDelete, isEditable, deletingDocId }) =
               </button>
               <div className="px-2.5 py-2 border-t border-gray-100">
                 <p className="text-xs font-medium text-gray-700 truncate mb-1.5" title={doc.originalName}>{doc.originalName}</p>
+                {doc.storageLocation === 'remote' && (
+                  <span className="inline-block text-[9px] font-semibold uppercase text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded mb-1" title="Offloaded to remote backup storage">Offloaded</span>
+                )}
                 <div className="flex items-center justify-between gap-1">
                   <span className="text-[10px] text-gray-400">{(doc.fileSize / 1024).toFixed(0)} KB</span>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <a href={doc._url} download={doc.originalName}
+                    <a href={doc._downloadUrl} download={doc.originalName}
                       className="p-1 text-gray-300 hover:text-primary-600 hover:bg-primary-50 rounded-md transition-colors"
                       onClick={e => e.stopPropagation()}>
                       <HiOutlineDownload className="w-3.5 h-3.5" />
@@ -678,13 +681,12 @@ const ClaimDetail = () => {
     { key: 'documents',  label: `Documents (${claim.documents?.length || 0})` },
   ];
 
-  const baseUrl = process.env.REACT_APP_API_URL === '/api' ? '' : (process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5001');
-  const getDocUrl = (doc) => `${baseUrl}/uploads/${doc.fileName}`;
+  const getDocUrl = (doc, download = false) => getClaimDocFileURL(claim._id, doc._id, download);
   const allDocs = claim.documents || [];
   const docGroups = allDocs.reduce((acc, doc, idx) => {
     const cat = doc.category || 'other';
     if (!acc[cat]) acc[cat] = [];
-    acc[cat].push({ ...doc, _origIdx: idx, _url: `${baseUrl}/uploads/${doc.fileName}` });
+    acc[cat].push({ ...doc, _origIdx: idx, _url: getClaimDocFileURL(claim._id, doc._id, false), _downloadUrl: getClaimDocFileURL(claim._id, doc._id, true) });
     return acc;
   }, {});
   const sortedCats = [
@@ -1568,7 +1570,7 @@ const ClaimDetail = () => {
                                   {(doc.fileSize / 1024).toFixed(0)} KB · {_formatDate(doc.uploadedAt)}
                                 </span>
                                 <div className="flex items-center gap-0.5 flex-shrink-0">
-                                  <a href={doc._url} download={doc.originalName}
+                                  <a href={doc._downloadUrl} download={doc.originalName}
                                     className="p-1 text-gray-300 hover:text-primary-600 hover:bg-primary-50 rounded-md transition-colors"
                                     onClick={e => e.stopPropagation()}>
                                     <HiOutlineDownload className="w-3.5 h-3.5" />
@@ -1723,7 +1725,7 @@ const ClaimDetail = () => {
               <p className="text-sm font-medium text-white truncate">{previewDoc.originalName}</p>
               <p className="text-xs text-white/40">{previewIdx + 1} / {allDocs.length} · {CATEGORY_LABELS[previewDoc.category] || previewDoc.category}</p>
             </div>
-            <a href={getDocUrl(previewDoc)} download={previewDoc.originalName}
+            <a href={getDocUrl(previewDoc, true)} download={previewDoc.originalName}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium rounded-lg transition-colors flex-shrink-0">
               <HiOutlineDownload className="w-4 h-4" /> Download
             </a>

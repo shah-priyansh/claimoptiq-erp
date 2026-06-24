@@ -16,11 +16,18 @@ const getAllowedModules = (role) => {
 const protect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // File-streaming endpoints are hit by <img src>/<a href>, which can't send
+    // an Authorization header — accept a short-lived JWT via ?token= as well.
+    let token = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.query && req.query.token) {
+      token = String(req.query.token);
+    }
+    if (!token) {
       return res.status(401).json({ message: 'Not authorized, no token' });
     }
 
-    const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const user = await prisma.user.findUnique({

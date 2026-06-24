@@ -45,6 +45,7 @@ app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/staff', require('./routes/staffRoutes'));
 app.use('/api/settings', require('./routes/siteSettingRoutes'));
 app.use('/api/bank-accounts', require('./routes/bankAccountRoutes'));
+app.use('/api/backup', require('./routes/backupRoutes'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'ClaimOptiq API is running' });
@@ -70,6 +71,10 @@ async function main() {
   console.log('PostgreSQL connected via Prisma');
   app.listen(PORT, () => {
     console.log(`ClaimOptiq Server running on port ${PORT}`);
+  });
+  // Backup scheduler: clear stale runs + arm cron (non-fatal if it fails).
+  require('./services/backupScheduler').init().catch((err) => {
+    console.warn('[backup] scheduler init failed:', err.message);
   });
 }
 
