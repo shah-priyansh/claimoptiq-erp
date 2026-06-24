@@ -163,6 +163,9 @@ const Reports = () => {
   const [selectedClaimIds, setSelectedClaimIds] = useState([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerClaimIds, setDrawerClaimIds] = useState([]);
+  // Snapshot of the hospital filter at the moment the operator clicked
+  // Generate Invoices. Used by the drawer to pre-fill direct-patient cards.
+  const [drawerSuggestedHospitalId, setDrawerSuggestedHospitalId] = useState('');
 
   // Server-side pagination state. `claims` holds only the current page so
   // rendering stays cheap even on 4500+-row datasets. `serverTotal` /
@@ -384,6 +387,9 @@ const Reports = () => {
       }
     }
     setDrawerClaimIds([...ids]);
+    // If a hospital filter is active, surface it to the drawer so any
+    // direct-patient cards default to billing under that hospital.
+    setDrawerSuggestedHospitalId(filters.hospital || '');
     setDrawerOpen(true);
   };
 
@@ -1307,6 +1313,7 @@ const Reports = () => {
       <BulkInvoiceDrawer
         open={drawerOpen}
         claimIds={drawerClaimIds}
+        suggestedHospitalId={drawerSuggestedHospitalId}
         onClose={() => setDrawerOpen(false)}
         onGenerated={() => {
           // Full success → exit bill mode, clear the selection, and re-run
