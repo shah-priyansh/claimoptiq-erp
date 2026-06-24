@@ -84,8 +84,16 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
         filePrice: true, filePriceOverridden: true,
       },
     }),
+    // Previous balance only counts dues from the SAME stream — regular
+    // invoices ignore direct-patient dues and vice versa. The hospital on
+    // a direct-patient invoice is purely a billing-template reference, not
+    // a financial relationship.
     prisma.invoice.findMany({
-      where: { hospitalId, status: { in: ['issued', 'partially_paid'] } },
+      where: {
+        hospitalId,
+        status: { in: ['issued', 'partially_paid'] },
+        isDirectPatient,
+      },
       select: { amountPending: true },
     }),
     getInvoiceTemplate(),
@@ -320,15 +328,26 @@ exports.previewBulk = async (req, res) => {
       groups.get(key).claimIds.push(c.id);
     }
 
-    // Group direct-patient claims by month only — they share no hospital, so
-    // the operator picks a target hospital in the UI for each month's group.
+    // Group direct-patient claims by month — they have no required hospital,
+    // so the operator usually picks a target hospital in the UI. But direct-
+    // patient claims can carry a hospitalId from claim creation; if every
+    // claim in the group shares the same one, surface it as a suggestion so
+    // the drawer can auto-resolve without prompting.
     const directGroups = new Map();
     for (const c of directPatientClaims) {
       const d = new Date(c.dateOfDischarge);
       const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
       const key = `direct|${monthKey}`;
-      if (!directGroups.has(key)) directGroups.set(key, { month: new Date(monthKey), claimIds: [] });
-      directGroups.get(key).claimIds.push(c.id);
+      if (!directGroups.has(key)) {
+        directGroups.set(key, {
+          month: new Date(monthKey),
+          claimIds: [],
+          hospitalIdHints: new Set(),
+        });
+      }
+      const g = directGroups.get(key);
+      g.claimIds.push(c.id);
+      if (c.hospitalId) g.hospitalIdHints.add(c.hospitalId);
     }
 
     // Build a preview for each group (sequential — we hit Prisma per group anyway).
@@ -358,7 +377,13 @@ exports.previewBulk = async (req, res) => {
     // Emit a placeholder card per direct-patient month group. No lines /
     // totals yet — the UI must collect the target hospital from the
     // operator and POST /invoices/preview-direct-patient to fill them in.
+    // `suggestedHospitalId` is set when every claim in the group already
+    // carries the same hospitalId (from claim creation) so the drawer can
+    // auto-resolve instead of prompting.
     for (const g of directGroups.values()) {
+      const suggested = g.hospitalIdHints.size === 1
+        ? [...g.hospitalIdHints][0]
+        : null;
       previews.push({
         hospitalId: null,
         hospital: null,
@@ -370,6 +395,7 @@ exports.previewBulk = async (req, res) => {
         existingInvoice: null,
         isDirectPatient: true,
         requiresHospitalPick: true,
+        suggestedHospitalId: suggested,
       });
     }
 
@@ -558,7 +584,7 @@ exports.create = async (req, res) => {
 
 exports.list = async (req, res) => {
   try {
-    const { hospitalId, status, month, page, limit = 25 } = req.query;
+    const { hospitalId, status, month, page, limit = 25, isDirectPatient } = req.query;
     const where = {};
     if (hospitalId) where.hospitalId = hospitalId;
     if (status) where.status = status;
@@ -566,6 +592,12 @@ exports.list = async (req, res) => {
       const m = parseMonth(month);
       if (m) where.month = m;
     }
+    // Direct-patient invoices live on their own stream — accept an explicit
+    // filter ('true' | 'false') so the UI can show either side cleanly. If
+    // omitted, both kinds are returned (existing behaviour for the all-
+    // invoices listing).
+    if (isDirectPatient === 'true') where.isDirectPatient = true;
+    else if (isDirectPatient === 'false') where.isDirectPatient = false;
     const take = Math.min(Number(limit) || 25, 100);
     const skip = page ? (Number(page) - 1) * take : 0;
     const [invoices, total] = await Promise.all([
@@ -820,10 +852,13 @@ exports.issue = async (req, res) => {
 
     let commissionAutoFlow = { rowsCreated: 0, totalAmount: 0, skipped: true, reason: 'not run' };
     const result = await prisma.$transaction(async (tx) => {
-      // Recompute previousBalance at issue time (drift safety)
+      // Recompute previousBalance at issue time (drift safety). Scope to
+      // the same stream — regular invoices ignore direct-patient dues and
+      // vice versa.
       const priorOpen = await tx.invoice.findMany({
         where: {
           hospitalId: invoice.hospitalId,
+          isDirectPatient: invoice.isDirectPatient,
           status: { in: ['issued', 'partially_paid'] },
           id: { not: invoice.id },
         },
@@ -988,9 +1023,10 @@ exports.remove = async (req, res) => {
 //               gstRate?, tdsRateId?, roundOff?, notes? }
 exports.previewPdf = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes, discount } = req.body;
+    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes, discount, isDirectPatient } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month are required' });
+    const isDirectPatientPreview = !!isDirectPatient;
 
     const hospital = await prisma.hospital.findUnique({
       where: { id: hospitalId },
@@ -1015,9 +1051,14 @@ exports.previewPdf = async (req, res) => {
       ? await resolveTdsRate(effectiveTdsRateId, 0)
       : { rate: 0, name: '', section: '' };
 
-    // Previous balance = open prior invoices for the hospital.
+    // Previous balance = open prior invoices for the hospital on the same
+    // stream (regular vs direct-patient — they don't mix).
     const priorOpen = await prisma.invoice.findMany({
-      where: { hospitalId, status: { in: ['issued', 'partially_paid'] } },
+      where: {
+        hospitalId,
+        isDirectPatient: isDirectPatientPreview,
+        status: { in: ['issued', 'partially_paid'] },
+      },
       select: { amountPending: true },
     });
     const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);

@@ -43,9 +43,12 @@ const draftFromPreview = (p) => ({
   // Direct-patient cards start unticked + with no lines/totals until the
   // operator picks a target hospital. The drawer renders a chooser then
   // POSTs /invoices/preview-direct-patient to fill in `editLines`, totals,
-  // etc., and flip `requiresHospitalPick: false`.
+  // etc., and flip `requiresHospitalPick: false`. `suggestedHospitalId`
+  // comes from the backend when every claim in the bucket already shares
+  // a hospitalId — the drawer auto-resolves with it.
   isDirectPatient: !!p.isDirectPatient,
   requiresHospitalPick: !!p.requiresHospitalPick,
+  suggestedHospitalId: p.suggestedHospitalId || null,
   approved: !p.existingInvoice && !p.requiresHospitalPick,
   edited: false,
   status: 'pending',
@@ -53,7 +56,7 @@ const draftFromPreview = (p) => ({
   invoice: null,
 });
 
-const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
+const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGenerated }) => {
   const confirm = useConfirm();
 
   const [phase, setPhase] = useState('loading'); // loading | reviewing | generating | empty
@@ -129,8 +132,20 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
           setPhase('empty');
           return;
         }
-        setDrafts(previews.map(draftFromPreview));
+        const initialDrafts = previews.map(draftFromPreview);
+        setDrafts(initialDrafts);
         setPhase('reviewing');
+        // If the caller passed a suggestedHospitalId (typically the Reports
+        // page's active hospital filter), auto-resolve every direct-patient
+        // card against it so the operator doesn't have to repeat the pick.
+        // Prefer the per-group suggestion the backend returned (when all
+        // claims in the bucket already share a hospitalId), and fall back
+        // to the page-level filter the caller passed in.
+        initialDrafts.forEach((d, idx) => {
+          if (!d.requiresHospitalPick) return;
+          const auto = d.suggestedHospitalId || suggestedHospitalId;
+          if (auto) pickDirectPatientHospital(idx, auto, d);
+        });
       } catch (e) {
         if (cancelled) return;
         // The backend returns 400 + { skipped: [...] } when every selected
@@ -183,9 +198,12 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
   // Operator picked a target hospital for a direct-patient card. Fetch the
   // real preview lines/totals from the backend and merge them into the draft.
   // Auto-approves the card on success so it's queued for the batch generate.
-  const pickDirectPatientHospital = async (idx, hospitalId) => {
+  // Accepts an optional `draftOverride` for the auto-resolve flow that fires
+  // right after `setDrafts(initialDrafts)` — at that moment the `drafts`
+  // closure still sees the old (empty) array.
+  const pickDirectPatientHospital = async (idx, hospitalId, draftOverride) => {
     if (!hospitalId) return;
-    const draft = drafts[idx];
+    const draft = draftOverride || drafts[idx];
     if (!draft) return;
     setResolvingDirectIdx(idx);
     try {
