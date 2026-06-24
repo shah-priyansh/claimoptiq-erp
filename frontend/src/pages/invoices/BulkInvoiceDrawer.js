@@ -1,0 +1,588 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import {
+  HiOutlineX, HiOutlineEye, HiOutlinePrinter, HiOutlineDownload,
+  HiOutlineArrowLeft, HiOutlineArrowRight, HiChevronDown, HiChevronRight,
+} from 'react-icons/hi';
+import {
+  previewBulkInvoiceAPI, getTdsRatesAPI, previewInvoicePdfAPI,
+} from '../../services/api';
+import { useConfirm } from '../../context/ConfirmContext';
+import {
+  formatINR, monthLabel, computeTotals, commitDraft,
+} from './bulkInvoiceUtils';
+import BulkInvoiceDraftEditor from './BulkInvoiceDraftEditor';
+
+// Build initial draft state from a single preview group. Mirrors the shape
+// the editor + commitDraft expect, with the drawer-only `approved` / `edited`
+// / `status` fields tacked on.
+const draftFromPreview = (p) => ({
+  hospitalId: p.hospitalId,
+  hospital: p.hospital,
+  month: p.month,
+  claimIds: p.claimIds,
+  existingInvoice: p.existingInvoice,
+  previewTotals: p.totals,
+  previewLines: p.lines || [],
+  editLines: (p.lines || []).map((l) => ({
+    description: l.description || '',
+    amount: l.amount,
+    lineType: l.lineType,
+    _isManual: false,
+  })),
+  settings: {
+    gstRate: String(p.totals?.gstRate ?? 0),
+    tdsRateId: '',
+    notes: '',
+    roundOff: 0,
+    discount: 0,
+  },
+  approved: !p.existingInvoice,
+  edited: false,
+  status: 'pending',
+  error: '',
+  invoice: null,
+});
+
+const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
+  const confirm = useConfirm();
+
+  const [phase, setPhase] = useState('loading'); // loading | reviewing | generating | empty
+  const [drafts, setDrafts] = useState([]);
+  const [tdsRates, setTdsRates] = useState([]);
+  const [loadingTdsRates, setLoadingTdsRates] = useState(true);
+  const [skipped, setSkipped] = useState([]);
+  const [skippedDismissed, setSkippedDismissed] = useState(false);
+  const [expanded, setExpanded] = useState({}); // { [draftIdx]: bool }
+  const [progress, setProgress] = useState(0);
+
+  // PDF preview modal state — same pattern as the legacy wizard.
+  const [previewIdx, setPreviewIdx] = useState(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState('');
+
+  // Reset drawer state every time it opens.
+  useEffect(() => {
+    if (!open) return;
+    setPhase('loading');
+    setDrafts([]);
+    setSkipped([]);
+    setSkippedDismissed(false);
+    setExpanded({});
+    setProgress(0);
+    setPreviewIdx(null);
+    if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+    setPdfBlobUrl(null);
+    setPdfError('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Load TDS rates once.
+  useEffect(() => {
+    getTdsRatesAPI({ active: 'true' })
+      .then(({ data }) => setTdsRates(data || []))
+      .catch(() => setTdsRates([]))
+      .finally(() => setLoadingTdsRates(false));
+  }, []);
+
+  // Fetch previews when the drawer opens with a non-empty claim list.
+  useEffect(() => {
+    if (!open || !claimIds?.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await previewBulkInvoiceAPI({ claimIds });
+        if (cancelled) return;
+        const previews = data.previews || [];
+        setSkipped(data.skipped || []);
+        if (!previews.length) {
+          setPhase('empty');
+          return;
+        }
+        setDrafts(previews.map(draftFromPreview));
+        setPhase('reviewing');
+      } catch (e) {
+        if (cancelled) return;
+        const baseMsg = e.response?.data?.message || 'Failed to load previews';
+        toast.error(baseMsg);
+        onClose();
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, claimIds]);
+
+  const approvedDrafts = useMemo(
+    () => drafts.filter((d) => d.approved && d.status !== 'success'),
+    [drafts],
+  );
+  const approvedTotal = useMemo(() => approvedDrafts.reduce((s, d) => {
+    const overrideTds = d.settings.tdsRateId ? tdsRates.find((r) => r._id === d.settings.tdsRateId) : null;
+    const t = computeTotals(d.editLines, d.settings, d.previewTotals, overrideTds);
+    return s + (t?.grandTotal || 0);
+  }, 0), [approvedDrafts, tdsRates]);
+
+  const hasEdits = drafts.some((d) => d.edited);
+
+  const updateDraft = (idx, patch) => {
+    setDrafts((arr) => arr.map((d, i) => i === idx ? { ...d, ...patch } : d));
+  };
+
+  // Patch handler for the editor — also flips `edited: true` so the discard
+  // guard knows the user has touched something.
+  const handleEditorChange = (idx) => (patch) => {
+    setDrafts((arr) => arr.map((d, i) => i === idx ? { ...d, ...patch, edited: true } : d));
+  };
+
+  const toggleExpanded = (idx) =>
+    setExpanded((s) => ({ ...s, [idx]: !s[idx] }));
+
+  const toggleApproved = (idx) =>
+    updateDraft(idx, { approved: !drafts[idx].approved });
+
+  const handleClose = async () => {
+    if (phase === 'generating') return;
+    if (hasEdits && phase === 'reviewing') {
+      const ok = await confirm(
+        `Discard unsaved edits on ${drafts.filter((d) => d.edited).length} draft(s)? Approvals and line changes will be lost.`,
+        { title: 'Discard Drafts', confirmLabel: 'Discard', variant: 'danger' },
+      );
+      if (!ok) return;
+    }
+    if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+    onClose();
+  };
+
+  const handleGenerate = async () => {
+    const targets = drafts
+      .map((d, idx) => ({ d, idx }))
+      .filter(({ d }) => d.approved && d.status !== 'success');
+    if (!targets.length) {
+      toast.error('No invoices to generate. Tick at least one card.');
+      return;
+    }
+    setPhase('generating');
+    setProgress(0);
+    let allOk = true;
+    const results = [];
+    for (let i = 0; i < targets.length; i++) {
+      const { d, idx } = targets[i];
+      try {
+        const inv = await commitDraft(d);
+        updateDraft(idx, { status: 'success', invoice: inv, error: '' });
+        results.push({ ok: true, invoice: inv });
+      } catch (e) {
+        const msg = e.response?.data?.message || e.message || 'Failed';
+        updateDraft(idx, { status: 'failed', error: msg });
+        results.push({ ok: false, error: msg });
+        allOk = false;
+      }
+      setProgress(i + 1);
+    }
+    if (allOk) {
+      toast.success(`${results.length} invoice${results.length === 1 ? '' : 's'} created`);
+      if (onGenerated) onGenerated(results);
+      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+      onClose();
+      return;
+    }
+    setPhase('reviewing');
+    const okCount = results.filter((r) => r.ok).length;
+    toast.warn(`${okCount} of ${results.length} invoices created — fix the failed ones and retry.`);
+  };
+
+  const openPreviewAt = async (idx) => {
+    if (idx == null || idx < 0 || idx >= drafts.length) return;
+    setPreviewIdx(idx);
+    setPdfError('');
+    if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+    setPdfBlobUrl(null);
+    setPdfLoading(true);
+    const draft = drafts[idx];
+    try {
+      const monthIso = new Date(draft.month).toISOString().slice(0, 10);
+      const monthArg = monthIso.slice(0, 7) + '-01';
+      const { data } = await previewInvoicePdfAPI({
+        hospitalId: draft.hospitalId,
+        month: monthArg,
+        lines: draft.editLines.map((l) => ({
+          description: l.description,
+          amount: Number(l.amount) || 0,
+          lineType: l.lineType,
+        })),
+        ...(draft.settings.gstRate !== '' ? { gstRate: Number(draft.settings.gstRate) || 0 } : {}),
+        ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
+        roundOff: Number(draft.settings.roundOff) || 0,
+        discount: Math.max(0, Math.round(Number(draft.settings.discount) || 0)),
+        notes: draft.settings.notes || '',
+      });
+      const url = URL.createObjectURL(data);
+      setPdfBlobUrl(url);
+    } catch (e) {
+      setPdfError(e.response?.data?.message || 'Failed to render preview PDF');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+    setPdfBlobUrl(null);
+    setPreviewIdx(null);
+    setPdfError('');
+  };
+
+  const printPreview = () => {
+    const iframe = document.getElementById('drawer-preview-pdf-iframe');
+    try {
+      iframe?.contentWindow?.focus();
+      iframe?.contentWindow?.print();
+    } catch {
+      if (pdfBlobUrl) window.open(pdfBlobUrl, '_blank');
+    }
+  };
+
+  const downloadPreview = () => {
+    const draft = previewIdx != null ? drafts[previewIdx] : null;
+    if (!pdfBlobUrl || !draft) return;
+    const safe = (draft.hospital?.name || 'invoice').replace(/[^a-zA-Z0-9]+/g, '_');
+    const a = document.createElement('a');
+    a.href = pdfBlobUrl;
+    a.download = `Preview-${safe}-${monthLabel(draft.month).replace(/\s+/g, '-')}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  if (!open) return null;
+
+  const previewDraft = previewIdx != null ? drafts[previewIdx] : null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={handleClose} />
+
+      {/* Slide-over panel */}
+      <div className="fixed inset-y-0 right-0 z-40 w-full max-w-3xl bg-white shadow-2xl flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-200 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-gray-900">
+              {phase === 'reviewing'
+                ? `Generate ${approvedDrafts.length} Invoice${approvedDrafts.length === 1 ? '' : 's'}`
+                : phase === 'generating'
+                  ? 'Generating Invoices…'
+                  : phase === 'empty'
+                    ? 'Nothing to bill'
+                    : 'Loading previews…'}
+            </h2>
+            {phase === 'reviewing' && drafts.length > 0 && (
+              <p className="text-xs text-gray-500 mt-0.5">
+                {drafts.length} hospital{drafts.length === 1 ? '' : 's'} • tick to include, expand to edit
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleClose}
+            disabled={phase === 'generating'}
+            className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Close"
+          >
+            <HiOutlineX className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {phase === 'loading' && (
+            <div className="py-16 text-center text-gray-500 text-sm">Loading previews…</div>
+          )}
+
+          {phase === 'empty' && (
+            <div className="py-12 text-center">
+              <p className="text-gray-700 font-medium">No billable invoices.</p>
+              <p className="text-sm text-gray-500 mt-1">
+                All {skipped.length} selected claim{skipped.length === 1 ? ' was' : 's were'} skipped
+                (rejected, cancelled, already billed, or missing a discharge date).
+              </p>
+            </div>
+          )}
+
+          {(phase === 'reviewing' || phase === 'generating') && (
+            <>
+              {/* Skipped banner */}
+              {skipped.length > 0 && !skippedDismissed && (
+                <div className="flex items-start gap-3 p-3 mb-3 border border-amber-200 bg-amber-50 rounded-lg">
+                  <div className="flex-1 text-sm text-amber-900">
+                    <p className="font-medium">
+                      {skipped.length} claim{skipped.length === 1 ? '' : 's'} skipped
+                    </p>
+                    <p className="text-xs text-amber-800 mt-1">
+                      {skipped.slice(0, 6).map((s) => `#${s.srNo || ''} ${s.patientName || '-'} (${s.reason})`).join(', ')}
+                      {skipped.length > 6 ? `, and ${skipped.length - 6} more` : ''}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSkippedDismissed(true)}
+                    className="p-1 text-amber-700 hover:bg-amber-100 rounded"
+                    title="Dismiss"
+                  >
+                    <HiOutlineX className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Generating progress bar */}
+              {phase === 'generating' && (
+                <div className="mb-4">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>{progress} of {approvedDrafts.length}</span>
+                    <span>
+                      {approvedDrafts.length ? Math.round((progress / approvedDrafts.length) * 100) : 0}%
+                    </span>
+                  </div>
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary-600 transition-all"
+                      style={{ width: `${approvedDrafts.length ? (progress / approvedDrafts.length) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Cards */}
+              <div className="space-y-3">
+                {drafts.map((d, idx) => {
+                  const overrideTds = d.settings.tdsRateId ? tdsRates.find((r) => r._id === d.settings.tdsRateId) : null;
+                  const t = computeTotals(d.editLines, d.settings, d.previewTotals, overrideTds);
+                  const isExpanded = !!expanded[idx];
+                  const claimCount = d.claimIds.length;
+                  const disabled = phase === 'generating' || d.status === 'success';
+                  return (
+                    <div
+                      key={`${d.hospitalId}-${d.month}-${idx}`}
+                      className={`rounded-xl border ${
+                        d.status === 'success' ? 'border-green-200 bg-green-50/30' :
+                        d.status === 'failed' ? 'border-red-200 bg-red-50/30' :
+                        d.approved ? 'border-primary-200 bg-white' :
+                        'border-gray-200 bg-gray-50/40'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3 p-4">
+                        <input
+                          type="checkbox"
+                          checked={d.approved}
+                          onChange={() => toggleApproved(idx)}
+                          disabled={disabled}
+                          className="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold text-gray-900 truncate">{d.hospital?.name || '-'}</h3>
+                            <span className="text-sm text-gray-500">— {monthLabel(d.month)}</span>
+                            {d.edited && d.status === 'pending' && (
+                              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">edited</span>
+                            )}
+                            {d.status === 'success' && (
+                              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                                created {d.invoice?.invoiceNumber || ''}
+                              </span>
+                            )}
+                            {d.status === 'failed' && (
+                              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700">failed</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600 mt-1 tabular-nums">
+                            {claimCount} claim{claimCount === 1 ? '' : 's'} · {formatINR(t?.grandTotal || 0)}
+                            {t?.effectiveGst > 0 && <> · GST {t.effectiveGst}%</>}
+                            {t?.tdsRate > 0 && <> · TDS {t.tdsRate}%</>}
+                          </p>
+                          {d.existingInvoice && (
+                            <p className="text-xs text-amber-800 mt-2 inline-flex items-center gap-1 bg-amber-50 px-2 py-1 rounded">
+                              Existing {d.existingInvoice.status} invoice {d.existingInvoice.invoiceNumber || ''} —{' '}
+                              <Link
+                                to={`/invoices/${d.existingInvoice._id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline hover:text-amber-900"
+                              >
+                                view existing
+                              </Link>
+                            </p>
+                          )}
+                          {d.status === 'failed' && (
+                            <p className="text-xs text-red-700 mt-2">{d.error}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => openPreviewAt(idx)}
+                            disabled={disabled}
+                            className="p-1.5 text-gray-500 hover:text-primary-700 hover:bg-primary-50 rounded-lg disabled:opacity-40"
+                            title="Preview PDF"
+                          >
+                            <HiOutlineEye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => toggleExpanded(idx)}
+                            disabled={disabled}
+                            className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg disabled:opacity-40"
+                            title={isExpanded ? 'Collapse' : 'Edit'}
+                          >
+                            {isExpanded
+                              ? <HiChevronDown className="w-4 h-4" />
+                              : <HiChevronRight className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="border-t border-gray-100 px-4 pt-4 pb-4">
+                          <BulkInvoiceDraftEditor
+                            draft={d}
+                            tdsRates={tdsRates}
+                            loadingTdsRates={loadingTdsRates}
+                            onChange={handleEditorChange(idx)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        {phase !== 'loading' && (
+          <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-200 shrink-0 bg-white">
+            {phase === 'empty' ? (
+              <button
+                onClick={handleClose}
+                className="ml-auto px-4 py-2.5 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium"
+              >
+                Close
+              </button>
+            ) : (
+              <>
+                <div className="text-sm text-gray-600">
+                  <span className="font-semibold text-gray-900 tabular-nums">{formatINR(approvedTotal)}</span>
+                  {' '}across {approvedDrafts.length} invoice{approvedDrafts.length === 1 ? '' : 's'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleClose}
+                    disabled={phase === 'generating'}
+                    className="px-4 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-40 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleGenerate}
+                    disabled={phase === 'generating' || approvedDrafts.length === 0}
+                    className="px-4 py-2.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium"
+                  >
+                    {phase === 'generating'
+                      ? `Generating ${progress}/${approvedDrafts.length}…`
+                      : `Generate ${approvedDrafts.length} Invoice${approvedDrafts.length === 1 ? '' : 's'}`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* PDF preview modal */}
+      {previewDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col" style={{ height: '90vh' }}>
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray-100">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  onClick={() => openPreviewAt(previewIdx - 1)}
+                  disabled={previewIdx <= 0 || pdfLoading}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Previous"
+                >
+                  <HiOutlineArrowLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => openPreviewAt(previewIdx + 1)}
+                  disabled={previewIdx >= drafts.length - 1 || pdfLoading}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Next"
+                >
+                  <HiOutlineArrowRight className="w-4 h-4" />
+                </button>
+                <div className="min-w-0 ml-1">
+                  <h3 className="text-base font-semibold text-gray-900 truncate">
+                    Invoice Preview — {previewDraft.hospital?.name}
+                  </h3>
+                  <p className="text-xs text-gray-500 truncate">
+                    Draft {previewIdx + 1} of {drafts.length} • {monthLabel(previewDraft.month)} • {previewDraft.claimIds.length} claim{previewDraft.claimIds.length === 1 ? '' : 's'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={printPreview}
+                  disabled={!pdfBlobUrl}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 rounded-lg"
+                >
+                  <HiOutlinePrinter className="w-4 h-4" /> Print
+                </button>
+                <button
+                  onClick={downloadPreview}
+                  disabled={!pdfBlobUrl}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 rounded-lg"
+                >
+                  <HiOutlineDownload className="w-4 h-4" /> Download
+                </button>
+                <button
+                  onClick={closePreview}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+                  title="Close"
+                >
+                  <HiOutlineX className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-gray-100 overflow-hidden">
+              {pdfLoading && (
+                <div className="h-full flex items-center justify-center text-gray-500 text-sm">Rendering PDF…</div>
+              )}
+              {pdfError && (
+                <div className="h-full flex items-center justify-center p-6 text-center">
+                  <div>
+                    <p className="text-red-600 font-medium">{pdfError}</p>
+                    <button
+                      onClick={() => openPreviewAt(previewIdx)}
+                      className="mt-3 text-sm text-primary-600 hover:text-primary-700 font-medium"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              )}
+              {pdfBlobUrl && !pdfLoading && !pdfError && (
+                <iframe
+                  id="drawer-preview-pdf-iframe"
+                  src={pdfBlobUrl}
+                  title="Invoice preview"
+                  className="w-full h-full border-0 bg-white"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+export default BulkInvoiceDrawer;
