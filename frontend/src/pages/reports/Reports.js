@@ -76,16 +76,28 @@ const TABLE_COL_DEFS = {
   policyNo:                  { label: 'Policy No',            cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.policyNo || '-' },
   clientId:                  { label: 'Client ID',            cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.clientId || '-' },
   directPatient:             { label: 'Direct Patient',       cellClass: 'py-2 px-3',                                              get: (c) => c.isDirectPatient ? 'Yes' : 'No' },
-  hospital:                  { label: 'Hospital',             cellClass: 'py-2 px-3 text-gray-600 whitespace-nowrap',              render: (c) => (
-    <div className="flex items-center gap-1.5">
-      <span>{c.hospital?.name || '-'}</span>
-      {c.isDirectPatient && (
-        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
+  hospital:                  { label: 'Hospital',             cellClass: 'py-2 px-3 text-gray-600 align-top break-words max-w-[220px]', render: (c) => (
+    <>
+      <div className="flex items-start gap-1.5 flex-wrap">
+        <span className="break-words">{c.hospital?.name || '-'}</span>
+        {c.isDirectPatient && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 flex-shrink-0">Direct</span>
+        )}
+      </div>
+      {(c.tpa?.name || c.insuranceCompany?.name) && (
+        <p className="text-xs text-gray-400 mt-0.5 break-words leading-snug">
+          {c.tpa?.name || c.insuranceCompany?.name}
+        </p>
       )}
-    </div>
+      {c.month && (
+        <p className="text-[11px] text-gray-500 mt-1">
+          <span className="font-semibold text-gray-600">Month:</span> {formatMonthLabel(c.month)}
+        </p>
+      )}
+    </>
   ) },
-  insuranceCompany:          { label: 'Company',              cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.insuranceCompany?.name || '-' },
-  tpa:                       { label: 'TPA',                  cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.tpa?.name || '-' },
+  insuranceCompany:          { label: 'Company',              cellClass: 'py-2 px-3 break-words max-w-[220px]',                    get: (c) => c.insuranceCompany?.name || '-' },
+  tpa:                       { label: 'TPA',                  cellClass: 'py-2 px-3 break-words max-w-[220px]',                    get: (c) => c.tpa?.name || '-' },
   ccnNo:                     { label: 'CCN No',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.ccnNo || '-' },
   treatmentType:             { label: 'Treatment',            cellClass: 'py-2 px-3',                                              get: (c) => c.treatmentType || '-' },
   diagnosis:                 { label: 'Diagnosis',            cellClass: 'py-2 px-3',                                              get: (c) => c.diagnosis || '-' },

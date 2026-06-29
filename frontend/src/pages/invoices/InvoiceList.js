@@ -5,14 +5,15 @@ import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
   HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
-  HiOutlineChartBar, HiOutlinePencil, HiOutlineCash,
+  HiOutlineChartBar, HiOutlinePencil, HiOutlineCash, HiOutlineBan,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
-  getInvoicesAPI, deleteInvoiceAPI, getHospitalsAPI, openInvoicePdf,
-  createCashBankAPI, getBankAccountsAPI,
+  getInvoicesAPI, deleteInvoiceAPI, deleteAllInvoicesAPI, voidInvoiceAPI,
+  getHospitalsAPI, openInvoicePdf, createCashBankAPI, getBankAccountsAPI,
+  getOpenInvoiceHospitalsAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
@@ -45,6 +46,10 @@ const InvoiceList = () => {
   const [items, setItems] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [loadingHospitals, setLoadingHospitals] = useState(true);
+  // Hospitals that currently have at least one unpaid issued / partially-paid
+  // invoice. Powers the "Open Invoice Hospitals" quick-filter dropdown.
+  const [openInvoiceHospitals, setOpenInvoiceHospitals] = useState([]);
+  const [loadingOpenHospitals, setLoadingOpenHospitals] = useState(true);
   // Bank accounts feed the Mark-as-Paid modal's bank picker.
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
@@ -63,6 +68,10 @@ const InvoiceList = () => {
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const actionMenuRef = useRef(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [voidingId, setVoidingId] = useState(null);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -201,6 +210,9 @@ const InvoiceList = () => {
       const { data } = await getInvoicesAPI(params);
       setItems(data.invoices || []);
       setTotal(data.total || 0);
+      // Keep the open-hospitals dropdown fresh after any list refresh (which
+      // is also the trigger after payment / cancel / delete actions).
+      refreshOpenInvoiceHospitals();
     } catch {
       toast.error('Failed to load invoices');
     } finally {
@@ -219,21 +231,77 @@ const InvoiceList = () => {
       .finally(() => setLoadingBankAccounts(false));
   }, []);
 
+  // Refresh the open-invoice hospital list whenever the page is loaded or the
+  // user runs a payment / cancel / delete — bound to the same trigger as
+  // fetchInvoices so the dropdown stays in sync after each mutation.
+  const refreshOpenInvoiceHospitals = () => {
+    setLoadingOpenHospitals(true);
+    getOpenInvoiceHospitalsAPI()
+      .then(({ data }) => setOpenInvoiceHospitals(data.hospitals || []))
+      .catch(() => setOpenInvoiceHospitals([]))
+      .finally(() => setLoadingOpenHospitals(false));
+  };
+  useEffect(() => { refreshOpenInvoiceHospitals(); }, []);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month]);
 
   const handleDelete = async (item) => {
-    if (item.status !== 'draft') {
-      toast.error('Only draft invoices can be deleted');
+    if (item.status !== 'draft' && item.status !== 'void') {
+      toast.error('Cancel the invoice before deleting it');
       return;
     }
-    if (!(await confirm(`Delete draft for ${item.hospital?.name} ${formatMonth(item.month)}?`, { title: 'Delete Draft', confirmLabel: 'Delete' }))) return;
+    const label = item.status === 'draft'
+      ? `Delete draft for ${item.hospital?.name} ${formatMonth(item.month)}?`
+      : `Permanently delete cancelled invoice ${item.invoiceNumber || ''}?`;
+    if (!(await confirm(label, { title: 'Delete Invoice', confirmLabel: 'Delete', variant: 'danger' }))) return;
     try {
       await deleteInvoiceAPI(item._id);
-      toast.success('Draft deleted');
+      toast.success('Invoice deleted');
       fetchInvoices();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to delete');
+    }
+  };
+
+  const handleCancel = async (item) => {
+    if (item.status !== 'issued') {
+      toast.error('Only issued invoices can be cancelled');
+      return;
+    }
+    if ((item.amountPaid || 0) > 0) {
+      toast.error('Cannot cancel an invoice with recorded payments');
+      return;
+    }
+    if (!(await confirm(`Cancel invoice ${item.invoiceNumber || ''}? Linked claims will be rolled back to their prior status.`, { title: 'Cancel Invoice', confirmLabel: 'Cancel Invoice', variant: 'danger' }))) return;
+    setVoidingId(item._id);
+    try {
+      await voidInvoiceAPI(item._id, {});
+      toast.success('Invoice cancelled');
+      fetchInvoices();
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to cancel');
+    } finally {
+      setVoidingId(null);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (deleteAllConfirm.trim() !== 'DELETE ALL') {
+      toast.error('Type DELETE ALL to confirm');
+      return;
+    }
+    setDeletingAll(true);
+    try {
+      const { data } = await deleteAllInvoicesAPI();
+      toast.success(data?.message || 'All invoices deleted');
+      setDeleteAllOpen(false);
+      setDeleteAllConfirm('');
+      fetchInvoices();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete invoices');
+    } finally {
+      setDeletingAll(false);
     }
   };
 
@@ -260,6 +328,14 @@ const InvoiceList = () => {
         >
           <HiOutlineChartBar className="w-4 h-4 text-primary-600" /> Claims Report
         </button>
+        {canDelete && total > 0 && (
+          <button
+            onClick={() => { setDeleteAllConfirm(''); setDeleteAllOpen(true); }}
+            className="flex items-center gap-2 bg-white border border-red-600 text-red-700 hover:bg-red-50 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+          >
+            <HiOutlineTrash className="w-4 h-4" /> Delete All
+          </button>
+        )}
         {canCreate && (
           <button onClick={() => navigate('/invoices/new')}
             className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
@@ -269,7 +345,7 @@ const InvoiceList = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-5 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Hospital</label>
             <SearchableSelect
@@ -284,6 +360,26 @@ const InvoiceList = () => {
             />
           </div>
           <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Open Invoice Hospitals</label>
+            <SearchableSelect
+              isLoading={loadingOpenHospitals}
+              // Mirrors hospitalId so picking a hospital from either dropdown
+              // keeps both in sync. When set from this dropdown we also pin
+              // status='__open' so the table immediately shows just the
+              // outstanding invoices.
+              value={filters.status === '__open' ? filters.hospitalId : ''}
+              onChange={(v) => { setFilters((f) => ({ ...f, hospitalId: v || '', status: v ? '__open' : f.status })); setPage(1); }}
+              placeholder={openInvoiceHospitals.length ? 'Pick a hospital with pending dues' : 'No open invoices'}
+              searchPlaceholder="Search hospitals..."
+              noneLabel="All hospitals"
+              allowClear
+              options={openInvoiceHospitals.map((h) => ({
+                value: h._id,
+                label: `${h.name} · ${h.openCount} open · ${formatINR(h.totalPending)}`,
+              }))}
+            />
+          </div>
+          <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
             <SearchableSelect
               value={filters.status}
@@ -293,6 +389,7 @@ const InvoiceList = () => {
               noneLabel="All statuses"
               allowClear
               options={[
+                { value: '__open',         label: 'Open (Unpaid)',  badgeClass: 'bg-orange-50 text-orange-700' },
                 { value: 'draft',          label: 'Draft',          badgeClass: 'bg-gray-100 text-gray-700' },
                 { value: 'issued',         label: 'Issued',         badgeClass: 'bg-blue-50 text-blue-700' },
                 { value: 'partially_paid', label: 'Partially Paid', badgeClass: 'bg-amber-50 text-amber-700' },
@@ -371,8 +468,10 @@ const InvoiceList = () => {
                         {inv.invoiceNumber || `Draft-${(inv._id || '').slice(0, 8)}`}
                       </Link>
                     </td>
-                    <td className="py-3 px-4 text-gray-600">{inv.hospital?.name || '-'}</td>
-                    <td className="py-3 px-4 text-gray-600">{formatMonth(inv.month)}</td>
+                    <td className="py-3 px-4 text-gray-600 align-top max-w-[220px]">
+                      <p className="break-words">{inv.hospital?.name || '-'}</p>
+                    </td>
+                    <td className="py-3 px-4 text-gray-600 align-top whitespace-nowrap">{formatMonth(inv.month)}</td>
                     <td className="py-3 px-4">
                       <div className="flex flex-wrap items-center gap-1">
                         <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[inv.status] || 'bg-gray-100 text-gray-700'}`}>
@@ -422,6 +521,8 @@ const InvoiceList = () => {
           const canMarkPaid =
             (inv.status === 'issued' || inv.status === 'partially_paid')
             && (inv.amountPending || 0) > 0;
+          const canCancel = inv.status === 'issued' && (inv.amountPaid || 0) === 0;
+          const canDeleteRow = inv.status === 'draft' || inv.status === 'void';
           return (
             <div
               ref={actionMenuRef}
@@ -435,19 +536,33 @@ const InvoiceList = () => {
               <button
                 onClick={() => { setActionMenu(null); navigate(`/invoices/${inv._id}`); }}
                 className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                <HiOutlineEye className="w-4 h-4 text-primary-600" /> View
+                <HiOutlinePencil className="w-4 h-4 text-primary-600" /> View/Edit
               </button>
-              {canEdit && inv.status !== 'void' && (
+              {canEdit && canCancel && (
                 <button
-                  onClick={() => { setActionMenu(null); navigate(`/invoices/${inv._id}`); }}
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                  <HiOutlinePencil className="w-4 h-4 text-primary-600" /> Edit
+                  onClick={() => { setActionMenu(null); handleCancel(inv); }}
+                  disabled={voidingId === inv._id}
+                  className="w-full text-left px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 flex items-center gap-2 disabled:opacity-50">
+                  <HiOutlineBan className="w-4 h-4" /> Cancel Invoice
                 </button>
               )}
+              {canDelete && canDeleteRow && (
+                <button
+                  onClick={() => { setActionMenu(null); handleDelete(inv); }}
+                  className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                  <HiOutlineTrash className="w-4 h-4" /> Delete
+                </button>
+              )}
+              <div className="my-1 border-t border-gray-100" />
               <button
                 onClick={() => { setActionMenu(null); downloadPdf(inv); }}
                 className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                <HiOutlineDownload className="w-4 h-4 text-primary-600" /> Download PDF
+                <HiOutlineDownload className="w-4 h-4 text-primary-600" /> Open PDF
+              </button>
+              <button
+                onClick={() => { setActionMenu(null); downloadPdf(inv); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <HiOutlineEye className="w-4 h-4 text-primary-600" /> Preview
               </button>
               <button
                 onClick={() => { setActionMenu(null); downloadPdf(inv); }}
@@ -460,17 +575,7 @@ const InvoiceList = () => {
                   <button
                     onClick={() => { setActionMenu(null); markPaid(inv); }}
                     className="w-full text-left px-3 py-2 text-sm text-green-700 hover:bg-green-50 flex items-center gap-2">
-                    <HiOutlineCheckCircle className="w-4 h-4" /> Mark as Paid
-                  </button>
-                </>
-              )}
-              {canDelete && inv.status === 'draft' && (
-                <>
-                  <div className="my-1 border-t border-gray-100" />
-                  <button
-                    onClick={() => { setActionMenu(null); handleDelete(inv); }}
-                    className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
-                    <HiOutlineTrash className="w-4 h-4" /> Delete Draft
+                    <HiOutlineCash className="w-4 h-4" /> Receive Payment
                   </button>
                 </>
               )}
@@ -478,6 +583,52 @@ const InvoiceList = () => {
           );
         })(),
         document.body,
+      )}
+
+      {deleteAllOpen && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-red-600 to-red-500" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <HiOutlineTrash className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Delete all invoices?</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Issued invoices are cancelled (linked claims roll back) before deletion. Invoices with recorded payments are skipped.
+                  </p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 mb-2">
+                Type <span className="font-mono font-bold text-red-600">DELETE ALL</span> to confirm:
+              </p>
+              <input
+                autoFocus
+                value={deleteAllConfirm}
+                onChange={(e) => setDeleteAllConfirm(e.target.value)}
+                placeholder="DELETE ALL"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-400"
+              />
+              <div className="flex gap-2 mt-5">
+                <button
+                  onClick={() => { setDeleteAllOpen(false); setDeleteAllConfirm(''); }}
+                  disabled={deletingAll}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAll}
+                  disabled={deletingAll || deleteAllConfirm.trim() !== 'DELETE ALL'}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
+                  {deletingAll ? 'Deleting…' : 'Delete All'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Cash/Bank receipt modal, pre-linked to the chosen invoice. */}

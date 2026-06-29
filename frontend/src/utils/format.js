@@ -27,15 +27,16 @@ export const formatDateTime = (input, dash = '-') => {
   return `${date} ${hh}:${mi}`;
 };
 
-// Month label: `Jun/2026` — for invoice month columns / summary headers.
-// Hardcoded abbreviations so output stays identical across locales / ICU builds
-// (`toLocaleDateString` was returning the full date string on some setups).
+// Month label: `MMM-YYYY` (e.g. `Dec-2025`) — used by invoice month columns,
+// summary headers, and Excel exports. Hardcoded abbreviations so output stays
+// identical across locales / ICU builds (`toLocaleDateString` was returning
+// the full date string on some setups).
 const _monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const formatMonthLabel = (input, dash = '-') => {
   if (!input) return dash;
   const dt = input instanceof Date ? input : new Date(input);
   if (isNaN(dt.getTime())) return dash;
-  return `${_monthAbbr[dt.getUTCMonth()]}/${dt.getUTCFullYear()}`;
+  return `${_monthAbbr[dt.getUTCMonth()]}-${dt.getUTCFullYear()}`;
 };
 
 export const formatCurrency = (amount) => `Rs ${formatINR(amount)}`;

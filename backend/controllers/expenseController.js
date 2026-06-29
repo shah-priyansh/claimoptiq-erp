@@ -43,7 +43,7 @@ const pickFields = (body) => {
 
 exports.list = async (req, res) => {
   try {
-    const { categoryId, referenceId, from, to, q, page, limit = 25 } = req.query;
+    const { categoryId, referenceId, from, to, q, page, limit = 25, merge } = req.query;
     const where = {};
     if (categoryId) where.categoryId = categoryId;
     if (referenceId) where.referenceId = referenceId;
@@ -61,6 +61,64 @@ exports.list = async (req, res) => {
     if (q && q.trim()) where.notes = { contains: q.trim(), mode: 'insensitive' };
 
     const take = Math.min(Number(limit) || 25, 200);
+
+    // Monthly-merged view — collapses every Expense in the filter scope into
+    // one synthetic row per (referenceId, calendar-month). Used by the
+    // Reference Commission category on the Expenses page so dozens of
+    // per-invoice rows for the same reference roll up to a single line item.
+    if (merge === 'monthly') {
+      const allItems = await prisma.expense.findMany({
+        where,
+        include: expenseInclude,
+        orderBy: [{ date: 'desc' }],
+      });
+      const buckets = new Map();
+      for (const exp of allItems) {
+        const d = new Date(exp.date);
+        const yyyymm = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        const refKey = exp.referenceId || 'none';
+        const key = `${refKey}:${exp.categoryId}:${yyyymm}`;
+        if (!buckets.has(key)) {
+          const anchor = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+          buckets.set(key, {
+            id: key,
+            date: anchor,
+            categoryId: exp.categoryId,
+            category: exp.category,
+            referenceId: exp.referenceId,
+            reference: exp.reference,
+            amount: 0,
+            notes: '',
+            partyName: '',
+            sourceType: exp.sourceType || null,
+            sourceId: null,
+            sourceLineId: null,
+            createdAt: exp.createdAt,
+            updatedAt: exp.updatedAt,
+            mergedCount: 0,
+          });
+        }
+        const b = buckets.get(key);
+        b.amount += Number(exp.amount) || 0;
+        b.mergedCount += 1;
+      }
+      const merged = [...buckets.values()]
+        .map((b) => ({
+          ...b,
+          amount: Math.round(b.amount),
+          notes: `${b.mergedCount} entr${b.mergedCount === 1 ? 'y' : 'ies'} merged`,
+        }))
+        .sort((a, b) => b.date - a.date);
+      const start = page ? (Number(page) - 1) * take : 0;
+      return res.json({
+        expenses: toResponse(merged.slice(start, start + take)),
+        total: merged.length,
+        pages: Math.ceil(merged.length / take),
+        sumAmount: Math.round(merged.reduce((s, m) => s + m.amount, 0)),
+        merged: true,
+      });
+    }
+
     const skip = page ? (Number(page) - 1) * take : 0;
     const [items, total, agg] = await Promise.all([
       prisma.expense.findMany({ where, include: expenseInclude, orderBy: [{ date: 'desc' }, { createdAt: 'desc' }], skip, take }),

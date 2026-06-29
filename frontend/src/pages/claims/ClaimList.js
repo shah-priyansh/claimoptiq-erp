@@ -104,6 +104,56 @@ const FIELD_GROUPS = [
   { label: 'Other',        keys: ['status', 'neftNo', 'remarks', 'rejectedReason', 'referenceBy', 'filePrice'] },
 ];
 
+// Builds a rolling list of month options for the filter dropdown. Values are
+// ISO `YYYY-MM-01` (what the backend's `month` query param expects) and labels
+// are the long-form "June 2026". Range covers 18 months back through 6 months
+// ahead so operators can still queue claims for an upcoming admission month.
+// Clickable table-header that toggles a `sortBy` filter between
+// `<field>_asc` and `<field>_desc`. A third click returns to the global
+// "Latest first" default so users can clear the sort without opening the
+// dropdown. Arrow icon shows the active direction; faded ↕ hints that the
+// column is sortable when inactive.
+const SortableTh = ({ label, field, filters, setFilters, title, align = 'left' }) => {
+  const asc = `${field}_asc`;
+  const desc = `${field}_desc`;
+  const current = filters.sortBy;
+  const isAsc = current === asc;
+  const isDesc = current === desc;
+  const isActive = isAsc || isDesc;
+  const next = () => {
+    if (isAsc) setFilters({ ...filters, sortBy: desc, page: 1 });
+    else if (isDesc) setFilters({ ...filters, sortBy: 'createdAt_desc', page: 1 });
+    else setFilters({ ...filters, sortBy: asc, page: 1 });
+  };
+  const arrow = isAsc ? '▲' : isDesc ? '▼' : '↕';
+  return (
+    <th
+      onClick={next}
+      title={title || `Sort by ${label}`}
+      className={`text-${align} py-3 px-3 text-xs font-semibold uppercase select-none cursor-pointer hover:bg-gray-100 transition-colors ${isActive ? 'text-primary-700' : 'text-gray-500'}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <span className={`text-[10px] ${isActive ? '' : 'text-gray-300'}`}>{arrow}</span>
+      </span>
+    </th>
+  );
+};
+
+const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTH_FILTER_OPTIONS = (() => {
+  const opts = [];
+  const now = new Date();
+  // Newest first → 6 months in the future, then the current month, then 18 back.
+  for (let offset = 6; offset >= -18; offset--) {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    opts.push({ value: `${yyyy}-${mm}-01`, label: `${MONTH_LABELS[d.getMonth()]} ${yyyy}` });
+  }
+  return opts;
+})();
+
 const ClaimList = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -126,7 +176,8 @@ const ClaimList = () => {
   const initStatus = new URLSearchParams(location.search).get('status') || '';
   const [filters, setFilters] = usePersistedFilters('claims:filters', {
     search: '', hospital: '', status: initStatus, claimType: '', month: '',
-    dateFrom: '', dateTo: '', directPatient: '', reference: '', page: 1, limit: 25,
+    dateFrom: '', dateTo: '', directPatient: '', reference: '', sortBy: 'createdAt_desc',
+    page: 1, limit: 25,
   });
   // A `?status=` query param wins over what we restored from session — it
   // means the user clicked a "show me X" link and shouldn't be hijacked by a
@@ -278,6 +329,7 @@ const ClaimList = () => {
     search: filters.search, hospital: filters.hospital, status: filters.status,
     claimType: filters.claimType, month: filters.month, dateFrom: filters.dateFrom,
     dateTo: filters.dateTo, directPatient: filters.directPatient, reference: filters.reference,
+    sortBy: filters.sortBy,
   });
   const lastCountedKeyRef = useRef(null);
 
@@ -1230,7 +1282,7 @@ const ClaimList = () => {
                     {c.hospitalFinalBill && (<><span>·</span><span className="font-medium">{formatAmount(c.hospitalFinalBill)}</span></>)}
                   </div>
                   {(c.tpa?.name || c.insuranceCompany?.name) && (
-                    <p className="text-[11px] text-gray-400 mt-1 truncate">
+                    <p className="text-[11px] text-gray-400 mt-1 break-words">
                       {c.tpa?.name || c.insuranceCompany?.name}
                     </p>
                   )}
@@ -1245,11 +1297,13 @@ const ClaimList = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">SR</th>
+                <SortableTh label="SR"  field="srNo"        filters={filters} setFilters={setFilters} />
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Patient</th>
-                {!isHospitalUser && <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Hospital</th>}
+                {!isHospitalUser && (
+                  <SortableTh label="Hospital" field="month" filters={filters} setFilters={setFilters} title="Sort by claim month" />
+                )}
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">DOA</th>
+                <SortableTh label="DOA" field="doa"         filters={filters} setFilters={setFilters} />
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Bill</th>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Action</th>
@@ -1264,36 +1318,41 @@ const ClaimList = () => {
                 <tr key={c._id}
                   className={`hover:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
                   onClick={() => stickerMode ? toggleStickerSelect(c._id) : navigate(`/claims/${c._id}`)}>
-                  <td className="py-3 px-3 text-sm text-gray-500">
+                  <td className="py-3 px-3 text-sm text-gray-500 align-top">
                     {stickerMode ? (
                       <input type="checkbox" checked={stickerSelectedIds.includes(c._id)}
                         onChange={() => toggleStickerSelect(c._id)} onClick={e => e.stopPropagation()}
                         className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                     ) : (isHospitalUser ? rowIdx + 1 : c.srNo)}
                   </td>
-                  <td className="py-3 px-3">
+                  <td className="py-3 px-3 align-top">
                     <p className="text-sm font-medium text-gray-800">{c.patientName}</p>
                     <p className="text-xs text-gray-400">{c.policyNo || '-'}</p>
                   </td>
                   {!isHospitalUser && (
-                    <td className="py-3 px-3 text-sm text-gray-600">
-                      <div className="flex items-center gap-1.5">
-                        <span>{c.hospital?.name || '-'}</span>
+                    <td className="py-3 px-3 text-sm text-gray-600 align-top max-w-[220px]">
+                      <div className="flex items-start gap-1.5 flex-wrap">
+                        <span className="break-words">{c.hospital?.name || '-'}</span>
                         {c.isDirectPatient && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 flex-shrink-0">Direct</span>
                         )}
                       </div>
                       {(c.tpa?.name || c.insuranceCompany?.name) && (
-                        <p className="text-xs text-gray-400 mt-0.5 truncate">
+                        <p className="text-xs text-gray-400 mt-0.5 break-words leading-snug">
                           {c.tpa?.name || c.insuranceCompany?.name}
+                        </p>
+                      )}
+                      {c.month && (
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          <span className="font-semibold text-gray-600">Month:</span> {formatMonthLabel(c.month)}
                         </p>
                       )}
                     </td>
                   )}
-                  <td className="py-3 px-3"><ClaimTypeTag slug={c.claimType} /></td>
-                  <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
-                  <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
-                  <td className="py-3 px-3"><StatusBadge c={c} loading={filtersLoading} /></td>
+                  <td className="py-3 px-3 align-top"><ClaimTypeTag slug={c.claimType} /></td>
+                  <td className="py-3 px-3 text-sm text-gray-600 align-top whitespace-nowrap">{formatDate(c.dateOfAdmit)}</td>
+                  <td className="py-3 px-3 text-sm text-gray-600 align-top whitespace-nowrap">{formatAmount(c.hospitalFinalBill)}</td>
+                  <td className="py-3 px-3 align-top"><StatusBadge c={c} loading={filtersLoading} /></td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => navigate(`/claims/${c._id}`)}

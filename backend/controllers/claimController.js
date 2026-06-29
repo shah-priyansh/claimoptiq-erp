@@ -121,10 +121,27 @@ exports.createClaim = async (req, res) => {
   }
 };
 
+// Whitelist of supported sort options. Anything else falls back to the
+// default "latest created first" ordering. Tie-breaker on `id` keeps
+// pagination stable when many rows share the primary sort key (e.g. the
+// auto-generated bulk-import batch all has the same DOA / month).
+const CLAIM_SORT_MAP = {
+  srNo_asc:        [{ srNo: 'asc' }],
+  srNo_desc:       [{ srNo: 'desc' }],
+  doa_asc:         [{ dateOfAdmit: 'asc' }, { id: 'asc' }],
+  doa_desc:        [{ dateOfAdmit: 'desc' }, { id: 'desc' }],
+  month_asc:       [{ month: 'asc' }, { id: 'asc' }],
+  month_desc:      [{ month: 'desc' }, { id: 'desc' }],
+  createdAt_asc:   [{ createdAt: 'asc' }],
+  createdAt_desc:  [{ createdAt: 'desc' }],
+};
+const resolveClaimSort = (sortBy) => CLAIM_SORT_MAP[sortBy] || CLAIM_SORT_MAP.createdAt_desc;
+
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, isBilled, page = 1, limit = 25, skipCount, includeTotals, idsOnly } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, isBilled, page = 1, limit = 25, skipCount, includeTotals, idsOnly, sortBy } = req.query;
     const where = {};
+    const orderBy = resolveClaimSort(sortBy);
 
     const userHospitalId = getUserHospitalId(req.user);
     if (userHospitalId) {
@@ -192,7 +209,7 @@ exports.getClaims = async (req, res) => {
       const idRows = await prisma.claim.findMany({
         where,
         select: { id: true },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       });
       return res.json({ ids: idRows.map((r) => r.id) });
     }
@@ -205,7 +222,7 @@ exports.getClaims = async (req, res) => {
     const findManyP = prisma.claim.findMany({
       where,
       include: claimListInclude,
-      orderBy: { createdAt: 'desc' },
+      orderBy,
       skip,
       take: parseInt(limit),
     });

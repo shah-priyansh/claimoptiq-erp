@@ -378,11 +378,22 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
                     ? 'Nothing to bill'
                     : 'Loading previews…'}
             </h2>
-            {phase === 'reviewing' && drafts.length > 0 && (
-              <p className="text-xs text-gray-500 mt-0.5">
-                {drafts.length} hospital{drafts.length === 1 ? '' : 's'} • tick to include, expand to edit
-              </p>
-            )}
+            {phase === 'reviewing' && drafts.length > 0 && (() => {
+              const distinctHospitals = new Set(drafts.map((d) => d.hospitalId || 'direct')).size;
+              const created = drafts.filter((d) => d.status === 'success').length;
+              const failed = drafts.filter((d) => d.status === 'failed').length;
+              const pending = drafts.length - created - failed;
+              const parts = [];
+              parts.push(`${pending} pending`);
+              if (created) parts.push(`${created} created`);
+              if (failed) parts.push(`${failed} failed`);
+              parts.push(`across ${distinctHospitals} hospital${distinctHospitals === 1 ? '' : 's'}`);
+              return (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {parts.join(' · ')} • tick to include, expand to edit
+                </p>
+              );
+            })()}
           </div>
           <button
             onClick={handleClose}
