@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const { createHospital, getHospitals, getHospital, updateHospital, deleteHospital, bulkImportHospitals } = require('../controllers/hospitalController');
+const { createHospital, getHospitals, getHospital, updateHospital, deleteHospital, deleteAllHospitals, bulkImportHospitals } = require('../controllers/hospitalController');
 const { protect, checkPermission } = require('../middleware/auth');
 
 router.use(protect);
 
 router.route('/')
   .get(checkPermission('hospitals', 'view'), getHospitals)
-  .post(checkPermission('hospitals', 'create'), createHospital);
+  .post(checkPermission('hospitals', 'create'), createHospital)
+  .delete(checkPermission('hospitals', 'delete'), deleteAllHospitals);
 
 router.post('/import', checkPermission('hospitals', 'create'), bulkImportHospitals);
 

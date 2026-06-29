@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { getHospitalsAPI, deleteHospitalAPI, importHospitalsAPI } from '../../services/api';
+import { getHospitalsAPI, deleteHospitalAPI, deleteAllHospitalsAPI, importHospitalsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -41,6 +42,9 @@ const HospitalList = () => {
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const fetchHospitals = useCallback(async () => {
     setLoading(true);
@@ -74,9 +78,36 @@ const HospitalList = () => {
     }
   };
 
+  const handleDeleteAll = async () => {
+    if (deleteAllConfirm.trim() !== 'DELETE ALL') {
+      toast.error('Type DELETE ALL to confirm');
+      return;
+    }
+    setDeletingAll(true);
+    try {
+      const { data } = await deleteAllHospitalsAPI();
+      toast.success(data?.message || 'All hospitals deactivated');
+      setDeleteAllOpen(false);
+      setDeleteAllConfirm('');
+      fetchHospitals();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to deactivate hospitals');
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 mb-6">
+        {can('hospitals', 'delete') && total > 0 && (
+          <button
+            onClick={() => { setDeleteAllConfirm(''); setDeleteAllOpen(true); }}
+            className="flex items-center justify-center gap-2 bg-white border border-red-600 text-red-700 hover:bg-red-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+          >
+            <HiOutlineTrash className="w-5 h-5" /> Delete All
+          </button>
+        )}
         {can('hospitals', 'create') && (
           <>
             <button
@@ -275,6 +306,50 @@ const HospitalList = () => {
         onImported={fetchHospitals}
         config={HOSPITAL_IMPORT_CONFIG}
       />
+
+      {deleteAllOpen && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-red-600 to-red-500" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <HiOutlineTrash className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Deactivate all hospitals?</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Every active hospital is marked inactive. Linked claims, invoices, and users are kept intact.
+                  </p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 mb-2">
+                Type <span className="font-mono font-bold text-red-600">DELETE ALL</span> to confirm:
+              </p>
+              <input
+                autoFocus
+                value={deleteAllConfirm}
+                onChange={e => setDeleteAllConfirm(e.target.value)}
+                placeholder="DELETE ALL"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-400"
+              />
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => { setDeleteAllOpen(false); setDeleteAllConfirm(''); }}
+                  disabled={deletingAll}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  Cancel
+                </button>
+                <button onClick={handleDeleteAll}
+                  disabled={deletingAll || deleteAllConfirm.trim() !== 'DELETE ALL'}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
+                  {deletingAll ? 'Deactivating…' : 'Delete All'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
