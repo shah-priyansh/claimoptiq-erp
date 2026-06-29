@@ -582,12 +582,57 @@ exports.create = async (req, res) => {
   }
 };
 
+// Returns distinct hospitals that currently have at least one issued /
+// partially-paid invoice with a non-zero pending balance. Used by the
+// "Open Invoice Hospitals" quick-filter dropdown on the listing page.
+// Aggregates count + sum of pending so the UI can show both per hospital
+// without a second roundtrip.
+exports.openHospitals = async (req, res) => {
+  try {
+    const grouped = await prisma.invoice.groupBy({
+      by: ['hospitalId'],
+      where: {
+        status: { in: ['issued', 'partially_paid'] },
+        amountPending: { gt: 0 },
+      },
+      _count: { _all: true },
+      _sum: { amountPending: true },
+    });
+    const ids = grouped.map((g) => g.hospitalId).filter(Boolean);
+    if (!ids.length) return res.json({ hospitals: [] });
+    const hospitals = await prisma.hospital.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
+    const byId = new Map(hospitals.map((h) => [h.id, h]));
+    const out = grouped
+      .map((g) => ({
+        _id: g.hospitalId,
+        name: byId.get(g.hospitalId)?.name || 'Unknown',
+        openCount: g._count._all,
+        totalPending: Math.round(g._sum.amountPending || 0),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ hospitals: out });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.list = async (req, res) => {
   try {
     const { hospitalId, status, month, page, limit = 25, isDirectPatient } = req.query;
     const where = {};
     if (hospitalId) where.hospitalId = hospitalId;
-    if (status) where.status = status;
+    // Synthetic '__open' matches anything still owed: issued or partially
+    // paid with a non-zero pending balance. Used by the "Hospitals with
+    // Open Invoices" shortcut on the listing page.
+    if (status === '__open') {
+      where.status = { in: ['issued', 'partially_paid'] };
+      where.amountPending = { gt: 0 };
+    } else if (status) {
+      where.status = status;
+    }
     if (month) {
       const m = parseMonth(month);
       if (m) where.month = m;
@@ -1008,11 +1053,85 @@ exports.remove = async (req, res) => {
   try {
     const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
     if (!invoice) return res.status(404).json({ message: 'Not found' });
-    if (invoice.status !== 'draft') return res.status(400).json({ message: 'Only drafts can be deleted' });
-    await prisma.invoice.delete({ where: { id: req.params.id } });
+    // Drafts and void invoices are both safe to hard-delete: drafts have no
+    // claim-side effects yet, and void has already rolled the claim statuses
+    // back. Anything else (issued / partially_paid / paid) must be cancelled
+    // (voided) first so the rollback runs.
+    if (invoice.status !== 'draft' && invoice.status !== 'void') {
+      return res.status(400).json({ message: 'Cancel the invoice before deleting it' });
+    }
+    if ((invoice.amountPaid || 0) > 0) {
+      return res.status(400).json({ message: 'Cannot delete an invoice with recorded payments' });
+    }
+    await prisma.$transaction(async (tx) => {
+      // Null out any cash/bank entries that still reference this invoice
+      // (typically refunds linked to a void invoice) so we don't violate FKs.
+      await tx.cashBankEntry.updateMany({
+        where: { invoiceId: invoice.id },
+        data: { invoiceId: null },
+      });
+      await tx.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
+      await tx.invoice.delete({ where: { id: invoice.id } });
+    });
     res.json({ message: 'Deleted' });
   } catch (error) {
     if (error.code === 'P2025') return res.status(404).json({ message: 'Not found' });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Bulk nuke — mirrors the Delete All Claims affordance. Any invoice still
+// in 'issued' / 'partially_paid' / 'paid' is voided first (rolls back its
+// claim statuses and clears the auto-commission expense), then everything
+// is hard-deleted. Refuses if anything has recorded payments because that
+// would orphan real cash/bank entries.
+exports.removeAll = async (req, res) => {
+  try {
+    if (req.body?.confirm !== 'DELETE_ALL') {
+      return res.status(400).json({ message: 'Confirmation required' });
+    }
+    const invoices = await prisma.invoice.findMany({
+      select: { id: true, status: true, amountPaid: true },
+    });
+    if (invoices.length === 0) {
+      return res.json({ message: 'No invoices to delete', count: 0 });
+    }
+    const paid = invoices.filter((i) => (i.amountPaid || 0) > 0);
+    if (paid.length > 0) {
+      return res.status(400).json({
+        message: `${paid.length} invoice(s) have recorded payments — record refunds or remove payments first`,
+      });
+    }
+    const needsVoid = invoices.filter((i) => i.status !== 'draft' && i.status !== 'void');
+
+    await prisma.$transaction(async (tx) => {
+      // Roll back claim statuses + commission expenses for any non-draft,
+      // non-void invoices, mirroring exports.void per-invoice logic.
+      for (const inv of needsVoid) {
+        const lineItems = await tx.invoiceLineItem.findMany({
+          where: { invoiceId: inv.id, lineType: 'claim_tpa_desk', NOT: { claimId: null } },
+          select: { claimId: true, meta: true },
+        });
+        for (const line of lineItems) {
+          const priorStatus = line.meta?.priorStatus || 'settled';
+          await tx.claim.update({
+            where: { id: line.claimId },
+            data: { isBilled: false, status: priorStatus },
+          });
+        }
+        await clearReferenceCommissionFlow(tx, inv.id);
+      }
+      const ids = invoices.map((i) => i.id);
+      await tx.cashBankEntry.updateMany({
+        where: { invoiceId: { in: ids } },
+        data: { invoiceId: null },
+      });
+      await tx.invoiceLineItem.deleteMany({ where: { invoiceId: { in: ids } } });
+      await tx.invoice.deleteMany({ where: { id: { in: ids } } });
+    });
+
+    res.json({ message: `${invoices.length} invoice(s) deleted`, count: invoices.length });
+  } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

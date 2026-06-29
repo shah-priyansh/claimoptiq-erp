@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiChevronRight, HiChevronDown } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
@@ -37,6 +37,44 @@ const ExpenseList = () => {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
   const [categorySearch, setCategorySearch] = useState('');
+  // Per-merged-row breakdown cache. Lazy-loaded the first time the operator
+  // expands a roll-up so we don't fetch every breakdown upfront.
+  const [expanded, setExpanded] = useState({}); // { [mergedRowId]: { loading, items } }
+
+  const toggleExpand = async (mergedRow) => {
+    setExpanded((prev) => {
+      const next = { ...prev };
+      if (next[mergedRow._id]?.open) {
+        next[mergedRow._id] = { ...next[mergedRow._id], open: false };
+        return next;
+      }
+      next[mergedRow._id] = { open: true, loading: !next[mergedRow._id]?.items, items: next[mergedRow._id]?.items || [] };
+      return next;
+    });
+    if (expanded[mergedRow._id]?.items) return; // already fetched
+    try {
+      const d = new Date(mergedRow.date);
+      const monthFrom = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
+      const monthTo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+      const { data } = await getExpensesAPI({
+        categoryId: mergedRow.categoryId,
+        referenceId: mergedRow.referenceId || undefined,
+        from: monthFrom,
+        to: monthTo,
+        limit: 200,
+      });
+      setExpanded((prev) => ({
+        ...prev,
+        [mergedRow._id]: { open: true, loading: false, items: data.expenses || [] },
+      }));
+    } catch {
+      toast.error('Failed to load breakdown');
+      setExpanded((prev) => ({
+        ...prev,
+        [mergedRow._id]: { open: true, loading: false, items: [] },
+      }));
+    }
+  };
   const [page, setPage] = usePersistedFilters('expenses:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('expenses:pageSize', 25);
   const [total, setTotal] = useState(0);
@@ -51,6 +89,15 @@ const ExpenseList = () => {
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
+  // Reference Commission is auto-generated per invoice, which dumps dozens of
+  // rows for the same reference each month. Auto-roll those into one row per
+  // (reference, month) so the operator sees a clean monthly total instead.
+  const refCommissionCategoryId = useMemo(
+    () => categories.find((c) => c.slug === 'reference_commission')?._id || '',
+    [categories],
+  );
+  const isMergedView = !!filters.categoryId && filters.categoryId === refCommissionCategoryId;
+
   const params = useMemo(() => ({
     page, limit: pageSize,
     categoryId: filters.categoryId || undefined,
@@ -58,7 +105,8 @@ const ExpenseList = () => {
     from: filters.from || undefined,
     to: filters.to || undefined,
     q: filters.q || undefined,
-  }), [page, pageSize, filters]);
+    merge: isMergedView ? 'monthly' : undefined,
+  }), [page, pageSize, filters, isMergedView]);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -274,43 +322,131 @@ const ExpenseList = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {items.map((e) => (
-                        <tr key={e._id} className="hover:bg-gray-50">
-                          <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDate(e.date)}</td>
-                          {!filters.categoryId && (
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-gray-800">{e.category?.label}</span>
-                                {e.sourceType && (
-                                  <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded" title={`Auto-created from ${e.sourceType}`}>AUTO</span>
-                                )}
-                              </div>
-                            </td>
-                          )}
-                          <td className="py-3 px-4 text-gray-600">{e.reference?.name || <span className="text-gray-300">—</span>}</td>
-                          <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{e.partyName || <span className="text-gray-300">—</span>}</td>
-                          <td className="py-3 px-4 text-gray-600 max-w-xs truncate" title={e.notes || ''}>{e.notes || <span className="text-gray-300">—</span>}</td>
-                          <td className={`py-3 px-4 text-right font-medium ${e.amount < 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                            {formatINR(e.amount)}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="flex justify-end gap-1">
-                              {canEdit && (
-                                <button onClick={() => setModal({ open: true, item: e })}
-                                  className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
-                                  <HiOutlinePencil className="w-4 h-4" />
-                                </button>
+                      {items.map((e) => {
+                        const merged = isMergedView;
+                        const dateLabel = merged
+                          ? new Date(e.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' }).replace(' ', '-')
+                          : formatDate(e.date);
+                        const expState = expanded[e._id];
+                        const isOpen = !!expState?.open;
+                        const breakdown = expState?.items || [];
+                        return (
+                          <React.Fragment key={e._id}>
+                            <tr className={`hover:bg-gray-50 ${merged && isOpen ? 'bg-primary-50/40' : ''}`}>
+                              <td className="py-3 px-4 text-gray-600 whitespace-nowrap">
+                                <div className="flex items-center gap-2">
+                                  {merged && (
+                                    <button
+                                      onClick={() => toggleExpand(e)}
+                                      title={isOpen ? 'Collapse' : 'Show breakdown'}
+                                      className="p-0.5 text-gray-500 hover:text-primary-600 hover:bg-primary-100 rounded transition-colors"
+                                    >
+                                      {isOpen ? <HiChevronDown className="w-4 h-4" /> : <HiChevronRight className="w-4 h-4" />}
+                                    </button>
+                                  )}
+                                  <span>{dateLabel}</span>
+                                </div>
+                              </td>
+                              {!filters.categoryId && (
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-gray-800">{e.category?.label}</span>
+                                    {e.sourceType && (
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded" title={`Auto-created from ${e.sourceType}`}>AUTO</span>
+                                    )}
+                                  </div>
+                                </td>
                               )}
-                              {canDelete && (
-                                <button onClick={() => handleDelete(e)}
-                                  className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                                  <HiOutlineTrash className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                              <td className="py-3 px-4 text-gray-600">{e.reference?.name || <span className="text-gray-300">—</span>}</td>
+                              <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{e.partyName || <span className="text-gray-300">—</span>}</td>
+                              <td className="py-3 px-4 text-gray-600 max-w-xs truncate" title={e.notes || ''}>
+                                {merged
+                                  ? <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[11px] font-medium">{e.notes}</span>
+                                  : (e.notes || <span className="text-gray-300">—</span>)}
+                              </td>
+                              <td className={`py-3 px-4 text-right font-medium ${e.amount < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                                {formatINR(e.amount)}
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex justify-end gap-1">
+                                  {merged ? (
+                                    <span className="text-[10px] text-gray-400 italic">monthly roll-up</span>
+                                  ) : (
+                                    <>
+                                      {canEdit && (
+                                        <button onClick={() => setModal({ open: true, item: e })}
+                                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
+                                          <HiOutlinePencil className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                      {canDelete && (
+                                        <button onClick={() => handleDelete(e)}
+                                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
+                                          <HiOutlineTrash className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                            {merged && isOpen && (
+                              <tr className="bg-gray-50/70">
+                                <td colSpan={filters.categoryId ? 6 : 7} className="px-4 py-3">
+                                  {expState?.loading ? (
+                                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                                      <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-primary-600 rounded-full animate-spin" />
+                                      Loading breakdown…
+                                    </div>
+                                  ) : breakdown.length === 0 ? (
+                                    <p className="text-xs text-gray-400">No entries in this bucket.</p>
+                                  ) : (
+                                    <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-gray-50 text-[10px] uppercase text-gray-500">
+                                          <tr>
+                                            <th className="text-left py-2 px-3 font-semibold">Date</th>
+                                            <th className="text-left py-2 px-3 font-semibold">Party</th>
+                                            <th className="text-left py-2 px-3 font-semibold">Notes</th>
+                                            <th className="text-right py-2 px-3 font-semibold">Amount</th>
+                                            <th className="text-right py-2 px-3 font-semibold">Actions</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                          {breakdown.map((row) => (
+                                            <tr key={row._id} className="hover:bg-gray-50">
+                                              <td className="py-1.5 px-3 text-gray-600 whitespace-nowrap">{formatDate(row.date)}</td>
+                                              <td className="py-1.5 px-3 text-gray-600 whitespace-nowrap">{row.partyName || <span className="text-gray-300">—</span>}</td>
+                                              <td className="py-1.5 px-3 text-gray-600 max-w-md truncate" title={row.notes || ''}>{row.notes || <span className="text-gray-300">—</span>}</td>
+                                              <td className={`py-1.5 px-3 text-right font-medium ${row.amount < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(row.amount)}</td>
+                                              <td className="py-1.5 px-3 text-right">
+                                                <div className="flex justify-end gap-1">
+                                                  {canEdit && (
+                                                    <button onClick={() => setModal({ open: true, item: row })}
+                                                      className="p-1 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
+                                                      <HiOutlinePencil className="w-3.5 h-3.5" />
+                                                    </button>
+                                                  )}
+                                                  {canDelete && (
+                                                    <button onClick={() => handleDelete(row)}
+                                                      className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
+                                                      <HiOutlineTrash className="w-3.5 h-3.5" />
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                     </tbody>
                     <tfoot className="bg-gray-50">
                       <tr>

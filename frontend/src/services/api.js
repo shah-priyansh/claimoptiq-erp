@@ -79,12 +79,14 @@ export const previewDirectPatientInvoiceAPI = (data) => API.post('/invoices/prev
 export const previewInvoicePdfAPI = (data) => API.post('/invoices/preview-pdf', data, { responseType: 'blob' });
 export const createInvoiceAPI  = (data) => API.post('/invoices', data);
 export const getInvoicesAPI    = (params) => API.get('/invoices', { params });
+export const getOpenInvoiceHospitalsAPI = () => API.get('/invoices/open-hospitals');
 export const getInvoiceAPI     = (id) => API.get(`/invoices/${id}`);
 export const updateInvoiceAPI  = (id, data) => API.patch(`/invoices/${id}`, data);
 export const editInvoiceLinesAPI = (id, payload) => API.patch(`/invoices/${id}`, payload);
 export const issueInvoiceAPI   = (id) => API.post(`/invoices/${id}/issue`);
 export const voidInvoiceAPI    = (id, data) => API.post(`/invoices/${id}/void`, data);
 export const deleteInvoiceAPI  = (id) => API.delete(`/invoices/${id}`);
+export const deleteAllInvoicesAPI = () => API.delete('/invoices', { data: { confirm: 'DELETE_ALL' } });
 export const invoicePdfUrl     = (id) => `${API.defaults.baseURL}/invoices/${id}/pdf`;
 
 // Fetches the invoice PDF *with the JWT* (the protected endpoint rejects a

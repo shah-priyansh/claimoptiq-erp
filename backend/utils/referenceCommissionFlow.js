@@ -55,15 +55,28 @@ const computeCommissionRows = (invoice, reference, onetimeAlreadyUsed = new Set(
     const type = entry.commissionType || 'percentage';
 
     if (type === 'percentage') {
+      // Aggregate across every matching line into a single Expense row per
+      // (invoice, applicable-service-entry). Previously this wrote one row
+      // per claim line which spammed the Expenses list with dozens of
+      // ₹200/₹300 entries for the same reference on the same day.
+      let totalAmount = 0;
+      let claimCount = 0;
       for (const line of matching) {
         const amount = Math.round((Number(line.amount) || 0) * value / 100);
         if (amount <= 0) continue;
-        rows.push({
-          dedupeKey: line.id,
-          amount,
-          description: `${line.description} (${value}%)`,
-        });
+        totalAmount += amount;
+        if (line.lineType === 'claim_tpa_desk') claimCount += 1;
       }
+      if (totalAmount <= 0) continue;
+      const svcName = entry.billingServiceName?.name || 'Service';
+      const detail = claimCount > 0
+        ? `${svcName} — ${claimCount} claim${claimCount === 1 ? '' : 's'} (${value}%)`
+        : `${svcName} (${value}%)`;
+      rows.push({
+        dedupeKey: `${invoice.id}:percentage:${entry.id}`,
+        amount: totalAmount,
+        description: detail,
+      });
       continue;
     }
 
@@ -145,6 +158,8 @@ const writeReferenceCommissionFlow = async (tx, invoice, hospital) => {
   }
 
   const issuedAt = invoice.issuedAt || new Date();
+  const invoiceLabel = `Invoice ${invoice.invoiceNumber || 'draft'}`;
+  const hospitalLabel = hospital.name || 'Direct Patient';
   let rowsCreated = 0;
   let totalAmount = 0;
   for (const row of rows) {
@@ -154,7 +169,9 @@ const writeReferenceCommissionFlow = async (tx, invoice, hospital) => {
           date: issuedAt,
           categoryId: category.id,
           amount: row.amount,
-          notes: `Auto: ${reference.name} on ${row.description} (Invoice ${invoice.invoiceNumber || 'draft'})`,
+          // Lead with hospital + invoice number so the Expenses notes column
+          // is scannable. Reference name and per-service detail follow.
+          notes: `Auto: ${hospitalLabel} · ${invoiceLabel} — ${reference.name} · ${row.description}`,
           referenceId: hospital.referenceId,
           sourceType: SOURCE_TYPE,
           sourceId: invoice.id,
