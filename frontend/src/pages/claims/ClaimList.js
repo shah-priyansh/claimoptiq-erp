@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency, calculateFilePrice, formatDate as _formatDate } from '../../utils/format';
+import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
 import * as XLSX from 'xlsx-js-style';
@@ -52,7 +52,7 @@ const CLAIM_TYPE_OPTIONS = Object.entries(CLAIM_TYPE_CONFIG).map(([value, c]) =>
 // in the operations team's reference workbook so imports/exports stay aligned.
 const fmtDateCell = (d) => _formatDate(d, '');
 const BASE_FIELD_DEFS = [
-  { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => c.month || '' },
+  { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => formatMonthLabel(c.month, '') },
   { key: 'hospital',                  label: 'HOSPITAL',               width: 26, pdfW: 32, defaultOn: true,  nonHospitalOnly: true, getValue: c => c.isDirectPatient ? (c.hospital?.name ? `${c.hospital.name} (Direct)` : 'Direct Patient') : (c.hospital?.name || '-') },
   { key: 'doctorName',                label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
   { key: 'patientName',               label: 'PATIENT NAME',           width: 22, pdfW: 28, defaultOn: true,  getValue: c => c.patientName || '' },
@@ -1670,25 +1670,78 @@ const ClaimList = () => {
 
       {/* Courier sticker preview / print modal */}
       {stickerPreviewClaims && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
+        <div className="sticker-print-portal fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
           <style>{`
             @media print {
-              @page { size: A4 portrait; margin: 10mm; }
-              body * { visibility: hidden !important; }
-              #courier-stickers-print, #courier-stickers-print * { visibility: visible !important; }
-              #courier-stickers-print {
-                position: absolute !important;
-                left: 0 !important; top: 0 !important;
-                width: 100% !important;
+              /* margin:0 is what gets Chrome/Edge to drop the page header (date,
+                 title) and footer (URL, page numbers). Inner padding on the
+                 print container restores the visible whitespace. */
+              @page { size: A4 portrait; margin: 0; }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+                height: auto !important;
+              }
+              /* Display:none the rest of the app entirely. visibility:hidden
+                 left the modal's flex/max-h-[90vh] layout boxes consuming page
+                 space, which is why Chrome was paginating to 4 pages even
+                 though all stickers fit on the first one. */
+              body > *:not(.sticker-print-portal) { display: none !important; }
+              /* Flatten the portal root and the modal body so none of their
+                 wrapper styles (max-h-[90vh], flex, overflow-y-auto) reserve
+                 page height. Stops at depth 2 — grand-children are handled
+                 separately so we don't accidentally un-hide the modal
+                 header/footer that carry Tailwind's print:hidden. */
+              .sticker-print-portal,
+              .sticker-print-portal > div {
+                position: static !important;
+                inset: auto !important;
+                display: block !important;
+                width: auto !important;
+                height: auto !important;
+                max-width: none !important;
                 max-height: none !important;
+                min-height: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
                 overflow: visible !important;
+                background: white !important;
+                box-shadow: none !important;
+                border: none !important;
+                border-radius: 0 !important;
+                flex: none !important;
+              }
+              /* Hide every grand-child of the portal except the print
+                 container — that knocks out the modal header (X close) and
+                 footer (Close/Print buttons), which were leaking into the
+                 print output. */
+              .sticker-print-portal > div > *:not(#courier-stickers-print) {
+                display: none !important;
+              }
+              .sticker-print-portal style { display: none !important; }
+              #courier-stickers-print {
+                display: block !important;
+                width: 100% !important;
+                /* No padding-bottom — trailing 10mm was spilling onto a fresh
+                   blank page when the last sticker landed near the page edge. */
+                padding: 10mm 10mm 0 10mm !important;
+                background: white !important;
+              }
+              /* Block layout (not flex/gap) so Chrome can pack as many cards on
+                 one page as fit. Flex column + gap was kicking each card to its
+                 own page. margin-bottom paginates cleanly. */
+              #courier-stickers-print .sticker-stack {
+                display: block !important;
+                gap: 0 !important;
                 padding: 0 !important;
                 background: white !important;
               }
-              #courier-stickers-print .sticker-stack { gap: 6mm !important; padding: 0 !important; background: white !important; }
               #courier-stickers-print .sticker-card {
+                display: block !important;
                 width: 100% !important;
                 box-sizing: border-box !important;
+                margin: 0 0 6mm 0 !important;
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
                 box-shadow: none !important;
@@ -1696,6 +1749,7 @@ const ClaimList = () => {
                 border-radius: 4px !important;
                 background: white !important;
               }
+              #courier-stickers-print .sticker-card:last-child { margin-bottom: 0 !important; }
             }
           `}</style>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] print:rounded-none print:shadow-none print:max-w-full print:max-h-full">
@@ -1710,8 +1764,22 @@ const ClaimList = () => {
                   ? { label: 'TPA', name: c.tpa.name, address: c.tpa.address, mobile: c.tpa.mobile, key: `tpa:${c.tpa._id || c.tpa.id || c.tpa.name}` }
                   : { label: 'Insurance Company', name: c.insuranceCompany?.name, address: c.insuranceCompany?.address, mobile: c.insuranceCompany?.mobile, key: `ic:${c.insuranceCompany?._id || c.insuranceCompany?.id || c.insuranceCompany?.name || 'none'}` };
                 const sender = c.isDirectPatient
-                  ? { name: 'Direct Patient', address: '', phone: '', key: 'direct' }
-                  : { name: c.hospital?.name, address: c.hospital?.address, phone: c.hospital?.phone, key: `h:${c.hospital?._id || c.hospital?.id || c.hospital?.name || 'none'}` };
+                  ? {
+                      label: 'Direct Patient',
+                      name: c.patientName || 'Direct Patient',
+                      address: '',
+                      phone: c.patientMobile || '',
+                      // Key by patient identity so two direct patients don't
+                      // collapse into a single sticker.
+                      key: `direct:${(c.patientName || '').trim().toLowerCase()}|${c.patientMobile || ''}`,
+                    }
+                  : {
+                      label: 'Hospital',
+                      name: c.hospital?.name,
+                      address: c.hospital?.address,
+                      phone: c.hospital?.phone,
+                      key: `h:${c.hospital?._id || c.hospital?.id || c.hospital?.name || 'none'}`,
+                    };
                 const groupKey = `${recipient.key}|${sender.key}`;
                 let g = byKey.get(groupKey);
                 if (!g) {
@@ -1758,13 +1826,15 @@ const ClaimList = () => {
                               <div className="border-t-2 border-dashed border-gray-400" />
 
                               <div>
-                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">FROM</p>
+                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
+                                  FROM{sender.label === 'Direct Patient' ? ' · Direct Patient' : ''}
+                                </p>
                                 <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
                                 {sender.address && (
                                   <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
                                 )}
                                 {sender.phone && (
-                                  <p className="mt-0.5 text-xs text-gray-600">M: {sender.phone}</p>
+                                  <p className="mt-0.5 text-xs text-gray-600"><span className="font-semibold">Mobile:</span> {sender.phone}</p>
                                 )}
                               </div>
 
