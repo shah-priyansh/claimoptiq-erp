@@ -1822,21 +1822,28 @@ const ClaimList = () => {
                 const recipient = c.tpa?.name
                   ? { label: 'TPA', name: c.tpa.name, address: c.tpa.address, mobile: c.tpa.mobile, key: `tpa:${c.tpa._id || c.tpa.id || c.tpa.name}` }
                   : { label: 'Insurance Company', name: c.insuranceCompany?.name, address: c.insuranceCompany?.address, mobile: c.insuranceCompany?.mobile, key: `ic:${c.insuranceCompany?._id || c.insuranceCompany?.id || c.insuranceCompany?.name || 'none'}` };
-                const sender = c.isDirectPatient
+                // Reimbursement claims are couriered by the patient (they paid
+                // and want money back), so the sender is the patient — same
+                // shape as Direct Patient. Hide claim numbers for these so the
+                // sticker stays patient-facing.
+                const senderIsPatient = c.isDirectPatient || c.claimType === 'reimbursement';
+                const sender = senderIsPatient
                   ? {
-                      label: 'Direct Patient',
-                      name: c.patientName || 'Direct Patient',
-                      address: '',
+                      label: c.isDirectPatient ? 'Direct Patient' : 'Patient',
+                      name: c.patientName || 'Patient',
+                      address: c.patientAddress || '',
                       phone: c.patientMobile || '',
-                      // Key by patient identity so two direct patients don't
-                      // collapse into a single sticker.
-                      key: `direct:${(c.patientName || '').trim().toLowerCase()}|${c.patientMobile || ''}`,
+                      hideClaimNo: true,
+                      // Key by patient identity so two patients don't collapse
+                      // into a single sticker.
+                      key: `patient:${(c.patientName || '').trim().toLowerCase()}|${c.patientMobile || ''}|${(c.patientAddress || '').trim().toLowerCase()}`,
                     }
                   : {
                       label: 'Hospital',
                       name: c.hospital?.name,
                       address: c.hospital?.address,
                       phone: c.hospital?.phone,
+                      hideClaimNo: false,
                       key: `h:${c.hospital?._id || c.hospital?.id || c.hospital?.name || 'none'}`,
                     };
                 const groupKey = `${recipient.key}|${sender.key}`;
@@ -1886,7 +1893,7 @@ const ClaimList = () => {
 
                               <div>
                                 <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
-                                  FROM{sender.label === 'Direct Patient' ? ' · Direct Patient' : ''}
+                                  FROM{sender.label !== 'Hospital' ? ` · ${sender.label}` : ''}
                                 </p>
                                 <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
                                 {sender.address && (
@@ -1897,24 +1904,28 @@ const ClaimList = () => {
                                 )}
                               </div>
 
-                              <div className="border-t-2 border-dashed border-gray-400" />
+                              {!sender.hideClaimNo && (
+                                <>
+                                  <div className="border-t-2 border-dashed border-gray-400" />
 
-                              <div>
-                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
-                                  CLAIM{claims.length > 1 ? `S · ${claims.length}` : ''}
-                                </p>
-                                <div className="divide-y divide-gray-200">
-                                  {claims.map((c, ci) => {
-                                    const claimNo = c.ccnNo || (c.monthClaimNo ? `M${c.monthClaimNo}` : (c._id?.slice(-8).toUpperCase() || ''));
-                                    return (
-                                      <div key={c._id} className={`grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 ${ci === 0 ? 'pt-0' : 'pt-1.5'} ${ci === claims.length - 1 ? 'pb-0' : 'pb-1.5'}`}>
-                                        <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {c.patientName || '—'}</p>
-                                        <p className="text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                                  <div>
+                                    <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
+                                      CLAIM{claims.length > 1 ? `S · ${claims.length}` : ''}
+                                    </p>
+                                    <div className="divide-y divide-gray-200">
+                                      {claims.map((c, ci) => {
+                                        const claimNo = c.ccnNo || (c.monthClaimNo ? `M${c.monthClaimNo}` : (c._id?.slice(-8).toUpperCase() || ''));
+                                        return (
+                                          <div key={c._id} className={`grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 ${ci === 0 ? 'pt-0' : 'pt-1.5'} ${ci === claims.length - 1 ? 'pb-0' : 'pb-1.5'}`}>
+                                            <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {c.patientName || '—'}</p>
+                                            <p className="text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
                         );
