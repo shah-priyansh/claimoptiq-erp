@@ -74,6 +74,7 @@ exports.createClaim = async (req, res) => {
         month: new Date(req.body.month),
         patientName: req.body.patientName,
         patientMobile: req.body.patientMobile || '',
+        patientAddress: req.body.patientAddress || '',
         doctorName: req.body.doctorName || '',
         claimType: req.body.claimType,
         insuranceCompanyId: req.body.insuranceCompany || null,
@@ -376,7 +377,7 @@ exports.updateClaim = async (req, res) => {
     const data = { updatedById: req.user.id };
     const dateFields = ['dateOfAdmit', 'dateOfDischarge', 'finalApprovalDate', 'fileReceivedDate', 'courierSubmitDate', 'onlineSubmitDate', 'settlementDate', 'month'];
     const allowed = [
-      'status', 'patientName', 'patientMobile', 'doctorName', 'claimType',
+      'status', 'patientName', 'patientMobile', 'patientAddress', 'doctorName', 'claimType',
       'policyNo', 'clientId', 'ccnNo', 'hospitalFinalBill', 'mouDiscount',
       'deduction', 'finalApprovalAmount', 'fileReceivedDate', 'submitMode',
       'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber',

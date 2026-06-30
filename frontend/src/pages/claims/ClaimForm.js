@@ -64,7 +64,7 @@ const ClaimForm = () => {
   const [form, setForm] = useState({
     hospital: user?.hospital?._id || '', month: new Date().toISOString().slice(0, 7),
     isDirectPatient: false,
-    patientName: fromPatientName, patientMobile: '', doctorName: '',
+    patientName: fromPatientName, patientMobile: '', patientAddress: '', doctorName: '',
     claimType: 'cashless',
     insuranceCompany: '', tpa: '',
     policyNo: '', clientId: '', ccnNo: '',
@@ -92,6 +92,7 @@ const ClaimForm = () => {
           month: data.month ? new Date(data.month).toISOString().slice(0, 7) : '',
           patientName: data.patientName || '',
           patientMobile: data.patientMobile || '',
+          patientAddress: data.patientAddress || '',
           doctorName: data.doctorName || '',
           claimType: data.claimType || 'cashless',
           insuranceCompany: data.insuranceCompany?._id || data.insuranceCompany || '',
@@ -324,6 +325,17 @@ const ClaimForm = () => {
                 className={inputCls(!!mobileError)} placeholder="e.g. 9876543210" />
               {form.patientMobile && <p className="text-xs text-gray-400 mt-1">{form.patientMobile.length}/10 digits</p>}
               {mobileError && <p className="text-xs text-red-500 mt-0.5">{mobileError}</p>}
+            </div>
+            <div className="md:col-span-2 lg:col-span-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Patient Address
+                {form.claimType === 'reimbursement' && (
+                  <span className="text-gray-400 font-normal"> (printed on courier sticker)</span>
+                )}
+              </label>
+              <textarea name="patientAddress" value={form.patientAddress} onChange={handleChange}
+                rows={2} placeholder="House, street, area, city, pincode"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-y" />
             </div>
             {form.hospital && !form.isDirectPatient && (
               <div>

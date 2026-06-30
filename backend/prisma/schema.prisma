@@ -489,6 +489,7 @@ model Claim {
   month                     DateTime
   patientName               String            @map("patient_name")
   patientMobile             String            @default("") @map("patient_mobile")
+  patientAddress            String            @default("") @map("patient_address")
   doctorName                String            @default("") @map("doctor_name")
   claimType                 String            @map("claim_type")
   insuranceCompanyId        String?           @map("insurance_company_id")
