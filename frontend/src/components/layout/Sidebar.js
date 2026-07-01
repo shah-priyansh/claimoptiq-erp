@@ -224,7 +224,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             onChildClick={onClose}
           />
 
-          {isSuperAdmin && (
+          {canManageModule('backup') && (
             <NavLink to="/backup" className={linkClass} onClick={onClose}>
               <HiOutlineCloudUpload className="w-5 h-5 flex-shrink-0" />
               Backup &amp; Storage

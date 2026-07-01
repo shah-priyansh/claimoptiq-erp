@@ -13,8 +13,9 @@ const TABS = [
   { id: 'runs', label: 'Runs' },
 ];
 
-const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white';
-const labelCls = 'block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5';
+const inputCls =
+  'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500';
+const labelCls = 'block text-sm font-medium text-gray-700 mb-1';
 
 const fmtBytes = (b) => {
   if (!b) return '0 B';
@@ -25,13 +26,25 @@ const fmtBytes = (b) => {
 
 const Toggle = ({ checked, onChange, label, hint }) => (
   <label className="flex items-start gap-3 py-2 cursor-pointer">
-    <input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)}
-      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+    <input
+      type="checkbox"
+      checked={!!checked}
+      onChange={(e) => onChange(e.target.checked)}
+      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+    />
     <span>
       <span className="text-sm font-medium text-gray-700">{label}</span>
-      {hint && <span className="block text-xs text-gray-400">{hint}</span>}
+      {hint && <span className="block text-xs text-gray-500 mt-0.5">{hint}</span>}
     </span>
   </label>
+);
+
+const SectionCard = ({ title, subtitle, children, className = '' }) => (
+  <div className={`bg-white rounded-xl border border-gray-200 p-6 ${className}`}>
+    {title && <h2 className="text-base font-semibold text-gray-700 mb-1">{title}</h2>}
+    {subtitle && <p className="text-xs text-gray-500 mb-4">{subtitle}</p>}
+    {children}
+  </div>
 );
 
 // ─── Global tab ──────────────────────────────────────────────────────────
@@ -61,44 +74,64 @@ const GlobalTab = () => {
     finally { setSaving(false); }
   };
 
-  if (loading || !cfg) return <div className="p-6 text-sm text-gray-400">Loading…</div>;
+  if (loading || !cfg) return <p className="text-sm text-gray-400 p-6">Loading...</p>;
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-5 max-w-3xl">
       {!meta.encryptionReady && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-          Credential encryption is unavailable: {meta.encryptionError}. Set <code>BACKUP_ENCRYPTION_KEY</code> (64 hex chars) on the server.
+        <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">
+          Credential encryption is unavailable: {meta.encryptionError}. Set <code className="bg-white/60 px-1 rounded">BACKUP_ENCRYPTION_KEY</code> (64 hex chars) on the server.
         </div>
       )}
+
       {meta.diskUsedPct !== null && (
-        <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
-          <div className="flex justify-between text-xs font-medium text-gray-600 mb-1">
-            <span>Uploads disk usage</span>
-            <span>{meta.diskUsedPct.toFixed(1)}% used · offloads at {cfg.backup_disk_threshold_pct}%</span>
-          </div>
-          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <SectionCard title="Uploads Disk Usage" subtitle={`${meta.diskUsedPct.toFixed(1)}% used · offloads at ${cfg.backup_disk_threshold_pct}%`}>
+          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-primary-500" style={{ width: `${Math.min(100, meta.diskUsedPct)}%` }} />
           </div>
-        </div>
+        </SectionCard>
       )}
 
-      <div className="rounded-lg border border-gray-200 p-4">
-        <Toggle checked={bool('backup_enabled')} onChange={set('backup_enabled')}
-          label="Backup enabled" hint="Master switch. When off, no offload runs at all." />
-        <Toggle checked={bool('backup_delete_local_after_sync')} onChange={set('backup_delete_local_after_sync')}
-          label="Delete local copy after sync" hint="Free disk space once the primary server confirms the copy." />
-      </div>
+      <SectionCard title="General" subtitle="Master toggle and post-sync cleanup for offloaded files.">
+        <div className="divide-y divide-gray-100">
+          <Toggle
+            checked={bool('backup_enabled')}
+            onChange={set('backup_enabled')}
+            label="Backup enabled"
+            hint="Master switch. When off, no offload runs at all."
+          />
+          <Toggle
+            checked={bool('backup_delete_local_after_sync')}
+            onChange={set('backup_delete_local_after_sync')}
+            label="Delete local copy after sync"
+            hint="Free disk space once the primary server confirms the copy."
+          />
+        </div>
+      </SectionCard>
 
-      <div className="rounded-lg border border-gray-200 p-4">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Triggers</p>
-        <Toggle checked={bool('backup_trigger_manual')} onChange={set('backup_trigger_manual')}
-          label="Manual runs" hint="Allow 'Run now' from the Runs tab." />
-        <Toggle checked={bool('backup_trigger_on_settled')} onChange={set('backup_trigger_on_settled')}
-          label="On claim settled" hint="Offload a claim's files when it's marked settled." />
-        <Toggle checked={bool('backup_trigger_cron')} onChange={set('backup_trigger_cron')}
-          label="Scheduled (cron)" hint="Run automatically on a schedule." />
+      <SectionCard title="Triggers" subtitle="When backup runs should be started.">
+        <div className="divide-y divide-gray-100">
+          <Toggle
+            checked={bool('backup_trigger_manual')}
+            onChange={set('backup_trigger_manual')}
+            label="Manual runs"
+            hint="Allow 'Run now' from the Runs tab."
+          />
+          <Toggle
+            checked={bool('backup_trigger_on_settled')}
+            onChange={set('backup_trigger_on_settled')}
+            label="On claim settled"
+            hint="Offload a claim's files when it's marked settled."
+          />
+          <Toggle
+            checked={bool('backup_trigger_cron')}
+            onChange={set('backup_trigger_cron')}
+            label="Scheduled (cron)"
+            hint="Run automatically on a schedule."
+          />
+        </div>
         {bool('backup_trigger_cron') && (
-          <div className="grid grid-cols-2 gap-3 mt-2 pl-7">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-100">
             <div>
               <label className={labelCls}>Cron expression</label>
               <input className={inputCls} value={cfg.backup_cron_expr} onChange={(e) => set('backup_cron_expr')(e.target.value)} placeholder="0 3 * * *" />
@@ -109,11 +142,13 @@ const GlobalTab = () => {
             </div>
           </div>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="rounded-lg border border-gray-200 p-4">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Disk-pressure policy</p>
-        <div className="grid grid-cols-3 gap-3">
+      <SectionCard
+        title="Disk-Pressure Policy"
+        subtitle="Scheduled / on-settled runs only offload when disk usage crosses the threshold, oldest files first, until it drops to the stop value. Manual runs ignore the threshold."
+      >
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className={labelCls}>Offload above %</label>
             <input className={inputCls} type="number" value={cfg.backup_disk_threshold_pct} onChange={(e) => set('backup_disk_threshold_pct')(e.target.value)} />
@@ -127,12 +162,14 @@ const GlobalTab = () => {
             <input className={inputCls} type="number" value={cfg.backup_run_file_cap} onChange={(e) => set('backup_run_file_cap')(e.target.value)} />
           </div>
         </div>
-        <p className="text-xs text-gray-400 mt-2">Scheduled / on-settled runs only offload when disk usage is above the threshold, oldest files first, until it drops to the stop value. Manual runs ignore the threshold.</p>
-      </div>
+      </SectionCard>
 
-      <button onClick={save} disabled={saving}
-        className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
-        {saving ? 'Saving…' : 'Save settings'}
+      <button
+        onClick={save}
+        disabled={saving}
+        className="bg-primary-600 hover:bg-primary-700 text-white px-5 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+      >
+        {saving ? 'Saving...' : 'Save Settings'}
       </button>
     </div>
   );
@@ -164,9 +201,10 @@ const ServersTab = () => {
     if (!row.name || !row.host || !row.username) { toast.error('Name, host and username are required'); return; }
     setBusyId(row._id || `draft-${idx}`);
     try {
-      // Only send secrets that were actually typed (avoid overwriting with blanks).
-      const payload = { name: row.name, host: row.host, port: Number(row.port) || 22, username: row.username,
-        authType: row.authType, remoteBasePath: row.remoteBasePath, isEnabled: row.isEnabled };
+      const payload = {
+        name: row.name, host: row.host, port: Number(row.port) || 22, username: row.username,
+        authType: row.authType, remoteBasePath: row.remoteBasePath, isEnabled: row.isEnabled,
+      };
       if (row.password) payload.password = row.password;
       if (row.privateKey) payload.privateKey = row.privateKey;
       if (row.passphrase) payload.passphrase = row.passphrase;
@@ -206,34 +244,71 @@ const ServersTab = () => {
     finally { setBusyId(null); }
   };
 
-  if (loading) return <div className="p-6 text-sm text-gray-400">Loading…</div>;
+  if (loading) return <p className="text-sm text-gray-400 p-6">Loading...</p>;
 
   return (
     <div className="space-y-4">
+      {servers.length === 0 && (
+        <div className="bg-white rounded-xl border border-dashed border-gray-300 p-8 text-center">
+          <p className="text-sm text-gray-500">No backup servers configured yet.</p>
+        </div>
+      )}
+
       {servers.map((row, idx) => {
         const busy = busyId === (row._id || `draft-${idx}`) || busyId === row._id;
         return (
-          <div key={row._id || idx} className={`rounded-lg border p-4 ${row.isPrimary ? 'border-primary-400 bg-primary-50/40' : 'border-gray-200'}`}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => !row._draft && makePrimary(row)} title="Set primary"
-                  className={`text-lg ${row.isPrimary ? 'text-primary-500' : 'text-gray-300 hover:text-gray-400'}`}>★</button>
-                <span className="text-sm font-semibold text-gray-700">{row.name || 'New server'}</span>
-                {row.isPrimary && <span className="text-[10px] font-semibold uppercase text-primary-600 bg-primary-100 px-1.5 py-0.5 rounded">Primary</span>}
-                {row._draft && <span className="text-[10px] font-semibold uppercase text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">Unsaved</span>}
-                {!row._draft && row.lastTestOk === true && <span className="text-[10px] text-green-600">● reachable</span>}
-                {!row._draft && row.lastTestOk === false && <span className="text-[10px] text-red-500">● unreachable</span>}
+          <div
+            key={row._id || idx}
+            className={`bg-white rounded-xl border p-6 ${row.isPrimary ? 'border-primary-400 ring-1 ring-primary-100' : 'border-gray-200'}`}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => !row._draft && makePrimary(row)}
+                  title="Set primary"
+                  className={`text-lg leading-none ${row.isPrimary ? 'text-primary-500' : 'text-gray-300 hover:text-gray-400'}`}
+                >
+                  ★
+                </button>
+                <h3 className="text-base font-semibold text-gray-800">{row.name || 'New server'}</h3>
+                {row.isPrimary && <span className="text-[10px] font-semibold uppercase tracking-wide text-primary-700 bg-primary-50 border border-primary-100 px-1.5 py-0.5 rounded">Primary</span>}
+                {row._draft && <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded">Unsaved</span>}
+                {!row._draft && row.lastTestOk === true && <span className="text-[10px] font-semibold uppercase tracking-wide text-green-700 bg-green-50 border border-green-100 px-1.5 py-0.5 rounded">Reachable</span>}
+                {!row._draft && row.lastTestOk === false && <span className="text-[10px] font-semibold uppercase tracking-wide text-red-700 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded">Unreachable</span>}
               </div>
-              <label className="flex items-center gap-1.5 text-xs text-gray-500">
-                <input type="checkbox" checked={!!row.isEnabled} onChange={(e) => patch(idx, 'isEnabled', e.target.checked)} className="h-3.5 w-3.5" /> Enabled
+              <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!row.isEnabled}
+                  onChange={(e) => patch(idx, 'isEnabled', e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                Enabled
               </label>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div><label className={labelCls}>Name</label><input className={inputCls} value={row.name} onChange={(e) => patch(idx, 'name', e.target.value)} /></div>
-              <div><label className={labelCls}>Host</label><input className={inputCls} value={row.host} onChange={(e) => patch(idx, 'host', e.target.value)} /></div>
-              <div><label className={labelCls}>Port</label><input className={inputCls} type="number" value={row.port} onChange={(e) => patch(idx, 'port', e.target.value)} /></div>
-              <div><label className={labelCls}>Username</label><input className={inputCls} value={row.username} onChange={(e) => patch(idx, 'username', e.target.value)} /></div>
-              <div><label className={labelCls}>Base path</label><input className={inputCls} value={row.remoteBasePath} onChange={(e) => patch(idx, 'remoteBasePath', e.target.value)} /></div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className={labelCls}>Name</label>
+                <input className={inputCls} value={row.name} onChange={(e) => patch(idx, 'name', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Host</label>
+                <input className={inputCls} value={row.host} onChange={(e) => patch(idx, 'host', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Port</label>
+                <input className={inputCls} type="number" value={row.port} onChange={(e) => patch(idx, 'port', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Username</label>
+                <input className={inputCls} value={row.username} onChange={(e) => patch(idx, 'username', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Base path</label>
+                <input className={inputCls} value={row.remoteBasePath} onChange={(e) => patch(idx, 'remoteBasePath', e.target.value)} />
+              </div>
               <div>
                 <label className={labelCls}>Auth</label>
                 <select className={inputCls} value={row.authType} onChange={(e) => patch(idx, 'authType', e.target.value)}>
@@ -242,35 +317,95 @@ const ServersTab = () => {
                 </select>
               </div>
               {row.authType === 'password' ? (
-                <div><label className={labelCls}>Password {row.hasPassword && <span className="text-green-500">• set</span>}</label>
-                  <input className={inputCls} type="password" placeholder={row.hasPassword ? '•••••• (unchanged)' : ''} value={row.password} onChange={(e) => patch(idx, 'password', e.target.value)} /></div>
+                <div>
+                  <label className={labelCls}>
+                    Password {row.hasPassword && <span className="text-green-600 text-xs ml-1">• set</span>}
+                  </label>
+                  <input
+                    className={inputCls}
+                    type="password"
+                    placeholder={row.hasPassword ? '•••••• (unchanged)' : ''}
+                    value={row.password}
+                    onChange={(e) => patch(idx, 'password', e.target.value)}
+                  />
+                </div>
               ) : (
                 <>
-                  <div><label className={labelCls}>Private key {row.hasPrivateKey && <span className="text-green-500">• set</span>}</label>
-                    <textarea className={inputCls} rows={2} placeholder={row.hasPrivateKey ? '•••••• (unchanged)' : '-----BEGIN OPENSSH PRIVATE KEY-----'} value={row.privateKey} onChange={(e) => patch(idx, 'privateKey', e.target.value)} /></div>
-                  <div><label className={labelCls}>Passphrase {row.hasPassphrase && <span className="text-green-500">• set</span>}</label>
-                    <input className={inputCls} type="password" placeholder={row.hasPassphrase ? '•••••• (unchanged)' : ''} value={row.passphrase} onChange={(e) => patch(idx, 'passphrase', e.target.value)} /></div>
+                  <div className="md:col-span-2">
+                    <label className={labelCls}>
+                      Private key {row.hasPrivateKey && <span className="text-green-600 text-xs ml-1">• set</span>}
+                    </label>
+                    <textarea
+                      className={`${inputCls} resize-y font-mono text-xs`}
+                      rows={2}
+                      placeholder={row.hasPrivateKey ? '•••••• (unchanged)' : '-----BEGIN OPENSSH PRIVATE KEY-----'}
+                      value={row.privateKey}
+                      onChange={(e) => patch(idx, 'privateKey', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>
+                      Passphrase {row.hasPassphrase && <span className="text-green-600 text-xs ml-1">• set</span>}
+                    </label>
+                    <input
+                      className={inputCls}
+                      type="password"
+                      placeholder={row.hasPassphrase ? '•••••• (unchanged)' : ''}
+                      value={row.passphrase}
+                      onChange={(e) => patch(idx, 'passphrase', e.target.value)}
+                    />
+                  </div>
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2 mt-3">
-              <button onClick={() => save(row, idx)} disabled={busy} className="px-3 py-1.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium rounded-lg disabled:opacity-50">Save</button>
-              {!row._draft && <button onClick={() => test(row)} disabled={busy} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-lg disabled:opacity-50">Test connection</button>}
-              <button onClick={() => remove(row, idx)} disabled={busy} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded-lg disabled:opacity-50 ml-auto">Delete</button>
+
+            <div className="flex items-center gap-2 mt-5 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => save(row, idx)}
+                disabled={busy}
+                className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                Save
+              </button>
+              {!row._draft && (
+                <button
+                  onClick={() => test(row)}
+                  disabled={busy}
+                  className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Test connection
+                </button>
+              )}
+              <button
+                onClick={() => remove(row, idx)}
+                disabled={busy}
+                className="ml-auto bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                Delete
+              </button>
             </div>
           </div>
         );
       })}
-      <button onClick={addRow} className="px-4 py-2 border border-dashed border-gray-300 text-sm text-gray-500 rounded-lg hover:border-primary-400 hover:text-primary-600 w-full">+ Add server</button>
+
+      <button
+        onClick={addRow}
+        className="w-full bg-white border border-dashed border-gray-300 text-sm font-medium text-gray-500 rounded-xl py-3 hover:border-primary-400 hover:text-primary-600 transition-colors"
+      >
+        + Add server
+      </button>
     </div>
   );
 };
 
 // ─── Runs tab ────────────────────────────────────────────────────────────
 const STATUS_COLORS = {
-  success: 'text-green-600 bg-green-50', partial: 'text-amber-600 bg-amber-50',
-  failed: 'text-red-600 bg-red-50', running: 'text-blue-600 bg-blue-50',
-  skipped: 'text-gray-500 bg-gray-100', interrupted: 'text-orange-600 bg-orange-50',
+  success:     'text-green-700 bg-green-50 border border-green-100',
+  partial:     'text-amber-700 bg-amber-50 border border-amber-100',
+  failed:      'text-red-700 bg-red-50 border border-red-100',
+  running:     'text-blue-700 bg-blue-50 border border-blue-100',
+  skipped:     'text-gray-600 bg-gray-100 border border-gray-200',
+  interrupted: 'text-orange-700 bg-orange-50 border border-orange-100',
 };
 
 const RunsTab = () => {
@@ -298,37 +433,72 @@ const RunsTab = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        <button onClick={() => run(false)} disabled={running} className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">{running ? 'Running…' : 'Run now'}</button>
-        <button onClick={() => run(true)} disabled={running} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg disabled:opacity-50">Dry run</button>
-        <button onClick={load} className="px-4 py-2 text-gray-500 text-sm rounded-lg hover:bg-gray-100 ml-auto">Refresh</button>
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => run(false)}
+          disabled={running}
+          className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+        >
+          {running ? 'Running...' : 'Run now'}
+        </button>
+        <button
+          onClick={() => run(true)}
+          disabled={running}
+          className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+        >
+          Dry run
+        </button>
+        <button
+          onClick={load}
+          className="ml-auto text-sm font-medium text-gray-500 hover:text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50"
+        >
+          Refresh
+        </button>
       </div>
-      {loading ? <div className="p-6 text-sm text-gray-400">Loading…</div> : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-400">
-              <tr>
-                <th className="text-left px-3 py-2">Started</th><th className="text-left px-3 py-2">Trigger</th>
-                <th className="text-left px-3 py-2">Status</th><th className="text-right px-3 py-2">Uploaded</th>
-                <th className="text-right px-3 py-2">Deleted</th><th className="text-right px-3 py-2">Freed</th>
-                <th className="text-right px-3 py-2">Errors</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {runs.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-400">No runs yet</td></tr>}
-              {runs.map((r) => (
-                <tr key={r._id} title={r.log}>
-                  <td className="px-3 py-2 whitespace-nowrap">{new Date(r.startedAt).toLocaleString()}</td>
-                  <td className="px-3 py-2">{r.trigger}</td>
-                  <td className="px-3 py-2"><span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${STATUS_COLORS[r.status] || 'bg-gray-100'}`}>{r.status}</span></td>
-                  <td className="px-3 py-2 text-right">{r.filesUploaded}</td>
-                  <td className="px-3 py-2 text-right">{r.filesDeleted}</td>
-                  <td className="px-3 py-2 text-right">{fmtBytes(r.bytesFreed)}</td>
-                  <td className="px-3 py-2 text-right">{r.errorCount}</td>
+
+      {loading ? (
+        <p className="text-sm text-gray-400 p-6">Loading...</p>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Started</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Trigger</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Uploaded</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Deleted</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Freed</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Errors</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {runs.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">
+                      No runs yet.
+                    </td>
+                  </tr>
+                )}
+                {runs.map((r) => (
+                  <tr key={r._id} title={r.log} className="hover:bg-gray-50">
+                    <td className="py-3 px-4 whitespace-nowrap text-gray-700">{new Date(r.startedAt).toLocaleString()}</td>
+                    <td className="py-3 px-4 text-gray-700">{r.trigger}</td>
+                    <td className="py-3 px-4">
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right text-gray-700">{r.filesUploaded}</td>
+                    <td className="py-3 px-4 text-right text-gray-700">{r.filesDeleted}</td>
+                    <td className="py-3 px-4 text-right text-gray-700">{fmtBytes(r.bytesFreed)}</td>
+                    <td className="py-3 px-4 text-right text-gray-700">{r.errorCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
@@ -337,16 +507,27 @@ const RunsTab = () => {
 
 const BackupSettings = () => {
   const [tab, setTab] = useState('global');
+
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-xl font-bold text-gray-800 mb-1">Backup &amp; Storage</h1>
-      <p className="text-sm text-gray-400 mb-5">Offload uploaded files to remote SFTP servers to free local disk space.</p>
-      <div className="flex gap-1 border-b border-gray-200 mb-6">
+    <div>
+      <p className="text-sm text-gray-500 mb-5">
+        Offload uploaded files to remote SFTP servers to free local disk space.
+      </p>
+
+      <div className="flex gap-2 border-b border-gray-200 mb-5">
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>{t.label}</button>
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              tab === t.id ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+          </button>
         ))}
       </div>
+
       {tab === 'global' && <GlobalTab />}
       {tab === 'servers' && <ServersTab />}
       {tab === 'runs' && <RunsTab />}

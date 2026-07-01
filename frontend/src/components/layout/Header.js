@@ -39,6 +39,7 @@ const STATIC_TITLES = {
   '/documents/inbox':        'Document Inbox',
   '/staff':                  'Staff',
   '/settings':               'Settings',
+  '/backup':                 'Backup & Storage',
   '/profile':                'My Profile',
 };
 
