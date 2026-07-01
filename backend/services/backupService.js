@@ -290,7 +290,11 @@ const runBackup = async (opts = {}) => {
         where: { id: run.id },
         data: { status, finishedAt: new Date(), log: logLines.join('\n').slice(0, 20000), ...extra },
       });
-      return { runId: run.id, status, ...extra };
+      // bytesFreed is a BigInt for the DB column but isn't JSON-serializable —
+      // coerce to Number so the result can be sent over the wire (res.json).
+      const wire = { ...extra };
+      if (typeof wire.bytesFreed === 'bigint') wire.bytesFreed = Number(wire.bytesFreed);
+      return { runId: run.id, status, ...wire };
     };
 
     if (!cfg.bool('backup_enabled')) {

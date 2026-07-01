@@ -11,7 +11,6 @@ const MODULE_GROUPS = [
   { label: 'Documents',      keys: ['document_submissions'] },
   { label: null,             keys: ['reports'] },
   { label: 'Staff',          keys: ['staff'] },
-  { label: 'System',         keys: ['backup'] },
 ];
 
 const RoleForm = () => {
