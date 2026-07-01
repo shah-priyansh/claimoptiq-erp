@@ -118,6 +118,11 @@ model Invoice {
   id                String   @id @default(uuid())
   invoiceNumber     String?  @unique @map("invoice_number")
   hospitalId        String   @map("hospital_id")
+  // True when this invoice bills direct-patient claims. The hospital_id
+  // is the chosen target hospital for billing/listing purposes; the
+  // claims themselves had no hospital relation. See migration
+  // 20260624120000_invoice_direct_patient.
+  isDirectPatient   Boolean  @default(false) @map("is_direct_patient")
   month             DateTime
   status            String   @default("draft")
   issuedAt          DateTime? @map("issued_at")
@@ -165,6 +170,7 @@ model Invoice {
   @@index([hospitalId, month])
   @@index([status])
   @@index([month])
+  @@index([isDirectPatient])
   @@map("invoices")
 }
 
@@ -484,6 +490,7 @@ model Claim {
   month                     DateTime
   patientName               String            @map("patient_name")
   patientMobile             String            @default("") @map("patient_mobile")
+  patientAddress            String            @default("") @map("patient_address")
   doctorName                String            @default("") @map("doctor_name")
   claimType                 String            @map("claim_type")
   insuranceCompanyId        String?           @map("insurance_company_id")

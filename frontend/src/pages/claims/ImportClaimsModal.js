@@ -516,7 +516,11 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
         const ws = wb.Sheets[sheetName];
         if (!ws) { toast.error('No data found in file'); return; }
 
-        const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false });
+        // raw:true keeps date cells as JS Date objects (locale-independent serial
+        // conversion). With raw:false, XLSX would reformat dates to text using the
+        // cell's display format — so a date in a US `m/d/yyyy`-formatted cell came
+        // through as "12/6/2026" and the DD/MM parser flipped it to June 12.
+        const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: true });
         if (aoa.length < 2) { toast.error('File is empty or missing header row'); return; }
 
         const headers = aoa[0].map(h => labelToKey(h));

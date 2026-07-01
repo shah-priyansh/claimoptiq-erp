@@ -50,6 +50,7 @@ export const getHospitalAPI = (id) => API.get(`/hospitals/${id}`);
 export const createHospitalAPI = (data) => API.post('/hospitals', data);
 export const updateHospitalAPI = (id, data) => API.put(`/hospitals/${id}`, data);
 export const deleteHospitalAPI = (id) => API.delete(`/hospitals/${id}`);
+export const deleteAllHospitalsAPI = () => API.delete('/hospitals', { data: { confirm: 'DELETE_ALL' } });
 export const importHospitalsAPI = (rows, mode = 'skip') => API.post('/hospitals/import', { rows, mode });
 
 // Insurance
@@ -76,18 +77,24 @@ export const deleteReferenceAPI = (id) => API.delete(`/references/${id}`);
 // Invoices
 export const previewInvoiceAPI = (data) => API.post('/invoices/preview', data);
 export const previewBulkInvoiceAPI = (data) => API.post('/invoices/preview-bulk', data);
+// Direct-patient claims don't carry a hospital relation. The drawer collects a
+// target hospital from the operator and posts here to compute the preview as
+// if those claims were billed against the chosen hospital.
+export const previewDirectPatientInvoiceAPI = (data) => API.post('/invoices/preview-direct-patient', data);
 // Renders the same PDF as a saved invoice but for an unsaved draft from the
 // bulk wizard. Returns a Blob so callers can drop it into an <iframe> for
 // preview + print, and re-save it for download.
 export const previewInvoicePdfAPI = (data) => API.post('/invoices/preview-pdf', data, { responseType: 'blob' });
 export const createInvoiceAPI  = (data) => API.post('/invoices', data);
 export const getInvoicesAPI    = (params) => API.get('/invoices', { params });
+export const getOpenInvoiceHospitalsAPI = () => API.get('/invoices/open-hospitals');
 export const getInvoiceAPI     = (id) => API.get(`/invoices/${id}`);
 export const updateInvoiceAPI  = (id, data) => API.patch(`/invoices/${id}`, data);
 export const editInvoiceLinesAPI = (id, payload) => API.patch(`/invoices/${id}`, payload);
 export const issueInvoiceAPI   = (id) => API.post(`/invoices/${id}/issue`);
 export const voidInvoiceAPI    = (id, data) => API.post(`/invoices/${id}/void`, data);
 export const deleteInvoiceAPI  = (id) => API.delete(`/invoices/${id}`);
+export const deleteAllInvoicesAPI = () => API.delete('/invoices', { data: { confirm: 'DELETE_ALL' } });
 export const invoicePdfUrl     = (id) => `${API.defaults.baseURL}/invoices/${id}/pdf`;
 
 // Fetches the invoice PDF *with the JWT* (the protected endpoint rejects a

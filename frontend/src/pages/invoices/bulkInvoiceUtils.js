@@ -1,4 +1,4 @@
-import { createInvoiceAPI, updateInvoiceAPI } from '../../services/api';
+import { createInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI } from '../../services/api';
 
 export const formatINR = (n) =>
   '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
@@ -66,8 +66,11 @@ export const computeTotals = (editLines, settings, previewTotals, overrideTds) =
 
 // Create one invoice + reconcile edits. Single POST when possible: manual
 // items go in the create call, and the create response already carries
-// lineItems with IDs (no extra GET round-trip).
-export const commitDraft = async (draft) => {
+// lineItems with IDs (no extra GET round-trip). When `autoIssue` is true
+// the freshly-created draft is immediately issued (gets an invoiceNumber
+// and flips status to 'issued') so the caller never has to open the draft
+// to issue it.
+export const commitDraft = async (draft, { autoIssue = false } = {}) => {
   const monthIso = new Date(draft.month).toISOString().slice(0, 10);
   const monthArg = monthIso.slice(0, 7) + '-01';
   const manualItemsForCreate = draft.editLines
@@ -83,6 +86,7 @@ export const commitDraft = async (draft) => {
     ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
     claimIds: draft.claimIds,
     ...(manualItemsForCreate.length ? { manualItems: manualItemsForCreate } : {}),
+    ...(draft.isDirectPatient ? { isDirectPatient: true } : {}),
   });
 
   const lineEdits = [];
@@ -122,6 +126,11 @@ export const commitDraft = async (draft) => {
 
   if (Object.keys(patchPayload).length) {
     await updateInvoiceAPI(created._id, patchPayload);
+  }
+
+  if (autoIssue && created.status === 'draft') {
+    const { data: issued } = await issueInvoiceAPI(created._id);
+    return issued;
   }
 
   return created;

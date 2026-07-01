@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency, calculateFilePrice, formatDate as _formatDate } from '../../utils/format';
+import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
 import * as XLSX from 'xlsx-js-style';
@@ -52,7 +52,7 @@ const CLAIM_TYPE_OPTIONS = Object.entries(CLAIM_TYPE_CONFIG).map(([value, c]) =>
 // in the operations team's reference workbook so imports/exports stay aligned.
 const fmtDateCell = (d) => _formatDate(d, '');
 const BASE_FIELD_DEFS = [
-  { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => c.month || '' },
+  { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => formatMonthLabel(c.month, '') },
   { key: 'hospital',                  label: 'HOSPITAL',               width: 26, pdfW: 32, defaultOn: true,  nonHospitalOnly: true, getValue: c => c.isDirectPatient ? (c.hospital?.name ? `${c.hospital.name} (Direct)` : 'Direct Patient') : (c.hospital?.name || '-') },
   { key: 'doctorName',                label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
   { key: 'patientName',               label: 'PATIENT NAME',           width: 22, pdfW: 28, defaultOn: true,  getValue: c => c.patientName || '' },
@@ -104,6 +104,56 @@ const FIELD_GROUPS = [
   { label: 'Other',        keys: ['status', 'neftNo', 'remarks', 'rejectedReason', 'referenceBy', 'filePrice'] },
 ];
 
+// Builds a rolling list of month options for the filter dropdown. Values are
+// ISO `YYYY-MM-01` (what the backend's `month` query param expects) and labels
+// are the long-form "June 2026". Range covers 18 months back through 6 months
+// ahead so operators can still queue claims for an upcoming admission month.
+// Clickable table-header that toggles a `sortBy` filter between
+// `<field>_asc` and `<field>_desc`. A third click returns to the global
+// "Latest first" default so users can clear the sort without opening the
+// dropdown. Arrow icon shows the active direction; faded ↕ hints that the
+// column is sortable when inactive.
+const SortableTh = ({ label, field, filters, setFilters, title, align = 'left' }) => {
+  const asc = `${field}_asc`;
+  const desc = `${field}_desc`;
+  const current = filters.sortBy;
+  const isAsc = current === asc;
+  const isDesc = current === desc;
+  const isActive = isAsc || isDesc;
+  const next = () => {
+    if (isAsc) setFilters({ ...filters, sortBy: desc, page: 1 });
+    else if (isDesc) setFilters({ ...filters, sortBy: 'createdAt_desc', page: 1 });
+    else setFilters({ ...filters, sortBy: asc, page: 1 });
+  };
+  const arrow = isAsc ? '▲' : isDesc ? '▼' : '↕';
+  return (
+    <th
+      onClick={next}
+      title={title || `Sort by ${label}`}
+      className={`text-${align} py-3 px-3 text-xs font-semibold uppercase select-none cursor-pointer hover:bg-gray-100 transition-colors ${isActive ? 'text-primary-700' : 'text-gray-500'}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <span className={`text-[10px] ${isActive ? '' : 'text-gray-300'}`}>{arrow}</span>
+      </span>
+    </th>
+  );
+};
+
+const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTH_FILTER_OPTIONS = (() => {
+  const opts = [];
+  const now = new Date();
+  // Newest first → 6 months in the future, then the current month, then 18 back.
+  for (let offset = 6; offset >= -18; offset--) {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    opts.push({ value: `${yyyy}-${mm}-01`, label: `${MONTH_LABELS[d.getMonth()]} ${yyyy}` });
+  }
+  return opts;
+})();
+
 const ClaimList = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -126,7 +176,8 @@ const ClaimList = () => {
   const initStatus = new URLSearchParams(location.search).get('status') || '';
   const [filters, setFilters] = usePersistedFilters('claims:filters', {
     search: '', hospital: '', status: initStatus, claimType: '', month: '',
-    dateFrom: '', dateTo: '', directPatient: '', reference: '', page: 1, limit: 25,
+    dateFrom: '', dateTo: '', directPatient: '', reference: '', sortBy: 'createdAt_desc',
+    page: 1, limit: 25,
   });
   // A `?status=` query param wins over what we restored from session — it
   // means the user clicked a "show me X" link and shouldn't be hijacked by a
@@ -278,6 +329,7 @@ const ClaimList = () => {
     search: filters.search, hospital: filters.hospital, status: filters.status,
     claimType: filters.claimType, month: filters.month, dateFrom: filters.dateFrom,
     dateTo: filters.dateTo, directPatient: filters.directPatient, reference: filters.reference,
+    sortBy: filters.sortBy,
   });
   const lastCountedKeyRef = useRef(null);
 
@@ -1230,7 +1282,7 @@ const ClaimList = () => {
                     {c.hospitalFinalBill && (<><span>·</span><span className="font-medium">{formatAmount(c.hospitalFinalBill)}</span></>)}
                   </div>
                   {(c.tpa?.name || c.insuranceCompany?.name) && (
-                    <p className="text-[11px] text-gray-400 mt-1 truncate">
+                    <p className="text-[11px] text-gray-400 mt-1 break-words">
                       {c.tpa?.name || c.insuranceCompany?.name}
                     </p>
                   )}
@@ -1245,11 +1297,13 @@ const ClaimList = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">SR</th>
+                <SortableTh label="SR"  field="srNo"        filters={filters} setFilters={setFilters} />
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Patient</th>
-                {!isHospitalUser && <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Hospital</th>}
+                {!isHospitalUser && (
+                  <SortableTh label="Hospital" field="month" filters={filters} setFilters={setFilters} title="Sort by claim month" />
+                )}
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">DOA</th>
+                <SortableTh label="DOA" field="doa"         filters={filters} setFilters={setFilters} />
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Bill</th>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Action</th>
@@ -1264,36 +1318,41 @@ const ClaimList = () => {
                 <tr key={c._id}
                   className={`hover:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
                   onClick={() => stickerMode ? toggleStickerSelect(c._id) : navigate(`/claims/${c._id}`)}>
-                  <td className="py-3 px-3 text-sm text-gray-500">
+                  <td className="py-3 px-3 text-sm text-gray-500 align-top">
                     {stickerMode ? (
                       <input type="checkbox" checked={stickerSelectedIds.includes(c._id)}
                         onChange={() => toggleStickerSelect(c._id)} onClick={e => e.stopPropagation()}
                         className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                     ) : (isHospitalUser ? rowIdx + 1 : c.srNo)}
                   </td>
-                  <td className="py-3 px-3">
+                  <td className="py-3 px-3 align-top">
                     <p className="text-sm font-medium text-gray-800">{c.patientName}</p>
                     <p className="text-xs text-gray-400">{c.policyNo || '-'}</p>
                   </td>
                   {!isHospitalUser && (
-                    <td className="py-3 px-3 text-sm text-gray-600">
-                      <div className="flex items-center gap-1.5">
-                        <span>{c.hospital?.name || '-'}</span>
+                    <td className="py-3 px-3 text-sm text-gray-600 align-top max-w-[220px]">
+                      <div className="flex items-start gap-1.5 flex-wrap">
+                        <span className="break-words">{c.hospital?.name || '-'}</span>
                         {c.isDirectPatient && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 flex-shrink-0">Direct</span>
                         )}
                       </div>
                       {(c.tpa?.name || c.insuranceCompany?.name) && (
-                        <p className="text-xs text-gray-400 mt-0.5 truncate">
+                        <p className="text-xs text-gray-400 mt-0.5 break-words leading-snug">
                           {c.tpa?.name || c.insuranceCompany?.name}
+                        </p>
+                      )}
+                      {c.month && (
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          <span className="font-semibold text-gray-600">Month:</span> {formatMonthLabel(c.month)}
                         </p>
                       )}
                     </td>
                   )}
-                  <td className="py-3 px-3"><ClaimTypeTag slug={c.claimType} /></td>
-                  <td className="py-3 px-3 text-sm text-gray-600">{formatDate(c.dateOfAdmit)}</td>
-                  <td className="py-3 px-3 text-sm text-gray-600">{formatAmount(c.hospitalFinalBill)}</td>
-                  <td className="py-3 px-3"><StatusBadge c={c} loading={filtersLoading} /></td>
+                  <td className="py-3 px-3 align-top"><ClaimTypeTag slug={c.claimType} /></td>
+                  <td className="py-3 px-3 text-sm text-gray-600 align-top whitespace-nowrap">{formatDate(c.dateOfAdmit)}</td>
+                  <td className="py-3 px-3 text-sm text-gray-600 align-top whitespace-nowrap">{formatAmount(c.hospitalFinalBill)}</td>
+                  <td className="py-3 px-3 align-top"><StatusBadge c={c} loading={filtersLoading} /></td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => navigate(`/claims/${c._id}`)}
@@ -1670,25 +1729,78 @@ const ClaimList = () => {
 
       {/* Courier sticker preview / print modal */}
       {stickerPreviewClaims && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
+        <div className="sticker-print-portal fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
           <style>{`
             @media print {
-              @page { size: A4 portrait; margin: 10mm; }
-              body * { visibility: hidden !important; }
-              #courier-stickers-print, #courier-stickers-print * { visibility: visible !important; }
-              #courier-stickers-print {
-                position: absolute !important;
-                left: 0 !important; top: 0 !important;
-                width: 100% !important;
+              /* margin:0 is what gets Chrome/Edge to drop the page header (date,
+                 title) and footer (URL, page numbers). Inner padding on the
+                 print container restores the visible whitespace. */
+              @page { size: A4 portrait; margin: 0; }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+                height: auto !important;
+              }
+              /* Display:none the rest of the app entirely. visibility:hidden
+                 left the modal's flex/max-h-[90vh] layout boxes consuming page
+                 space, which is why Chrome was paginating to 4 pages even
+                 though all stickers fit on the first one. */
+              body > *:not(.sticker-print-portal) { display: none !important; }
+              /* Flatten the portal root and the modal body so none of their
+                 wrapper styles (max-h-[90vh], flex, overflow-y-auto) reserve
+                 page height. Stops at depth 2 — grand-children are handled
+                 separately so we don't accidentally un-hide the modal
+                 header/footer that carry Tailwind's print:hidden. */
+              .sticker-print-portal,
+              .sticker-print-portal > div {
+                position: static !important;
+                inset: auto !important;
+                display: block !important;
+                width: auto !important;
+                height: auto !important;
+                max-width: none !important;
                 max-height: none !important;
+                min-height: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
                 overflow: visible !important;
+                background: white !important;
+                box-shadow: none !important;
+                border: none !important;
+                border-radius: 0 !important;
+                flex: none !important;
+              }
+              /* Hide every grand-child of the portal except the print
+                 container — that knocks out the modal header (X close) and
+                 footer (Close/Print buttons), which were leaking into the
+                 print output. */
+              .sticker-print-portal > div > *:not(#courier-stickers-print) {
+                display: none !important;
+              }
+              .sticker-print-portal style { display: none !important; }
+              #courier-stickers-print {
+                display: block !important;
+                width: 100% !important;
+                /* No padding-bottom — trailing 10mm was spilling onto a fresh
+                   blank page when the last sticker landed near the page edge. */
+                padding: 10mm 10mm 0 10mm !important;
+                background: white !important;
+              }
+              /* Block layout (not flex/gap) so Chrome can pack as many cards on
+                 one page as fit. Flex column + gap was kicking each card to its
+                 own page. margin-bottom paginates cleanly. */
+              #courier-stickers-print .sticker-stack {
+                display: block !important;
+                gap: 0 !important;
                 padding: 0 !important;
                 background: white !important;
               }
-              #courier-stickers-print .sticker-stack { gap: 6mm !important; padding: 0 !important; background: white !important; }
               #courier-stickers-print .sticker-card {
+                display: block !important;
                 width: 100% !important;
                 box-sizing: border-box !important;
+                margin: 0 0 6mm 0 !important;
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
                 box-shadow: none !important;
@@ -1696,6 +1808,7 @@ const ClaimList = () => {
                 border-radius: 4px !important;
                 background: white !important;
               }
+              #courier-stickers-print .sticker-card:last-child { margin-bottom: 0 !important; }
             }
           `}</style>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] print:rounded-none print:shadow-none print:max-w-full print:max-h-full">
@@ -1709,9 +1822,30 @@ const ClaimList = () => {
                 const recipient = c.tpa?.name
                   ? { label: 'TPA', name: c.tpa.name, address: c.tpa.address, mobile: c.tpa.mobile, key: `tpa:${c.tpa._id || c.tpa.id || c.tpa.name}` }
                   : { label: 'Insurance Company', name: c.insuranceCompany?.name, address: c.insuranceCompany?.address, mobile: c.insuranceCompany?.mobile, key: `ic:${c.insuranceCompany?._id || c.insuranceCompany?.id || c.insuranceCompany?.name || 'none'}` };
-                const sender = c.isDirectPatient
-                  ? { name: 'Direct Patient', address: '', phone: '', key: 'direct' }
-                  : { name: c.hospital?.name, address: c.hospital?.address, phone: c.hospital?.phone, key: `h:${c.hospital?._id || c.hospital?.id || c.hospital?.name || 'none'}` };
+                // Reimbursement claims are couriered by the patient (they paid
+                // and want money back), so the sender is the patient — same
+                // shape as Direct Patient. Hide claim numbers for these so the
+                // sticker stays patient-facing.
+                const senderIsPatient = c.isDirectPatient || c.claimType === 'reimbursement';
+                const sender = senderIsPatient
+                  ? {
+                      label: c.isDirectPatient ? 'Direct Patient' : 'Patient',
+                      name: c.patientName || 'Patient',
+                      address: c.patientAddress || '',
+                      phone: c.patientMobile || '',
+                      hideClaimNo: true,
+                      // Key by patient identity so two patients don't collapse
+                      // into a single sticker.
+                      key: `patient:${(c.patientName || '').trim().toLowerCase()}|${c.patientMobile || ''}|${(c.patientAddress || '').trim().toLowerCase()}`,
+                    }
+                  : {
+                      label: 'Hospital',
+                      name: c.hospital?.name,
+                      address: c.hospital?.address,
+                      phone: c.hospital?.phone,
+                      hideClaimNo: false,
+                      key: `h:${c.hospital?._id || c.hospital?.id || c.hospital?.name || 'none'}`,
+                    };
                 const groupKey = `${recipient.key}|${sender.key}`;
                 let g = byKey.get(groupKey);
                 if (!g) {
@@ -1758,34 +1892,40 @@ const ClaimList = () => {
                               <div className="border-t-2 border-dashed border-gray-400" />
 
                               <div>
-                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">FROM</p>
+                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
+                                  FROM{sender.label !== 'Hospital' ? ` · ${sender.label}` : ''}
+                                </p>
                                 <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
                                 {sender.address && (
                                   <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
                                 )}
                                 {sender.phone && (
-                                  <p className="mt-0.5 text-xs text-gray-600">M: {sender.phone}</p>
+                                  <p className="mt-0.5 text-xs text-gray-600"><span className="font-semibold">Mobile:</span> {sender.phone}</p>
                                 )}
                               </div>
 
-                              <div className="border-t-2 border-dashed border-gray-400" />
+                              {!sender.hideClaimNo && (
+                                <>
+                                  <div className="border-t-2 border-dashed border-gray-400" />
 
-                              <div>
-                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
-                                  CLAIM{claims.length > 1 ? `S · ${claims.length}` : ''}
-                                </p>
-                                <div className="divide-y divide-gray-200">
-                                  {claims.map((c, ci) => {
-                                    const claimNo = c.ccnNo || (c.monthClaimNo ? `M${c.monthClaimNo}` : (c._id?.slice(-8).toUpperCase() || ''));
-                                    return (
-                                      <div key={c._id} className={`grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 ${ci === 0 ? 'pt-0' : 'pt-1.5'} ${ci === claims.length - 1 ? 'pb-0' : 'pb-1.5'}`}>
-                                        <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {c.patientName || '—'}</p>
-                                        <p className="text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                                  <div>
+                                    <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
+                                      CLAIM{claims.length > 1 ? `S · ${claims.length}` : ''}
+                                    </p>
+                                    <div className="divide-y divide-gray-200">
+                                      {claims.map((c, ci) => {
+                                        const claimNo = c.ccnNo || (c.monthClaimNo ? `M${c.monthClaimNo}` : (c._id?.slice(-8).toUpperCase() || ''));
+                                        return (
+                                          <div key={c._id} className={`grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 ${ci === 0 ? 'pt-0' : 'pt-1.5'} ${ci === claims.length - 1 ? 'pb-0' : 'pb-1.5'}`}>
+                                            <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {c.patientName || '—'}</p>
+                                            <p className="text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
                         );

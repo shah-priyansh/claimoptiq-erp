@@ -6,8 +6,10 @@ import {
   HiOutlineArrowLeft, HiOutlineArrowRight, HiChevronDown, HiChevronRight,
 } from 'react-icons/hi';
 import {
-  previewBulkInvoiceAPI, getTdsRatesAPI, previewInvoicePdfAPI,
+  previewBulkInvoiceAPI, previewDirectPatientInvoiceAPI,
+  getTdsRatesAPI, getHospitalsAPI, previewInvoicePdfAPI,
 } from '../../services/api';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
   formatINR, monthLabel, computeTotals, commitDraft,
@@ -38,24 +40,45 @@ const draftFromPreview = (p) => ({
     roundOff: 0,
     discount: 0,
   },
-  approved: !p.existingInvoice,
+  // Direct-patient cards start unticked + with no lines/totals until the
+  // operator picks a target hospital. The drawer renders a chooser then
+  // POSTs /invoices/preview-direct-patient to fill in `editLines`, totals,
+  // etc., and flip `requiresHospitalPick: false`. `suggestedHospitalId`
+  // comes from the backend when every claim in the bucket already shares
+  // a hospitalId — the drawer auto-resolves with it.
+  isDirectPatient: !!p.isDirectPatient,
+  requiresHospitalPick: !!p.requiresHospitalPick,
+  suggestedHospitalId: p.suggestedHospitalId || null,
+  approved: !p.existingInvoice && !p.requiresHospitalPick,
   edited: false,
   status: 'pending',
   error: '',
   invoice: null,
 });
 
-const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
+const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGenerated }) => {
   const confirm = useConfirm();
 
   const [phase, setPhase] = useState('loading'); // loading | reviewing | generating | empty
   const [drafts, setDrafts] = useState([]);
   const [tdsRates, setTdsRates] = useState([]);
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
+  // Hospitals are only needed when the selection contains direct-patient
+  // claims, but loading them lazily would mean a second spinner mid-flow.
+  // The list is small (~few dozen rows) so we pre-load on first open.
+  const [hospitals, setHospitals] = useState([]);
+  const [loadingHospitals, setLoadingHospitals] = useState(true);
+  // Per-card spinner for the direct-patient preview fetch.
+  const [resolvingDirectIdx, setResolvingDirectIdx] = useState(null);
   const [skipped, setSkipped] = useState([]);
   const [skippedDismissed, setSkippedDismissed] = useState(false);
   const [expanded, setExpanded] = useState({}); // { [draftIdx]: bool }
   const [progress, setProgress] = useState(0);
+  // Snapshot of how many invoices the current generate run is committing.
+  // Without this the denominator would be `approvedDrafts.length`, which
+  // shrinks as drafts get marked status='success' — pushing the bar to
+  // "4 of 1 / 400%" mid-run.
+  const [progressTotal, setProgressTotal] = useState(0);
 
   // PDF preview modal state — same pattern as the legacy wizard.
   const [previewIdx, setPreviewIdx] = useState(null);
@@ -72,6 +95,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
     setSkippedDismissed(false);
     setExpanded({});
     setProgress(0);
+    setProgressTotal(0);
     setPreviewIdx(null);
     if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
     setPdfBlobUrl(null);
@@ -79,12 +103,19 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Load TDS rates once.
+  // Load TDS rates and hospitals once.
   useEffect(() => {
     getTdsRatesAPI({ active: 'true' })
       .then(({ data }) => setTdsRates(data || []))
       .catch(() => setTdsRates([]))
       .finally(() => setLoadingTdsRates(false));
+    getHospitalsAPI({ all: 'true', active: 'true' })
+      .then(({ data }) => {
+        const list = Array.isArray(data) ? data : data.hospitals;
+        setHospitals(list || []);
+      })
+      .catch(() => setHospitals([]))
+      .finally(() => setLoadingHospitals(false));
   }, []);
 
   // Fetch previews when the drawer opens with a non-empty claim list.
@@ -101,10 +132,32 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
           setPhase('empty');
           return;
         }
-        setDrafts(previews.map(draftFromPreview));
+        const initialDrafts = previews.map(draftFromPreview);
+        setDrafts(initialDrafts);
         setPhase('reviewing');
+        // If the caller passed a suggestedHospitalId (typically the Reports
+        // page's active hospital filter), auto-resolve every direct-patient
+        // card against it so the operator doesn't have to repeat the pick.
+        // Prefer the per-group suggestion the backend returned (when all
+        // claims in the bucket already share a hospitalId), and fall back
+        // to the page-level filter the caller passed in.
+        initialDrafts.forEach((d, idx) => {
+          if (!d.requiresHospitalPick) return;
+          const auto = d.suggestedHospitalId || suggestedHospitalId;
+          if (auto) pickDirectPatientHospital(idx, auto, d);
+        });
       } catch (e) {
         if (cancelled) return;
+        // The backend returns 400 + { skipped: [...] } when every selected
+        // claim is unbillable (rejected, cancelled, already billed, missing
+        // discharge date). Surface those reasons in the empty phase instead
+        // of closing the drawer with a generic toast.
+        const errSkipped = e.response?.data?.skipped;
+        if (Array.isArray(errSkipped) && errSkipped.length) {
+          setSkipped(errSkipped);
+          setPhase('empty');
+          return;
+        }
         const baseMsg = e.response?.data?.message || 'Failed to load previews';
         toast.error(baseMsg);
         onClose();
@@ -115,7 +168,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
   }, [open, claimIds]);
 
   const approvedDrafts = useMemo(
-    () => drafts.filter((d) => d.approved && d.status !== 'success'),
+    () => drafts.filter((d) => d.approved && d.status !== 'success' && !d.requiresHospitalPick),
     [drafts],
   );
   const approvedTotal = useMemo(() => approvedDrafts.reduce((s, d) => {
@@ -142,6 +195,49 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
   const toggleApproved = (idx) =>
     updateDraft(idx, { approved: !drafts[idx].approved });
 
+  // Operator picked a target hospital for a direct-patient card. Fetch the
+  // real preview lines/totals from the backend and merge them into the draft.
+  // Auto-approves the card on success so it's queued for the batch generate.
+  // Accepts an optional `draftOverride` for the auto-resolve flow that fires
+  // right after `setDrafts(initialDrafts)` — at that moment the `drafts`
+  // closure still sees the old (empty) array.
+  const pickDirectPatientHospital = async (idx, hospitalId, draftOverride) => {
+    if (!hospitalId) return;
+    const draft = draftOverride || drafts[idx];
+    if (!draft) return;
+    setResolvingDirectIdx(idx);
+    try {
+      const monthIso = new Date(draft.month).toISOString().slice(0, 10);
+      const monthArg = monthIso.slice(0, 7) + '-01';
+      const { data } = await previewDirectPatientInvoiceAPI({
+        hospitalId,
+        month: monthArg,
+        claimIds: draft.claimIds,
+      });
+      updateDraft(idx, {
+        hospitalId: data.hospitalId,
+        hospital: data.hospital,
+        previewTotals: data.totals,
+        previewLines: data.lines || [],
+        editLines: (data.lines || []).map((l) => ({
+          description: l.description || '',
+          amount: l.amount,
+          lineType: l.lineType,
+          _isManual: false,
+        })),
+        settings: { ...draft.settings, gstRate: String(data.totals?.gstRate ?? 0) },
+        requiresHospitalPick: false,
+        approved: true,
+        edited: false,
+        error: '',
+      });
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to load direct-patient preview');
+    } finally {
+      setResolvingDirectIdx(null);
+    }
+  };
+
   const handleClose = async () => {
     if (phase === 'generating') return;
     if (hasEdits && phase === 'reviewing') {
@@ -165,12 +261,15 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
     }
     setPhase('generating');
     setProgress(0);
+    setProgressTotal(targets.length);
     let allOk = true;
     const results = [];
     for (let i = 0; i < targets.length; i++) {
       const { d, idx } = targets[i];
       try {
-        const inv = await commitDraft(d);
+        // autoIssue: bulk generate goes straight to "issued" so operators
+        // don't have to open each draft afterward and click Issue.
+        const inv = await commitDraft(d, { autoIssue: true });
         updateDraft(idx, { status: 'success', invoice: inv, error: '' });
         results.push({ ok: true, invoice: inv });
       } catch (e) {
@@ -279,11 +378,22 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
                     ? 'Nothing to bill'
                     : 'Loading previews…'}
             </h2>
-            {phase === 'reviewing' && drafts.length > 0 && (
-              <p className="text-xs text-gray-500 mt-0.5">
-                {drafts.length} hospital{drafts.length === 1 ? '' : 's'} • tick to include, expand to edit
-              </p>
-            )}
+            {phase === 'reviewing' && drafts.length > 0 && (() => {
+              const distinctHospitals = new Set(drafts.map((d) => d.hospitalId || 'direct')).size;
+              const created = drafts.filter((d) => d.status === 'success').length;
+              const failed = drafts.filter((d) => d.status === 'failed').length;
+              const pending = drafts.length - created - failed;
+              const parts = [];
+              parts.push(`${pending} pending`);
+              if (created) parts.push(`${created} created`);
+              if (failed) parts.push(`${failed} failed`);
+              parts.push(`across ${distinctHospitals} hospital${distinctHospitals === 1 ? '' : 's'}`);
+              return (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {parts.join(' · ')} • tick to include, expand to edit
+                </p>
+              );
+            })()}
           </div>
           <button
             onClick={handleClose}
@@ -302,12 +412,34 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
           )}
 
           {phase === 'empty' && (
-            <div className="py-12 text-center">
-              <p className="text-gray-700 font-medium">No billable invoices.</p>
-              <p className="text-sm text-gray-500 mt-1">
-                All {skipped.length} selected claim{skipped.length === 1 ? ' was' : 's were'} skipped
-                (rejected, cancelled, already billed, or missing a discharge date).
-              </p>
+            <div className="py-8">
+              <div className="text-center mb-5">
+                <p className="text-gray-800 font-semibold">No billable invoices.</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  All {skipped.length} selected claim{skipped.length === 1 ? ' was' : 's were'} skipped.
+                  Fix the issues below and try again.
+                </p>
+              </div>
+              <div className="border border-amber-200 bg-amber-50/40 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-amber-100/60 text-amber-900">
+                    <tr>
+                      <th className="text-left py-2 px-3 text-xs font-semibold uppercase">SR</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold uppercase">Patient</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold uppercase">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-amber-100">
+                    {skipped.map((s, i) => (
+                      <tr key={s.id || i} className="hover:bg-amber-50">
+                        <td className="py-2 px-3 text-amber-900 tabular-nums">{s.srNo || '-'}</td>
+                        <td className="py-2 px-3 text-amber-900">{s.patientName || '-'}</td>
+                        <td className="py-2 px-3 text-amber-800 capitalize">{s.reason || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -339,15 +471,15 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
               {phase === 'generating' && (
                 <div className="mb-4">
                   <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>{progress} of {approvedDrafts.length}</span>
+                    <span>{progress} of {progressTotal}</span>
                     <span>
-                      {approvedDrafts.length ? Math.round((progress / approvedDrafts.length) * 100) : 0}%
+                      {progressTotal ? Math.round((progress / progressTotal) * 100) : 0}%
                     </span>
                   </div>
                   <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary-600 transition-all"
-                      style={{ width: `${approvedDrafts.length ? (progress / approvedDrafts.length) * 100 : 0}%` }}
+                      style={{ width: `${progressTotal ? (progress / progressTotal) * 100 : 0}%` }}
                     />
                   </div>
                 </div>
@@ -361,12 +493,19 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
                   const isExpanded = !!expanded[idx];
                   const claimCount = d.claimIds.length;
                   const disabled = phase === 'generating' || d.status === 'success';
+                  const needsPick = d.isDirectPatient && d.requiresHospitalPick;
+                  const cardLabel = d.isDirectPatient
+                    ? (d.hospital?.name
+                        ? `${d.hospital.name} (Direct Patients)`
+                        : 'Direct Patients')
+                    : (d.hospital?.name || '-');
                   return (
                     <div
-                      key={`${d.hospitalId}-${d.month}-${idx}`}
+                      key={`${d.hospitalId || 'direct'}-${d.month}-${idx}`}
                       className={`rounded-xl border ${
                         d.status === 'success' ? 'border-green-200 bg-green-50/30' :
                         d.status === 'failed' ? 'border-red-200 bg-red-50/30' :
+                        needsPick ? 'border-purple-200 bg-purple-50/30' :
                         d.approved ? 'border-primary-200 bg-white' :
                         'border-gray-200 bg-gray-50/40'
                       }`}
@@ -376,13 +515,17 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
                           type="checkbox"
                           checked={d.approved}
                           onChange={() => toggleApproved(idx)}
-                          disabled={disabled}
+                          disabled={disabled || needsPick}
+                          title={needsPick ? 'Pick a target hospital first' : ''}
                           className="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-semibold text-gray-900 truncate">{d.hospital?.name || '-'}</h3>
+                            <h3 className="font-semibold text-gray-900 truncate">{cardLabel}</h3>
                             <span className="text-sm text-gray-500">— {monthLabel(d.month)}</span>
+                            {d.isDirectPatient && (
+                              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">direct patient</span>
+                            )}
                             {d.edited && d.status === 'pending' && (
                               <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">edited</span>
                             )}
@@ -420,17 +563,17 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             onClick={() => openPreviewAt(idx)}
-                            disabled={disabled}
+                            disabled={disabled || needsPick}
                             className="p-1.5 text-gray-500 hover:text-primary-700 hover:bg-primary-50 rounded-lg disabled:opacity-40"
-                            title="Preview PDF"
+                            title={needsPick ? 'Pick a target hospital first' : 'Preview PDF'}
                           >
                             <HiOutlineEye className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => toggleExpanded(idx)}
-                            disabled={disabled}
+                            disabled={disabled || needsPick}
                             className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg disabled:opacity-40"
-                            title={isExpanded ? 'Collapse' : 'Edit'}
+                            title={needsPick ? 'Pick a target hospital first' : (isExpanded ? 'Collapse' : 'Edit')}
                           >
                             {isExpanded
                               ? <HiChevronDown className="w-4 h-4" />
@@ -439,7 +582,30 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
                         </div>
                       </div>
 
-                      {isExpanded && (
+                      {needsPick && (
+                        <div className="border-t border-purple-100 px-4 py-3 bg-purple-50/30">
+                          <label className="block text-xs font-semibold text-purple-900 uppercase tracking-wide mb-1.5">
+                            Bill these direct-patient claims under
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <SearchableSelect
+                                isLoading={loadingHospitals || resolvingDirectIdx === idx}
+                                value={d.hospitalId || ''}
+                                onChange={(val) => pickDirectPatientHospital(idx, val)}
+                                placeholder="Select hospital"
+                                searchPlaceholder="Search hospitals..."
+                                options={hospitals.map((h) => ({ value: h._id, label: h.name }))}
+                              />
+                            </div>
+                            {resolvingDirectIdx === idx && (
+                              <span className="text-xs text-purple-700">Loading preview…</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {isExpanded && !needsPick && (
                         <div className="border-t border-gray-100 px-4 pt-4 pb-4">
                           <BulkInvoiceDraftEditor
                             draft={d}
@@ -487,7 +653,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
                     className="px-4 py-2.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium"
                   >
                     {phase === 'generating'
-                      ? `Generating ${progress}/${approvedDrafts.length}…`
+                      ? `Generating ${progress}/${progressTotal}…`
                       : `Generate ${approvedDrafts.length} Invoice${approvedDrafts.length === 1 ? '' : 's'}`}
                   </button>
                 </div>

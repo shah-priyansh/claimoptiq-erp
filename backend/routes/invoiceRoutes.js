@@ -5,13 +5,16 @@ const { protect, checkPermission } = require('../middleware/auth');
 
 router.use(protect);
 
+router.get('/open-hospitals', checkPermission('invoices', 'view'), ctrl.openHospitals);
 router.post('/preview', checkPermission('invoices', 'view'), ctrl.preview);
 router.post('/preview-bulk', checkPermission('invoices', 'view'), ctrl.previewBulk);
+router.post('/preview-direct-patient', checkPermission('invoices', 'view'), ctrl.previewDirectPatient);
 router.post('/preview-pdf', checkPermission('invoices', 'view'), ctrl.previewPdf);
 
 router.route('/')
   .get(checkPermission('invoices', 'view'), ctrl.list)
-  .post(checkPermission('invoices', 'create'), ctrl.create);
+  .post(checkPermission('invoices', 'create'), ctrl.create)
+  .delete(checkPermission('invoices', 'delete'), ctrl.removeAll);
 
 router.route('/:id')
   .get(checkPermission('invoices', 'view'), ctrl.getOne)
