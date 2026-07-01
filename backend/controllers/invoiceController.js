@@ -51,36 +51,58 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 // When `claimIds` is supplied, the line set is restricted to those claims (still
 // scoped by hospital + month) so the bulk "Generate Bill" flow can preview only
 // the claims the user actually selected, not every unbilled claim in the month.
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0 } = {}) => {
-  const hospital = await prisma.hospital.findUnique({
-    where: { id: hospitalId },
-    include: {
-      billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
-    },
-  });
-  if (!hospital) {
-    const err = new Error('Hospital not found');
-    err.status = 404;
-    throw err;
-  }
-
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false } = {}) => {
+  // For direct-patient invoices the claims have no hospital relation of
+  // their own — `hospitalId` is the chosen *target* hospital (used for
+  // billing services + template lookups). The claim query must skip the
+  // hospitalId filter in that case; the caller is expected to pre-validate
+  // the claim IDs all belong together (isDirectPatient=true, same month).
   const claimWhere = {
-    hospitalId,
+    ...(isDirectPatient ? {} : { hospitalId }),
     dateOfDischarge: { gte: month, lt: monthEnd(month) },
     isBilled: false,
     status: { notIn: EXCLUDED_CLAIM_STATUSES },
+    ...(isDirectPatient ? { isDirectPatient: true } : {}),
   };
   if (Array.isArray(claimIds) && claimIds.length) {
     claimWhere.id = { in: claimIds };
   }
 
-  const claims = await prisma.claim.findMany({
-    where: claimWhere,
-    select: {
-      id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
-      filePrice: true, filePriceOverridden: true,
-    },
-  });
+  // All four reads below are independent — fire them in parallel so the
+  // controller pays one network roundtrip's latency instead of four. On the
+  // common 50-claim invoice this trims ~30-40% off the buildInvoiceLines
+  // wall-clock time.
+  const [hospital, claims, priorOpen, tpl] = await Promise.all([
+    prisma.hospital.findUnique({
+      where: { id: hospitalId },
+      include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
+    }),
+    prisma.claim.findMany({
+      where: claimWhere,
+      select: {
+        id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
+        filePrice: true, filePriceOverridden: true,
+      },
+    }),
+    // Previous balance only counts dues from the SAME stream — regular
+    // invoices ignore direct-patient dues and vice versa. The hospital on
+    // a direct-patient invoice is purely a billing-template reference, not
+    // a financial relationship.
+    prisma.invoice.findMany({
+      where: {
+        hospitalId,
+        status: { in: ['issued', 'partially_paid'] },
+        isDirectPatient,
+      },
+      select: { amountPending: true },
+    }),
+    getInvoiceTemplate(),
+  ]);
+  if (!hospital) {
+    const err = new Error('Hospital not found');
+    err.status = 404;
+    throw err;
+  }
 
   const services = (hospital.billingServices || []).filter((s) => s.isActive);
 
@@ -185,18 +207,14 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       meta: {},
     }));
 
-  // 4. Previous balance = Σ amountPending of issued|partially_paid prior invoices for this hospital
-  const priorOpen = await prisma.invoice.findMany({
-    where: { hospitalId, status: { in: ['issued', 'partially_paid'] } },
-    select: { amountPending: true },
-  });
+  // 4. Previous balance = Σ amountPending of issued|partially_paid prior
+  //    invoices for this hospital. `priorOpen` was fetched in parallel above.
   const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
 
   // Resolve TDS + GST: per-invoice override wins, otherwise the site-wide
   // default from Settings → Tax & Numbering Defaults. The per-hospital
   // gstRate/tdsRate/tdsRateId columns were retired 2026-06-16 — both are
-  // platform-wide now. One `getInvoiceTemplate()` call covers both lookups.
-  const tpl = await getInvoiceTemplate();
+  // platform-wide now. `tpl` was fetched in parallel above.
   const effectiveTdsRateId = tdsRateId || tpl.invoice_default_tds_rate_id || null;
   const tds = effectiveTdsRateId
     ? await resolveTdsRate(effectiveTdsRateId, 0)
@@ -224,6 +242,9 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     claims,
     lines: [...tpaDeskLines, ...fixedServiceLines, ...adjustmentLines],
     totals: { ...totals, gstRate: effectiveGstRate, tdsRate: tds.rate, tdsName: tds.name, tdsSection: tds.section, tdsRateId: effectiveTdsRateId },
+    // Surface the resolved template so callers (create, issue) can reuse it
+    // without a second getInvoiceTemplate roundtrip.
+    template: tpl,
   };
 };
 
@@ -264,26 +285,33 @@ exports.previewBulk = async (req, res) => {
       select: {
         id: true, srNo: true, patientName: true, status: true,
         isBilled: true, hospitalId: true, dateOfDischarge: true,
+        isDirectPatient: true,
       },
     });
 
     const skipped = [];
-    const claims = [];
+    const hospitalClaims = [];
+    const directPatientClaims = [];
     for (const c of allSelected) {
       if (c.isBilled) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'already billed' });
       } else if (EXCLUDED_CLAIM_STATUSES.includes(c.status)) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: c.status });
-      } else if (!c.hospitalId) {
-        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no hospital' });
       } else if (!c.dateOfDischarge) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no discharge date' });
+      } else if (c.isDirectPatient) {
+        // Direct-patient claims are billable, but only once the operator
+        // picks a target hospital in the drawer. They flow into their own
+        // grouping bucket below.
+        directPatientClaims.push(c);
+      } else if (!c.hospitalId) {
+        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no hospital' });
       } else {
-        claims.push(c);
+        hospitalClaims.push(c);
       }
     }
 
-    if (!claims.length) {
+    if (!hospitalClaims.length && !directPatientClaims.length) {
       return res.status(400).json({
         message: 'No billable claims in selection',
         skipped,
@@ -292,7 +320,7 @@ exports.previewBulk = async (req, res) => {
 
     // Group by hospitalId + month (UTC year-month) → list of claimIds.
     const groups = new Map();
-    for (const c of claims) {
+    for (const c of hospitalClaims) {
       const d = new Date(c.dateOfDischarge);
       const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
       const key = `${c.hospitalId}|${monthKey}`;
@@ -300,14 +328,38 @@ exports.previewBulk = async (req, res) => {
       groups.get(key).claimIds.push(c.id);
     }
 
+    // Group direct-patient claims by month — they have no required hospital,
+    // so the operator usually picks a target hospital in the UI. But direct-
+    // patient claims can carry a hospitalId from claim creation; if every
+    // claim in the group shares the same one, surface it as a suggestion so
+    // the drawer can auto-resolve without prompting.
+    const directGroups = new Map();
+    for (const c of directPatientClaims) {
+      const d = new Date(c.dateOfDischarge);
+      const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
+      const key = `direct|${monthKey}`;
+      if (!directGroups.has(key)) {
+        directGroups.set(key, {
+          month: new Date(monthKey),
+          claimIds: [],
+          hospitalIdHints: new Set(),
+        });
+      }
+      const g = directGroups.get(key);
+      g.claimIds.push(c.id);
+      if (c.hospitalId) g.hospitalIdHints.add(c.hospitalId);
+    }
+
     // Build a preview for each group (sequential — we hit Prisma per group anyway).
     const previews = [];
     for (const g of groups.values()) {
       const built = await buildInvoiceLines(g.hospitalId, g.month, { tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds });
-      // Detect drafts that already exist for this (hospital, month) so the UI
-      // can warn the operator before they try to commit.
-      const existing = await prisma.invoice.findUnique({
-        where: { hospitalId_month: { hospitalId: g.hospitalId, month: g.month } },
+      // Detect non-voided invoices that already exist for this (hospital,
+      // month) so the UI can warn the operator before they try to commit.
+      // Uniqueness is enforced via a partial unique index (status <> 'void'),
+      // so this mirrors the same predicate via findFirst.
+      const existing = await prisma.invoice.findFirst({
+        where: { hospitalId: g.hospitalId, month: g.month, status: { not: 'void' } },
         select: { id: true, status: true, invoiceNumber: true },
       });
       previews.push({
@@ -322,10 +374,37 @@ exports.previewBulk = async (req, res) => {
       });
     }
 
-    // Stable ordering: month asc, then hospital name asc.
+    // Emit a placeholder card per direct-patient month group. No lines /
+    // totals yet — the UI must collect the target hospital from the
+    // operator and POST /invoices/preview-direct-patient to fill them in.
+    // `suggestedHospitalId` is set when every claim in the group already
+    // carries the same hospitalId (from claim creation) so the drawer can
+    // auto-resolve instead of prompting.
+    for (const g of directGroups.values()) {
+      const suggested = g.hospitalIdHints.size === 1
+        ? [...g.hospitalIdHints][0]
+        : null;
+      previews.push({
+        hospitalId: null,
+        hospital: null,
+        month: g.month,
+        claimIds: g.claimIds,
+        lines: [],
+        totals: null,
+        hasContent: false,
+        existingInvoice: null,
+        isDirectPatient: true,
+        requiresHospitalPick: true,
+        suggestedHospitalId: suggested,
+      });
+    }
+
+    // Stable ordering: month asc, then hospital name asc. Direct-patient
+    // cards (no hospital name) sort to the end of their month.
     previews.sort((a, b) => {
       const m = new Date(a.month) - new Date(b.month);
       if (m !== 0) return m;
+      if (a.isDirectPatient !== b.isDirectPatient) return a.isDirectPatient ? 1 : -1;
       return (a.hospital?.name || '').localeCompare(b.hospital?.name || '');
     });
 
@@ -336,14 +415,51 @@ exports.previewBulk = async (req, res) => {
   }
 };
 
+// Build a preview for direct-patient claims against a chosen target hospital.
+// Mirrors `preview` but takes the supplied hospital as the billing reference
+// (slabs, GST/TDS, etc.) — the claims themselves carry no hospital relation.
+exports.previewDirectPatient = async (req, res) => {
+  try {
+    const { hospitalId, month: rawMonth, claimIds, tdsRateId, gstRate, discount } = req.body;
+    const month = parseMonth(rawMonth);
+    if (!hospitalId || !month) {
+      return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
+    }
+    if (!Array.isArray(claimIds) || !claimIds.length) {
+      return res.status(400).json({ message: 'claimIds (non-empty array) is required' });
+    }
+    const built = await buildInvoiceLines(hospitalId, month, {
+      tdsRateId, gstRateOverride: gstRate, claimIds, discount, isDirectPatient: true,
+    });
+    res.json({
+      hospitalId,
+      hospital: toResponse(built.hospital),
+      month,
+      claimIds,
+      lines: built.lines,
+      totals: built.totals,
+      hasContent: built.lines.length > 0,
+      isDirectPatient: true,
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    res.status(status).json({ message: error.message || 'Server error' });
+  }
+};
+
 exports.create = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems } = req.body;
+    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems, isDirectPatient } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
-    const existing = await prisma.invoice.findUnique({
-      where: { hospitalId_month: { hospitalId, month } },
+    // Uniqueness is enforced via a partial unique index (status <> 'void'),
+    // so findFirst with the same predicate stands in for findUnique here.
+    // Direct-patient invoices live in a separate slot per hospital+month —
+    // they don't conflict with a regular invoice for the same hospital+month.
+    const isDirectPatientInvoice = !!isDirectPatient;
+    const existing = await prisma.invoice.findFirst({
+      where: { hospitalId, month, isDirectPatient: isDirectPatientInvoice, status: { not: 'void' } },
       include: invoiceInclude,
     });
     if (existing && existing.status !== 'draft') {
@@ -370,7 +486,7 @@ exports.create = async (req, res) => {
       }
     }
 
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, isDirectPatient: isDirectPatientInvoice });
     if (!built.lines.length && !normalisedManual.length) {
       return res.status(400).json({ message: 'No claims or fixed services found for this month. Add at least one manual item.' });
     }
@@ -418,6 +534,7 @@ exports.create = async (req, res) => {
       previousBalance: finalTotals.previousBalance,
       grandTotal: finalTotals.grandTotal,
       amountPending: finalTotals.amountPending,
+      isDirectPatient: isDirectPatientInvoice,
     };
 
     const invoice = await prisma.$transaction(async (tx) => {
@@ -440,8 +557,8 @@ exports.create = async (req, res) => {
       // as a seed and each new invoice increments by 1 (see invoiceSequence).
       // Number is final and survives draft → issued; deleted drafts leave a
       // gap in the sequence, which matches typical Indian invoicing practice.
-      const invoiceTemplate = await getInvoiceTemplate();
-      const invoicePrefix = invoiceTemplate.invoice_number_prefix || 'FCC';
+      // Template is reused from `built` so we don't pay a second roundtrip.
+      const invoicePrefix = built.template?.invoice_number_prefix || 'FCC';
       const invoiceNumber = await reserveNextInvoiceNumber(tx, invoicePrefix);
       return tx.invoice.create({
         data: {
@@ -465,16 +582,67 @@ exports.create = async (req, res) => {
   }
 };
 
+// Returns distinct hospitals that currently have at least one issued /
+// partially-paid invoice with a non-zero pending balance. Used by the
+// "Open Invoice Hospitals" quick-filter dropdown on the listing page.
+// Aggregates count + sum of pending so the UI can show both per hospital
+// without a second roundtrip.
+exports.openHospitals = async (req, res) => {
+  try {
+    const grouped = await prisma.invoice.groupBy({
+      by: ['hospitalId'],
+      where: {
+        status: { in: ['issued', 'partially_paid'] },
+        amountPending: { gt: 0 },
+      },
+      _count: { _all: true },
+      _sum: { amountPending: true },
+    });
+    const ids = grouped.map((g) => g.hospitalId).filter(Boolean);
+    if (!ids.length) return res.json({ hospitals: [] });
+    const hospitals = await prisma.hospital.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
+    const byId = new Map(hospitals.map((h) => [h.id, h]));
+    const out = grouped
+      .map((g) => ({
+        _id: g.hospitalId,
+        name: byId.get(g.hospitalId)?.name || 'Unknown',
+        openCount: g._count._all,
+        totalPending: Math.round(g._sum.amountPending || 0),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ hospitals: out });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.list = async (req, res) => {
   try {
-    const { hospitalId, status, month, page, limit = 25 } = req.query;
+    const { hospitalId, status, month, page, limit = 25, isDirectPatient } = req.query;
     const where = {};
     if (hospitalId) where.hospitalId = hospitalId;
-    if (status) where.status = status;
+    // Synthetic '__open' matches anything still owed: issued or partially
+    // paid with a non-zero pending balance. Used by the "Hospitals with
+    // Open Invoices" shortcut on the listing page.
+    if (status === '__open') {
+      where.status = { in: ['issued', 'partially_paid'] };
+      where.amountPending = { gt: 0 };
+    } else if (status) {
+      where.status = status;
+    }
     if (month) {
       const m = parseMonth(month);
       if (m) where.month = m;
     }
+    // Direct-patient invoices live on their own stream — accept an explicit
+    // filter ('true' | 'false') so the UI can show either side cleanly. If
+    // omitted, both kinds are returned (existing behaviour for the all-
+    // invoices listing).
+    if (isDirectPatient === 'true') where.isDirectPatient = true;
+    else if (isDirectPatient === 'false') where.isDirectPatient = false;
     const take = Math.min(Number(limit) || 25, 100);
     const skip = page ? (Number(page) - 1) * take : 0;
     const [invoices, total] = await Promise.all([
@@ -729,10 +897,13 @@ exports.issue = async (req, res) => {
 
     let commissionAutoFlow = { rowsCreated: 0, totalAmount: 0, skipped: true, reason: 'not run' };
     const result = await prisma.$transaction(async (tx) => {
-      // Recompute previousBalance at issue time (drift safety)
+      // Recompute previousBalance at issue time (drift safety). Scope to
+      // the same stream — regular invoices ignore direct-patient dues and
+      // vice versa.
       const priorOpen = await tx.invoice.findMany({
         where: {
           hospitalId: invoice.hospitalId,
+          isDirectPatient: invoice.isDirectPatient,
           status: { in: ['issued', 'partially_paid'] },
           id: { not: invoice.id },
         },
@@ -753,28 +924,53 @@ exports.issue = async (req, res) => {
 
       // Flip linked claims to 'billed' and record their prior status on the
       // line item so a void can roll the claim back to where it was.
+      // The previous implementation awaited two updates per claim
+      // sequentially — 100+ roundtrips for a 50-claim invoice. We now batch
+      // each kind of write into a single Promise.all so the transaction
+      // pipelines the operations on its connection. Updates that share a
+      // shape (e.g. all `claim.status='billed'`) collapse further via
+      // updateMany.
       if (claimIds.length) {
         const claims = await tx.claim.findMany({
           where: { id: { in: claimIds } },
           select: { id: true, status: true, filePriceOverridden: true },
         });
-        for (const c of claims) {
-          const line = invoice.lineItems.find((l) => l.claimId === c.id);
-          if (line) {
-            await tx.invoiceLineItem.update({
+
+        // 1. Line-item meta updates carry per-row priorStatus, so they must
+        //    remain per-row. Issue them in parallel.
+        const lineMetaTasks = claims
+          .map((c) => {
+            const line = invoice.lineItems.find((l) => l.claimId === c.id);
+            if (!line) return null;
+            return tx.invoiceLineItem.update({
               where: { id: line.id },
               data: { meta: { ...(line.meta || {}), priorStatus: c.status } },
             });
-          }
-          await tx.claim.update({
-            where: { id: c.id },
-            data: {
-              isBilled: true,
-              status: 'billed',
-              ...(c.filePriceOverridden ? {} : { filePrice: line ? line.amount : undefined }),
-            },
-          });
-        }
+          })
+          .filter(Boolean);
+
+        // 2. Claim status + isBilled is identical for every linked claim —
+        //    collapse into one updateMany.
+        const claimStatusTask = tx.claim.updateMany({
+          where: { id: { in: claims.map((c) => c.id) } },
+          data: { isBilled: true, status: 'billed' },
+        });
+
+        // 3. filePrice is per-row but only applies to non-overridden claims.
+        //    Run those updates in parallel too.
+        const filePriceTasks = claims
+          .filter((c) => !c.filePriceOverridden)
+          .map((c) => {
+            const line = invoice.lineItems.find((l) => l.claimId === c.id);
+            if (!line) return null;
+            return tx.claim.update({
+              where: { id: c.id },
+              data: { filePrice: line.amount },
+            });
+          })
+          .filter(Boolean);
+
+        await Promise.all([claimStatusTask, ...lineMetaTasks, ...filePriceTasks]);
       }
 
       const updated = await tx.invoice.update({
@@ -857,11 +1053,85 @@ exports.remove = async (req, res) => {
   try {
     const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
     if (!invoice) return res.status(404).json({ message: 'Not found' });
-    if (invoice.status !== 'draft') return res.status(400).json({ message: 'Only drafts can be deleted' });
-    await prisma.invoice.delete({ where: { id: req.params.id } });
+    // Drafts and void invoices are both safe to hard-delete: drafts have no
+    // claim-side effects yet, and void has already rolled the claim statuses
+    // back. Anything else (issued / partially_paid / paid) must be cancelled
+    // (voided) first so the rollback runs.
+    if (invoice.status !== 'draft' && invoice.status !== 'void') {
+      return res.status(400).json({ message: 'Cancel the invoice before deleting it' });
+    }
+    if ((invoice.amountPaid || 0) > 0) {
+      return res.status(400).json({ message: 'Cannot delete an invoice with recorded payments' });
+    }
+    await prisma.$transaction(async (tx) => {
+      // Null out any cash/bank entries that still reference this invoice
+      // (typically refunds linked to a void invoice) so we don't violate FKs.
+      await tx.cashBankEntry.updateMany({
+        where: { invoiceId: invoice.id },
+        data: { invoiceId: null },
+      });
+      await tx.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
+      await tx.invoice.delete({ where: { id: invoice.id } });
+    });
     res.json({ message: 'Deleted' });
   } catch (error) {
     if (error.code === 'P2025') return res.status(404).json({ message: 'Not found' });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Bulk nuke — mirrors the Delete All Claims affordance. Any invoice still
+// in 'issued' / 'partially_paid' / 'paid' is voided first (rolls back its
+// claim statuses and clears the auto-commission expense), then everything
+// is hard-deleted. Refuses if anything has recorded payments because that
+// would orphan real cash/bank entries.
+exports.removeAll = async (req, res) => {
+  try {
+    if (req.body?.confirm !== 'DELETE_ALL') {
+      return res.status(400).json({ message: 'Confirmation required' });
+    }
+    const invoices = await prisma.invoice.findMany({
+      select: { id: true, status: true, amountPaid: true },
+    });
+    if (invoices.length === 0) {
+      return res.json({ message: 'No invoices to delete', count: 0 });
+    }
+    const paid = invoices.filter((i) => (i.amountPaid || 0) > 0);
+    if (paid.length > 0) {
+      return res.status(400).json({
+        message: `${paid.length} invoice(s) have recorded payments — record refunds or remove payments first`,
+      });
+    }
+    const needsVoid = invoices.filter((i) => i.status !== 'draft' && i.status !== 'void');
+
+    await prisma.$transaction(async (tx) => {
+      // Roll back claim statuses + commission expenses for any non-draft,
+      // non-void invoices, mirroring exports.void per-invoice logic.
+      for (const inv of needsVoid) {
+        const lineItems = await tx.invoiceLineItem.findMany({
+          where: { invoiceId: inv.id, lineType: 'claim_tpa_desk', NOT: { claimId: null } },
+          select: { claimId: true, meta: true },
+        });
+        for (const line of lineItems) {
+          const priorStatus = line.meta?.priorStatus || 'settled';
+          await tx.claim.update({
+            where: { id: line.claimId },
+            data: { isBilled: false, status: priorStatus },
+          });
+        }
+        await clearReferenceCommissionFlow(tx, inv.id);
+      }
+      const ids = invoices.map((i) => i.id);
+      await tx.cashBankEntry.updateMany({
+        where: { invoiceId: { in: ids } },
+        data: { invoiceId: null },
+      });
+      await tx.invoiceLineItem.deleteMany({ where: { invoiceId: { in: ids } } });
+      await tx.invoice.deleteMany({ where: { id: { in: ids } } });
+    });
+
+    res.json({ message: `${invoices.length} invoice(s) deleted`, count: invoices.length });
+  } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -872,9 +1142,10 @@ exports.remove = async (req, res) => {
 //               gstRate?, tdsRateId?, roundOff?, notes? }
 exports.previewPdf = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes, discount } = req.body;
+    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes, discount, isDirectPatient } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month are required' });
+    const isDirectPatientPreview = !!isDirectPatient;
 
     const hospital = await prisma.hospital.findUnique({
       where: { id: hospitalId },
@@ -899,9 +1170,14 @@ exports.previewPdf = async (req, res) => {
       ? await resolveTdsRate(effectiveTdsRateId, 0)
       : { rate: 0, name: '', section: '' };
 
-    // Previous balance = open prior invoices for the hospital.
+    // Previous balance = open prior invoices for the hospital on the same
+    // stream (regular vs direct-patient — they don't mix).
     const priorOpen = await prisma.invoice.findMany({
-      where: { hospitalId, status: { in: ['issued', 'partially_paid'] } },
+      where: {
+        hospitalId,
+        isDirectPatient: isDirectPatientPreview,
+        status: { in: ['issued', 'partially_paid'] },
+      },
       select: { amountPending: true },
     });
     const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);

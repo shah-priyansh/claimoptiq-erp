@@ -337,3 +337,21 @@ exports.deleteHospital = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+// Bulk soft-delete every active hospital. Hard-delete would break the FK from
+// claims/invoices/users that reference hospitals, so this mirrors the
+// single-hospital delete (isActive=false) but applied across the board.
+exports.deleteAllHospitals = async (req, res) => {
+  try {
+    if (req.body?.confirm !== 'DELETE_ALL') {
+      return res.status(400).json({ message: 'Confirmation required' });
+    }
+    const result = await prisma.hospital.updateMany({
+      where: { isActive: true },
+      data: { isActive: false },
+    });
+    res.json({ message: `${result.count} hospital(s) deactivated`, count: result.count });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};

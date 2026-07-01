@@ -11,6 +11,20 @@ const formatMonth = (d) => {
   return dt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 };
 
+// Per-invoice "own" pending — excludes the previousBalance that gets baked
+// into amountPending at issue time. Using amountPending here would double-
+// count older invoices once the operator selects them together (the older
+// invoice's pending sits both in its own row AND inside the newer invoice's
+// previousBalance carry-forward).
+const ownPending = (inv) => {
+  if (!inv) return 0;
+  const netTotal = inv.netTotal != null
+    ? Number(inv.netTotal)
+    : (Number(inv.grandTotal || 0) - Number(inv.previousBalance || 0));
+  const paid = Number(inv.amountPaid || 0);
+  return Math.max(0, Math.round(netTotal - paid));
+};
+
 // Receives one payment from a hospital and splits it across several of that
 // hospital's invoices. Each invoice gets its own cash/bank entry on the
 // backend so paid-status rollup stays per-invoice.
@@ -39,7 +53,7 @@ const BulkReceivePaymentModal = ({ open, invoices, bankAccounts, onClose, onSave
       invoices.map((inv) => ({
         invoiceId: inv._id,
         invoice: inv,
-        amount: Math.max(0, Math.round(inv.amountPending || 0)),
+        amount: ownPending(inv),
       })),
     );
   }, [open, invoices]);
@@ -62,7 +76,7 @@ const BulkReceivePaymentModal = ({ open, invoices, bankAccounts, onClose, onSave
     [allocations],
   );
   const totalPending = useMemo(
-    () => invoices.reduce((s, inv) => s + Math.max(0, Math.round(inv.amountPending || 0)), 0),
+    () => invoices.reduce((s, inv) => s + ownPending(inv), 0),
     [invoices],
   );
 
@@ -83,7 +97,7 @@ const BulkReceivePaymentModal = ({ open, invoices, bankAccounts, onClose, onSave
     const sorted = [...allocations].sort((a, b) => new Date(a.invoice.month) - new Date(b.invoice.month));
     const map = new Map();
     for (const a of sorted) {
-      const pending = Math.max(0, Math.round(a.invoice.amountPending || 0));
+      const pending = ownPending(a.invoice);
       const give = Math.min(remaining, pending);
       map.set(a.invoiceId, give);
       remaining -= give;
@@ -100,7 +114,7 @@ const BulkReceivePaymentModal = ({ open, invoices, bankAccounts, onClose, onSave
       return;
     }
     for (const a of positiveAllocs) {
-      const pending = Math.max(0, Math.round(a.invoice.amountPending || 0));
+      const pending = ownPending(a.invoice);
       if (Number(a.amount) > pending) {
         toast.error(`Allocation for ${a.invoice.invoiceNumber || 'invoice'} exceeds its pending amount`);
         return;
@@ -228,7 +242,7 @@ const BulkReceivePaymentModal = ({ open, invoices, bankAccounts, onClose, onSave
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {allocations.map((a) => {
-                  const pending = Math.max(0, Math.round(a.invoice.amountPending || 0));
+                  const pending = ownPending(a.invoice);
                   return (
                     <tr key={a.invoiceId}>
                       <td className="py-2 px-3 text-gray-800 font-medium">

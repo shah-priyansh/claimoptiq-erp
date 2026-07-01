@@ -9,10 +9,12 @@ const fmtDate = (d) => {
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
 };
 
+const _monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const fmtMonth = (d) => {
   if (!d) return '-';
   const dt = new Date(d);
-  return dt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  if (isNaN(dt.getTime())) return '-';
+  return `${_monthAbbr[dt.getUTCMonth()]}/${dt.getUTCFullYear()}`;
 };
 
 const FIELDS = [
