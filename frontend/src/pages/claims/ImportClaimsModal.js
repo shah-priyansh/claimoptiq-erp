@@ -135,13 +135,17 @@ const parseDateLoose = (val) => {
 };
 // Excel date-formatted cells arrive as JS Date objects (see XLSX.read cellDates:true).
 // Rendering a Date directly in JSX throws React error #31, so coerce for display.
+// Round to the nearest UTC midnight before extracting parts — XLSX's serial→Date
+// conversion can be a few seconds short of midnight, which flips getDate() to the
+// previous day.
 const formatDateCell = (val) => {
   if (val === undefined || val === null || val === '') return '';
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return '';
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
+    const midnight = new Date(Math.round(val.getTime() / 86400000) * 86400000);
+    const y = midnight.getUTCFullYear();
+    const m = String(midnight.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(midnight.getUTCDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
   return String(val);
@@ -554,7 +558,29 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
           const row = aoa[i];
           if (!row || row.every(v => v === '' || v === null || v === undefined)) continue;
           const obj = {};
-          headers.forEach((key, idx) => { if (key) obj[key] = row[idx]; });
+          // XLSX + cellDates:true hands us JS Date objects for date-formatted
+          // cells. Two hazards if we forward these as-is:
+          //   1. JSON serialises them as UTC ISO strings; a backend in a
+          //      different timezone re-parses that and the wall-clock day can
+          //      drift (an IST midnight becomes previous-day 18:30 UTC).
+          //   2. XLSX's serial→Date conversion isn't exact — the Date it
+          //      returns can be ~10s short of the intended midnight, so plain
+          //      getDate()/getUTCDate() reads a day off.
+          // Round to the nearest UTC midnight and emit YYYY-MM-DD so the day
+          // the operator saw in Excel is the day that reaches Postgres.
+          headers.forEach((key, idx) => {
+            if (!key) return;
+            const v = row[idx];
+            if (v instanceof Date && !isNaN(v.getTime())) {
+              const midnight = new Date(Math.round(v.getTime() / 86400000) * 86400000);
+              const y = midnight.getUTCFullYear();
+              const m = String(midnight.getUTCMonth() + 1).padStart(2, '0');
+              const d = String(midnight.getUTCDate()).padStart(2, '0');
+              obj[key] = `${y}-${m}-${d}`;
+            } else {
+              obj[key] = v;
+            }
+          });
           // Skip rows that have no patient name AND no key identifier — likely blank
           if (!obj.patientName || !String(obj.patientName).trim()) continue;
           parsed.push(obj);

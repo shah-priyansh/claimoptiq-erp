@@ -5,7 +5,7 @@ const calculateInvoiceTotals = require('../utils/calculateInvoiceTotals');
 const { reserveNextInvoiceNumber } = require('../utils/invoiceSequence');
 const renderInvoicePdf = require('../utils/renderInvoicePdf');
 const { getInvoiceTemplate } = require('./siteSettingController');
-const { writeReferenceCommissionFlow, clearReferenceCommissionFlow } = require('../utils/referenceCommissionFlow');
+const { writeReferenceCommissionFlow, clearReferenceCommissionFlow, SOURCE_TYPE: COMMISSION_SOURCE_TYPE } = require('../utils/referenceCommissionFlow');
 const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
 
 // Rejected claims stay billable — the operator wants them on the hospital's
@@ -52,10 +52,13 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 
 // Build the line items + totals for a (hospital, month) without persisting.
 // Returns { lines, totals, hospital, claims }.
-// When `claimIds` is supplied, the line set is restricted to those claims (still
-// scoped by hospital + month) so the bulk "Generate Bill" flow can preview only
-// the claims the user actually selected, not every unbilled claim in the month.
+// When `claimIds` is supplied, the line set is restricted to those claims and
+// the month/discharge filters are dropped — the caller has already vetted the
+// selection (bulk "Generate Bill" flow), so we trust it. This is what lets
+// rejected/no-discharge claims flow through when the operator explicitly picks
+// them.
 const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false } = {}) => {
+  const hasClaimIds = Array.isArray(claimIds) && claimIds.length > 0;
   // For direct-patient invoices the claims have no hospital relation of
   // their own — `hospitalId` is the chosen *target* hospital (used for
   // billing services + template lookups). The claim query must skip the
@@ -63,12 +66,16 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   // the claim IDs all belong together (isDirectPatient=true, same month).
   const claimWhere = {
     ...(isDirectPatient ? {} : { hospitalId }),
-    dateOfDischarge: { gte: month, lt: monthEnd(month) },
+    // Only scope by month/discharge when the caller is asking for "all
+    // billable claims in this month" (no explicit claimIds). If claimIds are
+    // supplied the operator's selection wins — include the claim even if it
+    // has no discharge date or the discharge falls outside `month`.
+    ...(hasClaimIds ? {} : { dateOfDischarge: { gte: month, lt: monthEnd(month) } }),
     isBilled: false,
     status: { notIn: EXCLUDED_CLAIM_STATUSES },
     ...(isDirectPatient ? { isDirectPatient: true } : {}),
   };
-  if (Array.isArray(claimIds) && claimIds.length) {
+  if (hasClaimIds) {
     claimWhere.id = { in: claimIds };
   }
 
@@ -289,7 +296,7 @@ exports.previewBulk = async (req, res) => {
       select: {
         id: true, srNo: true, patientName: true, status: true,
         isBilled: true, hospitalId: true, dateOfDischarge: true,
-        isDirectPatient: true,
+        dateOfAdmit: true, isDirectPatient: true,
       },
     });
 
@@ -297,12 +304,13 @@ exports.previewBulk = async (req, res) => {
     const hospitalClaims = [];
     const directPatientClaims = [];
     for (const c of allSelected) {
+      // Missing discharge date no longer skips the claim — rejected / mid-flight
+      // claims may not have one yet, and the operator wants them on the invoice
+      // regardless. Grouping falls back to dateOfAdmit below.
       if (c.isBilled) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'already billed' });
       } else if (EXCLUDED_CLAIM_STATUSES.includes(c.status)) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: c.status });
-      } else if (!c.dateOfDischarge) {
-        skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no discharge date' });
       } else if (c.isDirectPatient) {
         // Direct-patient claims are billable, but only once the operator
         // picks a target hospital in the drawer. They flow into their own
@@ -323,9 +331,11 @@ exports.previewBulk = async (req, res) => {
     }
 
     // Group by hospitalId + month (UTC year-month) → list of claimIds.
+    // Falls back to dateOfAdmit when a claim has no discharge date yet, so
+    // rejected / mid-flight claims still land in a month bucket.
     const groups = new Map();
     for (const c of hospitalClaims) {
-      const d = new Date(c.dateOfDischarge);
+      const d = new Date(c.dateOfDischarge || c.dateOfAdmit);
       const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
       const key = `${c.hospitalId}|${monthKey}`;
       if (!groups.has(key)) groups.set(key, { hospitalId: c.hospitalId, month: new Date(monthKey), claimIds: [] });
@@ -339,7 +349,7 @@ exports.previewBulk = async (req, res) => {
     // the drawer can auto-resolve without prompting.
     const directGroups = new Map();
     for (const c of directPatientClaims) {
-      const d = new Date(c.dateOfDischarge);
+      const d = new Date(c.dateOfDischarge || c.dateOfAdmit);
       const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
       const key = `direct|${monthKey}`;
       if (!directGroups.has(key)) {
@@ -1116,41 +1126,60 @@ exports.removeAll = async (req, res) => {
       });
     }
     const needsVoid = invoices.filter((i) => i.status !== 'draft' && i.status !== 'void');
+    const needsVoidIds = needsVoid.map((i) => i.id);
+    const ids = invoices.map((i) => i.id);
+
+    // Pre-aggregate all the claim rollbacks OUTSIDE the transaction — these are
+    // reads and don't need transactional isolation. Doing them inside blew past
+    // Prisma's 5s interactive-transaction budget on large fleets (per-invoice
+    // findMany + per-claim update was O(invoices × claims) round-trips).
+    const voidLineItems = needsVoidIds.length
+      ? await prisma.invoiceLineItem.findMany({
+          where: { invoiceId: { in: needsVoidIds }, lineType: 'claim_tpa_desk', NOT: { claimId: null } },
+          select: { claimId: true, meta: true },
+        })
+      : [];
+    const aliveClaims = voidLineItems.length
+      ? await prisma.claim.findMany({
+          where: { id: { in: voidLineItems.map((l) => l.claimId) } },
+          select: { id: true },
+        })
+      : [];
+    const alive = new Set(aliveClaims.map((c) => c.id));
+    // Group surviving claims by the status we want to restore so we can issue
+    // one updateMany per status instead of one update per claim. `InvoiceLineItem.claimId`
+    // is a soft ref (no FK) so hard-deleted claims are silently skipped.
+    const claimIdsByPriorStatus = new Map();
+    for (const line of voidLineItems) {
+      if (!alive.has(line.claimId)) continue;
+      const priorStatus = line.meta?.priorStatus || 'settled';
+      if (!claimIdsByPriorStatus.has(priorStatus)) claimIdsByPriorStatus.set(priorStatus, []);
+      claimIdsByPriorStatus.get(priorStatus).push(line.claimId);
+    }
 
     await prisma.$transaction(async (tx) => {
-      // Roll back claim statuses + commission expenses for any non-draft,
-      // non-void invoices, mirroring exports.void per-invoice logic.
-      for (const inv of needsVoid) {
-        const lineItems = await tx.invoiceLineItem.findMany({
-          where: { invoiceId: inv.id, lineType: 'claim_tpa_desk', NOT: { claimId: null } },
-          select: { claimId: true, meta: true },
+      // Roll back claim statuses in one updateMany per priorStatus group.
+      for (const [priorStatus, claimIds] of claimIdsByPriorStatus) {
+        if (!claimIds.length) continue;
+        await tx.claim.updateMany({
+          where: { id: { in: claimIds } },
+          data: { isBilled: false, status: priorStatus },
         });
-        // `InvoiceLineItem.claimId` is a soft ref (no FK), so a claim may have
-        // been hard-deleted since the invoice was issued — skip those to avoid
-        // P2025 aborting the whole bulk-delete transaction.
-        const existing = await tx.claim.findMany({
-          where: { id: { in: lineItems.map((l) => l.claimId) } },
-          select: { id: true },
-        });
-        const alive = new Set(existing.map((c) => c.id));
-        for (const line of lineItems) {
-          if (!alive.has(line.claimId)) continue;
-          const priorStatus = line.meta?.priorStatus || 'settled';
-          await tx.claim.update({
-            where: { id: line.claimId },
-            data: { isBilled: false, status: priorStatus },
-          });
-        }
-        await clearReferenceCommissionFlow(tx, inv.id);
       }
-      const ids = invoices.map((i) => i.id);
+      // Clear commission expenses for every voided invoice in one shot (was
+      // one deleteMany per invoice via clearReferenceCommissionFlow).
+      if (needsVoidIds.length) {
+        await tx.expense.deleteMany({
+          where: { sourceType: COMMISSION_SOURCE_TYPE, sourceId: { in: needsVoidIds } },
+        });
+      }
       await tx.cashBankEntry.updateMany({
         where: { invoiceId: { in: ids } },
         data: { invoiceId: null },
       });
       await tx.invoiceLineItem.deleteMany({ where: { invoiceId: { in: ids } } });
       await tx.invoice.deleteMany({ where: { id: { in: ids } } });
-    });
+    }, { timeout: 30000 });
 
     res.json({ message: `${invoices.length} invoice(s) deleted`, count: invoices.length });
   } catch (error) {
