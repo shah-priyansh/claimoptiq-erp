@@ -8,7 +8,11 @@ const { getInvoiceTemplate } = require('./siteSettingController');
 const { writeReferenceCommissionFlow, clearReferenceCommissionFlow } = require('../utils/referenceCommissionFlow');
 const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
 
-const EXCLUDED_CLAIM_STATUSES = ['rejected', 'cancelled'];
+// Rejected claims stay billable — the operator wants them on the hospital's
+// invoice with whatever amount they resolve to (often ₹0 when finalApproval is 0)
+// so the bill reflects work done regardless of outcome. Only 'cancelled' claims
+// (withdrawn entirely) are excluded from bulk billing.
+const EXCLUDED_CLAIM_STATUSES = ['cancelled'];
 
 const parseMonth = (input) => {
   if (!input) return null;

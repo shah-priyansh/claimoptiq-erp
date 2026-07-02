@@ -149,9 +149,9 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
       } catch (e) {
         if (cancelled) return;
         // The backend returns 400 + { skipped: [...] } when every selected
-        // claim is unbillable (rejected, cancelled, already billed, missing
-        // discharge date). Surface those reasons in the empty phase instead
-        // of closing the drawer with a generic toast.
+        // claim is unbillable (cancelled, already billed, missing discharge
+        // date). Surface those reasons in the empty phase instead of closing
+        // the drawer with a generic toast.
         const errSkipped = e.response?.data?.skipped;
         if (Array.isArray(errSkipped) && errSkipped.length) {
           setSkipped(errSkipped);
