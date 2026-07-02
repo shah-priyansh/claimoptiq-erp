@@ -35,7 +35,10 @@ const HospitalList = () => {
   const { can } = useAuth();
   const confirm = useConfirm();
   const [hospitals, setHospitals] = useState([]);
-  const [search, setSearch] = usePersistedFilters('hospitals:search', '');
+  // Search resets on remount by design — the operator hits "Hospitals" expecting
+  // a fresh list, not the query they typed 20 minutes ago. Page/pageSize below
+  // stay persisted so returning from a detail page keeps their position.
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = usePersistedFilters('hospitals:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('hospitals:pageSize', 25);

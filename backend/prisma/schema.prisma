@@ -349,6 +349,7 @@ model HospitalBillingService {
   overLimitPerClaimAmount Float                        @default(0) @map("over_limit_per_claim_amount")
   overLimitInsuranceWise  Boolean                      @default(false) @map("over_limit_insurance_wise")
   overLimitInsurerIds     Json                         @default("[]") @map("over_limit_insurer_ids")
+  overLimitTpaIds         Json                         @default("[]") @map("over_limit_tpa_ids")
   slabMode                String                       @default("slab_wise") @map("slab_mode")
   slabRangeStart          Float                        @default(0) @map("slab_range_start")
   slabRangeEnd            Float                        @default(50000) @map("slab_range_end")
