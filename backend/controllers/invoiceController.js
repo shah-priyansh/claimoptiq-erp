@@ -178,11 +178,13 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     const isOneTime = s.billingType === 'fixed_onetime';
     const isInsWise = Boolean(s.overLimitInsuranceWise);
     const insurerIds = Array.isArray(s.overLimitInsurerIds) ? s.overLimitInsurerIds : [];
+    const tpaIds = Array.isArray(s.overLimitTpaIds) ? s.overLimitTpaIds : [];
     // For fixed_onetime + Insurance Wise: the configured amount is the
     // per-company fee (e.g. empanelment tie-up). Multiply by the number of
-    // selected insurance companies. The same flag on fixed_monthly drives a
-    // different feature (over-limit insurer filter), so we don't multiply.
-    const companyCount = (isOneTime && isInsWise) ? insurerIds.length : 0;
+    // selected insurance companies + TPAs. The same flag on fixed_monthly
+    // drives a different feature (over-limit insurer filter), so we don't
+    // multiply there.
+    const companyCount = (isOneTime && isInsWise) ? insurerIds.length + tpaIds.length : 0;
     const perAmount = Number(s.fixedAmount) || 0;
     const amount = companyCount > 0 ? perAmount * companyCount : perAmount;
     const billingLabel = isOneTime ? 'One-time' : 'Monthly';

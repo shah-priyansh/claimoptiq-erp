@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI, getBillingServiceNamesAPI, getReferencesAPI } from '../../services/api';
+import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI, getBillingServiceNamesAPI, getReferencesAPI, getTPAAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserCircle } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
@@ -38,6 +38,7 @@ const emptyService = {
   overLimitPerClaimAmount: 0,
   overLimitInsuranceWise: false,
   overLimitInsurerIds: [],
+  overLimitTpaIds: [],
   calculationBasis: 'none',
   percentageRate: 0,
   slabMode: 'slab_wise',
@@ -64,21 +65,26 @@ const HospitalForm = () => {
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(isEdit);
   const [insurers, setInsurers] = useState([]);
+  const [tpas, setTpas] = useState([]);
   const [serviceNames, setServiceNames] = useState([]);
   const [references, setReferences] = useState([]);
   const [dropdownDataLoading, setDropdownDataLoading] = useState(true);
   const [insurerSearch, setInsurerSearch] = useState('');
   const [insurerDropdownOpen, setInsurerDropdownOpen] = useState(null);
+  const [tpaSearch, setTpaSearch] = useState('');
+  const [tpaDropdownOpen, setTpaDropdownOpen] = useState(null);
 
   useEffect(() => {
     Promise.all([
       getInsuranceAPI(),
       getBillingServiceNamesAPI(),
       getReferencesAPI({ active: 'true' }),
-    ]).then(([ins, svc, refs]) => {
+      getTPAAPI(),
+    ]).then(([ins, svc, refs, tpaRes]) => {
       setInsurers((ins.data || []).filter(i => i.isActive !== false));
       setServiceNames(svc.data || []);
       setReferences(refs.data || []);
+      setTpas((tpaRes.data || []).filter(t => t.isActive !== false));
     }).catch(() => {}).finally(() => setDropdownDataLoading(false));
     if (isEdit) {
       getHospitalAPI(id).then(({ data }) => setForm({
@@ -148,6 +154,25 @@ const HospitalForm = () => {
       ? current.filter(id => !ids.includes(id))
       : [...new Set([...current, ...ids])];
     services[svcIdx] = { ...services[svcIdx], overLimitInsurerIds: updated };
+    setForm({ ...form, billingServices: services });
+  };
+
+  const toggleTpa = (svcIdx, tpaId) => {
+    const services = [...form.billingServices];
+    const current = services[svcIdx].overLimitTpaIds || [];
+    const updated = current.includes(tpaId) ? current.filter(id => id !== tpaId) : [...current, tpaId];
+    services[svcIdx] = { ...services[svcIdx], overLimitTpaIds: updated };
+    setForm({ ...form, billingServices: services });
+  };
+
+  const selectAllTpas = (svcIdx, ids) => {
+    const services = [...form.billingServices];
+    const current = services[svcIdx].overLimitTpaIds || [];
+    const allSelected = ids.every(id => current.includes(id));
+    const updated = allSelected
+      ? current.filter(id => !ids.includes(id))
+      : [...new Set([...current, ...ids])];
+    services[svcIdx] = { ...services[svcIdx], overLimitTpaIds: updated };
     setForm({ ...form, billingServices: services });
   };
 
@@ -572,69 +597,132 @@ const HospitalForm = () => {
                   {/* Fixed Monthly + per_claim + Insurance Wise: horizontal panel */}
                   {svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'per_claim' && svc.overLimitInsuranceWise && (() => {
                     const selectedIds = svc.overLimitInsurerIds || [];
+                    const selectedTpaIds = svc.overLimitTpaIds || [];
                     const olKey = `ol-${idx}`;
+                    const olTpaKey = `ol-tpa-${idx}`;
                     const filtered = insurers.filter(i =>
                       (i.name || '').toLowerCase().includes((insurerDropdownOpen === olKey ? insurerSearch : '').toLowerCase())
                     );
                     const filteredIds = filtered.map(i => i.id || i._id);
                     const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+                    const filteredTpas = tpas.filter(t =>
+                      (t.name || '').toLowerCase().includes((tpaDropdownOpen === olTpaKey ? tpaSearch : '').toLowerCase())
+                    );
+                    const filteredTpaIds = filteredTpas.map(t => t.id || t._id);
+                    const allTpasSelected = filteredTpaIds.length > 0 && filteredTpaIds.every(id => selectedTpaIds.includes(id));
+                    const totalCount = selectedIds.length + selectedTpaIds.length;
                     return (
                       <div className="col-span-2 md:col-span-4">
-                        <div className="bg-primary-50/60 border border-primary-100 rounded-xl p-3">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <span className="text-xs font-medium text-primary-700 flex-shrink-0">Insurance Companies</span>
-                            {selectedIds.length > 0 && (
-                              <span className="text-xs bg-primary-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">{selectedIds.length} selected</span>
-                            )}
-                            {selectedIds.map(id => {
-                              const ins = insurers.find(i => (i.id || i._id) === id);
-                              return (
-                                <span key={id} className="inline-flex items-center gap-1 bg-white border border-primary-200 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
-                                  {ins?.name || id}
-                                  <button type="button" onClick={() => toggleInsurer(idx, id)} className="ml-0.5 text-primary-400 hover:text-primary-700 leading-none">&times;</button>
-                                </span>
-                              );
-                            })}
+                        <div className="bg-primary-50/60 border border-primary-100 rounded-xl p-3 space-y-3">
+                          {/* Insurance Companies */}
+                          <div>
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className="text-xs font-medium text-primary-700 flex-shrink-0">Insurance Companies</span>
+                              {selectedIds.length > 0 && (
+                                <span className="text-xs bg-primary-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">{selectedIds.length} selected</span>
+                              )}
+                              {selectedIds.map(id => {
+                                const ins = insurers.find(i => (i.id || i._id) === id);
+                                return (
+                                  <span key={id} className="inline-flex items-center gap-1 bg-white border border-primary-200 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                                    {ins?.name || id}
+                                    <button type="button" onClick={() => toggleInsurer(idx, id)} className="ml-0.5 text-primary-400 hover:text-primary-700 leading-none">&times;</button>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            <div className="mt-2">
+                              <div className="relative">
+                                <input type="text" placeholder="Search insurance company..."
+                                  value={insurerDropdownOpen === olKey ? insurerSearch : ''}
+                                  onFocus={() => { setInsurerDropdownOpen(olKey); setInsurerSearch(''); }}
+                                  onChange={(e) => setInsurerSearch(e.target.value)}
+                                  onBlur={() => setTimeout(() => setInsurerDropdownOpen(null), 150)}
+                                  className="w-full px-3 py-1.5 bg-white border border-primary-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 placeholder-gray-400" />
+                                {insurerDropdownOpen === olKey && (
+                                  <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                    {filtered.length === 0 ? <p className="text-xs text-gray-400 px-4 py-3">No results</p> : (
+                                      <>
+                                        <button type="button" onMouseDown={(e) => { e.preventDefault(); selectAllInsurers(idx, filteredIds); }}
+                                          className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 border-b border-gray-100 bg-gray-50 hover:bg-primary-50 text-primary-700 font-semibold transition-colors">
+                                          <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${allSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{allSelected && '✓'}</span>
+                                          {allSelected ? 'Deselect All' : 'Select All'}
+                                        </button>
+                                        {filtered.map(ins => {
+                                          const insId = ins.id || ins._id;
+                                          const isSelected = selectedIds.includes(insId);
+                                          return (
+                                            <button key={insId} type="button" onMouseDown={(e) => { e.preventDefault(); toggleInsurer(idx, insId); }}
+                                              className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 transition-colors ${isSelected ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}>
+                                              <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${isSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{isSelected && '✓'}</span>
+                                              {ins.name}
+                                            </button>
+                                          );
+                                        })}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex gap-2 mt-2">
-                            <div className="relative flex-1">
-                              <input type="text" placeholder="Search insurance company..."
-                                value={insurerDropdownOpen === olKey ? insurerSearch : ''}
-                                onFocus={() => { setInsurerDropdownOpen(olKey); setInsurerSearch(''); }}
-                                onChange={(e) => setInsurerSearch(e.target.value)}
-                                onBlur={() => setTimeout(() => setInsurerDropdownOpen(null), 150)}
-                                className="w-full px-3 py-1.5 bg-white border border-primary-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 placeholder-gray-400" />
-                              {insurerDropdownOpen === olKey && (
-                                <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
-                                  {filtered.length === 0 ? <p className="text-xs text-gray-400 px-4 py-3">No results</p> : (
-                                    <>
-                                      <button type="button" onMouseDown={(e) => { e.preventDefault(); selectAllInsurers(idx, filteredIds); }}
-                                        className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 border-b border-gray-100 bg-gray-50 hover:bg-primary-50 text-primary-700 font-semibold transition-colors">
-                                        <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${allSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{allSelected && '✓'}</span>
-                                        {allSelected ? 'Deselect All' : 'Select All'}
-                                      </button>
-                                      {filtered.map(ins => {
-                                        const insId = ins.id || ins._id;
-                                        const isSelected = selectedIds.includes(insId);
-                                        return (
-                                          <button key={insId} type="button" onMouseDown={(e) => { e.preventDefault(); toggleInsurer(idx, insId); }}
-                                            className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 transition-colors ${isSelected ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}>
-                                            <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${isSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{isSelected && '✓'}</span>
-                                            {ins.name}
-                                          </button>
-                                        );
-                                      })}
-                                    </>
-                                  )}
+                          {/* TPAs */}
+                          <div className="border-t border-primary-100 pt-3">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className="text-xs font-medium text-primary-700 flex-shrink-0">TPAs</span>
+                              {selectedTpaIds.length > 0 && (
+                                <span className="text-xs bg-primary-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">{selectedTpaIds.length} selected</span>
+                              )}
+                              {selectedTpaIds.map(id => {
+                                const tpa = tpas.find(t => (t.id || t._id) === id);
+                                return (
+                                  <span key={id} className="inline-flex items-center gap-1 bg-white border border-primary-200 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                                    {tpa?.name || id}
+                                    <button type="button" onClick={() => toggleTpa(idx, id)} className="ml-0.5 text-primary-400 hover:text-primary-700 leading-none">&times;</button>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <div className="relative flex-1">
+                                <input type="text" placeholder="Search TPA..."
+                                  value={tpaDropdownOpen === olTpaKey ? tpaSearch : ''}
+                                  onFocus={() => { setTpaDropdownOpen(olTpaKey); setTpaSearch(''); }}
+                                  onChange={(e) => setTpaSearch(e.target.value)}
+                                  onBlur={() => setTimeout(() => setTpaDropdownOpen(null), 150)}
+                                  className="w-full px-3 py-1.5 bg-white border border-primary-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 placeholder-gray-400" />
+                                {tpaDropdownOpen === olTpaKey && (
+                                  <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                    {filteredTpas.length === 0 ? <p className="text-xs text-gray-400 px-4 py-3">No results</p> : (
+                                      <>
+                                        <button type="button" onMouseDown={(e) => { e.preventDefault(); selectAllTpas(idx, filteredTpaIds); }}
+                                          className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 border-b border-gray-100 bg-gray-50 hover:bg-primary-50 text-primary-700 font-semibold transition-colors">
+                                          <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${allTpasSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{allTpasSelected && '✓'}</span>
+                                          {allTpasSelected ? 'Deselect All' : 'Select All'}
+                                        </button>
+                                        {filteredTpas.map(tpa => {
+                                          const tpaId = tpa.id || tpa._id;
+                                          const isSelected = selectedTpaIds.includes(tpaId);
+                                          return (
+                                            <button key={tpaId} type="button" onMouseDown={(e) => { e.preventDefault(); toggleTpa(idx, tpaId); }}
+                                              className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 transition-colors ${isSelected ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}>
+                                              <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${isSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{isSelected && '✓'}</span>
+                                              {tpa.name}
+                                            </button>
+                                          );
+                                        })}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              {totalCount > 0 && (
+                                <div className="bg-white border border-primary-200 rounded-lg px-3 py-1.5 flex items-center gap-3 whitespace-nowrap flex-shrink-0">
+                                  <span className="text-xs text-gray-500">{totalCount} × Rs {formatINR(svc.overLimitPerClaimAmount || 0)}</span>
+                                  <span className="text-sm font-bold text-primary-700">Rs {formatINR(totalCount * (svc.overLimitPerClaimAmount || 0))}</span>
                                 </div>
                               )}
                             </div>
-                            {selectedIds.length > 0 && (
-                              <div className="bg-white border border-primary-200 rounded-lg px-3 py-1.5 flex items-center gap-3 whitespace-nowrap flex-shrink-0">
-                                <span className="text-xs text-gray-500">{selectedIds.length} × Rs {formatINR(svc.overLimitPerClaimAmount || 0)}</span>
-                                <span className="text-sm font-bold text-primary-700">Rs {formatINR(selectedIds.length * (svc.overLimitPerClaimAmount || 0))}</span>
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -644,12 +732,20 @@ const HospitalForm = () => {
                   {/* Fixed One-Time */}
                   {svc.billingType === 'fixed_onetime' && (() => {
                     const selectedIds = svc.overLimitInsurerIds || [];
+                    const selectedTpaIds = svc.overLimitTpaIds || [];
                     const isInsWise = Boolean(svc.overLimitInsuranceWise);
                     const filtered = insurers.filter(i =>
                       (i.name || '').toLowerCase().includes((insurerDropdownOpen === idx ? insurerSearch : '').toLowerCase())
                     );
                     const filteredIds = filtered.map(i => i.id || i._id);
                     const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+                    const tpaKey = `bt-tpa-${idx}`;
+                    const filteredTpas = tpas.filter(t =>
+                      (t.name || '').toLowerCase().includes((tpaDropdownOpen === tpaKey ? tpaSearch : '').toLowerCase())
+                    );
+                    const filteredTpaIds = filteredTpas.map(t => t.id || t._id);
+                    const allTpasSelected = filteredTpaIds.length > 0 && filteredTpaIds.every(id => selectedTpaIds.includes(id));
+                    const totalCount = selectedIds.length + selectedTpaIds.length;
                     return (
                       <>
                         <div>
@@ -661,7 +757,12 @@ const HospitalForm = () => {
                           <input type="checkbox" id={`ins-wise-bt-${idx}`} checked={isInsWise}
                             onChange={(e) => {
                               const services = [...form.billingServices];
-                              services[idx] = { ...services[idx], overLimitInsuranceWise: e.target.checked, overLimitInsurerIds: e.target.checked ? (services[idx].overLimitInsurerIds || []) : [] };
+                              services[idx] = {
+                                ...services[idx],
+                                overLimitInsuranceWise: e.target.checked,
+                                overLimitInsurerIds: e.target.checked ? (services[idx].overLimitInsurerIds || []) : [],
+                                overLimitTpaIds: e.target.checked ? (services[idx].overLimitTpaIds || []) : [],
+                              };
                               setForm(f => ({ ...f, billingServices: services }));
                             }}
                             className="w-4 h-4 rounded text-primary-600 border-gray-300 focus:ring-primary-500 cursor-pointer" />
@@ -670,24 +771,25 @@ const HospitalForm = () => {
 
                         {isInsWise && (
                           <div className="col-span-2 md:col-span-4">
-                            <div className="bg-primary-50/60 border border-primary-100 rounded-xl p-3">
-                              <div className="flex items-center gap-3 flex-wrap mb-2">
-                                <span className="text-xs font-medium text-primary-700 flex-shrink-0">Insurance Companies</span>
-                                {selectedIds.length > 0 && (
-                                  <span className="text-xs bg-primary-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">{selectedIds.length} selected</span>
-                                )}
-                                {selectedIds.map(id => {
-                                  const ins = insurers.find(i => (i.id || i._id) === id);
-                                  return (
-                                    <span key={id} className="inline-flex items-center gap-1 bg-white border border-primary-200 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
-                                      {ins?.name || id}
-                                      <button type="button" onClick={() => toggleInsurer(idx, id)} className="ml-0.5 text-primary-400 hover:text-primary-700 leading-none">&times;</button>
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                              <div className="flex gap-2">
-                                <div className="relative flex-1">
+                            <div className="bg-primary-50/60 border border-primary-100 rounded-xl p-3 space-y-3">
+                              {/* Insurance Companies */}
+                              <div>
+                                <div className="flex items-center gap-3 flex-wrap mb-2">
+                                  <span className="text-xs font-medium text-primary-700 flex-shrink-0">Insurance Companies</span>
+                                  {selectedIds.length > 0 && (
+                                    <span className="text-xs bg-primary-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">{selectedIds.length} selected</span>
+                                  )}
+                                  {selectedIds.map(id => {
+                                    const ins = insurers.find(i => (i.id || i._id) === id);
+                                    return (
+                                      <span key={id} className="inline-flex items-center gap-1 bg-white border border-primary-200 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                                        {ins?.name || id}
+                                        <button type="button" onClick={() => toggleInsurer(idx, id)} className="ml-0.5 text-primary-400 hover:text-primary-700 leading-none">&times;</button>
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                                <div className="relative">
                                   <input type="text" placeholder="Search insurance company..."
                                     value={insurerDropdownOpen === idx ? insurerSearch : ''}
                                     onFocus={() => { setInsurerDropdownOpen(idx); setInsurerSearch(''); }}
@@ -719,12 +821,64 @@ const HospitalForm = () => {
                                     </div>
                                   )}
                                 </div>
-                                {selectedIds.length > 0 && (
-                                  <div className="bg-white border border-primary-200 rounded-lg px-3 py-1.5 flex items-center gap-3 whitespace-nowrap flex-shrink-0">
-                                    <span className="text-xs text-gray-500">{selectedIds.length} × Rs {formatINR(svc.fixedAmount || 0)}</span>
-                                    <span className="text-sm font-bold text-primary-700">Rs {formatINR(selectedIds.length * (svc.fixedAmount || 0))}</span>
+                              </div>
+                              {/* TPAs */}
+                              <div className="border-t border-primary-100 pt-3">
+                                <div className="flex items-center gap-3 flex-wrap mb-2">
+                                  <span className="text-xs font-medium text-primary-700 flex-shrink-0">TPAs</span>
+                                  {selectedTpaIds.length > 0 && (
+                                    <span className="text-xs bg-primary-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">{selectedTpaIds.length} selected</span>
+                                  )}
+                                  {selectedTpaIds.map(id => {
+                                    const tpa = tpas.find(t => (t.id || t._id) === id);
+                                    return (
+                                      <span key={id} className="inline-flex items-center gap-1 bg-white border border-primary-200 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                                        {tpa?.name || id}
+                                        <button type="button" onClick={() => toggleTpa(idx, id)} className="ml-0.5 text-primary-400 hover:text-primary-700 leading-none">&times;</button>
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                                <div className="flex gap-2">
+                                  <div className="relative flex-1">
+                                    <input type="text" placeholder="Search TPA..."
+                                      value={tpaDropdownOpen === tpaKey ? tpaSearch : ''}
+                                      onFocus={() => { setTpaDropdownOpen(tpaKey); setTpaSearch(''); }}
+                                      onChange={(e) => setTpaSearch(e.target.value)}
+                                      onBlur={() => setTimeout(() => setTpaDropdownOpen(null), 150)}
+                                      className="w-full px-3 py-1.5 bg-white border border-primary-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 placeholder-gray-400" />
+                                    {tpaDropdownOpen === tpaKey && (
+                                      <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                        {filteredTpas.length === 0 ? <p className="text-xs text-gray-400 px-4 py-3">No results</p> : (
+                                          <>
+                                            <button type="button" onMouseDown={(e) => { e.preventDefault(); selectAllTpas(idx, filteredTpaIds); }}
+                                              className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 border-b border-gray-100 bg-gray-50 hover:bg-primary-50 text-primary-700 font-semibold transition-colors">
+                                              <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${allTpasSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{allTpasSelected && '✓'}</span>
+                                              {allTpasSelected ? 'Deselect All' : 'Select All'}
+                                            </button>
+                                            {filteredTpas.map(tpa => {
+                                              const tpaId = tpa.id || tpa._id;
+                                              const isSelected = selectedTpaIds.includes(tpaId);
+                                              return (
+                                                <button key={tpaId} type="button" onMouseDown={(e) => { e.preventDefault(); toggleTpa(idx, tpaId); }}
+                                                  className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 transition-colors ${isSelected ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}>
+                                                  <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${isSelected ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-300 bg-white'}`}>{isSelected && '✓'}</span>
+                                                  {tpa.name}
+                                                </button>
+                                              );
+                                            })}
+                                          </>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
-                                )}
+                                  {totalCount > 0 && (
+                                    <div className="bg-white border border-primary-200 rounded-lg px-3 py-1.5 flex items-center gap-3 whitespace-nowrap flex-shrink-0">
+                                      <span className="text-xs text-gray-500">{totalCount} × Rs {formatINR(svc.fixedAmount || 0)}</span>
+                                      <span className="text-sm font-bold text-primary-700">Rs {formatINR(totalCount * (svc.fixedAmount || 0))}</span>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>

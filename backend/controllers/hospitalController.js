@@ -91,6 +91,7 @@ const buildBillingServices = (services) =>
     overLimitPerClaimAmount: s.overLimitPerClaimAmount || 0,
     overLimitInsuranceWise: Boolean(s.overLimitInsuranceWise),
     overLimitInsurerIds: Array.isArray(s.overLimitInsurerIds) ? s.overLimitInsurerIds : [],
+    overLimitTpaIds: Array.isArray(s.overLimitTpaIds) ? s.overLimitTpaIds : [],
     calculationBasis: s.calculationBasis || 'none',
     percentageRate: s.percentageRate || 0,
     slabMode: s.slabMode || 'slab_wise',
