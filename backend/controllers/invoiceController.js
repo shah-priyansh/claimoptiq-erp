@@ -1024,7 +1024,16 @@ exports.void = async (req, res) => {
     const result = await prisma.$transaction(async (tx) => {
       // Restore each claim's prior status (saved on the line item meta at issue time).
       // Falls back to 'settled' for any line missing the meta (shouldn't happen post-fix).
+      // `InvoiceLineItem.claimId` is a soft ref (no FK), so a claim may have been
+      // hard-deleted since the invoice was issued — skip those to avoid P2025.
+      const claimIds = claimLines.map((l) => l.claimId);
+      const existing = await tx.claim.findMany({
+        where: { id: { in: claimIds } },
+        select: { id: true },
+      });
+      const alive = new Set(existing.map((c) => c.id));
       for (const line of claimLines) {
+        if (!alive.has(line.claimId)) continue;
         const priorStatus = line.meta?.priorStatus || 'settled';
         await tx.claim.update({
           where: { id: line.claimId },
@@ -1116,7 +1125,16 @@ exports.removeAll = async (req, res) => {
           where: { invoiceId: inv.id, lineType: 'claim_tpa_desk', NOT: { claimId: null } },
           select: { claimId: true, meta: true },
         });
+        // `InvoiceLineItem.claimId` is a soft ref (no FK), so a claim may have
+        // been hard-deleted since the invoice was issued — skip those to avoid
+        // P2025 aborting the whole bulk-delete transaction.
+        const existing = await tx.claim.findMany({
+          where: { id: { in: lineItems.map((l) => l.claimId) } },
+          select: { id: true },
+        });
+        const alive = new Set(existing.map((c) => c.id));
         for (const line of lineItems) {
+          if (!alive.has(line.claimId)) continue;
           const priorStatus = line.meta?.priorStatus || 'settled';
           await tx.claim.update({
             where: { id: line.claimId },
