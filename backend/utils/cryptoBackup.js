@@ -9,7 +9,7 @@
 // and rotate via decrypt-old → re-encrypt-new (see docs).
 
 const crypto = require('crypto');
-
+ 
 const RAW_KEY = process.env.BACKUP_ENCRYPTION_KEY || '';
 
 // Validate eagerly but lazily-fatal: we only hard-require the key when an
