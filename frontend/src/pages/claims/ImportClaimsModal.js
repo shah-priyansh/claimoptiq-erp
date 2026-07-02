@@ -133,6 +133,19 @@ const parseDateLoose = (val) => {
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
 };
+// Excel date-formatted cells arrive as JS Date objects (see XLSX.read cellDates:true).
+// Rendering a Date directly in JSX throws React error #31, so coerce for display.
+const formatDateCell = (val) => {
+  if (val === undefined || val === null || val === '') return '';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return String(val);
+};
 const buildLookup = (list) => {
   const exact = new Map(), canon = new Map(), canonCount = new Map();
   list.forEach(x => {
@@ -263,7 +276,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       }
       if (!cleanCell(r.patientName)) { issues.push({ type: 'patient',    label: 'Patient name missing' }); bump('patient'); }
       if (!parseDateLoose(r.dateOfAdmit)) {
-        issues.push({ type: 'date', label: `Date of Admit invalid${r.dateOfAdmit ? `: "${r.dateOfAdmit}"` : ''}` });
+        issues.push({ type: 'date', label: `Date of Admit invalid${r.dateOfAdmit ? `: "${formatDateCell(r.dateOfAdmit)}"` : ''}` });
         bump('date');
       }
       const ct = norm(cleanCell(r.claimType)).replace(/\s+/g, '_');
@@ -1016,7 +1029,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
                             <td className="px-2 py-1.5 text-gray-800 font-medium">{r.patientName || <span className="text-red-500">missing</span>}</td>
                             <td className="px-2 py-1.5 text-gray-600">{r.hospital || (String(r.isDirectPatient || '').toLowerCase().startsWith('y') ? <span className="italic text-purple-600">Direct</span> : '-')}</td>
                             <td className="px-2 py-1.5 text-gray-600 capitalize">{r.claimType || '-'}</td>
-                            <td className="px-2 py-1.5 text-gray-600">{r.dateOfAdmit || '-'}</td>
+                            <td className="px-2 py-1.5 text-gray-600">{formatDateCell(r.dateOfAdmit) || '-'}</td>
                             <td className="px-2 py-1.5 text-gray-600">{r.hospitalFinalBill || '-'}</td>
                             <td className="px-2 py-1.5">
                               {issues.length === 0 && fuzzy.length === 0 && <span className="text-emerald-600 text-[11px]">✓ OK</span>}
