@@ -106,7 +106,7 @@ const BulkInvoiceWizard = () => {
         const data = e.response?.data;
         const skippedCount = (data?.skipped || []).length;
         const baseMsg = data?.message || 'Failed to load previews';
-        toast.error(skippedCount ? `${baseMsg} — all ${skippedCount} claim${skippedCount === 1 ? '' : 's'} were skipped (cancelled/already billed/no discharge date)` : baseMsg);
+        toast.error(skippedCount ? `${baseMsg} — all ${skippedCount} claim${skippedCount === 1 ? '' : 's'} were skipped (cancelled/already billed/no hospital)` : baseMsg);
         navigate('/reports/claims');
       } finally {
         setLoading(false);
