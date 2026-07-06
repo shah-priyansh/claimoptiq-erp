@@ -1260,6 +1260,11 @@ const ClaimList = () => {
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                       <StatusBadge c={c} loading={filtersLoading} />
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${
+                        c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {c.isBilled ? 'Billed' : 'Unbilled'}
+                      </span>
                       <button
                         onClick={(e) => openActionMenu(e, c._id)}
                         title="More actions"
@@ -1306,14 +1311,15 @@ const ClaimList = () => {
                 <SortableTh label="DOA" field="doa"         filters={filters} setFilters={setFilters} />
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Bill</th>
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Bill Status</th>
                 <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={isHospitalUser ? 7 : 8} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={isHospitalUser ? 8 : 9} className="py-8 text-center text-gray-400">Loading...</td></tr>
               ) : claims.length === 0 ? (
-                <tr><td colSpan={isHospitalUser ? 7 : 8} className="py-8 text-center text-gray-400">No claims found</td></tr>
+                <tr><td colSpan={isHospitalUser ? 8 : 9} className="py-8 text-center text-gray-400">No claims found</td></tr>
               ) : claims.map((c, rowIdx) => (
                 <tr key={c._id}
                   className={`hover:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
@@ -1353,6 +1359,13 @@ const ClaimList = () => {
                   <td className="py-3 px-3 text-sm text-gray-600 align-top whitespace-nowrap">{formatDate(c.dateOfAdmit)}</td>
                   <td className="py-3 px-3 text-sm text-gray-600 align-top whitespace-nowrap">{formatAmount(c.hospitalFinalBill)}</td>
                   <td className="py-3 px-3 align-top"><StatusBadge c={c} loading={filtersLoading} /></td>
+                  <td className="py-3 px-3 align-top">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                      c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {c.isBilled ? 'Billed' : 'Unbilled'}
+                    </span>
+                  </td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => navigate(`/claims/${c._id}`)}
