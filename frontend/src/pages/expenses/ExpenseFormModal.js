@@ -6,15 +6,17 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', partyName: '', referenceId: '' };
 
-const ExpenseFormModal = ({ open, initial, categories, references, loadingRefs = false, onClose, onSave }) => {
+const ExpenseFormModal = ({ open, initial, mode = 'create', categories, references, loadingRefs = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  const isEdit = mode === 'edit';
+  const isDuplicate = mode === 'duplicate';
 
   useEffect(() => {
     if (!open) return;
     if (initial) {
       setForm({
-        date: (initial.date || '').slice(0, 10),
+        date: isDuplicate ? todayIso() : (initial.date || '').slice(0, 10),
         categoryId: initial.category?._id || initial.categoryId || '',
         amount: initial.amount ?? 0,
         notes: initial.notes || '',
@@ -24,7 +26,7 @@ const ExpenseFormModal = ({ open, initial, categories, references, loadingRefs =
     } else {
       setForm({ ...blank, categoryId: categories[0]?._id || '' });
     }
-  }, [open, initial, categories]);
+  }, [open, initial, categories, isDuplicate]);
 
   if (!open) return null;
 
@@ -53,7 +55,7 @@ const ExpenseFormModal = ({ open, initial, categories, references, loadingRefs =
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-800">{initial ? 'Edit Expense' : 'Add Expense'}</h3>
+          <h3 className="text-lg font-semibold text-gray-800">{isEdit ? 'Edit Expense' : isDuplicate ? 'Duplicate Expense' : 'Add Expense'}</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
             <HiOutlineX className="w-5 h-5 text-gray-500" />
           </button>
