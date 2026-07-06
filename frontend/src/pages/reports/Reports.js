@@ -114,7 +114,14 @@ const TABLE_COL_DEFS = {
   neftNo:                    { label: 'NEFT No',              cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => c.neftNo || '-' },
   remarks:                   { label: 'Remarks',              cellClass: 'py-2 px-3',                                              get: (c) => c.remarks || '-' },
   rejectedReason:            { label: 'Rejected Reason',      cellClass: 'py-2 px-3',                                              get: (c) => c.rejectedReason || '-' },
-  status:                    { label: 'Status',               cellClass: 'py-2 px-3 capitalize',                                   get: (c) => (c.status || '').replace(/_/g, ' ') },
+  status:                    { label: 'Status',               cellClass: 'py-2 px-3 whitespace-nowrap', render: (c, ctx) => {
+    const st = (ctx.claimStatuses || []).find((s) => s.slug === c.status);
+    const label = st?.label || (c.status || '').replace(/_/g, ' ') || '-';
+    const cls = STATUS_COLOR_MAP[st?.color] || 'bg-gray-100 text-gray-700';
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${cls}`}>{label}</span>
+    );
+  } },
 };
 
 const TABLE_DEFAULT_COLS = [
@@ -882,8 +889,12 @@ const Reports = () => {
     .filter(({ key }) => !(isHospitalUser && key === 'hospital'))
     .filter(({ def }) => !(def.superAdminOnly && !isSuperAdmin));
 
+  if (!visibleCols.some(({ key }) => key === 'status')) {
+    visibleCols.push({ key: 'status', def: TABLE_COL_DEFS.status });
+  }
+
   const tableColCount = 1 /* SR */ + visibleCols.length + (isSuperAdmin ? 1 : 0) /* Bill Status */ + (billMode ? 1 : 0);
-  const cellCtx = { getFilePrice: getFileP };
+  const cellCtx = { getFilePrice: getFileP, claimStatuses };
 
   // ── Field modal helpers ───────────────────────────────────────────────────
 
