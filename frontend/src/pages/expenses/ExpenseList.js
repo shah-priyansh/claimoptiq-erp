@@ -1,17 +1,67 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch, HiChevronRight, HiChevronDown } from 'react-icons/hi';
+import {
+  HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineDuplicate,
+  HiOutlineSearch, HiChevronRight, HiChevronDown, HiOutlineDotsVertical,
+  HiOutlineDownload, HiOutlineEye, HiOutlinePrinter, HiOutlineCash, HiOutlineX,
+} from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getExpensesAPI, getExpenseSummaryAPI, getExpenseCategoriesAPI, createExpenseAPI,
-  updateExpenseAPI, deleteExpenseAPI, getReferencesAPI,
+  updateExpenseAPI, deleteExpenseAPI, getReferencesAPI, getBankAccountsAPI, createCashBankAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import ExpenseFormModal from './ExpenseFormModal';
+import CashBankFormModal from '../cashbank/CashBankFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
+
+const buildExpenseVoucherHtml = (e) => {
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+  const amt = '₹' + Math.round(Number(e.amount) || 0).toLocaleString('en-IN');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  return `
+    <div style="max-width:560px;margin:0 auto;padding:32px;font-family:'Helvetica Neue',Arial,sans-serif;color:#111827;">
+      <div style="border-bottom:2px solid #1f2937;padding-bottom:12px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end;">
+        <div>
+          <div style="font-size:22px;font-weight:700;letter-spacing:0.5px;">FCC</div>
+          <div style="font-size:11px;color:#6b7280;">First Care Consultancy</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:13px;font-weight:600;color:#374151;">EXPENSE VOUCHER</div>
+          <div style="font-size:11px;color:#6b7280;">Voucher #${esc((e._id || '').slice(-8).toUpperCase())}</div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tbody>
+          <tr><td style="padding:8px 0;color:#6b7280;width:35%;">Date</td><td style="padding:8px 0;font-weight:500;">${esc(fmtDate(e.date))}</td></tr>
+          <tr><td style="padding:8px 0;color:#6b7280;">Category</td><td style="padding:8px 0;font-weight:500;">${esc(e.category?.label || '-')}</td></tr>
+          <tr><td style="padding:8px 0;color:#6b7280;">Reference</td><td style="padding:8px 0;">${esc(e.reference?.name || '-')}</td></tr>
+          <tr><td style="padding:8px 0;color:#6b7280;">Paid To</td><td style="padding:8px 0;">${esc(e.partyName || '-')}</td></tr>
+          <tr><td style="padding:8px 0;color:#6b7280;vertical-align:top;">Notes</td><td style="padding:8px 0;white-space:pre-wrap;">${esc(e.notes || '-')}</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:24px;padding:14px 16px;background:#f3f4f6;border-radius:10px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:0.5px;">TOTAL AMOUNT</span>
+        <span style="font-size:20px;font-weight:700;color:${(e.amount || 0) < 0 ? '#b91c1c' : '#111827'};">${amt}</span>
+      </div>
+      <div style="margin-top:40px;display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
+        <div>Prepared by _______________</div>
+        <div>Authorised by _______________</div>
+      </div>
+    </div>`;
+};
+
+const printExpense = (e) => {
+  const html = buildExpenseVoucherHtml(e);
+  const w = window.open('', '_blank', 'width=720,height=900');
+  if (!w) { toast.error('Popup blocked — allow popups to print'); return; }
+  w.document.write(`<!doctype html><html><head><title>Expense Voucher</title><meta charset="utf-8"/></head><body>${html}<script>window.onload=()=>{setTimeout(()=>{window.focus();window.print();},100);};</script></body></html>`);
+  w.document.close();
+};
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const formatDate = (d) => _formatDate(d);
@@ -35,8 +85,62 @@ const ExpenseList = () => {
   const [loadingRefs, setLoadingRefs] = useState(true);
   const [summary, setSummary] = useState({ rows: [], grandTotal: 0 });
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState({ open: false, item: null });
+  const [modal, setModal] = useState({ open: false, item: null, mode: 'create' });
   const [categorySearch, setCategorySearch] = useState('');
+  const [actionMenu, setActionMenu] = useState(null); // { id, top?, bottom?, left, item }
+  const actionMenuRef = useRef(null);
+  const [previewExpense, setPreviewExpense] = useState(null);
+  const [paymentExpense, setPaymentExpense] = useState(null);
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
+
+  const openActionMenu = (evt, item) => {
+    evt.stopPropagation();
+    const r = evt.currentTarget.getBoundingClientRect();
+    const menuWidth = 210;
+    const estH = 300;
+    const spaceBelow = window.innerHeight - r.bottom;
+    const openUp = spaceBelow < estH && r.top > spaceBelow;
+    const left = Math.max(8, Math.min(r.right - menuWidth, window.innerWidth - menuWidth - 8));
+    setActionMenu(openUp
+      ? { id: item._id, item, bottom: window.innerHeight - r.top + 4, left }
+      : { id: item._id, item, top: r.bottom + 4, left });
+  };
+
+  useEffect(() => {
+    if (!actionMenu) return;
+    const close = (evt) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(evt.target)) setActionMenu(null);
+    };
+    const onScroll = () => setActionMenu(null);
+    document.addEventListener('mousedown', close);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [actionMenu]);
+
+  const handlePaymentSave = async (form) => {
+    if (!paymentExpense) return;
+    setPaymentSaving(true);
+    try {
+      await createCashBankAPI({
+        ...form,
+        direction: 'out',
+        expenseId: paymentExpense._id,
+      });
+      toast.success('Payment recorded');
+      setPaymentExpense(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record payment');
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
   // Per-merged-row breakdown cache. Lazy-loaded the first time the operator
   // expands a roll-up so we don't fetch every breakdown upfront.
   const [expanded, setExpanded] = useState({}); // { [mergedRowId]: { loading, items } }
@@ -134,6 +238,11 @@ const ExpenseList = () => {
       setCategories(cats.data || []);
       setReferences(refs.data || []);
     }).catch(() => {}).finally(() => setLoadingRefs(false));
+
+    getBankAccountsAPI({ active: 'true' })
+      .then(({ data }) => setBankAccounts(data || []))
+      .catch(() => setBankAccounts([]))
+      .finally(() => setLoadingBankAccounts(false));
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -141,14 +250,14 @@ const ExpenseList = () => {
 
   const handleSave = async (form) => {
     try {
-      if (modal.item) {
+      if (modal.mode === 'edit' && modal.item) {
         await updateExpenseAPI(modal.item._id, form);
         toast.success('Expense updated');
       } else {
         await createExpenseAPI(form);
-        toast.success('Expense added');
+        toast.success(modal.mode === 'duplicate' ? 'Expense duplicated' : 'Expense added');
       }
-      setModal({ open: false, item: null });
+      setModal({ open: false, item: null, mode: 'create' });
       fetchAll();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to save');
@@ -171,7 +280,7 @@ const ExpenseList = () => {
     <div>
       {canCreate && (
         <div className="flex justify-end mb-4 gap-2">
-          <button onClick={() => setModal({ open: true, item: null })}
+          <button onClick={() => setModal({ open: true, item: null, mode: 'create' })}
             className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
             <HiOutlinePlus className="w-4 h-4" /> Add Expense
           </button>
@@ -368,24 +477,16 @@ const ExpenseList = () => {
                                 {formatINR(e.amount)}
                               </td>
                               <td className="py-3 px-4 text-right">
-                                <div className="flex justify-end gap-1">
+                                <div className="flex justify-end">
                                   {merged ? (
                                     <span className="text-[10px] text-gray-400 italic">monthly roll-up</span>
                                   ) : (
-                                    <>
-                                      {canEdit && (
-                                        <button onClick={() => setModal({ open: true, item: e })}
-                                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
-                                          <HiOutlinePencil className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                      {canDelete && (
-                                        <button onClick={() => handleDelete(e)}
-                                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                                          <HiOutlineTrash className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                    </>
+                                    <button
+                                      onClick={(evt) => openActionMenu(evt, e)}
+                                      title="More actions"
+                                      className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg">
+                                      <HiOutlineDotsVertical className="w-4 h-4" />
+                                    </button>
                                   )}
                                 </div>
                               </td>
@@ -420,19 +521,13 @@ const ExpenseList = () => {
                                               <td className="py-1.5 px-3 text-gray-600 max-w-md truncate" title={row.notes || ''}>{row.notes || <span className="text-gray-300">—</span>}</td>
                                               <td className={`py-1.5 px-3 text-right font-medium ${row.amount < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(row.amount)}</td>
                                               <td className="py-1.5 px-3 text-right">
-                                                <div className="flex justify-end gap-1">
-                                                  {canEdit && (
-                                                    <button onClick={() => setModal({ open: true, item: row })}
-                                                      className="p-1 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
-                                                      <HiOutlinePencil className="w-3.5 h-3.5" />
-                                                    </button>
-                                                  )}
-                                                  {canDelete && (
-                                                    <button onClick={() => handleDelete(row)}
-                                                      className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                                                      <HiOutlineTrash className="w-3.5 h-3.5" />
-                                                    </button>
-                                                  )}
+                                                <div className="flex justify-end">
+                                                  <button
+                                                    onClick={(evt) => openActionMenu(evt, row)}
+                                                    title="More actions"
+                                                    className="p-1 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded">
+                                                    <HiOutlineDotsVertical className="w-3.5 h-3.5" />
+                                                  </button>
                                                 </div>
                                               </td>
                                             </tr>
@@ -473,11 +568,120 @@ const ExpenseList = () => {
       <ExpenseFormModal
         open={modal.open}
         initial={modal.item}
+        mode={modal.mode}
         categories={categories}
         references={references}
         loadingRefs={loadingRefs}
-        onClose={() => setModal({ open: false, item: null })}
+        onClose={() => setModal({ open: false, item: null, mode: 'create' })}
         onSave={handleSave}
+      />
+
+      {actionMenu && ReactDOM.createPortal(
+        (() => {
+          const e = actionMenu.item;
+          if (!e) return null;
+          return (
+            <div
+              ref={actionMenuRef}
+              style={{
+                position: 'fixed',
+                left: actionMenu.left,
+                width: 210,
+                ...(actionMenu.top !== undefined ? { top: actionMenu.top } : { bottom: actionMenu.bottom }),
+              }}
+              className="bg-white border border-gray-200 rounded-lg shadow-lg z-[60] py-1">
+              {canEdit && (
+                <button
+                  onClick={() => { setActionMenu(null); setModal({ open: true, item: e, mode: 'edit' }); }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                  <HiOutlinePencil className="w-4 h-4 text-primary-600" /> View/Edit
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => { setActionMenu(null); handleDelete(e); }}
+                  className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                  <HiOutlineTrash className="w-4 h-4" /> Delete
+                </button>
+              )}
+              {canCreate && (
+                <button
+                  onClick={() => { setActionMenu(null); setModal({ open: true, item: e, mode: 'duplicate' }); }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                  <HiOutlineDuplicate className="w-4 h-4 text-emerald-600" /> Duplicate
+                </button>
+              )}
+              <div className="my-1 border-t border-gray-100" />
+              <button
+                onClick={() => { setActionMenu(null); printExpense(e); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <HiOutlineDownload className="w-4 h-4 text-primary-600" /> Open PDF
+              </button>
+              <button
+                onClick={() => { setActionMenu(null); setPreviewExpense(e); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <HiOutlineEye className="w-4 h-4 text-primary-600" /> Preview
+              </button>
+              <button
+                onClick={() => { setActionMenu(null); printExpense(e); }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <HiOutlinePrinter className="w-4 h-4 text-primary-600" /> Print
+              </button>
+              <div className="my-1 border-t border-gray-100" />
+              <button
+                onClick={() => { setActionMenu(null); setPaymentExpense(e); }}
+                className="w-full text-left px-3 py-2 text-sm text-green-700 hover:bg-green-50 flex items-center gap-2">
+                <HiOutlineCash className="w-4 h-4" /> Make Payment
+              </button>
+            </div>
+          );
+        })(),
+        document.body,
+      )}
+
+      {previewExpense && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+             onClick={() => setPreviewExpense(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col"
+               onClick={(evt) => evt.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-800">Preview</h3>
+              <div className="flex items-center gap-1">
+                <button onClick={() => printExpense(previewExpense)}
+                  title="Print"
+                  className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
+                  <HiOutlinePrinter className="w-4 h-4" />
+                </button>
+                <button onClick={() => setPreviewExpense(null)}
+                  className="p-1.5 text-gray-500 hover:bg-gray-100 rounded">
+                  <HiOutlineX className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto bg-gray-50 p-4">
+              <div className="bg-white rounded-lg shadow-sm"
+                   dangerouslySetInnerHTML={{ __html: buildExpenseVoucherHtml(previewExpense) }} />
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      <CashBankFormModal
+        open={!!paymentExpense}
+        initial={paymentExpense ? {
+          direction: 'out',
+          mode: 'cash',
+          amount: paymentExpense.amount || 0,
+          expense: { _id: paymentExpense._id },
+          notes: paymentExpense.notes || '',
+        } : null}
+        invoices={[]}
+        expenses={paymentExpense ? [paymentExpense] : []}
+        bankAccounts={bankAccounts}
+        loadingBankAccounts={loadingBankAccounts}
+        onClose={() => !paymentSaving && setPaymentExpense(null)}
+        onSave={handlePaymentSave}
       />
     </div>
   );
