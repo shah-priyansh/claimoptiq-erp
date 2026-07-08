@@ -35,6 +35,14 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
     [draft.editLines, draft.settings, draft.previewTotals, overrideTds],
   );
 
+  // For direct-patient invoices, the claim_tpa_desk rows are just placeholder
+  // links to the underlying claim (no real TPA-desk fee). Show a friendlier
+  // "Patient" pill instead of "TPA Desk" so operators aren't confused.
+  const labelForLineType = (lt) =>
+    draft.isDirectPatient && lt === 'claim_tpa_desk'
+      ? 'Patient'
+      : LINE_TYPE_LABEL[lt] || lt;
+
   const lineGroups = useMemo(() => {
     const order = [];
     const map = new Map();
@@ -155,7 +163,7 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                     </td>
                     <td className="py-3 px-4">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(row.lineType)}`}>
-                        {LINE_TYPE_LABEL[row.lineType] || row.lineType}
+                        {labelForLineType(row.lineType)}
                       </span>
                     </td>
                     <td className="py-3 px-4">
@@ -189,7 +197,7 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                   </td>
                   <td className="py-3 px-4">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(g.lineType)}`}>
-                      {LINE_TYPE_LABEL[g.lineType] || g.lineType}
+                      {labelForLineType(g.lineType)}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right font-semibold text-gray-800 tabular-nums">{formatINR(groupTotal)}</td>

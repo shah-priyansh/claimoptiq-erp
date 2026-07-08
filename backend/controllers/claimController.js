@@ -1478,12 +1478,16 @@ exports.getDashboardStats = async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    // Single parallel round trip — all independent queries fire at once
+    // Single parallel round trip — all independent queries fire at once.
+    // Settled-month totals use `aggregate` so the DB returns a single row of
+    // sums instead of shipping every claim record over the wire and summing
+    // in JS. Billed-month claims still need per-row data because filePrice
+    // has to be calculated against each hospital's slab config.
     const [
       total,
       statusGroups,
       allStatuses,
-      monthlySettledClaims,
+      monthlySettledAgg,
       monthlyBilledClaims,
       hospitalCount,
     ] = await Promise.all([
@@ -1493,13 +1497,14 @@ exports.getDashboardStats = async (req, res) => {
       // Use the claim's `month` field (the business month assigned on the form),
       // not settlementDate/createdAt, so a claim tagged "June" shows up in June's stats
       // regardless of when it was actually settled or created.
-      prisma.claim.findMany({
+      prisma.claim.aggregate({
         where: {
           ...baseWhere,
           status: 'settled',
           month: { gte: monthStart, lte: monthEnd },
         },
-        select: { bankTransferAmount: true, finalApprovalAmount: true },
+        _sum: { bankTransferAmount: true, finalApprovalAmount: true },
+        _count: { _all: true },
       }),
       prisma.claim.findMany({
         where: { ...baseWhere, isBilled: true, month: { gte: monthStart, lte: monthEnd } },
@@ -1510,7 +1515,10 @@ exports.getDashboardStats = async (req, res) => {
         : prisma.hospital.count({ where: { isActive: true } }),
     ]);
 
-    // Fetch billing services only for unique hospitals that still need calculation
+    // Fetch billing services only for unique hospitals that still need
+    // calculation. Narrow the include to slab/percentage services (the only
+    // types calculateFilePrice reads) so we skip pulling every fixed_monthly
+    // / fixed_onetime row + their (empty) slabs subquery.
     const hospitalsNeedingCalc = [...new Set(
       monthlyBilledClaims
         .filter(c => !(c.filePriceOverridden && c.filePrice))
@@ -1524,7 +1532,7 @@ exports.getDashboardStats = async (req, res) => {
         select: {
           id: true,
           billingServices: {
-            where: { isActive: true },
+            where: { isActive: true, billingType: { in: ['per_claim_slab', 'percentage'] } },
             include: { slabs: { orderBy: { rangeStart: 'asc' } } },
           },
         },
@@ -1544,11 +1552,8 @@ exports.getDashboardStats = async (req, res) => {
     const fileReceived = countMap['file_received'] || 0;
     const submitted    = countMap['submitted']     || 0;
 
-    let totalSettlement = 0, totalApprovalAmount = 0;
-    for (const c of monthlySettledClaims) {
-      totalSettlement    += c.bankTransferAmount  || 0;
-      totalApprovalAmount += c.finalApprovalAmount || 0;
-    }
+    const totalSettlement = monthlySettledAgg._sum.bankTransferAmount || 0;
+    const totalApprovalAmount = monthlySettledAgg._sum.finalApprovalAmount || 0;
 
     let totalFilePrice = 0;
     for (const c of monthlyBilledClaims) {
@@ -1573,7 +1578,7 @@ exports.getDashboardStats = async (req, res) => {
         totalSettlement,
         totalFilePrice,
         totalApprovalAmount,
-        count: monthlySettledClaims.length,
+        count: monthlySettledAgg._count._all || 0,
       },
     });
   } catch (error) {

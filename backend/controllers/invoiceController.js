@@ -57,7 +57,7 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 // selection (bulk "Generate Bill" flow), so we trust it. This is what lets
 // rejected/no-discharge claims flow through when the operator explicitly picks
 // them.
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false } = {}) => {
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false, preloadedTpl = null } = {}) => {
   const hasClaimIds = Array.isArray(claimIds) && claimIds.length > 0;
   // For direct-patient invoices the claims have no hospital relation of
   // their own — `hospitalId` is the chosen *target* hospital (used for
@@ -79,15 +79,22 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     claimWhere.id = { in: claimIds };
   }
 
-  // All four reads below are independent — fire them in parallel so the
+  // All reads below are independent — fire them in parallel so the
   // controller pays one network roundtrip's latency instead of four. On the
   // common 50-claim invoice this trims ~30-40% off the buildInvoiceLines
-  // wall-clock time.
+  // wall-clock time. `billingServices` is only needed for regular invoices
+  // (slab / fixed lines); direct-patient invoices use the hospital purely as
+  // a billing-template reference, so skip the heavy include there.
+  // `preloadedTpl` lets the bulk-preview controller fetch the template once
+  // and share it across all groups instead of paying the two-query cost per
+  // group.
   const [hospital, claims, priorOpen, tpl] = await Promise.all([
-    prisma.hospital.findUnique({
-      where: { id: hospitalId },
-      include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
-    }),
+    isDirectPatient
+      ? prisma.hospital.findUnique({ where: { id: hospitalId } })
+      : prisma.hospital.findUnique({
+          where: { id: hospitalId },
+          include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
+        }),
     prisma.claim.findMany({
       where: claimWhere,
       select: {
@@ -107,7 +114,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       },
       select: { amountPending: true },
     }),
-    getInvoiceTemplate(),
+    preloadedTpl ? Promise.resolve(preloadedTpl) : getInvoiceTemplate(),
   ]);
   if (!hospital) {
     const err = new Error('Hospital not found');
@@ -115,7 +122,13 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     throw err;
   }
 
-  const services = (hospital.billingServices || []).filter((s) => s.isActive);
+  // Direct-patient invoices treat the hospital as a billing-template
+  // reference only — skip TPA desk lines (no auto file-price) and skip
+  // fixed service slab lines (EMPANELMENT TIE-UP etc.). Operators add
+  // manual line items for the actual services rendered.
+  const services = isDirectPatient
+    ? []
+    : (hospital.billingServices || []).filter((s) => s.isActive);
 
   // 1. TPA Desk per claim (slab/percentage). Map each line to the billing service used (if identifiable).
   const slabServices = services.filter((s) => s.billingType === 'per_claim_slab' || s.billingType === 'percentage');
@@ -129,23 +142,39 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   const nameToGlobalId = new Map(serviceNameRows.map((r) => [r.name, r.id]));
 
   let order = 0;
-  const tpaDeskLines = claims.map((c) => {
-    const amount = c.filePriceOverridden
-      ? c.filePrice
-      : calculateFilePrice(services, c.hospitalFinalBill, c.finalApprovalAmount);
-    // Pick the first matching slab service for line metadata (most setups have one)
-    const svc = slabServices[0];
-    return {
-      lineType: 'claim_tpa_desk',
-      description: `TPA Desk — ${c.patientName}${c.ccnNo ? ` (CCN ${c.ccnNo})` : ''}`,
-      amount,
-      order: order++,
-      claimId: c.id,
-      billingServiceId: svc?.id || null,
-      billingServiceNameId: svc ? nameToGlobalId.get(svc.serviceName) || null : null,
-      meta: { hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount, overridden: c.filePriceOverridden },
-    };
-  });
+  // Direct-patient invoices: emit one claim_tpa_desk line per claim with
+  // amount=0 as a placeholder. This keeps the invoice ↔ claim linkage (via
+  // the line's claimId) so the issue flow can flip these claims to billed
+  // and voids can roll them back. Amount is always 0 (no auto slab / file
+  // price) — the operator adds service items with rates manually.
+  const tpaDeskLines = isDirectPatient
+    ? claims.map((c) => ({
+        lineType: 'claim_tpa_desk',
+        description: `${c.patientName}${c.ccnNo ? ` (CCN ${c.ccnNo})` : ''}`,
+        amount: 0,
+        order: order++,
+        claimId: c.id,
+        billingServiceId: null,
+        billingServiceNameId: null,
+        meta: { hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount, directPatient: true },
+      }))
+    : claims.map((c) => {
+      const amount = c.filePriceOverridden
+        ? c.filePrice
+        : calculateFilePrice(services, c.hospitalFinalBill, c.finalApprovalAmount);
+      // Pick the first matching slab service for line metadata (most setups have one)
+      const svc = slabServices[0];
+      return {
+        lineType: 'claim_tpa_desk',
+        description: `TPA Desk — ${c.patientName}${c.ccnNo ? ` (CCN ${c.ccnNo})` : ''}`,
+        amount,
+        order: order++,
+        claimId: c.id,
+        billingServiceId: svc?.id || null,
+        billingServiceNameId: svc ? nameToGlobalId.get(svc.serviceName) || null : null,
+        meta: { hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount, overridden: c.filePriceOverridden },
+      };
+    });
 
   // 2. Fixed services
   const fixedMonthly = services.filter((s) => s.billingType === 'fixed_monthly');
@@ -314,9 +343,9 @@ exports.previewBulk = async (req, res) => {
       } else if (EXCLUDED_CLAIM_STATUSES.includes(c.status)) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: c.status });
       } else if (c.isDirectPatient) {
-        // Direct-patient claims are billable, but only once the operator
-        // picks a target hospital in the drawer. They flow into their own
-        // grouping bucket below.
+        // Direct-patient claims flow into their own bucket. The drawer prompts
+        // the operator to pick a target hospital (reference only — no slabs
+        // are auto-applied), then they add manual line items for services.
         directPatientClaims.push(c);
       } else if (!c.hospitalId) {
         skipped.push({ id: c.id, srNo: c.srNo, patientName: c.patientName, reason: 'no hospital' });
@@ -344,11 +373,16 @@ exports.previewBulk = async (req, res) => {
       groups.get(key).claimIds.push(c.id);
     }
 
-    // Group direct-patient claims by month — they have no required hospital,
-    // so the operator usually picks a target hospital in the UI. But direct-
-    // patient claims can carry a hospitalId from claim creation; if every
-    // claim in the group shares the same one, surface it as a suggestion so
-    // the drawer can auto-resolve without prompting.
+    // Group direct-patient claims by month. The operator picks a target
+    // hospital in the drawer purely as a billing reference (invoice template,
+    // GST/TDS defaults). No hospital slab charges or file-price TPA-desk
+    // lines are auto-applied — the operator adds manual line items.
+    //
+    // `hospitalIdHints` collects the hospitalId already stored on each claim
+    // (direct-patient claims can carry a reference hospital from claim
+    // creation). If every claim in the group shares the same hospital, the
+    // drawer auto-resolves with it — the operator doesn't have to repeat
+    // the pick since the hospital is purely reference.
     const directGroups = new Map();
     for (const c of directPatientClaims) {
       const d = new Date(c.dateOfDischarge || c.dateOfAdmit);
@@ -366,19 +400,32 @@ exports.previewBulk = async (req, res) => {
       if (c.hospitalId) g.hospitalIdHints.add(c.hospitalId);
     }
 
-    // Build a preview for each group (sequential — we hit Prisma per group anyway).
-    const previews = [];
-    for (const g of groups.values()) {
-      const built = await buildInvoiceLines(g.hospitalId, g.month, { tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds });
-      // Detect non-voided invoices that already exist for this (hospital,
-      // month) so the UI can warn the operator before they try to commit.
-      // Uniqueness is enforced via a partial unique index (status <> 'void'),
-      // so this mirrors the same predicate via findFirst.
-      const existing = await prisma.invoice.findFirst({
-        where: { hospitalId: g.hospitalId, month: g.month, status: { not: 'void' } },
-        select: { id: true, status: true, invoiceNumber: true },
-      });
-      previews.push({
+    // Fetch the invoice template once and share it across every group.
+    // buildInvoiceLines needs it per-invocation for the GST/TDS defaults, but
+    // the template is site-wide — refetching it N times (each call is 2 DB
+    // roundtrips) was a hidden N-fan-out on wide selections.
+    const preloadedTpl = await getInvoiceTemplate();
+
+    // Build previews in parallel. Each group triggers a `buildInvoiceLines`
+    // (already parallelised internally) plus one `findFirst` for the existing
+    // invoice check — running the groups sequentially added their latencies
+    // together, which dominated wall-clock time on multi-hospital selections.
+    // Direct-patient groups with a single hospital hint are eagerly resolved
+    // here too so the frontend doesn't have to fire a second
+    // `/preview-direct-patient` roundtrip per card.
+    const hospitalPreviewTasks = [...groups.values()].map(async (g) => {
+      const [built, existing] = await Promise.all([
+        buildInvoiceLines(g.hospitalId, g.month, { tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, preloadedTpl }),
+        // Detect non-voided invoices that already exist for this (hospital,
+        // month) so the UI can warn the operator before they try to commit.
+        // Uniqueness is enforced via a partial unique index (status <> 'void'),
+        // so this mirrors the same predicate via findFirst.
+        prisma.invoice.findFirst({
+          where: { hospitalId: g.hospitalId, month: g.month, status: { not: 'void' } },
+          select: { id: true, status: true, invoiceNumber: true },
+        }),
+      ]);
+      return {
         hospitalId: g.hospitalId,
         hospital: toResponse(built.hospital),
         month: g.month,
@@ -387,33 +434,55 @@ exports.previewBulk = async (req, res) => {
         totals: built.totals,
         hasContent: built.lines.length > 0,
         existingInvoice: existing ? toResponse(existing) : null,
-      });
-    }
+      };
+    });
 
-    // Emit a placeholder card per direct-patient month group. No lines /
-    // totals yet — the UI must collect the target hospital from the
-    // operator and POST /invoices/preview-direct-patient to fill them in.
-    // `suggestedHospitalId` is set when every claim in the group already
-    // carries the same hospitalId (from claim creation) so the drawer can
-    // auto-resolve instead of prompting.
-    for (const g of directGroups.values()) {
+    // Direct-patient placeholder cards. If every claim in the group already
+    // carries the same hospitalId, we eagerly resolve the card here (template
+    // defaults + placeholder claim lines) so the frontend doesn't need a
+    // per-card follow-up call. When the hint is missing or ambiguous, we
+    // still emit a `requiresHospitalPick` placeholder so the drawer prompts.
+    const directPreviewTasks = [...directGroups.values()].map(async (g) => {
       const suggested = g.hospitalIdHints.size === 1
         ? [...g.hospitalIdHints][0]
         : null;
-      previews.push({
-        hospitalId: null,
-        hospital: null,
+      if (!suggested) {
+        return {
+          hospitalId: null,
+          hospital: null,
+          month: g.month,
+          claimIds: g.claimIds,
+          lines: [],
+          totals: null,
+          hasContent: false,
+          existingInvoice: null,
+          isDirectPatient: true,
+          requiresHospitalPick: true,
+          suggestedHospitalId: null,
+        };
+      }
+      const [built, existing] = await Promise.all([
+        buildInvoiceLines(suggested, g.month, { tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, isDirectPatient: true, preloadedTpl }),
+        prisma.invoice.findFirst({
+          where: { hospitalId: suggested, month: g.month, isDirectPatient: true, status: { not: 'void' } },
+          select: { id: true, status: true, invoiceNumber: true },
+        }),
+      ]);
+      return {
+        hospitalId: suggested,
+        hospital: toResponse(built.hospital),
         month: g.month,
         claimIds: g.claimIds,
-        lines: [],
-        totals: null,
-        hasContent: false,
-        existingInvoice: null,
+        lines: built.lines,
+        totals: built.totals,
+        hasContent: built.lines.length > 0,
+        existingInvoice: existing ? toResponse(existing) : null,
         isDirectPatient: true,
-        requiresHospitalPick: true,
-        suggestedHospitalId: suggested,
-      });
-    }
+        requiresHospitalPick: false,
+      };
+    });
+
+    const previews = await Promise.all([...hospitalPreviewTasks, ...directPreviewTasks]);
 
     // Stable ordering: month asc, then hospital name asc. Direct-patient
     // cards (no hospital name) sort to the end of their month.
