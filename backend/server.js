@@ -72,6 +72,18 @@ async function main() {
   app.listen(PORT, () => {
     console.log(`ClaimOptiq Server running on port ${PORT}`);
   });
+  // Warmup ping — issues a trivial query so Neon's serverless compute is
+  // already awake before the first user request. Without this, a login into
+  // an idle Neon instance eats the cold-start latency (~1–2s) inside the
+  // authenticate call. Fire-and-forget; the ping isn't allowed to block or
+  // fail startup.
+  prisma.$queryRaw`SELECT 1`.catch(() => {});
+  // Ambient keep-alive so the pool stays warm during quiet hours. The
+  // interval is 4 minutes — comfortably under Neon's default auto-suspend
+  // window — and every tick just runs `SELECT 1` on the pool.
+  setInterval(() => {
+    prisma.$queryRaw`SELECT 1`.catch(() => {});
+  }, 4 * 60 * 1000).unref();
   // Backup scheduler: clear stale runs + arm cron (non-fatal if it fails).
   require('./services/backupScheduler').init().catch((err) => {
     console.warn('[backup] scheduler init failed:', err.message);
