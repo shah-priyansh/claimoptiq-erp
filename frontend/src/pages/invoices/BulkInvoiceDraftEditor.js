@@ -61,34 +61,39 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
 
   return (
     <>
-      {/* Settings row */}
+      {/* Settings row — each cell is a flex column with `mt-auto` on the
+          control so inputs stay bottom-aligned even when labels wrap to
+          different heights (TDS Rate wraps to 2 lines on narrow layouts,
+          Discount grows its hint, etc.). */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div>
+        <div className="flex flex-col">
           <label className="block text-sm font-medium text-gray-700 mb-1">GST Rate (%)</label>
           <input
             type="number" min="0" max="100" step="0.01"
             value={draft.settings.gstRate}
             onChange={(e) => updateSettings({ gstRate: e.target.value })}
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            className="mt-auto w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
         </div>
-        <div>
+        <div className="flex flex-col">
           <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate (optional)</label>
-          <SearchableSelect
-            isLoading={loadingTdsRates}
-            value={draft.settings.tdsRateId}
-            onChange={(v) => updateSettings({ tdsRateId: v })}
-            placeholder="Use hospital default"
-            searchPlaceholder="Search TDS rates..."
-            noneLabel="— Use hospital default —"
-            allowClear
-            options={tdsRates.map((r) => ({
-              value: r._id,
-              label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
-            }))}
-          />
+          <div className="mt-auto">
+            <SearchableSelect
+              isLoading={loadingTdsRates}
+              value={draft.settings.tdsRateId}
+              onChange={(v) => updateSettings({ tdsRateId: v })}
+              placeholder="Use hospital default"
+              searchPlaceholder="Search TDS rates..."
+              noneLabel="— Use hospital default —"
+              allowClear
+              options={tdsRates.map((r) => ({
+                value: r._id,
+                label: `${r.taxName} — ${r.rate}%${r.section ? ` (${r.section})` : ''}`,
+              }))}
+            />
+          </div>
         </div>
-        <div>
+        <div className="flex flex-col">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Discount <span className="text-xs text-gray-400 font-normal">(max {formatINR(liveTotals?.gross || 0)})</span>
           </label>
@@ -100,25 +105,25 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
               const v = Math.max(0, Math.min(Number(e.target.value) || 0, cap));
               updateSettings({ discount: v });
             }}
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            className="mt-auto w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
         </div>
-        <div>
+        <div className="flex flex-col">
           <label className="block text-sm font-medium text-gray-700 mb-1">Round Off (+/-)</label>
           <input
             type="number"
             value={draft.settings.roundOff}
             onChange={(e) => updateSettings({ roundOff: e.target.value })}
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            className="mt-auto w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
         </div>
-        <div>
+        <div className="flex flex-col">
           <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
           <input
             value={draft.settings.notes}
             onChange={(e) => updateSettings({ notes: e.target.value })}
             placeholder="Internal note for this invoice"
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            className="mt-auto w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
         </div>
       </div>

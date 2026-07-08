@@ -369,17 +369,25 @@ const Reports = () => {
 
   const handleGenerateBill = async () => {
     setSelectedClaimIds([]);
+    setAllMatchingIds([]);
     setBillMode(true);
-    // Always re-fetch so the isBilled=false constraint applied by
-    // buildFilterParams in bill mode is reflected in the visible page,
-    // pagination, and bill-mode select-all set.
+    // Entering bill mode only adds `isBilled=false` to the effective filter.
+    // If the visible list is already scoped to unbilled (via status filter or
+    // an earlier bill-mode fetch), the produced params are identical — skip
+    // the redundant WAN roundtrip and reuse the visible page.
+    const alreadyUnbilled = billMode || filters.status === '__unbilled';
+    if (alreadyUnbilled) return;
     await generateReport({ billModeOverride: true });
   };
 
   const handleCancelBillMode = async () => {
     setBillMode(false);
     setSelectedClaimIds([]);
-    // Re-fetch so billed claims reappear after exiting bill mode.
+    setAllMatchingIds([]);
+    // If the operator explicitly picked `__unbilled` in the status dropdown,
+    // leaving bill mode doesn't change the effective filter — skip the
+    // refetch. Otherwise refetch so billed claims reappear.
+    if (filters.status === '__unbilled') return;
     await generateReport({ billModeOverride: false });
   };
 
