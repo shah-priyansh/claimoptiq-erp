@@ -2,10 +2,23 @@ const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const { invalidateStatusCache } = require('./claimController');
 
+// Claim statuses are effectively static config — every page load re-fetching
+// the full list was pointless. 5-minute in-memory cache; every mutation
+// below busts it.
+let _listCache = null;
+let _listCacheExpiry = 0;
+const LIST_CACHE_TTL = 5 * 60 * 1000;
+const bustLocalCache = () => { _listCache = null; _listCacheExpiry = 0; };
+
 exports.getAll = async (req, res) => {
   try {
+    if (_listCache && Date.now() < _listCacheExpiry) {
+      return res.json(_listCache);
+    }
     const statuses = await prisma.claimStatus.findMany({ orderBy: { order: 'asc' } });
-    res.json(toResponse(statuses));
+    _listCache = toResponse(statuses);
+    _listCacheExpiry = Date.now() + LIST_CACHE_TTL;
+    res.json(_listCache);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -27,6 +40,7 @@ exports.create = async (req, res) => {
       data: { label: label.trim(), slug: generatedSlug, color: color || 'gray', order: newOrder },
     });
     invalidateStatusCache();
+    bustLocalCache();
     res.status(201).json(toResponse(status));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -47,6 +61,7 @@ exports.update = async (req, res) => {
 
     const updated = await prisma.claimStatus.update({ where: { id: req.params.id }, data: updateData });
     invalidateStatusCache();
+    bustLocalCache();
     res.json(toResponse(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -60,6 +75,7 @@ exports.remove = async (req, res) => {
     if (status.isSystem) return res.status(400).json({ message: 'System statuses cannot be deleted' });
     await prisma.claimStatus.delete({ where: { id: req.params.id } });
     invalidateStatusCache();
+    bustLocalCache();
     res.json({ message: 'Status deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

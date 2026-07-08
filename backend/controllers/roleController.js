@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { formatRole, parseModulePermissions } = require('../utils/toResponse');
+const { invalidateUserCache } = require('../middleware/auth');
 
 const roleInclude = { modulePermissions: true };
 
@@ -116,6 +117,9 @@ exports.updateRole = async (req, res) => {
       data: updateData,
       include: roleInclude,
     });
+    // Bust every cached user — permission changes affect all users on this
+    // role. Blast-clearing is safer than tracking role→user maps.
+    invalidateUserCache();
     res.json(formatRole(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -138,6 +142,7 @@ exports.deleteRole = async (req, res) => {
     }
 
     await prisma.role.update({ where: { id: req.params.id }, data: { isActive: false } });
+    invalidateUserCache();
     res.json({ message: 'Role deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

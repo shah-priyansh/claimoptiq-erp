@@ -1,6 +1,14 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 
+// Dropdown "all hospitals" endpoint gets hit on every page that renders a
+// hospital SearchableSelect. The payload is tiny + rarely changes, so we
+// cache it per active-state (?active=true|false|all) for 2 minutes. Any
+// hospital create/update/delete below busts the cache.
+const _dropdownCache = new Map();
+const DROPDOWN_CACHE_TTL = 2 * 60 * 1000;
+const bustDropdownCache = () => { _dropdownCache.clear(); };
+
 const isValidPhone = (v) => /^[6-9]\d{9}$/.test((v || '').trim());
 const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
 const isValidPincode = (v) => /^[1-9][0-9]{5}$/.test((v || '').trim());
@@ -191,6 +199,7 @@ exports.bulkImportHospitals = async (req, res) => {
       }
     }
     const successCount = created.length + updated.length;
+    if (successCount) bustDropdownCache();
     res.status(errors.length && !successCount && !skipped.length ? 400 : 200).json({
       message: `Imported ${successCount} of ${rows.length} hospital(s)`,
       created, updated, skipped, errors,
@@ -207,6 +216,8 @@ exports.bulkImportHospitals = async (req, res) => {
   }
 };
 
+exports.invalidateHospitalDropdownCache = bustDropdownCache;
+
 exports.createHospital = async (req, res) => {
   try {
     const err = validateHospitalFields(req.body);
@@ -220,6 +231,7 @@ exports.createHospital = async (req, res) => {
       },
       include: hospitalInclude,
     });
+    bustDropdownCache();
     res.status(201).json(toResponse(hospital));
   } catch (error) {
     if (error.status === 400) return res.status(400).json({ message: error.message });
@@ -241,14 +253,22 @@ exports.getHospitals = async (req, res) => {
 
     // Dropdown / "fetch everything" mode — pagination is explicitly
     // bypassed and we serve a minimal payload so the response stays cheap
-    // even with hundreds of hospitals.
+    // even with hundreds of hospitals. Cached per (userHospId, search,
+    // active) key so repeat page loads / dropdown remounts are near-free.
     if (all === 'true' || all === '1') {
+      const cacheKey = `${userHospId || 'admin'}|${search || ''}|${active ?? 'all'}`;
+      const cached = _dropdownCache.get(cacheKey);
+      if (cached && cached.expiry > Date.now()) {
+        return res.json(cached.payload);
+      }
       const hospitals = await prisma.hospital.findMany({
         where,
         select: hospitalDropdownSelect,
         orderBy: { name: 'asc' },
       });
-      return res.json(toResponse(hospitals));
+      const payload = toResponse(hospitals);
+      _dropdownCache.set(cacheKey, { payload, expiry: Date.now() + DROPDOWN_CACHE_TTL });
+      return res.json(payload);
     }
 
     if (page !== undefined) {
@@ -319,6 +339,7 @@ exports.updateHospital = async (req, res) => {
       },
       include: hospitalInclude,
     });
+    bustDropdownCache();
     res.json(toResponse(hospital));
   } catch (error) {
     if (error.status === 400) return res.status(400).json({ message: error.message });
@@ -333,6 +354,7 @@ exports.deleteHospital = async (req, res) => {
       data: { isActive: false },
     });
     if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
+    bustDropdownCache();
     res.json({ message: 'Hospital deactivated' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -351,6 +373,7 @@ exports.deleteAllHospitals = async (req, res) => {
       where: { isActive: true },
       data: { isActive: false },
     });
+    bustDropdownCache();
     res.json({ message: `${result.count} hospital(s) deactivated`, count: result.count });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

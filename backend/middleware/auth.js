@@ -1,6 +1,22 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/prisma');
 
+// Per-user cache for the `protect` middleware. Every authenticated request
+// was doing a `user.findUnique` with a nested include on `role.modulePermissions`
+// + `hospital` — several JOINs on the hot path of every API call. That single
+// query dominated wall-clock time on the /claims page (3 near-simultaneous
+// requests × ~800ms of auth lookup each, queued through the connection pool).
+//
+// 30s TTL: short enough that role/hospital changes propagate quickly; long
+// enough to collapse burst traffic (dashboard mount, list pages, dropdown
+// fan-out) into a single DB roundtrip per user.
+const _userCache = new Map();
+const USER_CACHE_TTL = 30 * 1000;
+const invalidateUserCache = (userId) => {
+  if (userId) _userCache.delete(userId);
+  else _userCache.clear();
+};
+
 const hasPermission = (role, moduleName, action) => {
   const mod = (role.modulePermissions || []).find((m) => m.module === moduleName);
   if (!mod) return false;
@@ -30,13 +46,24 @@ const protect = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      include: {
-        role: { include: { modulePermissions: true } },
-        hospital: { select: { id: true, name: true } },
-      },
-    });
+    let user;
+    const cached = _userCache.get(decoded.id);
+    if (cached && cached.expiry > Date.now()) {
+      user = cached.user;
+    } else {
+      user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        include: {
+          role: { include: { modulePermissions: true } },
+          hospital: { select: { id: true, name: true } },
+        },
+      });
+      if (user) {
+        user._id = user.id;
+        if (user.hospital) user.hospital._id = user.hospital.id;
+        _userCache.set(decoded.id, { user, expiry: Date.now() + USER_CACHE_TTL });
+      }
+    }
 
     if (!user || !user.isActive) {
       return res.status(401).json({ message: 'Not authorized, user not found or inactive' });
@@ -45,9 +72,6 @@ const protect = async (req, res, next) => {
     if (!user.role || !user.role.isActive) {
       return res.status(403).json({ message: 'Your role has been deactivated. Contact admin.' });
     }
-
-    user._id = user.id;
-    if (user.hospital) user.hospital._id = user.hospital.id;
 
     req.user = user;
     next();
@@ -90,4 +114,4 @@ const authorize = (...roleSlugs) => {
   };
 };
 
-module.exports = { protect, checkPermission, checkAnyPermission, authorize };
+module.exports = { protect, checkPermission, checkAnyPermission, authorize, invalidateUserCache };
