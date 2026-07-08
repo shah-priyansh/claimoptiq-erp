@@ -544,6 +544,8 @@ model Claim {
   @@index([hospitalId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
   @@index([month])
+  @@index([status, month])
+  @@index([isBilled, month])
   @@index([ccnNo])
   @@index([patientName])
   @@map("claims")

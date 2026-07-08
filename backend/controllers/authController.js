@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const generateToken = require('../utils/generateToken');
 const { formatRole, toResponse } = require('../utils/toResponse');
+const { invalidateUserCache } = require('../middleware/auth');
 
 const isValidPhone = (v) => /^[6-9]\d{9}$/.test((v || '').trim());
 const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
@@ -153,6 +154,7 @@ exports.updateMe = async (req, res) => {
       data,
       include: userInclude,
     });
+    invalidateUserCache(req.user.id);
     res.json(formatUser(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -176,6 +178,7 @@ exports.changePassword = async (req, res) => {
     if (same) return res.status(400).json({ message: 'New password must be different from current password' });
     const hashed = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id: req.user.id }, data: { password: hashed } });
+    invalidateUserCache(req.user.id);
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -209,6 +212,7 @@ exports.updateUser = async (req, res) => {
       include: userInclude,
     });
 
+    invalidateUserCache(req.params.id);
     res.json(formatUser(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
