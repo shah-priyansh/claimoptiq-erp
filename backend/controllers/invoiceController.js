@@ -361,36 +361,39 @@ exports.previewBulk = async (req, res) => {
       });
     }
 
-    // Group by hospitalId + month (UTC year-month) → list of claimIds.
-    // Falls back to dateOfAdmit when a claim has no discharge date yet, so
-    // rejected / mid-flight claims still land in a month bucket.
+    // Group by hospitalId only — a single invoice per hospital combining
+    // every selected claim regardless of which month it was discharged in.
+    // This matches how the operator wants to bill: carry-forward admits from
+    // earlier months + fresh discharges in the current month land on the
+    // same invoice. The invoice's `month` field defaults to the LATEST
+    // discharge month among the claims (billed "as of" that month) — the
+    // operator can edit it in the drawer before generating.
+    const monthOfClaim = (c) => {
+      const d = new Date(c.dateOfDischarge || c.dateOfAdmit);
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    };
     const groups = new Map();
     for (const c of hospitalClaims) {
-      const d = new Date(c.dateOfDischarge || c.dateOfAdmit);
-      const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
-      const key = `${c.hospitalId}|${monthKey}`;
-      if (!groups.has(key)) groups.set(key, { hospitalId: c.hospitalId, month: new Date(monthKey), claimIds: [] });
-      groups.get(key).claimIds.push(c.id);
+      const m = monthOfClaim(c);
+      if (!groups.has(c.hospitalId)) {
+        groups.set(c.hospitalId, { hospitalId: c.hospitalId, month: m, claimIds: [] });
+      }
+      const g = groups.get(c.hospitalId);
+      g.claimIds.push(c.id);
+      if (m > g.month) g.month = m; // keep the latest month as default
     }
 
-    // Group direct-patient claims by month. The operator picks a target
-    // hospital in the drawer purely as a billing reference (invoice template,
-    // GST/TDS defaults). No hospital slab charges or file-price TPA-desk
-    // lines are auto-applied — the operator adds manual line items.
-    //
-    // `hospitalIdHints` collects the hospitalId already stored on each claim
-    // (direct-patient claims can carry a reference hospital from claim
-    // creation). If every claim in the group shares the same hospital, the
-    // drawer auto-resolves with it — the operator doesn't have to repeat
-    // the pick since the hospital is purely reference.
+    // Direct-patient claims collapse into one bucket per hint hospital (or a
+    // single "requires-pick" bucket when hints disagree / are missing).
+    // Same month-combining semantics as regular hospitals — operator can edit
+    // the picked month in the drawer.
     const directGroups = new Map();
     for (const c of directPatientClaims) {
-      const d = new Date(c.dateOfDischarge || c.dateOfAdmit);
-      const monthKey = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
-      const key = `direct|${monthKey}`;
+      const m = monthOfClaim(c);
+      const key = c.hospitalId ? `direct|${c.hospitalId}` : 'direct|__unassigned__';
       if (!directGroups.has(key)) {
         directGroups.set(key, {
-          month: new Date(monthKey),
+          month: m,
           claimIds: [],
           hospitalIdHints: new Set(),
         });
@@ -398,6 +401,7 @@ exports.previewBulk = async (req, res) => {
       const g = directGroups.get(key);
       g.claimIds.push(c.id);
       if (c.hospitalId) g.hospitalIdHints.add(c.hospitalId);
+      if (m > g.month) g.month = m;
     }
 
     // Fetch the invoice template once and share it across every group.
