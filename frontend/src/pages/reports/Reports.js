@@ -235,13 +235,21 @@ const Reports = () => {
   // the operator to click Generate. Guarded by a one-shot flag and the auth
   // user being present so we don't double-fetch or misread the role.
   const didInitialLoadRef = useRef(false);
+  // Suppresses the very next filter-change refetch — used when the initial-
+  // load handler bumps `filters.status` to '__unbilled', which would otherwise
+  // trigger the debounced auto-refresh below in addition to the explicit
+  // `generateReport` we already fired here.
+  const skipNextFilterRefetchRef = useRef(false);
   useEffect(() => {
     if (didInitialLoadRef.current) return;
     if (!user) return;
     didInitialLoadRef.current = true;
     const initialStatus = isSuperAdmin ? '__unbilled' : '';
     const initialFilters = { ...filters, status: initialStatus };
-    if (initialStatus) setFilters(initialFilters);
+    if (initialStatus) {
+      skipNextFilterRefetchRef.current = true;
+      setFilters(initialFilters);
+    }
     generateReport({ filtersOverride: initialFilters });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isSuperAdmin]);
@@ -252,6 +260,10 @@ const Reports = () => {
   // committed so we don't fire a redundant fetch alongside it.
   useEffect(() => {
     if (!didInitialLoadRef.current) return;
+    if (skipNextFilterRefetchRef.current) {
+      skipNextFilterRefetchRef.current = false;
+      return;
+    }
     const t = setTimeout(() => {
       generateReport();
     }, 300);

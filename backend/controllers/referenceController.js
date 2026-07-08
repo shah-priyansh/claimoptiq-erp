@@ -1,6 +1,13 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 
+// References + their per-service commission config are effectively master data
+// — cache the list responses (2min) so pages that hydrate reference dropdowns
+// don't pay a WAN roundtrip on every mount.
+const _listCache = new Map();
+const LIST_CACHE_TTL = 2 * 60 * 1000;
+const bustListCache = () => { _listCache.clear(); };
+
 const pickFields = (body) => {
   const data = {};
   if (body.name !== undefined) data.name = String(body.name).trim();
@@ -64,6 +71,7 @@ exports.create = async (req, res) => {
       },
       include: referenceInclude,
     });
+    bustListCache();
     res.status(201).json(toResponse(item));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -73,6 +81,11 @@ exports.create = async (req, res) => {
 exports.getAll = async (req, res) => {
   try {
     const { search, active } = req.query;
+    const cacheKey = `${search || ''}|${active ?? 'all'}`;
+    const cached = _listCache.get(cacheKey);
+    if (cached && cached.expiry > Date.now()) {
+      return res.json(cached.payload);
+    }
     const where = {};
     if (active !== undefined) where.isActive = active === 'true';
     if (search) where.name = { contains: search, mode: 'insensitive' };
@@ -81,7 +94,9 @@ exports.getAll = async (req, res) => {
       include: referenceInclude,
       orderBy: { name: 'asc' },
     });
-    res.json(toResponse(items));
+    const payload = toResponse(items);
+    _listCache.set(cacheKey, { payload, expiry: Date.now() + LIST_CACHE_TTL });
+    res.json(payload);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -125,6 +140,7 @@ exports.update = async (req, res) => {
       });
     });
 
+    bustListCache();
     res.json(toResponse(item));
   } catch (error) {
     if (error.code === 'P2025') return res.status(404).json({ message: 'Not found' });
@@ -138,9 +154,11 @@ exports.remove = async (req, res) => {
     const linked = await prisma.hospital.count({ where: { referenceId: id } });
     if (linked > 0) {
       await prisma.reference.update({ where: { id }, data: { isActive: false } });
+      bustListCache();
       return res.json({ message: `Deactivated (still linked to ${linked} hospital${linked === 1 ? '' : 's'})` });
     }
     await prisma.reference.delete({ where: { id } });
+    bustListCache();
     res.json({ message: 'Deleted' });
   } catch (error) {
     if (error.code === 'P2025') return res.status(404).json({ message: 'Not found' });

@@ -139,6 +139,7 @@ const InvoiceList = () => {
       toast.success('Payment recorded');
       setPaymentInvoice(null);
       fetchInvoices();
+      refreshOpenInvoiceHospitals();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to record payment');
     } finally {
@@ -210,9 +211,6 @@ const InvoiceList = () => {
       const { data } = await getInvoicesAPI(params);
       setItems(data.invoices || []);
       setTotal(data.total || 0);
-      // Keep the open-hospitals dropdown fresh after any list refresh (which
-      // is also the trigger after payment / cancel / delete actions).
-      refreshOpenInvoiceHospitals();
     } catch {
       toast.error('Failed to load invoices');
     } finally {
@@ -259,6 +257,7 @@ const InvoiceList = () => {
       await deleteInvoiceAPI(item._id);
       toast.success('Invoice deleted');
       fetchInvoices();
+      refreshOpenInvoiceHospitals();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to delete');
     }
@@ -279,6 +278,7 @@ const InvoiceList = () => {
       await voidInvoiceAPI(item._id, {});
       toast.success('Invoice cancelled');
       fetchInvoices();
+      refreshOpenInvoiceHospitals();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to cancel');
     } finally {
@@ -298,6 +298,7 @@ const InvoiceList = () => {
       setDeleteAllOpen(false);
       setDeleteAllConfirm('');
       fetchInvoices();
+      refreshOpenInvoiceHospitals();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete invoices');
     } finally {
@@ -660,6 +661,7 @@ const InvoiceList = () => {
         onSaved={() => {
           setSelectedIds([]);
           fetchInvoices();
+          refreshOpenInvoiceHospitals();
         }}
       />
     </div>

@@ -40,13 +40,31 @@ const DEFAULTS = {
 
 // Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them
 // but they're not sensitive — bank details on outgoing invoices are visible to the customer anyway.
+//
+// Settings change infrequently but this endpoint is polled by nearly every
+// page load (login banner + reports summary-column list + PDF template).
+// 5-minute cache with mutation-triggered invalidation collapses the WAN
+// roundtrip cost across concurrent page loads.
+let _publicSettingsCache = null;
+let _publicSettingsExpiry = 0;
+const PUBLIC_SETTINGS_TTL = 5 * 60 * 1000;
+const bustPublicSettingsCache = () => {
+  _publicSettingsCache = null;
+  _publicSettingsExpiry = 0;
+};
+
 exports.getPublicSettings = async (req, res) => {
   try {
+    if (_publicSettingsCache && Date.now() < _publicSettingsExpiry) {
+      return res.json(_publicSettingsCache);
+    }
     const rows = await prisma.siteSetting.findMany({
       where: { key: { in: Object.keys(DEFAULTS) } },
     });
     const result = { ...DEFAULTS };
     rows.forEach(r => { result[r.key] = r.value; });
+    _publicSettingsCache = result;
+    _publicSettingsExpiry = Date.now() + PUBLIC_SETTINGS_TTL;
     res.json(result);
   } catch {
     res.json(DEFAULTS);
@@ -67,6 +85,7 @@ exports.updateSettings = async (req, res) => {
         })
       )
     );
+    bustPublicSettingsCache();
     res.json({ message: 'Settings saved' });
   } catch (err) {
     res.status(500).json({ message: 'Failed to save settings', error: err.message });
@@ -83,6 +102,7 @@ exports.uploadInvoiceLogo = async (req, res) => {
       update: { value: url },
       create: { key: 'invoice_logo_url', value: url },
     });
+    bustPublicSettingsCache();
     res.json({ message: 'Logo uploaded', invoice_logo_url: url });
   } catch (err) {
     res.status(500).json({ message: 'Failed to upload logo', error: err.message });
