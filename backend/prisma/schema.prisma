@@ -417,6 +417,7 @@ model User {
   accountEntriesCreated      AccountEntry[]       @relation("AccountEntryCreatedBy")
   backupRunsTriggered        BackupRun[]          @relation("BackupRunTriggeredBy")
 
+  @@index([phone])
   @@map("users")
 }
 
