@@ -57,7 +57,12 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 // selection (bulk "Generate Bill" flow), so we trust it. This is what lets
 // rejected/no-discharge claims flow through when the operator explicitly picks
 // them.
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false, preloadedTpl = null } = {}) => {
+// `bulkContext` — optional shared preload used by the /invoices/preview-bulk
+// controller. When set, buildInvoiceLines skips its per-group queries for
+// hospital, claims, and priorOpen and reads from the passed maps instead.
+// This collapses O(N × 4) roundtrips into O(4) for N-hospital selections
+// (the N=23 case that dominated the 2.5-3s wall-clock on WAN links).
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false, preloadedTpl = null, bulkContext = null } = {}) => {
   const hasClaimIds = Array.isArray(claimIds) && claimIds.length > 0;
   // For direct-patient invoices the claims have no hospital relation of
   // their own — `hospitalId` is the chosen *target* hospital (used for
@@ -88,32 +93,44 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   // `preloadedTpl` lets the bulk-preview controller fetch the template once
   // and share it across all groups instead of paying the two-query cost per
   // group.
+  const preHospital = bulkContext?.hospitals?.get(hospitalId);
+  const prePriorOpen = bulkContext?.priorOpen?.get(`${hospitalId}|${isDirectPatient ? 'dp' : 'reg'}`);
+  const preClaims = bulkContext?.claimsById && hasClaimIds
+    ? claimIds.map((id) => bulkContext.claimsById.get(id)).filter(Boolean)
+    : null;
+
   const [hospital, claims, priorOpen, tpl] = await Promise.all([
-    isDirectPatient
-      ? prisma.hospital.findUnique({ where: { id: hospitalId } })
-      : prisma.hospital.findUnique({
-          where: { id: hospitalId },
-          include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
+    preHospital
+      ? Promise.resolve(preHospital)
+      : (isDirectPatient
+        ? prisma.hospital.findUnique({ where: { id: hospitalId } })
+        : prisma.hospital.findUnique({
+            where: { id: hospitalId },
+            include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
+          })),
+    preClaims
+      ? Promise.resolve(preClaims)
+      : prisma.claim.findMany({
+          where: claimWhere,
+          select: {
+            id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
+            filePrice: true, filePriceOverridden: true,
+          },
         }),
-    prisma.claim.findMany({
-      where: claimWhere,
-      select: {
-        id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
-        filePrice: true, filePriceOverridden: true,
-      },
-    }),
     // Previous balance only counts dues from the SAME stream — regular
     // invoices ignore direct-patient dues and vice versa. The hospital on
     // a direct-patient invoice is purely a billing-template reference, not
     // a financial relationship.
-    prisma.invoice.findMany({
-      where: {
-        hospitalId,
-        status: { in: ['issued', 'partially_paid'] },
-        isDirectPatient,
-      },
-      select: { amountPending: true },
-    }),
+    prePriorOpen
+      ? Promise.resolve(prePriorOpen)
+      : prisma.invoice.findMany({
+          where: {
+            hospitalId,
+            status: { in: ['issued', 'partially_paid'] },
+            isDirectPatient,
+          },
+          select: { amountPending: true },
+        }),
     preloadedTpl ? Promise.resolve(preloadedTpl) : getInvoiceTemplate(),
   ]);
   if (!hospital) {
@@ -257,10 +274,18 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   // default from Settings → Tax & Numbering Defaults. The per-hospital
   // gstRate/tdsRate/tdsRateId columns were retired 2026-06-16 — both are
   // platform-wide now. `tpl` was fetched in parallel above.
+  // In bulk-preview mode the shared context memoises TDS lookups so the
+  // same platform-default rate isn't re-fetched N times.
   const effectiveTdsRateId = tdsRateId || tpl.invoice_default_tds_rate_id || null;
-  const tds = effectiveTdsRateId
-    ? await resolveTdsRate(effectiveTdsRateId, 0)
-    : { rate: 0, name: '', section: '' };
+  let tds;
+  if (!effectiveTdsRateId) {
+    tds = { rate: 0, name: '', section: '' };
+  } else if (bulkContext?.tdsCache?.has(effectiveTdsRateId)) {
+    tds = bulkContext.tdsCache.get(effectiveTdsRateId);
+  } else {
+    tds = await resolveTdsRate(effectiveTdsRateId, 0);
+    if (bulkContext?.tdsCache) bulkContext.tdsCache.set(effectiveTdsRateId, tds);
+  }
 
   let effectiveGstRate = 0;
   if (gstRateOverride !== undefined && gstRateOverride !== null && gstRateOverride !== '') {
@@ -321,13 +346,18 @@ exports.previewBulk = async (req, res) => {
     }
 
     // Pull every selected claim WITHOUT the billable filter so we can tell
-    // the user exactly which ones were skipped and why.
+    // the user exactly which ones were skipped and why. Includes the extra
+    // columns (`ccnNo`, `hospitalFinalBill`, `finalApprovalAmount`,
+    // `filePrice`, `filePriceOverridden`) that `buildInvoiceLines` needs —
+    // by pulling them here we skip a per-group `claim.findMany` roundtrip.
     const allSelected = await prisma.claim.findMany({
       where: { id: { in: claimIds } },
       select: {
         id: true, srNo: true, patientName: true, status: true,
         isBilled: true, hospitalId: true, dateOfDischarge: true,
         dateOfAdmit: true, isDirectPatient: true,
+        ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
+        filePrice: true, filePriceOverridden: true,
       },
     });
 
@@ -404,31 +434,94 @@ exports.previewBulk = async (req, res) => {
       if (m > g.month) g.month = m;
     }
 
-    // Fetch the invoice template once and share it across every group.
-    // buildInvoiceLines needs it per-invocation for the GST/TDS defaults, but
-    // the template is site-wide — refetching it N times (each call is 2 DB
-    // roundtrips) was a hidden N-fan-out on wide selections.
-    const preloadedTpl = await getInvoiceTemplate();
+    // Batch every dependency that `buildInvoiceLines` needs across ALL groups
+    // into a small handful of queries. Previously each group fired its own
+    // hospital / claim / priorOpen fetches → O(N × 4) roundtrips over the WAN
+    // link, which was the dominant wall-clock cost on multi-hospital previews
+    // (~2.5–3s at N=23). Post-batch this is a constant ~4 queries regardless
+    // of group count.
+    //
+    //   1. Invoice template — site-wide, single fetch.
+    //   2. Every hospital referenced by regular OR direct-patient groups,
+    //      with billingServices (billingServices only matters for regular
+    //      hospitals but we pull them anyway; direct-patient callers ignore).
+    //   3. Prior-open invoices per (hospitalId, isDirectPatient) stream.
+    //   4. Existing invoice check per (hospitalId, month) tuple.
+    const regularHospitalIds = [...groups.keys()];
+    const directHospitalIds = [...directGroups.values()]
+      .map((g) => (g.hospitalIdHints.size === 1 ? [...g.hospitalIdHints][0] : null))
+      .filter(Boolean);
+    const allHospitalIds = [...new Set([...regularHospitalIds, ...directHospitalIds])];
 
-    // Build previews in parallel. Each group triggers a `buildInvoiceLines`
-    // (already parallelised internally) plus one `findFirst` for the existing
-    // invoice check — running the groups sequentially added their latencies
-    // together, which dominated wall-clock time on multi-hospital selections.
-    // Direct-patient groups with a single hospital hint are eagerly resolved
-    // here too so the frontend doesn't have to fire a second
-    // `/preview-direct-patient` roundtrip per card.
+    const existingInvoiceWhere = [
+      ...[...groups.values()].map((g) => ({ hospitalId: g.hospitalId, month: g.month, isDirectPatient: false })),
+      ...[...directGroups.values()]
+        .filter((g) => g.hospitalIdHints.size === 1)
+        .map((g) => ({ hospitalId: [...g.hospitalIdHints][0], month: g.month, isDirectPatient: true })),
+    ];
+
+    const [preloadedTpl, hospitalRows, priorOpenRows, existingInvoiceRows] = await Promise.all([
+      getInvoiceTemplate(),
+      allHospitalIds.length
+        ? prisma.hospital.findMany({
+            where: { id: { in: allHospitalIds } },
+            include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
+          })
+        : Promise.resolve([]),
+      allHospitalIds.length
+        ? prisma.invoice.findMany({
+            where: {
+              hospitalId: { in: allHospitalIds },
+              status: { in: ['issued', 'partially_paid'] },
+            },
+            select: { hospitalId: true, isDirectPatient: true, amountPending: true },
+          })
+        : Promise.resolve([]),
+      existingInvoiceWhere.length
+        ? prisma.invoice.findMany({
+            where: { OR: existingInvoiceWhere, status: { not: 'void' } },
+            select: { id: true, status: true, invoiceNumber: true, hospitalId: true, month: true, isDirectPatient: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const hospitalsById = new Map(hospitalRows.map((h) => [h.id, h]));
+    const priorOpenByStream = new Map();
+    for (const r of priorOpenRows) {
+      const key = `${r.hospitalId}|${r.isDirectPatient ? 'dp' : 'reg'}`;
+      if (!priorOpenByStream.has(key)) priorOpenByStream.set(key, []);
+      priorOpenByStream.get(key).push({ amountPending: r.amountPending });
+    }
+    const existingByKey = new Map();
+    for (const r of existingInvoiceRows) {
+      const key = `${r.hospitalId}|${new Date(r.month).toISOString()}|${r.isDirectPatient ? 'dp' : 'reg'}`;
+      existingByKey.set(key, r);
+    }
+    // Only expose the fields `buildInvoiceLines` actually reads.
+    const claimsById = new Map(
+      allSelected.map((c) => [c.id, {
+        id: c.id, patientName: c.patientName, ccnNo: c.ccnNo,
+        hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount,
+        filePrice: c.filePrice, filePriceOverridden: c.filePriceOverridden,
+      }]),
+    );
+
+    const bulkContext = {
+      hospitals: hospitalsById,
+      priorOpen: priorOpenByStream,
+      claimsById,
+      tdsCache: new Map(),
+    };
+
+    // Build previews from the pre-fetched context. Every group is now a
+    // memory-only operation (with the occasional service-name / onetime-gate
+    // fetch inside buildInvoiceLines that still hits the DB but is small).
     const hospitalPreviewTasks = [...groups.values()].map(async (g) => {
-      const [built, existing] = await Promise.all([
-        buildInvoiceLines(g.hospitalId, g.month, { tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, preloadedTpl }),
-        // Detect non-voided invoices that already exist for this (hospital,
-        // month) so the UI can warn the operator before they try to commit.
-        // Uniqueness is enforced via a partial unique index (status <> 'void'),
-        // so this mirrors the same predicate via findFirst.
-        prisma.invoice.findFirst({
-          where: { hospitalId: g.hospitalId, month: g.month, status: { not: 'void' } },
-          select: { id: true, status: true, invoiceNumber: true },
-        }),
-      ]);
+      const existingKey = `${g.hospitalId}|${new Date(g.month).toISOString()}|reg`;
+      const built = await buildInvoiceLines(g.hospitalId, g.month, {
+        tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, preloadedTpl, bulkContext,
+      });
+      const existing = existingByKey.get(existingKey) || null;
       return {
         hospitalId: g.hospitalId,
         hospital: toResponse(built.hospital),
@@ -437,7 +530,7 @@ exports.previewBulk = async (req, res) => {
         lines: built.lines,
         totals: built.totals,
         hasContent: built.lines.length > 0,
-        existingInvoice: existing ? toResponse(existing) : null,
+        existingInvoice: existing ? toResponse({ id: existing.id, status: existing.status, invoiceNumber: existing.invoiceNumber }) : null,
       };
     });
 
@@ -465,13 +558,11 @@ exports.previewBulk = async (req, res) => {
           suggestedHospitalId: null,
         };
       }
-      const [built, existing] = await Promise.all([
-        buildInvoiceLines(suggested, g.month, { tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, isDirectPatient: true, preloadedTpl }),
-        prisma.invoice.findFirst({
-          where: { hospitalId: suggested, month: g.month, isDirectPatient: true, status: { not: 'void' } },
-          select: { id: true, status: true, invoiceNumber: true },
-        }),
-      ]);
+      const existingKey = `${suggested}|${new Date(g.month).toISOString()}|dp`;
+      const built = await buildInvoiceLines(suggested, g.month, {
+        tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, isDirectPatient: true, preloadedTpl, bulkContext,
+      });
+      const existing = existingByKey.get(existingKey) || null;
       return {
         hospitalId: suggested,
         hospital: toResponse(built.hospital),
@@ -480,7 +571,7 @@ exports.previewBulk = async (req, res) => {
         lines: built.lines,
         totals: built.totals,
         hasContent: built.lines.length > 0,
-        existingInvoice: existing ? toResponse(existing) : null,
+        existingInvoice: existing ? toResponse({ id: existing.id, status: existing.status, invoiceNumber: existing.invoiceNumber }) : null,
         isDirectPatient: true,
         requiresHospitalPick: false,
       };
