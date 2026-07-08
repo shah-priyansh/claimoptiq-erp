@@ -40,12 +40,15 @@ const draftFromPreview = (p) => ({
     roundOff: 0,
     discount: 0,
   },
-  // Direct-patient cards start unticked + with no lines/totals until the
-  // operator picks a target hospital. The drawer renders a chooser then
-  // POSTs /invoices/preview-direct-patient to fill in `editLines`, totals,
-  // etc., and flip `requiresHospitalPick: false`. `suggestedHospitalId`
-  // comes from the backend when every claim in the bucket already shares
-  // a hospitalId — the drawer auto-resolves with it.
+  // Direct-patient cards start unticked with no lines/totals until the
+  // operator picks a target hospital (reference only — no slabs are
+  // applied). The drawer then POSTs /invoices/preview-direct-patient to
+  // fetch the template's GST/TDS defaults and flip `requiresHospitalPick`
+  // to false. Operators add manual line items via the editor.
+  // `suggestedHospitalId` is set by the backend when every claim in the
+  // group already carries the same hospital (from claim creation) — the
+  // drawer auto-resolves without prompting since the hospital is purely
+  // for reference.
   isDirectPatient: !!p.isDirectPatient,
   requiresHospitalPick: !!p.requiresHospitalPick,
   suggestedHospitalId: p.suggestedHospitalId || null,
@@ -56,19 +59,17 @@ const draftFromPreview = (p) => ({
   invoice: null,
 });
 
-const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGenerated }) => {
+const BulkInvoiceDrawer = ({ open, claimIds, onClose, onGenerated }) => {
   const confirm = useConfirm();
 
   const [phase, setPhase] = useState('loading'); // loading | reviewing | generating | empty
   const [drafts, setDrafts] = useState([]);
   const [tdsRates, setTdsRates] = useState([]);
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
-  // Hospitals are only needed when the selection contains direct-patient
-  // claims, but loading them lazily would mean a second spinner mid-flow.
-  // The list is small (~few dozen rows) so we pre-load on first open.
+  // Hospitals list feeds the direct-patient card picker. Small list — pre-load
+  // on first open so the picker doesn't spinner mid-flow.
   const [hospitals, setHospitals] = useState([]);
   const [loadingHospitals, setLoadingHospitals] = useState(true);
-  // Per-card spinner for the direct-patient preview fetch.
   const [resolvingDirectIdx, setResolvingDirectIdx] = useState(null);
   const [skipped, setSkipped] = useState([]);
   const [skippedDismissed, setSkippedDismissed] = useState(false);
@@ -103,7 +104,6 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Load TDS rates and hospitals once.
   useEffect(() => {
     getTdsRatesAPI({ active: 'true' })
       .then(({ data }) => setTdsRates(data || []))
@@ -132,20 +132,13 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
           setPhase('empty');
           return;
         }
-        const initialDrafts = previews.map(draftFromPreview);
-        setDrafts(initialDrafts);
+        // Direct-patient cards whose claims already point at a single
+        // hospital are eagerly resolved by the backend (lines + totals fully
+        // populated, `requiresHospitalPick: false`). Only cards with an
+        // ambiguous / missing hint arrive as picker placeholders — the
+        // operator picks manually in that case.
+        setDrafts(previews.map(draftFromPreview));
         setPhase('reviewing');
-        // If the caller passed a suggestedHospitalId (typically the Reports
-        // page's active hospital filter), auto-resolve every direct-patient
-        // card against it so the operator doesn't have to repeat the pick.
-        // Prefer the per-group suggestion the backend returned (when all
-        // claims in the bucket already share a hospitalId), and fall back
-        // to the page-level filter the caller passed in.
-        initialDrafts.forEach((d, idx) => {
-          if (!d.requiresHospitalPick) return;
-          const auto = d.suggestedHospitalId || suggestedHospitalId;
-          if (auto) pickDirectPatientHospital(idx, auto, d);
-        });
       } catch (e) {
         if (cancelled) return;
         // The backend returns 400 + { skipped: [...] } when every selected
@@ -195,12 +188,14 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
   const toggleApproved = (idx) =>
     updateDraft(idx, { approved: !drafts[idx].approved });
 
-  // Operator picked a target hospital for a direct-patient card. Fetch the
-  // real preview lines/totals from the backend and merge them into the draft.
-  // Auto-approves the card on success so it's queued for the batch generate.
-  // Accepts an optional `draftOverride` for the auto-resolve flow that fires
-  // right after `setDrafts(initialDrafts)` — at that moment the `drafts`
-  // closure still sees the old (empty) array.
+  // Operator picked a target hospital for a direct-patient card (or the
+  // drawer auto-resolved with the claim's stored hospital). Fetch the
+  // template defaults (GST/TDS) and per-claim placeholder lines — the
+  // hospital is a billing reference only, so no slab charges are auto-
+  // applied. Operator adds services + rates manually via the editor.
+  // `draftOverride` covers the auto-resolve path that fires right after
+  // `setDrafts(initialDrafts)` — at that moment the `drafts` closure still
+  // sees the old (empty) array.
   const pickDirectPatientHospital = async (idx, hospitalId, draftOverride) => {
     if (!hospitalId) return;
     const draft = draftOverride || drafts[idx];
@@ -496,7 +491,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
                   const needsPick = d.isDirectPatient && d.requiresHospitalPick;
                   const cardLabel = d.isDirectPatient
                     ? (d.hospital?.name
-                        ? `${d.hospital.name} (Direct Patients)`
+                        ? `${d.hospital.name} (Direct Patients — reference)`
                         : 'Direct Patients')
                     : (d.hospital?.name || '-');
                   return (
@@ -516,7 +511,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
                           checked={d.approved}
                           onChange={() => toggleApproved(idx)}
                           disabled={disabled || needsPick}
-                          title={needsPick ? 'Pick a target hospital first' : ''}
+                          title={needsPick ? 'Pick a reference hospital first' : ''}
                           className="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                         />
                         <div className="flex-1 min-w-0">
@@ -543,6 +538,11 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
                             {t?.effectiveGst > 0 && <> · GST {t.effectiveGst}%</>}
                             {t?.tdsRate > 0 && <> · TDS {t.tdsRate}%</>}
                           </p>
+                          {d.isDirectPatient && !needsPick && (
+                            <p className="text-xs text-purple-800 mt-2 inline-flex items-center gap-1 bg-purple-50 px-2 py-1 rounded">
+                              Add services + rates manually in the editor below — no slab charges are auto-applied.
+                            </p>
+                          )}
                           {d.existingInvoice && (
                             <p className="text-xs text-amber-800 mt-2 inline-flex items-center gap-1 bg-amber-50 px-2 py-1 rounded">
                               Existing {d.existingInvoice.status} invoice {d.existingInvoice.invoiceNumber || ''} —{' '}
@@ -565,7 +565,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
                             onClick={() => openPreviewAt(idx)}
                             disabled={disabled || needsPick}
                             className="p-1.5 text-gray-500 hover:text-primary-700 hover:bg-primary-50 rounded-lg disabled:opacity-40"
-                            title={needsPick ? 'Pick a target hospital first' : 'Preview PDF'}
+                            title={needsPick ? 'Pick a reference hospital first' : 'Preview PDF'}
                           >
                             <HiOutlineEye className="w-4 h-4" />
                           </button>
@@ -573,7 +573,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
                             onClick={() => toggleExpanded(idx)}
                             disabled={disabled || needsPick}
                             className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg disabled:opacity-40"
-                            title={needsPick ? 'Pick a target hospital first' : (isExpanded ? 'Collapse' : 'Edit')}
+                            title={needsPick ? 'Pick a reference hospital first' : (isExpanded ? 'Collapse' : 'Edit')}
                           >
                             {isExpanded
                               ? <HiChevronDown className="w-4 h-4" />
@@ -585,8 +585,11 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
                       {needsPick && (
                         <div className="border-t border-purple-100 px-4 py-3 bg-purple-50/30">
                           <label className="block text-xs font-semibold text-purple-900 uppercase tracking-wide mb-1.5">
-                            Bill these direct-patient claims under
+                            Reference hospital for this invoice
                           </label>
+                          <p className="text-[11px] text-purple-800 mb-2">
+                            Used only for the invoice template (GST/TDS defaults, number prefix). No slab charges will be applied — enter services + rates manually.
+                          </p>
                           <div className="flex items-center gap-2">
                             <div className="flex-1">
                               <SearchableSelect
@@ -599,7 +602,7 @@ const BulkInvoiceDrawer = ({ open, claimIds, suggestedHospitalId, onClose, onGen
                               />
                             </div>
                             {resolvingDirectIdx === idx && (
-                              <span className="text-xs text-purple-700">Loading preview…</span>
+                              <span className="text-xs text-purple-700">Loading…</span>
                             )}
                           </div>
                         </div>
