@@ -65,7 +65,26 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
           control so inputs stay bottom-aligned even when labels wrap to
           different heights (TDS Rate wraps to 2 lines on narrow layouts,
           Discount grows its hint, etc.). */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="flex flex-col">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Month</label>
+          <input
+            type="month"
+            value={(() => {
+              const d = new Date(draft.month);
+              if (isNaN(d.getTime())) return '';
+              return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+            })()}
+            onChange={(e) => {
+              const v = e.target.value; // "YYYY-MM"
+              if (!v) return;
+              const [y, m] = v.split('-').map(Number);
+              if (!y || !m) return;
+              onChange({ month: new Date(Date.UTC(y, m - 1, 1)) });
+            }}
+            className="mt-auto w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+        </div>
         <div className="flex flex-col">
           <label className="block text-sm font-medium text-gray-700 mb-1">GST Rate (%)</label>
           <input

@@ -475,6 +475,15 @@ const Reports = () => {
       return;
     }
     if (!activeFilters) { setSelectedClaimIds(claims.map((c) => c._id)); return; }
+    // If every matching claim already fits on the visible page, we have all
+    // the IDs client-side — skip the extra `idsOnly` roundtrip. This is the
+    // common case when the operator filters to a single hospital.
+    if (serverTotal > 0 && claims.length >= serverTotal) {
+      const ids = claims.map((c) => c._id);
+      setAllMatchingIds(ids);
+      setSelectedClaimIds(ids);
+      return;
+    }
     try {
       const ids = await fetchAllClaimIds(activeFilters);
       setAllMatchingIds(ids);
