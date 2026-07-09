@@ -14,7 +14,7 @@ import {
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
-  formatINR, monthLabel, computeTotals, commitDraft,
+  formatINR, monthLabel, computeTotals, commitDraft, invoiceFilename,
 } from './bulkInvoiceUtils';
 import BulkInvoiceDraftEditor from './BulkInvoiceDraftEditor';
 
@@ -285,10 +285,14 @@ const BulkInvoiceWizard = () => {
   const downloadPreview = () => {
     const draft = previewIdx != null ? drafts[previewIdx] : null;
     if (!pdfBlobUrl || !draft) return;
-    const safe = (draft.hospital?.name || 'invoice').replace(/[^a-zA-Z0-9]+/g, '_');
     const a = document.createElement('a');
     a.href = pdfBlobUrl;
-    a.download = `Preview-${safe}-${monthLabel(draft.month).replace(/\s+/g, '-')}.pdf`;
+    a.download = `Preview - ${invoiceFilename({
+      isDirectPatient: draft.isDirectPatient,
+      hospitalName: draft.hospital?.name,
+      month: draft.month,
+      lineItems: draft.previewLines,
+    })}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -338,13 +342,16 @@ const BulkInvoiceWizard = () => {
       const usedNames = new Map();
       const fetches = okRows.map(async (r) => {
         const { data: blob } = await getInvoicePdfBlobAPI(r.invoice._id);
-        const safeHospital = (r.draft.hospital?.name || 'invoice').replace(/[^a-zA-Z0-9]+/g, '_');
-        const number = r.invoice.invoiceNumber || `Draft-${r.invoice._id.slice(0, 8)}`;
-        let name = `${number}_${safeHospital}.pdf`;
-        // Guard against duplicate filenames (e.g. two invoices with the same
-        // hospital + missing number) — JSZip will silently overwrite otherwise.
+        let name = invoiceFilename({
+          isDirectPatient: r.invoice.isDirectPatient ?? r.draft.isDirectPatient,
+          hospitalName: r.invoice.hospital?.name || r.draft.hospital?.name,
+          month: r.invoice.month || r.draft.month,
+          lineItems: r.invoice.lineItems || r.draft.previewLines,
+        });
+        // Guard against duplicate filenames (e.g. two direct-patient invoices
+        // whose first patient names coincide) — JSZip would silently overwrite.
         const seen = usedNames.get(name) || 0;
-        if (seen > 0) name = name.replace(/\.pdf$/, `_${seen + 1}.pdf`);
+        if (seen > 0) name = name.replace(/\.pdf$/, ` (${seen + 1}).pdf`);
         usedNames.set(name, seen + 1);
         zip.file(name, blob);
       });

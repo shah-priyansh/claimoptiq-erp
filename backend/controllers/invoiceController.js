@@ -812,6 +812,12 @@ exports.create = async (req, res) => {
 
     res.status(201).json(toResponse(invoice));
   } catch (error) {
+    // Safety net for the partial-unique index on (hospital_id, month,
+    // is_direct_patient) racing the pre-check above. Return a friendly 409
+    // instead of leaking the raw Prisma invocation error to the UI.
+    if (error.code === 'P2002') {
+      return res.status(409).json({ message: 'An invoice already exists for this hospital and month.' });
+    }
     const status = error.status || 500;
     res.status(status).json({ message: error.message || 'Server error' });
   }
