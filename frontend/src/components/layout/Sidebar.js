@@ -224,11 +224,24 @@ const Sidebar = ({ isOpen, onClose }) => {
             onChildClick={onClose}
           />
 
-          {isSuperAdmin && (
-            <NavLink to="/settings" className={linkClass} onClick={onClose}>
-              <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
-              Settings
-            </NavLink>
+          {(isSuperAdmin || canManageModule('invoices')) && (
+            <>
+              <SectionLabel>Admin</SectionLabel>
+              {isSuperAdmin && (
+                // `end` prevents /settings from matching /settings/direct-patient-billing
+                // so only one item highlights at a time.
+                <NavLink to="/settings" end className={linkClass} onClick={onClose}>
+                  <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
+                  Settings
+                </NavLink>
+              )}
+              {canManageModule('invoices') && (
+                <NavLink to="/settings/direct-patient-billing" className={linkClass} onClick={onClose}>
+                  <HiOutlineCurrencyRupee className="w-5 h-5 flex-shrink-0" />
+                  Direct Patient Billing
+                </NavLink>
+              )}
+            </>
           )}
         </nav>
       </aside>

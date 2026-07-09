@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   createClaim, getClaims, getClaim, updateClaim,
   uploadDocuments, deleteDocument, streamDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims, importClaims,
-  deleteClaim, deleteAllClaims
+  deleteClaim, deleteAllClaims, fixBilledStatus,
 } = require('../controllers/claimController');
 const { protect, checkPermission } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -21,6 +21,9 @@ router.route('/')
 
 router.put('/bulk-status', checkPermission('claims', 'edit'), bulkUpdateStatus);
 router.put('/bulk-bill', checkPermission('claims', 'edit'), bulkBill);
+// One-shot admin repair: restores real claim status for claims that were
+// incorrectly stamped `status: 'billed'` by the pre-fix invoice.issue flow.
+router.post('/fix-billed-status', checkPermission('claims', 'edit'), fixBilledStatus);
 
 router.route('/:id')
   .get(checkPermission('claims', 'view'), getClaim)

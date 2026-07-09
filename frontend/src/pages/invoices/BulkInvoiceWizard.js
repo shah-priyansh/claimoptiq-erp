@@ -1,19 +1,69 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
   HiOutlineArrowLeft, HiOutlineArrowRight,
   HiOutlineCheck, HiOutlineX, HiOutlineEye,
   HiOutlineExternalLink, HiOutlineDownload, HiOutlinePrinter,
 } from 'react-icons/hi';
+import JSZip from 'jszip';
 import {
-  previewBulkInvoiceAPI, getTdsRatesAPI, previewInvoicePdfAPI,
+  previewBulkInvoiceAPI, previewDirectPatientInvoiceAPI,
+  getTdsRatesAPI, getHospitalsAPI, previewInvoicePdfAPI, getInvoicePdfBlobAPI,
 } from '../../services/api';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
   formatINR, monthLabel, computeTotals, commitDraft,
 } from './bulkInvoiceUtils';
 import BulkInvoiceDraftEditor from './BulkInvoiceDraftEditor';
+
+// Build initial draft state from a single preview group.
+const draftFromPreview = (p) => ({
+  hospitalId: p.hospitalId,
+  hospital: p.hospital,
+  month: p.month,
+  claimIds: p.claimIds,
+  existingInvoice: p.existingInvoice,
+  previewTotals: p.totals,
+  previewLines: p.lines || [],
+  editLines: (p.lines || []).map((l) => ({
+    description: l.description || '',
+    amount: l.amount,
+    lineType: l.lineType,
+    _isManual: false,
+  })),
+  settings: {
+    gstRate: String(p.totals?.gstRate ?? 0),
+    tdsRateId: '',
+    notes: '',
+    roundOff: 0,
+    discount: 0,
+  },
+  isDirectPatient: !!p.isDirectPatient,
+  requiresHospitalPick: !!p.requiresHospitalPick,
+  suggestedHospitalId: p.suggestedHospitalId || null,
+  status: 'pending', // pending | approved | cancelled | success | failed
+  edited: false,
+  error: '',
+  invoice: null,
+});
+
+const statusPill = (s) => {
+  if (s === 'approved') return 'bg-green-100 text-green-700';
+  if (s === 'cancelled') return 'bg-red-100 text-red-700';
+  if (s === 'success') return 'bg-emerald-100 text-emerald-700';
+  if (s === 'failed') return 'bg-red-100 text-red-700';
+  return 'bg-amber-100 text-amber-700';
+};
+
+const statusLabel = (s) => {
+  if (s === 'approved') return 'Approved';
+  if (s === 'cancelled') return 'Cancelled';
+  if (s === 'success') return 'Created';
+  if (s === 'failed') return 'Failed';
+  return 'Pending';
+};
 
 const BulkInvoiceWizard = () => {
   const navigate = useNavigate();
@@ -21,8 +71,30 @@ const BulkInvoiceWizard = () => {
   const confirm = useConfirm();
   const claimIds = location.state?.claimIds || [];
 
-  // Confirm before walking away — the wizard holds unsaved edits per draft
-  // and previously a stray click on "Cancel" would silently drop everything.
+  const [loading, setLoading] = useState(true);
+  const [tdsRates, setTdsRates] = useState([]);
+  const [loadingTdsRates, setLoadingTdsRates] = useState(true);
+  const [hospitals, setHospitals] = useState([]);
+  const [loadingHospitals, setLoadingHospitals] = useState(true);
+  const [resolvingDirectIdx, setResolvingDirectIdx] = useState(null);
+
+  const [drafts, setDrafts] = useState([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [phase, setPhase] = useState('reviewing'); // reviewing | final | generating | done
+  const [generationResults, setGenerationResults] = useState([]);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationTotal, setGenerationTotal] = useState(0);
+  const [bulkPdfLoading, setBulkPdfLoading] = useState(false);
+
+  const [skipped, setSkipped] = useState([]);
+  const [skippedDismissed, setSkippedDismissed] = useState(false);
+
+  // PDF preview modal state
+  const [previewIdx, setPreviewIdx] = useState(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState('');
+
   const handleDiscard = async () => {
     const ok = await confirm(
       'Discard this invoice batch? All draft edits, approvals, and TDS overrides on this page will be lost. No invoices have been saved.',
@@ -31,37 +103,22 @@ const BulkInvoiceWizard = () => {
     if (ok) navigate('/reports/claims');
   };
 
-  const [loading, setLoading] = useState(true);
-  const [tdsRates, setTdsRates] = useState([]);
-  const [loadingTdsRates, setLoadingTdsRates] = useState(true);
-  const [drafts, setDrafts] = useState([]); // each draft has its own editLines/settings/status
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [phase, setPhase] = useState('reviewing'); // reviewing | final | generating | done
-  const [generationResults, setGenerationResults] = useState([]);
-  const [generationProgress, setGenerationProgress] = useState(0);
-  // Claims dropped by the backend (rejected/cancelled/already-billed/no
-  // discharge date). Surfaced as a dismissible banner so the operator knows
-  // why the count shrank between selection and the wizard.
-  const [skipped, setSkipped] = useState([]);
-  const [skippedDismissed, setSkippedDismissed] = useState(false);
-  // PDF preview modal — fetches the real renderInvoicePdf output for an
-  // unsaved draft so the operator confirms the exact print layout before
-  // committing. `previewIdx` is the index into `drafts` of the draft being
-  // previewed (or null = modal closed).
-  const [previewIdx, setPreviewIdx] = useState(null);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const [pdfError, setPdfError] = useState('');
-
-  // Load active TDS master rows once so the per-draft picker can offer them.
+  // Load reference data once.
   useEffect(() => {
     getTdsRatesAPI({ active: 'true' })
       .then(({ data }) => setTdsRates(data || []))
       .catch(() => setTdsRates([]))
       .finally(() => setLoadingTdsRates(false));
+    getHospitalsAPI({ all: 'true', active: 'true' })
+      .then(({ data }) => {
+        const list = Array.isArray(data) ? data : data.hospitals;
+        setHospitals(list || []);
+      })
+      .catch(() => setHospitals([]))
+      .finally(() => setLoadingHospitals(false));
   }, []);
 
-  // Fetch all per-hospital previews on mount.
+  // Fetch previews on mount.
   useEffect(() => {
     if (!claimIds.length) {
       toast.error('No claims selected. Pick claims on the Claims Report first.');
@@ -78,30 +135,7 @@ const BulkInvoiceWizard = () => {
           navigate('/reports/claims');
           return;
         }
-        const drafted = previews.map((p) => ({
-          hospitalId: p.hospitalId,
-          hospital: p.hospital,
-          month: p.month,
-          claimIds: p.claimIds,
-          existingInvoice: p.existingInvoice,
-          previewTotals: p.totals,
-          previewLines: p.lines || [],
-          editLines: (p.lines || []).map((l) => ({
-            description: l.description || '',
-            amount: l.amount,
-            lineType: l.lineType,
-            _isManual: false,
-          })),
-          settings: {
-            gstRate: String(p.totals?.gstRate ?? 0),
-            tdsRateId: '', // '' = use the rate that came back with the preview (hospital default)
-            notes: '',
-            roundOff: 0,
-            discount: 0,
-          },
-          status: 'pending', // pending | approved | rejected
-        }));
-        setDrafts(drafted);
+        setDrafts(previews.map(draftFromPreview));
       } catch (e) {
         const data = e.response?.data;
         const skippedCount = (data?.skipped || []).length;
@@ -118,50 +152,93 @@ const BulkInvoiceWizard = () => {
   const current = drafts[currentIdx];
   const totalDrafts = drafts.length;
   const approvedCount = drafts.filter((d) => d.status === 'approved').length;
-  const rejectedCount = drafts.filter((d) => d.status === 'rejected').length;
+  const cancelledCount = drafts.filter((d) => d.status === 'cancelled').length;
   const pendingCount = drafts.filter((d) => d.status === 'pending').length;
+  const allSettled = totalDrafts > 0 && pendingCount === 0;
+
+  const approvedDrafts = useMemo(
+    () => drafts.filter((d) => d.status === 'approved'),
+    [drafts],
+  );
+  const approvedTotal = useMemo(() => approvedDrafts.reduce((s, d) => {
+    const overrideTds = d.settings.tdsRateId ? tdsRates.find((r) => r._id === d.settings.tdsRateId) : null;
+    const t = computeTotals(d.editLines, d.settings, d.previewTotals, overrideTds);
+    return s + (t?.grandTotal || 0);
+  }, 0), [approvedDrafts, tdsRates]);
 
   const updateDraft = (idx, mut) => {
     setDrafts((arr) => arr.map((d, i) => i === idx ? { ...d, ...(typeof mut === 'function' ? mut(d) : mut) } : d));
   };
 
-  const setStatus = (status) => updateDraft(currentIdx, { status });
-
-  const approveAndNext = () => {
-    setStatus('approved');
-    goNext();
-  };
-  const rejectAndNext = () => {
-    setStatus('rejected');
-    goNext();
+  const handleEditorChange = (idx) => (patch) => {
+    setDrafts((arr) => arr.map((d, i) => i === idx ? { ...d, ...patch, edited: true } : d));
   };
 
   const goPrev = () => setCurrentIdx((i) => Math.max(0, i - 1));
-  const goNext = () => {
-    if (currentIdx < totalDrafts - 1) {
-      setCurrentIdx((i) => i + 1);
-    } else {
-      // "Review All" → switch to the review table AND auto-open the PDF
-      // preview for the first draft so the operator immediately sees the
-      // final layout and can step through every draft via the modal's
-      // Prev/Next arrows.
-      setPhase('final');
-      openPreviewAt(0);
+  const goNext = () => setCurrentIdx((i) => Math.min(totalDrafts - 1, i + 1));
+
+  const approveAndAdvance = () => {
+    if (current?.requiresHospitalPick) {
+      toast.error('Pick a reference hospital first.');
+      return;
+    }
+    updateDraft(currentIdx, { status: 'approved' });
+    if (currentIdx < totalDrafts - 1) goNext();
+  };
+  const cancelAndAdvance = () => {
+    updateDraft(currentIdx, { status: 'cancelled' });
+    if (currentIdx < totalDrafts - 1) goNext();
+  };
+
+  // Direct-patient reference-hospital picker — mirrors the drawer's flow.
+  const pickDirectPatientHospital = async (idx, hospitalId, draftOverride) => {
+    if (!hospitalId) return;
+    const draft = draftOverride || drafts[idx];
+    if (!draft) return;
+    setResolvingDirectIdx(idx);
+    try {
+      const monthIso = new Date(draft.month).toISOString().slice(0, 10);
+      const monthArg = monthIso.slice(0, 7) + '-01';
+      const { data } = await previewDirectPatientInvoiceAPI({
+        hospitalId,
+        month: monthArg,
+        claimIds: draft.claimIds,
+      });
+      updateDraft(idx, {
+        hospitalId: data.hospitalId,
+        hospital: data.hospital,
+        previewTotals: data.totals,
+        previewLines: data.lines || [],
+        editLines: (data.lines || []).map((l) => ({
+          description: l.description || '',
+          amount: l.amount,
+          lineType: l.lineType,
+          _isManual: false,
+        })),
+        settings: { ...draft.settings, gstRate: String(data.totals?.gstRate ?? 0) },
+        requiresHospitalPick: false,
+        edited: false,
+        error: '',
+      });
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to load direct-patient preview');
+    } finally {
+      setResolvingDirectIdx(null);
     }
   };
 
-  // Open the PDF preview modal for a draft. Sends the current edit state to
-  // the backend's `previewPdf` endpoint and renders the binary in an iframe.
   const openPreviewAt = async (idx) => {
     if (idx == null || idx < 0 || idx >= drafts.length) return;
+    const draft = drafts[idx];
+    if (draft.requiresHospitalPick) {
+      toast.error('Pick a reference hospital first.');
+      return;
+    }
     setPreviewIdx(idx);
     setPdfError('');
-    // Revoke any prior blob so we don't leak object URLs as the user
-    // walks through drafts.
     if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
     setPdfBlobUrl(null);
     setPdfLoading(true);
-    const draft = drafts[idx];
     try {
       const monthIso = new Date(draft.month).toISOString().slice(0, 10);
       const monthArg = monthIso.slice(0, 7) + '-01';
@@ -188,12 +265,6 @@ const BulkInvoiceWizard = () => {
     }
   };
 
-  // Backwards-compatible helper — find the draft's index and delegate.
-  const openPreview = (draft) => {
-    const idx = drafts.findIndex((d) => d === draft);
-    openPreviewAt(idx >= 0 ? idx : 0);
-  };
-
   const closePreview = () => {
     if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
     setPdfBlobUrl(null);
@@ -202,14 +273,11 @@ const BulkInvoiceWizard = () => {
   };
 
   const printPreview = () => {
-    // Most browsers expose `print()` on a same-origin iframe; the blob URL is
-    // same-origin so this works without a popup.
     const iframe = document.getElementById('bulk-preview-pdf-iframe');
     try {
       iframe?.contentWindow?.focus();
       iframe?.contentWindow?.print();
     } catch {
-      // Fallback: open in new tab so the user can hit Cmd+P themselves.
       if (pdfBlobUrl) window.open(pdfBlobUrl, '_blank');
     }
   };
@@ -227,20 +295,27 @@ const BulkInvoiceWizard = () => {
   };
 
   const handleGenerateAll = async () => {
-    const approved = drafts.filter((d) => d.status === 'approved');
-    if (!approved.length) {
-      toast.error('No approved invoices. Approve at least one.');
+    const targets = drafts
+      .map((d, idx) => ({ d, idx }))
+      .filter(({ d }) => d.status === 'approved');
+    if (!targets.length) {
+      toast.error('No approved invoices. Approve at least one hospital.');
       return;
     }
     setPhase('generating');
     setGenerationProgress(0);
+    setGenerationTotal(targets.length);
     const results = [];
-    for (let i = 0; i < approved.length; i++) {
+    for (let i = 0; i < targets.length; i++) {
+      const { d, idx } = targets[i];
       try {
-        const inv = await commitDraft(approved[i]);
-        results.push({ draft: approved[i], ok: true, invoice: inv });
+        const inv = await commitDraft(d, { autoIssue: true });
+        updateDraft(idx, { status: 'success', invoice: inv, error: '' });
+        results.push({ draft: d, ok: true, invoice: inv });
       } catch (e) {
-        results.push({ draft: approved[i], ok: false, error: e.response?.data?.message || e.message || 'Failed' });
+        const msg = e.response?.data?.message || e.message || 'Failed';
+        updateDraft(idx, { status: 'failed', error: msg });
+        results.push({ draft: d, ok: false, error: msg });
       }
       setGenerationProgress(i + 1);
     }
@@ -251,9 +326,45 @@ const BulkInvoiceWizard = () => {
     else toast.warn(`${okCount} of ${results.length} invoices created — see results`);
   };
 
-  // Modal markup is rendered separately and overlaid on whatever phase is
-  // active, so the operator can preview the PDF from anywhere. Includes
-  // Prev/Next so they can walk through every draft's final PDF in one go.
+  const handleDownloadAllPdfs = async () => {
+    const okRows = generationResults.filter((r) => r.ok && r.invoice?._id);
+    if (!okRows.length) {
+      toast.error('No generated invoices to download.');
+      return;
+    }
+    setBulkPdfLoading(true);
+    try {
+      const zip = new JSZip();
+      const usedNames = new Map();
+      const fetches = okRows.map(async (r) => {
+        const { data: blob } = await getInvoicePdfBlobAPI(r.invoice._id);
+        const safeHospital = (r.draft.hospital?.name || 'invoice').replace(/[^a-zA-Z0-9]+/g, '_');
+        const number = r.invoice.invoiceNumber || `Draft-${r.invoice._id.slice(0, 8)}`;
+        let name = `${number}_${safeHospital}.pdf`;
+        // Guard against duplicate filenames (e.g. two invoices with the same
+        // hospital + missing number) — JSZip will silently overwrite otherwise.
+        const seen = usedNames.get(name) || 0;
+        if (seen > 0) name = name.replace(/\.pdf$/, `_${seen + 1}.pdf`);
+        usedNames.set(name, seen + 1);
+        zip.file(name, blob);
+      });
+      await Promise.all(fetches);
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoices-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to download invoice PDFs');
+    } finally {
+      setBulkPdfLoading(false);
+    }
+  };
+
   const previewDraft = previewIdx != null ? drafts[previewIdx] : null;
   const previewModal = previewDraft && (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -340,121 +451,16 @@ const BulkInvoiceWizard = () => {
   );
 
   if (loading) {
-    return <div className="py-16 text-center text-gray-500">Loading previews...</div>;
-  }
-
-  // ─── Final review phase ────────────────────────────────────────────────────
-  if (phase === 'final') {
-    const approved = drafts.filter((d) => d.status === 'approved');
-    const approvedTotal = approved.reduce((s, d) => {
-      const overrideTds = d.settings.tdsRateId ? tdsRates.find((r) => r._id === d.settings.tdsRateId) : null;
-      const t = computeTotals(d.editLines, d.settings, d.previewTotals, overrideTds);
-      return s + (t?.grandTotal || 0);
-    }, 0);
-
-    return (
-      <>
-      {previewModal}
-      <div>
-        <button onClick={() => setPhase('reviewing')} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-3">
-          <HiOutlineArrowLeft className="w-4 h-4" /> Back to drafts
-        </button>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-semibold text-gray-800">Review &amp; Generate</h1>
-              <p className="text-sm text-gray-500 mt-0.5">Confirm the approved invoices below, then generate.</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-gray-500 uppercase tracking-wide">Approved total</p>
-              <p className="text-2xl font-bold text-gray-900 tabular-nums">{formatINR(approvedTotal)}</p>
-            </div>
-          </div>
-
-          <div className="mt-5 overflow-x-auto border border-gray-200 rounded-lg">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Hospital</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Month</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Claims</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Lines</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Grand Total</th>
-                  <th className="text-center py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
-                  <th className="py-3 px-4" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {drafts.map((d, idx) => {
-                  const overrideTds = d.settings.tdsRateId ? tdsRates.find((r) => r._id === d.settings.tdsRateId) : null;
-                  const t = computeTotals(d.editLines, d.settings, d.previewTotals, overrideTds);
-                  return (
-                    <tr key={`${d.hospitalId}-${d.month}`} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 font-medium text-gray-800">{d.hospital?.name || '-'}</td>
-                      <td className="py-3 px-4 text-gray-600">{monthLabel(d.month)}</td>
-                      <td className="py-3 px-4 text-right text-gray-600">{d.claimIds.length}</td>
-                      <td className="py-3 px-4 text-right text-gray-600">{d.editLines.length}</td>
-                      <td className="py-3 px-4 text-right font-medium text-gray-800 tabular-nums">{formatINR(t?.grandTotal || 0)}</td>
-                      <td className="py-3 px-4 text-center">
-                        {d.status === 'approved' && <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-50 text-green-700 text-xs font-semibold">Approved</span>}
-                        {d.status === 'rejected' && <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 text-red-700 text-xs font-semibold">Rejected</span>}
-                        {d.status === 'pending' && <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold">Pending</span>}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            onClick={() => openPreview(d)}
-                            className="text-primary-600 hover:text-primary-700 text-xs font-medium inline-flex items-center gap-1"
-                            title="Preview PDF"
-                          >
-                            <HiOutlineEye className="w-4 h-4" /> Preview
-                          </button>
-                          <button
-                            onClick={() => { setCurrentIdx(idx); setPhase('reviewing'); }}
-                            className="text-gray-500 hover:text-gray-700 text-xs font-medium"
-                            title="Edit lines"
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 mt-5">
-            <button
-              onClick={handleDiscard}
-              className="px-4 py-2.5 text-sm border border-red-300 rounded-lg text-red-700 hover:bg-red-50 font-medium"
-            >
-              Discard Invoice
-            </button>
-            <button
-              onClick={handleGenerateAll}
-              disabled={!approved.length}
-              className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg"
-            >
-              Generate {approved.length} Invoice{approved.length === 1 ? '' : 's'}
-            </button>
-          </div>
-        </div>
-      </div>
-      </>
-    );
+    return <div className="py-16 text-center text-gray-500">Loading previews…</div>;
   }
 
   // ─── Generating phase ──────────────────────────────────────────────────────
   if (phase === 'generating') {
-    const approvedCnt = drafts.filter((d) => d.status === 'approved').length;
-    const pct = approvedCnt ? Math.round((generationProgress / approvedCnt) * 100) : 0;
+    const pct = generationTotal ? Math.round((generationProgress / generationTotal) * 100) : 0;
     return (
       <div className="py-20 text-center">
         <p className="text-lg font-medium text-gray-800">Generating invoices…</p>
-        <p className="text-sm text-gray-500 mt-1">{generationProgress} of {approvedCnt}</p>
+        <p className="text-sm text-gray-500 mt-1">{generationProgress} of {generationTotal}</p>
         <div className="max-w-md mx-auto mt-4 h-2 bg-gray-200 rounded-full overflow-hidden">
           <div className="h-full bg-primary-600 transition-all" style={{ width: `${pct}%` }} />
         </div>
@@ -469,10 +475,26 @@ const BulkInvoiceWizard = () => {
     return (
       <div>
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h1 className="text-xl font-semibold text-gray-800">Generation Complete</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {okResults.length} succeeded, {failResults.length} failed.
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-800">Generation Complete</h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                {okResults.length} succeeded, {failResults.length} failed.
+              </p>
+            </div>
+            {okResults.length > 0 && (
+              <button
+                onClick={handleDownloadAllPdfs}
+                disabled={bulkPdfLoading}
+                className="flex items-center gap-2 px-4 py-2.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-lg font-medium"
+              >
+                <HiOutlineDownload className="w-4 h-4" />
+                {bulkPdfLoading
+                  ? 'Preparing ZIP…'
+                  : `Download All ${okResults.length} Invoice${okResults.length === 1 ? '' : 's'} (ZIP)`}
+              </button>
+            )}
+          </div>
 
           <div className="mt-5 space-y-2">
             {generationResults.map((r, i) => (
@@ -517,11 +539,114 @@ const BulkInvoiceWizard = () => {
     );
   }
 
-  // ─── Reviewing phase (per-draft editor) ───────────────────────────────────
+  // ─── Final review phase ────────────────────────────────────────────────────
+  if (phase === 'final') {
+    return (
+      <>
+      {previewModal}
+      <div>
+        <button onClick={() => setPhase('reviewing')} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-3">
+          <HiOutlineArrowLeft className="w-4 h-4" /> Back to drafts
+        </button>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-800">Review &amp; Generate</h1>
+              <p className="text-sm text-gray-500 mt-0.5">Confirm the approved invoices below, then generate.</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Approved total</p>
+              <p className="text-2xl font-bold text-gray-900 tabular-nums">{formatINR(approvedTotal)}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 overflow-x-auto border border-gray-200 rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Hospital</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Month</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Claims</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Lines</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Grand Total</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                  <th className="py-3 px-4" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {drafts.map((d, idx) => {
+                  const overrideTds = d.settings.tdsRateId ? tdsRates.find((r) => r._id === d.settings.tdsRateId) : null;
+                  const t = computeTotals(d.editLines, d.settings, d.previewTotals, overrideTds);
+                  return (
+                    <tr key={`${d.hospitalId || 'direct'}-${d.month}-${idx}`} className="hover:bg-gray-50">
+                      <td className="py-3 px-4 font-medium text-gray-800">{d.hospital?.name || '-'}</td>
+                      <td className="py-3 px-4 text-gray-600">{monthLabel(d.month)}</td>
+                      <td className="py-3 px-4 text-right text-gray-600">{d.claimIds.length}</td>
+                      <td className="py-3 px-4 text-right text-gray-600">{d.editLines.length}</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-800 tabular-nums">{formatINR(t?.grandTotal || 0)}</td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${statusPill(d.status)}`}>
+                          {statusLabel(d.status)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            onClick={() => openPreviewAt(idx)}
+                            className="text-primary-600 hover:text-primary-700 text-xs font-medium inline-flex items-center gap-1"
+                            title="Preview PDF"
+                          >
+                            <HiOutlineEye className="w-4 h-4" /> Preview
+                          </button>
+                          <button
+                            onClick={() => { setCurrentIdx(idx); setPhase('reviewing'); }}
+                            className="text-gray-500 hover:text-gray-700 text-xs font-medium"
+                            title="Edit lines"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 mt-5">
+            <button
+              onClick={handleDiscard}
+              className="px-4 py-2.5 text-sm border border-red-300 rounded-lg text-red-700 hover:bg-red-50 font-medium"
+            >
+              Discard Invoice
+            </button>
+            <button
+              onClick={handleGenerateAll}
+              disabled={!approvedDrafts.length}
+              className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg"
+            >
+              Generate {approvedDrafts.length} Invoice{approvedDrafts.length === 1 ? '' : 's'}
+            </button>
+          </div>
+        </div>
+      </div>
+      </>
+    );
+  }
+
+  // ─── Reviewing phase (hospital-wise tabs) ─────────────────────────────────
+  const needsPick = current?.isDirectPatient && current?.requiresHospitalPick;
+
+  const overrideTds = current?.settings.tdsRateId ? tdsRates.find((r) => r._id === current.settings.tdsRateId) : null;
+  const currentTotals = current ? computeTotals(current.editLines, current.settings, current.previewTotals, overrideTds) : null;
+
   return (
     <>
     {previewModal}
     <div>
+      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <button onClick={handleDiscard} className="flex items-center gap-2 text-sm text-red-600 hover:text-red-700 font-medium">
           <HiOutlineArrowLeft className="w-4 h-4" /> Discard Invoice
@@ -531,7 +656,7 @@ const BulkInvoiceWizard = () => {
           <span className="text-gray-300">|</span>
           <span className="text-green-700 font-medium">{approvedCount} approved</span>
           <span className="text-gray-300">|</span>
-          <span className="text-red-700 font-medium">{rejectedCount} rejected</span>
+          <span className="text-red-700 font-medium">{cancelledCount} cancelled</span>
           {pendingCount > 0 && (
             <>
               <span className="text-gray-300">|</span>
@@ -563,55 +688,117 @@ const BulkInvoiceWizard = () => {
         </div>
       )}
 
-      {/* Stepper dots */}
-      <div className="flex items-center gap-1 mb-4 overflow-x-auto">
-        {drafts.map((d, i) => (
-          <button
-            key={`${d.hospitalId}-${d.month}-${i}`}
-            onClick={() => setCurrentIdx(i)}
-            title={`${d.hospital?.name} — ${monthLabel(d.month)}`}
-            className={`shrink-0 h-2.5 rounded-full transition-all ${
-              i === currentIdx ? 'w-8 bg-primary-600' :
-              d.status === 'approved' ? 'w-2.5 bg-green-500 hover:w-4' :
-              d.status === 'rejected' ? 'w-2.5 bg-red-500 hover:w-4' :
-              'w-2.5 bg-gray-300 hover:w-4 hover:bg-gray-400'
-            }`}
-          />
-        ))}
+      {/* Hospital tabs */}
+      <div className="border-b border-gray-200 mb-4 -mx-1 px-1 overflow-x-auto">
+        <div className="flex items-end gap-1 min-w-max">
+          {drafts.map((d, i) => {
+            const isActive = i === currentIdx;
+            const tabName = d.isDirectPatient
+              ? (d.hospital?.name ? `${d.hospital.name} (Direct)` : 'Direct Patients')
+              : (d.hospital?.name || `Hospital ${i + 1}`);
+            return (
+              <button
+                key={`${d.hospitalId || 'direct'}-${d.month}-${i}`}
+                onClick={() => setCurrentIdx(i)}
+                className={`shrink-0 max-w-xs flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  isActive
+                    ? 'border-primary-600 text-primary-700 bg-primary-50/40'
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+                title={tabName}
+              >
+                <span className="truncate">{tabName}</span>
+                <span className={`shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${statusPill(d.status)}`}>
+                  {statusLabel(d.status)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-800">{current.hospital?.name}</h2>
-            <p className="text-sm text-gray-500 mt-0.5">{monthLabel(current.month)} • {current.claimIds.length} claim{current.claimIds.length === 1 ? '' : 's'} selected</p>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-gray-800 truncate">
+              {current.isDirectPatient
+                ? (current.hospital?.name
+                    ? `${current.hospital.name} (Direct Patients — reference)`
+                    : 'Direct Patients')
+                : (current.hospital?.name || '-')}
+            </h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {monthLabel(current.month)} • {current.claimIds.length} claim{current.claimIds.length === 1 ? '' : 's'} selected
+              {currentTotals?.grandTotal ? <> • <span className="tabular-nums text-gray-700 font-medium">{formatINR(currentTotals.grandTotal)}</span></> : null}
+            </p>
+            {current.isDirectPatient && !needsPick && (
+              <p className="text-xs text-purple-800 mt-2 inline-flex items-center gap-1 bg-purple-50 px-2 py-1 rounded">
+                Add services + rates manually in the editor below — no slab charges are auto-applied.
+              </p>
+            )}
             {current.existingInvoice && (
               <p className="text-xs text-amber-700 mt-2 inline-flex items-center gap-1 bg-amber-50 px-2 py-1 rounded">
-                Existing {current.existingInvoice.status} invoice {current.existingInvoice.invoiceNumber || ''} — generating will reuse the draft or fail.
+                Existing {current.existingInvoice.status} invoice {current.existingInvoice.invoiceNumber || ''} —{' '}
+                <Link
+                  to={`/invoices/${current.existingInvoice._id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline hover:text-amber-900"
+                >
+                  view existing
+                </Link>
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => openPreview(current)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-primary-700 bg-white border border-primary-600 hover:bg-primary-50 rounded-lg"
-              title="Preview this draft as the final PDF"
+              onClick={() => openPreviewAt(currentIdx)}
+              disabled={needsPick}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-primary-700 bg-white border border-primary-600 hover:bg-primary-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg"
+              title={needsPick ? 'Pick a reference hospital first' : 'Preview this draft as the final PDF'}
             >
               <HiOutlineEye className="w-4 h-4" /> Preview
             </button>
-            {current.status === 'approved' && <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-green-50 text-green-700 text-xs font-semibold">✓ Approved</span>}
-            {current.status === 'rejected' && <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-red-50 text-red-700 text-xs font-semibold">✗ Rejected</span>}
+            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${statusPill(current.status)}`}>
+              {statusLabel(current.status)}
+            </span>
           </div>
         </div>
 
-        <div className="mt-4">
-          <BulkInvoiceDraftEditor
-            draft={current}
-            tdsRates={tdsRates}
-            loadingTdsRates={loadingTdsRates}
-            onChange={(patch) => updateDraft(currentIdx, patch)}
-          />
-        </div>
+        {needsPick ? (
+          <div className="mt-5 border-t border-purple-100 pt-4">
+            <label className="block text-xs font-semibold text-purple-900 uppercase tracking-wide mb-1.5">
+              Reference hospital for this invoice
+            </label>
+            <p className="text-[11px] text-purple-800 mb-2">
+              Used only for the invoice template (GST/TDS defaults, number prefix). No slab charges will be applied — enter services + rates manually.
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 max-w-md">
+                <SearchableSelect
+                  isLoading={loadingHospitals || resolvingDirectIdx === currentIdx}
+                  value={current.hospitalId || ''}
+                  onChange={(val) => pickDirectPatientHospital(currentIdx, val)}
+                  placeholder="Select hospital"
+                  searchPlaceholder="Search hospitals..."
+                  options={hospitals.map((h) => ({ value: h._id, label: h.name }))}
+                />
+              </div>
+              {resolvingDirectIdx === currentIdx && (
+                <span className="text-xs text-purple-700">Loading…</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4">
+            <BulkInvoiceDraftEditor
+              draft={current}
+              tdsRates={tdsRates}
+              loadingTdsRates={loadingTdsRates}
+              onChange={handleEditorChange(currentIdx)}
+            />
+          </div>
+        )}
 
         {/* Footer actions */}
         <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
@@ -624,26 +811,63 @@ const BulkInvoiceWizard = () => {
           </button>
           <div className="flex items-center gap-2">
             <button
-              onClick={rejectAndNext}
+              onClick={cancelAndAdvance}
               className="flex items-center gap-2 px-4 py-2.5 text-sm border border-red-300 rounded-lg text-red-700 hover:bg-red-50 font-medium"
             >
-              <HiOutlineX className="w-4 h-4" /> Reject
+              <HiOutlineX className="w-4 h-4" /> Cancel
             </button>
             <button
-              onClick={approveAndNext}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium"
+              onClick={approveAndAdvance}
+              disabled={needsPick}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-medium"
             >
               <HiOutlineCheck className="w-4 h-4" /> Approve
             </button>
             <button
               onClick={goNext}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium"
+              disabled={currentIdx === totalDrafts - 1}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
             >
-              {currentIdx === totalDrafts - 1 ? 'Review All' : 'Next'} <HiOutlineArrowRight className="w-4 h-4" />
+              Next <HiOutlineArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
+
+      {/* Generate All CTA — appears once every hospital has been settled */}
+      {allSettled && (
+        <div className="mt-4 flex items-center justify-between gap-4 p-4 bg-white border border-primary-200 rounded-xl">
+          <div className="text-sm text-gray-700">
+            <p className="font-semibold text-gray-900">
+              All {totalDrafts} hospital{totalDrafts === 1 ? '' : 's'} reviewed
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              <span className="text-green-700 font-medium">{approvedCount} approved</span>
+              {' • '}
+              <span className="text-red-700 font-medium">{cancelledCount} cancelled</span>
+              {approvedDrafts.length > 0 && (
+                <> • <span className="tabular-nums font-semibold text-gray-900">{formatINR(approvedTotal)}</span> total</>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPhase('final')}
+              disabled={!approvedDrafts.length}
+              className="px-4 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+            >
+              Review All
+            </button>
+            <button
+              onClick={handleGenerateAll}
+              disabled={!approvedDrafts.length}
+              className="px-4 py-2.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium"
+            >
+              Generate All ({approvedDrafts.length})
+            </button>
+          </div>
+        </div>
+      )}
     </div>
     </>
   );

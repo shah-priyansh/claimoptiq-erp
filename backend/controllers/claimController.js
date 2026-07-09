@@ -1613,3 +1613,96 @@ exports.getDashboardStats = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+// One-shot repair for claims whose `status` was over-written to 'billed' by
+// the pre-fix `invoice.issue` flow. Walks every claim currently at
+// status='billed', looks up the invoice line item that billed it, and
+// restores the prior status from `line.meta.priorStatus`. Falls back to
+// 'settled' when no meta was captured (very old invoices). Super-admin only.
+exports.fixBilledStatus = async (req, res) => {
+  try {
+    if (req.user?.role?.slug !== 'super_admin') {
+      return res.status(403).json({ message: 'Super-admin only' });
+    }
+
+    // 1. Every claim currently reading 'billed' — we don't touch anything
+    //    else, so a claim whose real status IS 'billed' (a claim-status-master
+    //    row someone actually defined) will still get restored to whatever
+    //    the line-item meta says. Callers can review the returned counts.
+    const stuckClaims = await prisma.claim.findMany({
+      where: { status: 'billed' },
+      select: { id: true },
+    });
+    if (!stuckClaims.length) {
+      return res.json({ scanned: 0, restored: 0, skipped: 0, buckets: {} });
+    }
+    const stuckIds = stuckClaims.map((c) => c.id);
+
+    // 2. Pull every invoice line item that billed these claims. The most
+    //    recent issued/paid line wins (multiple invoices for the same claim
+    //    means the newest one carries the truest priorStatus snapshot).
+    const lines = await prisma.invoiceLineItem.findMany({
+      where: {
+        claimId: { in: stuckIds },
+        lineType: 'claim_tpa_desk',
+        invoice: { status: { in: ['issued', 'partially_paid', 'paid'] } },
+      },
+      select: { claimId: true, meta: true, invoice: { select: { issuedAt: true, createdAt: true } } },
+    });
+    // Newest first — later assignments win over earlier ones.
+    lines.sort((a, b) => {
+      const ta = new Date(a.invoice?.issuedAt || a.invoice?.createdAt || 0).getTime();
+      const tb = new Date(b.invoice?.issuedAt || b.invoice?.createdAt || 0).getTime();
+      return ta - tb;
+    });
+    const priorByClaim = new Map();
+    for (const line of lines) {
+      const prior = line.meta?.priorStatus;
+      if (prior && prior !== 'billed') priorByClaim.set(line.claimId, prior);
+    }
+
+    // 3. Bucket claim ids by the status we want to restore, then do one
+    //    updateMany per bucket. Claims with no captured priorStatus fall
+    //    into the 'settled' bucket (the historical default fallback).
+    const buckets = new Map();
+    const pushInto = (status, claimId) => {
+      if (!buckets.has(status)) buckets.set(status, []);
+      buckets.get(status).push(claimId);
+    };
+    let skipped = 0;
+    for (const id of stuckIds) {
+      const prior = priorByClaim.get(id);
+      if (prior) pushInto(prior, id);
+      else { pushInto('settled', id); skipped++; }
+    }
+
+    let restored = 0;
+    const bucketCounts = {};
+    await prisma.$transaction(async (tx) => {
+      for (const [status, ids] of buckets) {
+        if (!ids.length) continue;
+        const result = await tx.claim.updateMany({
+          where: { id: { in: ids } },
+          data: { status },
+        });
+        restored += result.count;
+        bucketCounts[status] = result.count;
+      }
+    });
+
+    // Dashboard totals depend on status; bust the cache so the UI reflects
+    // the repair immediately without waiting for the 30s TTL to lapse.
+    if (typeof _dashboardCache !== 'undefined') _dashboardCache.clear();
+
+    res.json({
+      scanned: stuckIds.length,
+      restored,
+      // Skipped = restored to fallback 'settled' because there was no meta
+      // priorStatus captured (very old invoice, before the meta was added).
+      skipped,
+      buckets: bucketCounts,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};

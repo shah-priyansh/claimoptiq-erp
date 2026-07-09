@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI, getPublicStatsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -7,7 +8,6 @@ import { HiOutlineDownload, HiChevronDown, HiOutlineX, HiOutlineSearch, HiOutlin
 import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
-import BulkInvoiceDrawer from '../invoices/BulkInvoiceDrawer';
 import ClaimSummaryColumnsModal from '../invoices/ClaimSummaryColumnsModal';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
 import * as XLSX from 'xlsx-js-style';
@@ -140,6 +140,7 @@ const TABLE_DEFAULT_COLS = [
 const Reports = () => {
   const { user, roleSlug } = useAuth();
   const confirm = useConfirm();
+  const navigate = useNavigate();
   const isHospitalUser = !!user?.hospital;
   const isSuperAdmin = roleSlug === 'super_admin';
 
@@ -168,8 +169,6 @@ const Reports = () => {
 
   const [billMode, setBillMode] = useState(false);
   const [selectedClaimIds, setSelectedClaimIds] = useState([]);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerClaimIds, setDrawerClaimIds] = useState([]);
 
   // Server-side pagination state. `claims` holds only the current page so
   // rendering stays cheap even on 4500+-row datasets. `serverTotal` /
@@ -391,11 +390,10 @@ const Reports = () => {
     await generateReport({ billModeOverride: false });
   };
 
-  // Opens the in-page BulkInvoiceDrawer. Snapshots the current selection so
-  // toggling rows on the report behind the drawer doesn't drift the working
-  // set mid-batch. If nothing is explicitly ticked we treat the entire
-  // filtered set as the selection — bill mode already forces isBilled=false
-  // so this still scopes to unbilled claims.
+  // Navigates to the full-page BulkInvoiceWizard with a snapshot of the current
+  // selection. If nothing is explicitly ticked we treat the entire filtered
+  // set as the selection — bill mode already forces isBilled=false so this
+  // still scopes to unbilled claims.
   const handleGenerateInvoices = async () => {
     let ids = selectedClaimIds;
     if (!ids.length) {
@@ -410,8 +408,7 @@ const Reports = () => {
         return;
       }
     }
-    setDrawerClaimIds([...ids]);
-    setDrawerOpen(true);
+    navigate('/invoices/bulk/new', { state: { claimIds: [...ids] } });
   };
 
   // Bulk-marks every selected claim as Billed after a confirmation prompt.
@@ -1342,21 +1339,6 @@ const Reports = () => {
       <ClaimSummaryColumnsModal
         open={columnsModalOpen}
         onClose={() => setColumnsModalOpen(false)}
-      />
-
-      <BulkInvoiceDrawer
-        open={drawerOpen}
-        claimIds={drawerClaimIds}
-        onClose={() => setDrawerOpen(false)}
-        onGenerated={() => {
-          // Full success → exit bill mode, clear the selection, and re-run
-          // the report so the freshly-billed claims drop off the Unbilled
-          // list. Pass billModeOverride=false because the setBillMode(false)
-          // we just queued won't be visible to generateReport's closure yet.
-          setSelectedClaimIds([]);
-          setBillMode(false);
-          generateReport({ billModeOverride: false });
-        }}
       />
     </div>
   );

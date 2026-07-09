@@ -6,6 +6,12 @@ const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalAp
     const validBases = ['hospital_final_bill', 'final_approval'];
     if (!validBases.includes(svc.calculationBasis)) continue;
     const basis = svc.calculationBasis === 'hospital_final_bill' ? hospitalFinalBill : finalApprovalAmount;
+    // Skip when the basis is unset / zero. Previously a hospitalFinalBill of
+    // 0 still matched the first `rangeStart: 0` slab and picked up its price,
+    // so rejected / mid-flight claims with no bill entered came out at ₹1,500
+    // instead of ₹0. Operator wants a manual override in that case, not an
+    // auto slab match.
+    if (!basis || basis <= 0) continue;
     if (svc.billingType === 'per_claim_slab') {
       const mode = svc.slabMode || 'slab_wise';
       const slabs = [...(svc.slabs || [])].sort((a, b) => a.rangeStart - b.rangeStart);

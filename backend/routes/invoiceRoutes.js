@@ -26,5 +26,6 @@ const cashBank = require('../controllers/cashBankController');
 router.post('/:id/payments', checkPermission('cash_bank', 'create'), cashBank.recordInvoicePayment);
 router.post('/:id/void', checkPermission('invoices', 'edit'), ctrl.void);
 router.get('/:id/pdf', checkPermission('invoices', 'view'), ctrl.pdf);
+router.post('/bulk-pdf', checkPermission('invoices', 'view'), ctrl.bulkPdf);
 
 module.exports = router;

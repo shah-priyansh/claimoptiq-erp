@@ -99,7 +99,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     ? claimIds.map((id) => bulkContext.claimsById.get(id)).filter(Boolean)
     : null;
 
-  const [hospital, claims, priorOpen, tpl] = await Promise.all([
+  const [hospital, claims, priorOpen, tpl, directPatientServices] = await Promise.all([
     preHospital
       ? Promise.resolve(preHospital)
       : (isDirectPatient
@@ -114,7 +114,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
           where: claimWhere,
           select: {
             id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
-            filePrice: true, filePriceOverridden: true,
+            filePrice: true, filePriceOverridden: true, claimType: true,
           },
         }),
     // Previous balance only counts dues from the SAME stream — regular
@@ -132,6 +132,15 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
           select: { amountPending: true },
         }),
     preloadedTpl ? Promise.resolve(preloadedTpl) : getInvoiceTemplate(),
+    // Global direct-patient billing services — a single super-admin-managed
+    // list drives every direct-patient invoice regardless of the reference
+    // hospital picked. Skipped for regular invoices to save the roundtrip.
+    isDirectPatient
+      ? prisma.directPatientBillingService.findMany({
+          where: { isActive: true },
+          include: { slabs: { orderBy: { order: 'asc' } } },
+        })
+      : Promise.resolve([]),
   ]);
   if (!hospital) {
     const err = new Error('Hospital not found');
@@ -139,57 +148,94 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     throw err;
   }
 
-  // Direct-patient invoices treat the hospital as a billing-template
-  // reference only — skip TPA desk lines (no auto file-price) and skip
-  // fixed service slab lines (EMPANELMENT TIE-UP etc.). Operators add
-  // manual line items for the actual services rendered.
+  // Regular invoices use the hospital's own billingServices. Direct-patient
+  // invoices ignore the picked reference hospital entirely and use the
+  // global DirectPatientBillingService config — same shape (fixed_monthly,
+  // fixed_onetime, per_claim_slab, percentage) so the slab / fixed / gate
+  // logic below is unchanged.
   const services = isDirectPatient
-    ? []
+    ? directPatientServices.filter((s) => s.isActive)
     : (hospital.billingServices || []).filter((s) => s.isActive);
 
   // 1. TPA Desk per claim (slab/percentage). Map each line to the billing service used (if identifiable).
   const slabServices = services.filter((s) => s.billingType === 'per_claim_slab' || s.billingType === 'percentage');
-  // Build a name → BillingServiceName id map (one query)
-  const serviceNameRows = slabServices.length
-    ? await prisma.billingServiceName.findMany({
-        where: { name: { in: [...new Set(slabServices.map((s) => s.serviceName))] } },
-        select: { id: true, name: true },
-      })
-    : [];
+  // When there are no active billing services configured (regular hospital
+  // with an empty list, or direct-patient stream with no global config yet),
+  // still emit a per-claim TPA desk placeholder line so the invoice isn't
+  // empty. Match each claim's claimType against the BillingServiceName
+  // master's `claimTypes` array — that's the client convention: TPA DESK
+  // SERVICE - CASHLESS applies to cashless claims, TPA DESK SERVICE -
+  // REIMBURSEMENT to reimbursement, etc. Amount respects an existing
+  // filePrice override, otherwise 0 — the operator edits before generating.
+  const useDefaultCashlessTpa = services.length === 0;
+  // Build a name → BillingServiceName id map (one query). When falling back
+  // to the claim-type mapping we also need the whole active master so we can
+  // pick a row by claimType.
+  const [serviceNameRows, fallbackRows] = await Promise.all([
+    slabServices.length
+      ? prisma.billingServiceName.findMany({
+          where: { name: { in: [...new Set(slabServices.map((s) => s.serviceName))] } },
+          select: { id: true, name: true },
+        })
+      : Promise.resolve([]),
+    useDefaultCashlessTpa
+      ? prisma.billingServiceName.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, claimTypes: true },
+        })
+      : Promise.resolve([]),
+  ]);
   const nameToGlobalId = new Map(serviceNameRows.map((r) => [r.name, r.id]));
+  // Pick the first master row whose claimTypes array contains the claim's
+  // claim type. Falls back to "TPA DESK SERVICE - CASHLESS" (by name) if no
+  // row matches — that name is the client's documented default. If even that
+  // is missing (fresh install, master not seeded), we return null so the
+  // caller uses the literal "TPA DESK SERVICE - CASHLESS" string.
+  const pickFallbackForClaim = (claimType) => {
+    if (!useDefaultCashlessTpa) return null;
+    if (claimType) {
+      const match = fallbackRows.find((r) => Array.isArray(r.claimTypes) && r.claimTypes.includes(claimType));
+      if (match) return match;
+    }
+    return fallbackRows.find((r) => r.name === 'TPA DESK SERVICE - CASHLESS') || null;
+  };
 
   let order = 0;
-  // Direct-patient invoices: emit one claim_tpa_desk line per claim with
-  // amount=0 as a placeholder. This keeps the invoice ↔ claim linkage (via
-  // the line's claimId) so the issue flow can flip these claims to billed
-  // and voids can roll them back. Amount is always 0 (no auto slab / file
-  // price) — the operator adds service items with rates manually.
-  const tpaDeskLines = isDirectPatient
-    ? claims.map((c) => ({
-        lineType: 'claim_tpa_desk',
-        description: `${c.patientName}${c.ccnNo ? ` (CCN ${c.ccnNo})` : ''}`,
-        amount: 0,
-        order: order++,
-        claimId: c.id,
-        billingServiceId: null,
-        billingServiceNameId: null,
-        meta: { hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount, directPatient: true },
-      }))
-    : claims.map((c) => {
+  // Unified per-claim TPA desk emission: regular and direct-patient
+  // invoices now share the same shape. Direct-patient's `services` comes
+  // from the global DirectPatientBillingService config, so slab/percentage
+  // amounts flow through calculateFilePrice just like a regular hospital.
+  const tpaDeskLines = claims.map((c) => {
       const amount = c.filePriceOverridden
         ? c.filePrice
         : calculateFilePrice(services, c.hospitalFinalBill, c.finalApprovalAmount);
       // Pick the first matching slab service for line metadata (most setups have one)
       const svc = slabServices[0];
+      const fallback = pickFallbackForClaim(c.claimType);
+      const prefix = useDefaultCashlessTpa
+        ? (fallback?.name || 'TPA DESK SERVICE - CASHLESS')
+        : 'TPA Desk';
       return {
         lineType: 'claim_tpa_desk',
-        description: `TPA Desk — ${c.patientName}${c.ccnNo ? ` (CCN ${c.ccnNo})` : ''}`,
+        description: `${prefix} — ${c.patientName}${c.ccnNo ? ` (CCN ${c.ccnNo})` : ''}`,
         amount,
         order: order++,
         claimId: c.id,
+        // Direct-patient invoices reference the global service ids —
+        // consumers keying off billingServiceId (e.g. the fixed_onetime
+        // dedupe gate) know to disambiguate by looking at invoice.isDirectPatient.
         billingServiceId: svc?.id || null,
-        billingServiceNameId: svc ? nameToGlobalId.get(svc.serviceName) || null : null,
-        meta: { hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount, overridden: c.filePriceOverridden },
+        billingServiceNameId: svc
+          ? (nameToGlobalId.get(svc.serviceName) || null)
+          : (fallback?.id || null),
+        meta: {
+          hospitalFinalBill: c.hospitalFinalBill,
+          finalApprovalAmount: c.finalApprovalAmount,
+          overridden: c.filePriceOverridden,
+          defaultCashlessTpa: useDefaultCashlessTpa || undefined,
+          claimType: useDefaultCashlessTpa ? (c.claimType || null) : undefined,
+          directPatient: isDirectPatient || undefined,
+        },
       };
     });
 
@@ -197,13 +243,21 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   const fixedMonthly = services.filter((s) => s.billingType === 'fixed_monthly');
   const fixedOnetime = services.filter((s) => s.billingType === 'fixed_onetime');
 
-  // Gate fixed_onetime: include only if no prior issued invoice has a line with this billingServiceId
+  // Gate fixed_onetime: once a fixed one-time line has been added to ANY
+  // non-void invoice in the SAME stream, it must not repeat on future
+  // previews. For regular invoices the stream is scoped to the specific
+  // hospital. For direct-patient invoices the stream is global — the same
+  // config drives every direct-patient invoice regardless of the picked
+  // reference hospital, so we check across all isDirectPatient:true
+  // invoices. Void invoices don't count in either case.
   let onetimeIncluded = [];
   if (fixedOnetime.length) {
     const priorOnetimeRows = await prisma.invoiceLineItem.findMany({
       where: {
         billingServiceId: { in: fixedOnetime.map((s) => s.id) },
-        invoice: { hospitalId, status: { in: ['issued', 'partially_paid', 'paid'] } },
+        invoice: isDirectPatient
+          ? { isDirectPatient: true, status: { not: 'void' } }
+          : { hospitalId, status: { not: 'void' } },
       },
       select: { billingServiceId: true },
     });
@@ -355,7 +409,7 @@ exports.previewBulk = async (req, res) => {
       select: {
         id: true, srNo: true, patientName: true, status: true,
         isBilled: true, hospitalId: true, dateOfDischarge: true,
-        dateOfAdmit: true, isDirectPatient: true,
+        dateOfAdmit: true, isDirectPatient: true, claimType: true,
         ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
         filePrice: true, filePriceOverridden: true,
       },
@@ -503,6 +557,7 @@ exports.previewBulk = async (req, res) => {
         id: c.id, patientName: c.patientName, ccnNo: c.ccnNo,
         hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount,
         filePrice: c.filePrice, filePriceOverridden: c.filePriceOverridden,
+        claimType: c.claimType,
       }]),
     );
 
@@ -1129,11 +1184,14 @@ exports.issue = async (req, res) => {
           })
           .filter(Boolean);
 
-        // 2. Claim status + isBilled is identical for every linked claim —
-        //    collapse into one updateMany.
+        // 2. Only flip `isBilled` on the linked claims — leave `status`
+        //    untouched. Historically we also set `status: 'billed'` here,
+        //    which stomped on the claim's real disposition (settled /
+        //    rejected / etc.). Billing is orthogonal to the claim's business
+        //    status; the `isBilled` flag is the source of truth for that.
         const claimStatusTask = tx.claim.updateMany({
           where: { id: { in: claims.map((c) => c.id) } },
-          data: { isBilled: true, status: 'billed' },
+          data: { isBilled: true },
         });
 
         // 3. filePrice is per-row but only applies to non-overridden claims.
@@ -1208,12 +1266,15 @@ exports.void = async (req, res) => {
         select: { id: true },
       });
       const alive = new Set(existing.map((c) => c.id));
-      for (const line of claimLines) {
-        if (!alive.has(line.claimId)) continue;
-        const priorStatus = line.meta?.priorStatus || 'settled';
-        await tx.claim.update({
-          where: { id: line.claimId },
-          data: { isBilled: false, status: priorStatus },
+      // Void just flips `isBilled` back — the claim's `status` was never
+      // touched at issue time so there's nothing to roll back. `priorStatus`
+      // meta is left in place for historical audit; older invoices that DID
+      // stamp status will read fine (we simply don't apply it on void).
+      const aliveIds = claimLines.map((l) => l.claimId).filter((id) => alive.has(id));
+      if (aliveIds.length) {
+        await tx.claim.updateMany({
+          where: { id: { in: aliveIds } },
+          data: { isBilled: false },
         });
       }
       // Remove any auto-flow expense rows tied to this invoice
@@ -1312,24 +1373,20 @@ exports.removeAll = async (req, res) => {
         })
       : [];
     const alive = new Set(aliveClaims.map((c) => c.id));
-    // Group surviving claims by the status we want to restore so we can issue
-    // one updateMany per status instead of one update per claim. `InvoiceLineItem.claimId`
-    // is a soft ref (no FK) so hard-deleted claims are silently skipped.
-    const claimIdsByPriorStatus = new Map();
-    for (const line of voidLineItems) {
-      if (!alive.has(line.claimId)) continue;
-      const priorStatus = line.meta?.priorStatus || 'settled';
-      if (!claimIdsByPriorStatus.has(priorStatus)) claimIdsByPriorStatus.set(priorStatus, []);
-      claimIdsByPriorStatus.get(priorStatus).push(line.claimId);
-    }
+    // Bulk void just flips `isBilled` back to false. Since the claim's
+    // `status` is never touched at issue time anymore, there's no status
+    // rollback to perform — a single updateMany across every alive claim.
+    // `InvoiceLineItem.claimId` is a soft ref (no FK), so hard-deleted
+    // claims are silently skipped by the `id: { in: alive }` filter.
+    const aliveClaimIds = voidLineItems
+      .map((l) => l.claimId)
+      .filter((id) => alive.has(id));
 
     await prisma.$transaction(async (tx) => {
-      // Roll back claim statuses in one updateMany per priorStatus group.
-      for (const [priorStatus, claimIds] of claimIdsByPriorStatus) {
-        if (!claimIds.length) continue;
+      if (aliveClaimIds.length) {
         await tx.claim.updateMany({
-          where: { id: { in: claimIds } },
-          data: { isBilled: false, status: priorStatus },
+          where: { id: { in: aliveClaimIds } },
+          data: { isBilled: false },
         });
       }
       // Clear commission expenses for every voided invoice in one shot (was
@@ -1481,37 +1538,96 @@ exports.previewPdf = async (req, res) => {
   }
 };
 
+// Shared helper: fetch one invoice + its linked claims + template, and hand
+// back the fully-rendered PDF Buffer. Used by both the single-invoice `pdf`
+// endpoint and the bulk-download flow. Templates are optional (caller can
+// pass a pre-loaded one to avoid re-fetching on every invoice in a batch).
+const renderOneInvoicePdf = async (invoiceId, preloadedTpl = null) => {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: invoiceInclude,
+  });
+  if (!invoice) return null;
+  const template = preloadedTpl || await getInvoiceTemplate();
+  const claimIds = (invoice.lineItems || [])
+    .filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId)
+    .map((l) => l.claimId);
+  const claims = claimIds.length
+    ? await prisma.claim.findMany({
+        where: { id: { in: claimIds } },
+        include: {
+          hospital:         { select: { id: true, name: true } },
+          insuranceCompany: { select: { id: true, name: true } },
+          tpa:              { select: { id: true, name: true } },
+        },
+      })
+    : [];
+  const claimsById = new Map(claims.map((c) => [c.id, c]));
+  const buf = await renderInvoicePdf(invoice, invoice.hospital, template, { claimsById });
+  return { invoice, buf };
+};
+
 exports.pdf = async (req, res) => {
   try {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: req.params.id },
-      include: invoiceInclude,
-    });
-    if (!invoice) return res.status(404).json({ message: 'Not found' });
-    const template = await getInvoiceTemplate();
-
-    // Pull the full claim records for every claim_tpa_desk line so the Claims
-    // Summary table on page 2 can render any column the operator picked in
-    // the column-picker modal.
-    const claimIds = (invoice.lineItems || [])
-      .filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId)
-      .map((l) => l.claimId);
-    const claims = claimIds.length
-      ? await prisma.claim.findMany({
-          where: { id: { in: claimIds } },
-          include: {
-            hospital:         { select: { id: true, name: true } },
-            insuranceCompany: { select: { id: true, name: true } },
-            tpa:              { select: { id: true, name: true } },
-          },
-        })
-      : [];
-    const claimsById = new Map(claims.map((c) => [c.id, c]));
-
-    const buf = await renderInvoicePdf(invoice, invoice.hospital, template, { claimsById });
+    const result = await renderOneInvoicePdf(req.params.id);
+    if (!result) return res.status(404).json({ message: 'Not found' });
+    const { invoice, buf } = result;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${invoice.invoiceNumber || 'draft-' + invoice.id.slice(0, 8)}.pdf"`);
     res.send(buf);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Merges N invoice PDFs into a single file. Used by the bulk-generate flow
+// so the operator can download every freshly-created invoice in one shot
+// instead of hitting the per-invoice download 20 times.
+exports.bulkPdf = async (req, res) => {
+  try {
+    const { invoiceIds } = req.body;
+    if (!Array.isArray(invoiceIds) || !invoiceIds.length) {
+      return res.status(400).json({ message: 'invoiceIds (non-empty array) is required' });
+    }
+    if (invoiceIds.length > 100) {
+      return res.status(400).json({ message: 'Maximum 100 invoices per bulk download' });
+    }
+
+    // Fetch the site-wide template once and share it across every render so
+    // each invoice doesn't pay its own 2-query template lookup.
+    const preloadedTpl = await getInvoiceTemplate();
+
+    // Render invoices with limited concurrency (5 at a time) to keep memory
+    // + DB pressure sane on 20-100-invoice batches while still overlapping
+    // I/O — each render does its own claims fetch.
+    const CONCURRENCY = 5;
+    const buffers = new Array(invoiceIds.length);
+    for (let i = 0; i < invoiceIds.length; i += CONCURRENCY) {
+      const slice = invoiceIds.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(slice.map((id) => renderOneInvoicePdf(id, preloadedTpl).catch(() => null)));
+      results.forEach((r, j) => { buffers[i + j] = r?.buf || null; });
+    }
+
+    const validBuffers = buffers.filter(Boolean);
+    if (!validBuffers.length) {
+      return res.status(404).json({ message: 'No invoices found for the supplied ids' });
+    }
+
+    // Merge every rendered PDF into a single PDF-lib document. Every page
+    // of every invoice is copied into the merged output in the order the
+    // ids were supplied.
+    const { PDFDocument } = require('pdf-lib');
+    const merged = await PDFDocument.create();
+    for (const buf of validBuffers) {
+      const src = await PDFDocument.load(buf);
+      const pages = await merged.copyPages(src, src.getPageIndices());
+      pages.forEach((p) => merged.addPage(p));
+    }
+    const mergedBytes = await merged.save();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="invoices-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(Buffer.from(mergedBytes));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }

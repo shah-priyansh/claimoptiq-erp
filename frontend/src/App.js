@@ -45,6 +45,7 @@ import DocumentUpload from './pages/documents/DocumentUpload';
 import DocumentInbox from './pages/documents/DocumentInbox';
 import StaffModule from './pages/staff/StaffModule';
 import SiteSettings from './pages/settings/SiteSettings';
+import DirectPatientBillingServices from './pages/settings/DirectPatientBillingServices';
 import BackupSettings from './pages/backup/BackupSettings';
 import Profile from './pages/profile/Profile';
 
@@ -102,6 +103,7 @@ function App() {
             <Route path="/documents/inbox" element={<ProtectedRoute module="document_submissions"><DocumentInbox /></ProtectedRoute>} />
             <Route path="/staff" element={<ProtectedRoute module="staff"><StaffModule /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute superAdminOnly><SiteSettings /></ProtectedRoute>} />
+            <Route path="/settings/direct-patient-billing" element={<ProtectedRoute module="invoices" requireManage><DirectPatientBillingServices /></ProtectedRoute>} />
             <Route path="/backup" element={<ProtectedRoute module="backup" requireManage><BackupSettings /></ProtectedRoute>} />
             <Route path="/profile" element={<Profile />} />
           </Route>

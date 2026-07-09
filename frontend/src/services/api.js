@@ -96,6 +96,8 @@ export const voidInvoiceAPI    = (id, data) => API.post(`/invoices/${id}/void`, 
 export const deleteInvoiceAPI  = (id) => API.delete(`/invoices/${id}`);
 export const deleteAllInvoicesAPI = () => API.delete('/invoices', { data: { confirm: 'DELETE_ALL' } });
 export const invoicePdfUrl     = (id) => `${API.defaults.baseURL}/invoices/${id}/pdf`;
+export const bulkInvoicePdfAPI = (invoiceIds) => API.post('/invoices/bulk-pdf', { invoiceIds }, { responseType: 'blob' });
+export const getInvoicePdfBlobAPI = (id) => API.get(`/invoices/${id}/pdf`, { responseType: 'blob' });
 
 // Fetches the invoice PDF *with the JWT* (the protected endpoint rejects a
 // plain <a target="_blank"> because the new tab doesn't send the
@@ -198,6 +200,13 @@ export const getBillingServiceNamesAPI = () => API.get('/billing-service-names')
 export const createBillingServiceNameAPI = (data) => API.post('/billing-service-names', data);
 export const updateBillingServiceNameAPI = (id, data) => API.put(`/billing-service-names/${id}`, data);
 export const deleteBillingServiceNameAPI = (id) => API.delete(`/billing-service-names/${id}`);
+
+// Direct-patient billing services — one global list drives every
+// direct-patient invoice. The PUT replaces the entire list in one shot,
+// mirroring the hospital-form replace-all persistence.
+export const getDirectPatientBillingServicesAPI = () => API.get('/direct-patient-billing-services');
+export const saveDirectPatientBillingServicesAPI = (services) =>
+  API.put('/direct-patient-billing-services', { services });
 
 // Claims
 export const getClaimsAPI = (params) => API.get('/claims', { params });

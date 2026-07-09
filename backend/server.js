@@ -28,6 +28,7 @@ app.use('/api/hospitals', require('./routes/hospitalRoutes'));
 app.use('/api/insurance', require('./routes/insuranceRoutes'));
 app.use('/api/tpa', require('./routes/tpaRoutes'));
 app.use('/api/billing-service-names', require('./routes/billingServiceNameRoutes'));
+app.use('/api/direct-patient-billing-services', require('./routes/directPatientBillingServiceRoutes'));
 app.use('/api/references', require('./routes/referenceRoutes'));
 app.use('/api/invoices', require('./routes/invoiceRoutes'));
 app.use('/api/tds-rates', require('./routes/tdsRateRoutes'));
