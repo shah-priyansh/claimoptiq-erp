@@ -9,6 +9,28 @@ export const monthLabel = (m) => {
   return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 };
 
+// Build the filename we want on saved / zipped invoice PDFs:
+//   "<Hospital Name> - Bill of <Month> <Year>.pdf"       (regular)
+//   "<Patient Name>  - Bill of <Month> <Year>.pdf"       (direct-patient)
+// For direct-patient invoices the patient name is parsed from the first
+// TPA-desk line — its description is emitted by the backend as
+// "TPA Desk — <PATIENT NAME> (CCN <CCN>)". Multi-patient direct-patient
+// invoices (rare) fall back to the reference hospital name.
+export const invoiceFilename = ({ isDirectPatient, hospitalName, month, lineItems }) => {
+  let base = hospitalName || 'invoice';
+  if (isDirectPatient) {
+    const firstTpa = (lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
+    const afterDash = (firstTpa?.description || '').split(/\s+[—-]\s+/)[1] || '';
+    const patient = afterDash.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
+    if (patient) base = patient;
+  }
+  // Strip characters Windows/macOS don't allow in filenames while keeping
+  // spaces and dashes intact, then collapse repeated whitespace.
+  // eslint-disable-next-line no-control-regex
+  const strip = (s) => String(s).replace(/[\\/:*?"<>|\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim();
+  return `${strip(base)} - Bill of ${strip(monthLabel(month))}.pdf`;
+};
+
 // 'TPA Desk — RAJESH PATEL (CCN-0001)' → 'TPA Desk'
 // Group rows by the prefix before ' — ' or ' - ' so 50 per-claim lines
 // collapse into one expandable group per billing service.

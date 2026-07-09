@@ -49,11 +49,12 @@ const accessItems = [
 
 // Sub-nav items grouped under "Configuration" — small reference tables.
 const configItems = [
-  { to: '/claim-statuses',        label: 'Claim Status',    icon: HiOutlineTag,          module: 'claim_statuses' },
-  { to: '/claim-document-types',  label: 'Document Types',  icon: HiOutlineDocumentText, module: 'claim_document_types' },
-  { to: '/billing-service-names', label: 'Billing Services', icon: HiOutlineCollection,  module: 'billing_service_names' },
-  { to: '/tds-rates',             label: 'TDS Rates',       icon: HiOutlineCalculator,   module: 'tds_rates' },
-  { to: '/expense-categories',    label: 'Expense Buckets', icon: HiOutlineCollection,   module: 'expense_categories' },
+  { to: '/claim-statuses',              label: 'Claim Status',           icon: HiOutlineTag,            module: 'claim_statuses' },
+  { to: '/claim-document-types',        label: 'Document Types',         icon: HiOutlineDocumentText,   module: 'claim_document_types' },
+  { to: '/billing-service-names',       label: 'Hospital Services',      icon: HiOutlineCollection,     module: 'billing_service_names' },
+  { to: '/settings/direct-patient-billing', label: 'Direct Patient Services', icon: HiOutlineCurrencyRupee, module: 'invoices' },
+  { to: '/tds-rates',                   label: 'TDS Rates',              icon: HiOutlineCalculator,     module: 'tds_rates' },
+  { to: '/expense-categories',          label: 'Expense Buckets',        icon: HiOutlineCollection,     module: 'expense_categories' },
 ];
 
 const linkClass = ({ isActive }) =>
@@ -224,23 +225,15 @@ const Sidebar = ({ isOpen, onClose }) => {
             onChildClick={onClose}
           />
 
-          {(isSuperAdmin || canManageModule('invoices')) && (
+          {isSuperAdmin && (
             <>
               <SectionLabel>Admin</SectionLabel>
-              {isSuperAdmin && (
-                // `end` prevents /settings from matching /settings/direct-patient-billing
-                // so only one item highlights at a time.
-                <NavLink to="/settings" end className={linkClass} onClick={onClose}>
-                  <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
-                  Settings
-                </NavLink>
-              )}
-              {canManageModule('invoices') && (
-                <NavLink to="/settings/direct-patient-billing" className={linkClass} onClick={onClose}>
-                  <HiOutlineCurrencyRupee className="w-5 h-5 flex-shrink-0" />
-                  Direct Patient Billing
-                </NavLink>
-              )}
+              {/* `end` prevents /settings from matching /settings/direct-patient-billing
+                  so only one item highlights at a time. */}
+              <NavLink to="/settings" end className={linkClass} onClick={onClose}>
+                <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
+                Settings
+              </NavLink>
             </>
           )}
         </nav>

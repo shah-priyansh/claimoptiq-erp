@@ -254,66 +254,133 @@ const DirectPatientBillingServices = () => {
                   )}
                 </div>
 
-                {isSlab && (
-                  <div className="mt-4 border-t border-gray-100 pt-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-800">Slabs</h3>
-                        <p className="text-xs text-gray-400 mt-0.5">Ranges are inclusive. Use rangeEnd = 0 for open-ended.</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => addSlab(idx)}
-                        className="flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-700 font-medium border border-primary-200 hover:bg-primary-50 px-2.5 py-1 rounded-lg transition-colors"
-                      >
-                        <HiOutlinePlus className="w-3.5 h-3.5" /> Add Slab
-                      </button>
-                    </div>
-                    {(svc.slabs || []).length === 0 ? (
-                      <p className="text-xs text-gray-400 py-3 text-center border border-dashed border-gray-200 rounded-lg">
-                        No slabs yet.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {(svc.slabs || []).map((slab, slabIdx) => (
-                          <div key={slabIdx} className="grid grid-cols-4 gap-2 items-end">
-                            <div>
-                              <label className="block text-[10px] font-medium text-gray-500 mb-1">Range Start</label>
-                              <AmountInput
-                                value={slab.rangeStart}
-                                onChange={(v) => patchSlab(idx, slabIdx, { rangeStart: v })}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[10px] font-medium text-gray-500 mb-1">Range End</label>
-                              <AmountInput
-                                value={slab.rangeEnd}
-                                onChange={(v) => patchSlab(idx, slabIdx, { rangeEnd: v })}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[10px] font-medium text-gray-500 mb-1">Price</label>
-                              <AmountInput
-                                value={slab.price}
-                                onChange={(v) => patchSlab(idx, slabIdx, { price: v })}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                              />
-                            </div>
+                {isSlab && (() => {
+                  const slabMode = svc.slabMode === 'both' ? 'both' : 'slab_wise';
+                  const showIncremental = slabMode === 'both';
+                  return (
+                    <div className="mt-4 border-t border-gray-100 pt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Slab Configuration</span>
+                        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+                          {[
+                            { value: 'slab_wise', label: 'Slab Wise' },
+                            { value: 'both', label: 'Both' },
+                          ].map((opt, i) => (
                             <button
+                              key={opt.value}
                               type="button"
-                              onClick={() => removeSlab(idx, slabIdx)}
-                              className="h-7 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                              onClick={() => patchService(idx, { slabMode: opt.value })}
+                              className={`px-3 py-1.5 transition-colors ${i > 0 ? 'border-l border-gray-200' : ''} ${
+                                slabMode === opt.value
+                                  ? 'bg-primary-600 text-white'
+                                  : 'bg-white text-gray-600 hover:bg-gray-50'
+                              }`}
                             >
-                              <HiOutlineTrash className="w-4 h-4" />
+                              {opt.label}
                             </button>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      <div className={showIncremental ? 'mb-4' : ''}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <span className="text-xs text-gray-500 font-medium">Slab Tiers</span>
+                            <p className="text-[11px] text-gray-400">Ranges are inclusive. Use Range End = 0 for open-ended.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => addSlab(idx)}
+                            className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 font-medium border border-primary-200 hover:bg-primary-50 px-2.5 py-1 rounded-lg transition-colors"
+                          >
+                            <HiOutlinePlus className="w-3 h-3" /> Add Tier
+                          </button>
+                        </div>
+                        {(svc.slabs || []).length === 0 ? (
+                          <p className="text-xs text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
+                            No slab tiers defined. Click "+ Add Tier" to add one.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-[1fr_1fr_1fr_2rem] gap-2 px-1">
+                              <span className="text-xs font-medium text-gray-500">From (Rs)</span>
+                              <span className="text-xs font-medium text-gray-500">To (Rs)</span>
+                              <span className="text-xs font-medium text-gray-500">Price (Rs)</span>
+                              <span></span>
+                            </div>
+                            {(svc.slabs || []).map((slab, slabIdx) => (
+                              <div key={slabIdx} className="grid grid-cols-[1fr_1fr_1fr_2rem] gap-2 items-center">
+                                <AmountInput
+                                  value={slab.rangeStart}
+                                  onChange={(v) => patchSlab(idx, slabIdx, { rangeStart: v })}
+                                  placeholder="0"
+                                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                                <AmountInput
+                                  value={slab.rangeEnd}
+                                  onChange={(v) => patchSlab(idx, slabIdx, { rangeEnd: v })}
+                                  placeholder="50,000"
+                                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                                <AmountInput
+                                  value={slab.price}
+                                  onChange={(v) => patchSlab(idx, slabIdx, { price: v })}
+                                  placeholder="2,000"
+                                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeSlab(idx, slabIdx)}
+                                  className="flex items-center justify-center p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                >
+                                  <HiOutlineTrash className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {showIncremental && (
+                        <div>
+                          <div className="border-t border-gray-100 pt-4 mb-2">
+                            <span className="text-xs text-gray-500 font-medium">Incremental Rule</span>
+                          </div>
+                          <p className="text-xs text-gray-400 mb-2">e.g. Starting from Rs 0 → every Rs 50,000 → charge Rs 500</p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Starting From (Rs)</label>
+                              <AmountInput
+                                value={svc.slabRangeStart || 0}
+                                onChange={(v) => patchService(idx, { slabRangeStart: v })}
+                                placeholder="0"
+                                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Every (Rs)</label>
+                              <AmountInput
+                                value={svc.slabIncrementRange || 0}
+                                onChange={(v) => patchService(idx, { slabIncrementRange: v })}
+                                placeholder="50,000"
+                                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Charge (Rs)</label>
+                              <AmountInput
+                                value={svc.slabIncrementPrice || 0}
+                                onChange={(v) => patchService(idx, { slabIncrementPrice: v })}
+                                placeholder="500"
+                                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {(isFixedMonthly || isFixedOnetime) && (
                   <div className="mt-3 text-xs text-gray-500">
