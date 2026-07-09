@@ -71,6 +71,11 @@ model BillingServiceName {
   id        String   @id @default(uuid())
   name      String   @unique
   isActive  Boolean  @default(true) @map("is_active")
+  // Claim types this service auto-applies to when a hospital has no
+  // configured billing_services. Empty [] = universal fallback. Values are
+  // the same enum as Claim.claimType (cashless / cashless_anywhere /
+  // reimbursement / grievance).
+  claimTypes Json    @default("[]") @map("claim_types")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -375,6 +380,50 @@ model HospitalBillingServiceSlab {
   billingService   HospitalBillingService @relation(fields: [billingServiceId], references: [id], onDelete: Cascade)
 
   @@map("hospital_billing_service_slabs")
+}
+
+// Global billing service config for direct-patient invoices. Mirrors
+// HospitalBillingService 1:1 (same fields, same slab child) but with no
+// hospitalId — a single super-admin-managed list drives every
+// direct-patient invoice regardless of the reference hospital picked
+// during invoice creation.
+model DirectPatientBillingService {
+  id                      String                             @id @default(uuid())
+  serviceName             String                             @map("service_name")
+  billingType             String                             @map("billing_type")
+  fixedAmount             Float                              @default(0) @map("fixed_amount")
+  claimLimit              Int                                @default(0) @map("claim_limit")
+  overLimitBehavior       String                             @default("per_claim") @map("over_limit_behavior")
+  overLimitPerClaimAmount Float                              @default(0) @map("over_limit_per_claim_amount")
+  overLimitInsuranceWise  Boolean                            @default(false) @map("over_limit_insurance_wise")
+  overLimitInsurerIds     Json                               @default("[]") @map("over_limit_insurer_ids")
+  overLimitTpaIds         Json                               @default("[]") @map("over_limit_tpa_ids")
+  slabMode                String                             @default("slab_wise") @map("slab_mode")
+  slabRangeStart          Float                              @default(0) @map("slab_range_start")
+  slabRangeEnd            Float                              @default(50000) @map("slab_range_end")
+  slabBasePrice           Float                              @default(2000) @map("slab_base_price")
+  slabIncrementRange      Float                              @default(50000) @map("slab_increment_range")
+  slabIncrementPrice      Float                              @default(500) @map("slab_increment_price")
+  calculationBasis        String                             @default("none") @map("calculation_basis")
+  percentageRate          Float                              @default(0) @map("percentage_rate")
+  isActive                Boolean                            @default(true) @map("is_active")
+  createdAt               DateTime                           @default(now()) @map("created_at")
+  updatedAt               DateTime                           @updatedAt @map("updated_at")
+  slabs                   DirectPatientBillingServiceSlab[]
+
+  @@map("direct_patient_billing_services")
+}
+
+model DirectPatientBillingServiceSlab {
+  id               String                      @id @default(uuid())
+  billingServiceId String                      @map("billing_service_id")
+  rangeStart       Float                       @default(0) @map("range_start")
+  rangeEnd         Float                       @default(0) @map("range_end")
+  price            Float                       @default(0)
+  order            Int                         @default(0)
+  billingService   DirectPatientBillingService @relation(fields: [billingServiceId], references: [id], onDelete: Cascade)
+
+  @@map("direct_patient_billing_service_slabs")
 }
 
 model HospitalDoctor {

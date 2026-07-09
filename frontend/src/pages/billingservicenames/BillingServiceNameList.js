@@ -5,6 +5,45 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCheck, HiOutlineX } from 'react-icons/hi';
 
+const CLAIM_TYPE_OPTIONS = [
+  { value: 'cashless', label: 'Cashless' },
+  { value: 'cashless_anywhere', label: 'Cashless Anywhere' },
+  { value: 'reimbursement', label: 'Reimbursement' },
+  { value: 'grievance', label: 'Grievance' },
+];
+const CLAIM_TYPE_LABEL = Object.fromEntries(CLAIM_TYPE_OPTIONS.map((o) => [o.value, o.label]));
+
+// Toggle-pill selector for claim types. Backend accepts `[]` to mean "no
+// restriction" (applies to any claim type as a universal fallback).
+const ClaimTypeSelector = ({ value, onChange }) => {
+  const list = Array.isArray(value) ? value : [];
+  const toggle = (v) => {
+    if (list.includes(v)) onChange(list.filter((x) => x !== v));
+    else onChange([...list, v]);
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {CLAIM_TYPE_OPTIONS.map((o) => {
+        const active = list.includes(o.value);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => toggle(o.value)}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              active
+                ? 'bg-primary-600 text-white border-primary-600'
+                : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-700'
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 const BillingServiceNameList = () => {
   const confirm = useConfirm();
   const { can } = useAuth();
@@ -13,8 +52,10 @@ const BillingServiceNameList = () => {
   const canDelete = can('billing_service_names', 'delete');
   const [items, setItems] = useState([]);
   const [newName, setNewName] = useState('');
+  const [newClaimTypes, setNewClaimTypes] = useState([]);
   const [editId, setEditId] = useState(null);
   const [editName, setEditName] = useState('');
+  const [editClaimTypes, setEditClaimTypes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchItems = async () => {
@@ -31,8 +72,9 @@ const BillingServiceNameList = () => {
     e.preventDefault();
     if (!newName.trim()) return;
     try {
-      await createBillingServiceNameAPI({ name: newName.trim() });
+      await createBillingServiceNameAPI({ name: newName.trim(), claimTypes: newClaimTypes });
       setNewName('');
+      setNewClaimTypes([]);
       toast.success('Service name added');
       fetchItems();
     } catch (error) {
@@ -40,10 +82,16 @@ const BillingServiceNameList = () => {
     }
   };
 
+  const beginEdit = (item) => {
+    setEditId(item._id);
+    setEditName(item.name);
+    setEditClaimTypes(Array.isArray(item.claimTypes) ? item.claimTypes : []);
+  };
+
   const handleUpdate = async (id) => {
     if (!editName.trim()) return;
     try {
-      await updateBillingServiceNameAPI(id, { name: editName.trim() });
+      await updateBillingServiceNameAPI(id, { name: editName.trim(), claimTypes: editClaimTypes });
       setEditId(null);
       toast.success('Updated');
       fetchItems();
@@ -77,6 +125,13 @@ const BillingServiceNameList = () => {
               <HiOutlinePlus className="w-4 h-4" /> Add
             </button>
           </div>
+          <div className="mt-3">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+              Applies to Claim Types
+              <span className="ml-1 text-gray-400 normal-case font-normal">(leave empty for universal fallback)</span>
+            </label>
+            <ClaimTypeSelector value={newClaimTypes} onChange={setNewClaimTypes} />
+          </div>
         </form>
       )}
 
@@ -87,18 +142,19 @@ const BillingServiceNameList = () => {
               <tr>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">#</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Service Name</th>
+                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Applies to Claim Types</th>
                 <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={3} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={4} className="py-8 text-center text-gray-400">Loading...</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={3} className="py-8 text-center text-gray-400">No service names added yet</td></tr>
+                <tr><td colSpan={4} className="py-8 text-center text-gray-400">No service names added yet</td></tr>
               ) : items.map((item, idx) => (
                 <tr key={item._id} className="hover:bg-gray-50">
-                  <td className="py-3 px-4 text-sm text-gray-500">{idx + 1}</td>
-                  <td className="py-3 px-4 text-sm">
+                  <td className="py-3 px-4 text-sm text-gray-500 align-top">{idx + 1}</td>
+                  <td className="py-3 px-4 text-sm align-top">
                     {editId === item._id ? (
                       <input value={editName} onChange={(e) => setEditName(e.target.value)}
                         className="px-2 py-1 border border-gray-300 rounded text-sm w-full focus:ring-2 focus:ring-primary-500" autoFocus />
@@ -106,7 +162,28 @@ const BillingServiceNameList = () => {
                       <span className="font-medium text-gray-800">{item.name}</span>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-right">
+                  <td className="py-3 px-4 text-sm align-top">
+                    {editId === item._id ? (
+                      <ClaimTypeSelector value={editClaimTypes} onChange={setEditClaimTypes} />
+                    ) : (
+                      (() => {
+                        const list = Array.isArray(item.claimTypes) ? item.claimTypes : [];
+                        if (!list.length) {
+                          return <span className="text-xs text-gray-400 italic">Universal fallback</span>;
+                        }
+                        return (
+                          <div className="flex flex-wrap gap-1">
+                            {list.map((c) => (
+                              <span key={c} className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 text-xs font-medium">
+                                {CLAIM_TYPE_LABEL[c] || c}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-right align-top">
                     <div className="flex items-center justify-end gap-1">
                       {editId === item._id ? (
                         <>
@@ -122,7 +199,7 @@ const BillingServiceNameList = () => {
                       ) : (
                         <>
                           {canEdit && (
-                            <button onClick={() => { setEditId(item._id); setEditName(item.name); }}
+                            <button onClick={() => beginEdit(item)}
                               className="p-2.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg">
                               <HiOutlinePencil className="w-4 h-4" />
                             </button>
