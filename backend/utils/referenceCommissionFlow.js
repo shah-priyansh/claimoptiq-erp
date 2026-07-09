@@ -91,7 +91,7 @@ const computeCommissionRows = (invoice, reference, onetimeAlreadyUsed = new Set(
       rows.push({
         dedupeKey: `${invoice.id}:per_claim:${entry.id}`,
         amount,
-        description: `${entry.billingServiceName?.name || 'Service'} — ${claimCount} claim${claimCount === 1 ? '' : 's'} × ₹${value}`,
+        description: `${entry.billingServiceName?.name || 'Service'} — ${claimCount} claim${claimCount === 1 ? '' : 's'} × Rs. ${value}`,
       });
       continue;
     }

@@ -288,8 +288,11 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     const perAmount = Number(s.fixedAmount) || 0;
     const amount = companyCount > 0 ? perAmount * companyCount : perAmount;
     const billingLabel = isOneTime ? 'One-time' : 'Monthly';
+    // Use "Rs." rather than "₹" — the invoice PDF renders with PDFKit's
+    // built-in Helvetica, which uses WinAnsi encoding and has no glyph
+    // for U+20B9, so ₹ would fall back to an apostrophe in the PDF.
     const description = companyCount > 0
-      ? `${s.serviceName} — ${billingLabel} (${companyCount} companies × ₹${perAmount.toLocaleString('en-IN')})`
+      ? `${s.serviceName} — ${billingLabel} (${companyCount} companies × Rs. ${perAmount.toLocaleString('en-IN')})`
       : `${s.serviceName} — ${billingLabel}`;
     return {
       lineType: 'service_fixed',
@@ -1544,6 +1547,29 @@ exports.previewPdf = async (req, res) => {
   }
 };
 
+// Build the human-readable filename that browsers use for the PDF tab title
+// and the "Save As" default. Mirrors frontend/src/pages/invoices/bulkInvoiceUtils.js
+// so the single-download and bulk-ZIP flows produce identical names.
+//   "<Hospital Name> - Bill of <Month> <Year>.pdf"       (regular)
+//   "<Patient Name>  - Bill of <Month> <Year>.pdf"       (direct-patient)
+// For direct-patient invoices the patient is parsed from the first TPA-desk
+// line ("TPA Desk — <PATIENT> (CCN <X>)" — see buildInvoiceLines).
+const buildInvoiceDownloadName = (invoice) => {
+  const monthLabel = invoice.month
+    ? new Date(invoice.month).toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    : '';
+  let base = invoice.hospital?.name || 'invoice';
+  if (invoice.isDirectPatient) {
+    const firstTpa = (invoice.lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
+    const afterDash = (firstTpa?.description || '').split(/\s+[—-]\s+/)[1] || '';
+    const patient = afterDash.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
+    if (patient) base = patient;
+  }
+  // eslint-disable-next-line no-control-regex
+  const strip = (s) => String(s).replace(/[\\/:*?"<>|\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim();
+  return `${strip(base)} - Bill of ${strip(monthLabel)}.pdf`;
+};
+
 // Shared helper: fetch one invoice + its linked claims + template, and hand
 // back the fully-rendered PDF Buffer. Used by both the single-invoice `pdf`
 // endpoint and the bulk-download flow. Templates are optional (caller can
@@ -1578,8 +1604,16 @@ exports.pdf = async (req, res) => {
     const result = await renderOneInvoicePdf(req.params.id);
     if (!result) return res.status(404).json({ message: 'Not found' });
     const { invoice, buf } = result;
+    const filename = buildInvoiceDownloadName(invoice);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${invoice.invoiceNumber || 'draft-' + invoice.id.slice(0, 8)}.pdf"`);
+    // ASCII-only `filename` for legacy compatibility + RFC 5987 `filename*`
+    // for correct rendering of non-ASCII names (patient/hospital names may
+    // contain accented characters).
+    const asciiFallback = filename.replace(/[^\x20-\x7e]/g, '_');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${asciiFallback.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
     res.send(buf);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

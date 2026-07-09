@@ -194,12 +194,14 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
 
       // ===== Line items table =====
       // Cleaner: no full blue header — instead a thin underline + light alt rows.
+      // Rate/Amount widened to comfortably fit "Rs. 99,99,999.00" (up to lakhs)
+      // at fontSize 9.5 Helvetica-Bold without wrapping onto a second line.
       const tableCols = [
         { key: 'sr',    label: '#',          x: PAD,       w: 26,  align: 'center' },
-        { key: 'name',  label: 'Description', x: PAD + 26,  w: 270, align: 'left'  },
-        { key: 'qty',   label: 'Qty',        x: PAD + 296, w: 50,  align: 'right' },
-        { key: 'rate',  label: 'Rate',       x: PAD + 346, w: 80,  align: 'right' },
-        { key: 'amt',   label: 'Amount',     x: PAD + 426, w: RIGHT - (PAD + 426), align: 'right' },
+        { key: 'name',  label: 'Description', x: PAD + 26,  w: 240, align: 'left'  },
+        { key: 'qty',   label: 'Qty',        x: PAD + 266, w: 40,  align: 'right' },
+        { key: 'rate',  label: 'Rate',       x: PAD + 306, w: 110, align: 'right' },
+        { key: 'amt',   label: 'Amount',     x: PAD + 416, w: RIGHT - (PAD + 416), align: 'right' },
       ];
 
       const thH = 26;
