@@ -3,7 +3,7 @@ import {
   HiOutlinePlus, HiOutlineTrash, HiChevronRight, HiChevronDown,
 } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
-import AmountInput from '../../components/ui/AmountInput';
+import AmountInput from '../../components/AmountInput';
 import {
   formatINR, baseServiceName, LINE_TYPE_LABEL, TYPE_PILL, computeTotals,
 } from './bulkInvoiceUtils';
@@ -192,7 +192,7 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <AmountInput value={row.amount}
+                      <AmountInput value={row.amount} showWords={false}
                         onChange={(v) => updateLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: v } : r))}
                         className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                     </td>
@@ -242,7 +242,7 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                       </td>
                       <td className="py-2 px-4" />
                       <td className="py-2 px-4">
-                        <AmountInput value={row.amount}
+                        <AmountInput value={row.amount} showWords={false}
                           onChange={(v) => updateLines((arr) => arr.map((r, i) => i === idx ? { ...r, amount: v } : r))}
                           className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                       </td>
