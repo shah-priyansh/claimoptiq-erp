@@ -245,10 +245,27 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
         })),
       ];
 
-      const rowH = 26;
+      // Row height was previously a hard-coded 26pt — long descriptions
+      // ("HOSPITAL DOCUMENTS PROCESS CHARGES — One-time" etc.) wrap to a
+      // second line and got clipped by the next row's zebra band. Now each
+      // row measures the wrapped height of the Description column (the only
+      // wrap-prone column at these widths) and sizes itself to fit, with
+      // 9pt top + 9pt bottom padding.
+      const ROW_MIN_H = 26;
+      const ROW_V_PAD = 18;
+      const nameCol = tableCols.find((c) => c.key === 'name');
       let srNo = 1;
       bodyRows.forEach((row, i) => {
-        if (y > 700) { doc.addPage(); y = PAD; }
+        // Measure Description at the same bold 9.5pt Helvetica it's rendered
+        // in so the wrap points match exactly.
+        doc.font('Helvetica-Bold').fontSize(9.5);
+        const nameH = doc.heightOfString(String(row.name || ''), {
+          width: nameCol.w - 12,
+          align: nameCol.align,
+        });
+        const rowH = Math.max(ROW_MIN_H, nameH + ROW_V_PAD);
+
+        if (y + rowH > 700) { doc.addPage(); y = PAD; }
         if (i % 2 === 1) {
           doc.rect(PAD, y, W - 2 * PAD, rowH).fill(COLORS.alt);
         }
@@ -280,11 +297,27 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       const leftStart = y;
       const rightColXBottom = PAD + colsBottomW + 14;
 
+      // Compute the totals numbers up-front so the left-column "Amount in
+      // Words" card can show the Balance Payable (what the customer actually
+      // owes) instead of the Sub Total.
+      const gross = Number(invoice.gross) || 0;
+      const discount = Number(invoice.discount) || 0;
+      const taxable = Math.max(0, gross - discount);
+      const tdsAmt = Number(invoice.tdsAmount) || 0;
+      const gstAmt = Number(invoice.gstAmount) || 0;
+      const netTotal = Number(invoice.netTotal) || (taxable + gstAmt - tdsAmt);
+      const amountPaid = Number(invoice.amountPaid) || 0;
+      const roundOff = Number(invoice.roundOff) || 0;
+      const previousBalance = Number(invoice.previousBalance) || 0;
+      const currentBalance = netTotal + roundOff - amountPaid + previousBalance;
+
       // ----- LEFT column (top): Amount-in-words card → Terms card -----
       let leftY = leftStart;
 
-      // Amount in words — primary-accented card with a left stripe
-      const wordsText = amountInWords(invoice.gross);
+      // Amount in words — primary-accented card with a left stripe. Shows the
+      // Balance Payable so the printed words match the final amount the
+      // hospital needs to remit.
+      const wordsText = amountInWords(currentBalance);
       const wordsTextW = colsBottomW - 22;
       const wordsTextH = doc.font('Helvetica-Bold').fontSize(11)
         .heightOfString(wordsText, { width: wordsTextW });
@@ -293,7 +326,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
         .fillAndStroke(COLORS.primary50, COLORS.primary100);
       doc.rect(PAD, leftY, 3, wordsCardH).fill(COLORS.primary600);
       doc.fillColor(COLORS.primary600).font('Helvetica-Bold').fontSize(7)
-        .text('INVOICE AMOUNT IN WORDS', PAD + 12, leftY + 8,
+        .text('BALANCE PAYABLE IN WORDS', PAD + 12, leftY + 8,
           { width: wordsTextW, characterSpacing: 1 });
       doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(11)
         .text(wordsText, PAD + 12, leftY + 20, { width: wordsTextW });
@@ -329,26 +362,40 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       const totalsStartY = leftStart;
       let rightY = totalsStartY;
 
-      // Tighter row engine. Each row paints its own background (zebra / band)
-      // so the card reads as a single composed block instead of a list with
-      // ad-hoc dividers between sections.
+      // Row engine. Each row paints its own background (zebra / band) so the
+      // card reads as a single composed block. Band height is computed from
+      // the measured label height so labels that wrap ("Invoice Value
+      // (Including GST)" in narrow cards) expand the row instead of colliding
+      // with the row above/below.
       const ROW_H = 22;
       const BAND_H = 28;
       const drawRow = (label, value, opts = {}) => {
         const { bold, valueColor, faint, band } = opts;
-        const h = band ? BAND_H : ROW_H;
+        const labelW = totalsCardW / 2;
+        const valueW = totalsCardW / 2 - 14;
+        // Measure at the same font we'll render with so wrap points match.
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(band ? 10.5 : 9);
+        const labelH = doc.heightOfString(label, { width: labelW });
+        const baseH = band ? BAND_H : ROW_H;
+        const h = Math.max(baseH, labelH + (band ? 14 : 12));
+
         if (band) {
           doc.rect(totalsCardX, rightY, totalsCardW, h).fill(band);
         }
-        const textY = rightY + (h - 11) / 2 + 1;
+        const labelY = rightY + (h - labelH) / 2;
+        // Value stays on one line (numbers never wrap at these widths), so it
+        // gets its own single-line vertical centering.
+        const valueLineH = band ? 12 : 10;
+        const valueY = rightY + (h - valueLineH) / 2;
+
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
           .fontSize(band ? 10.5 : 9)
           .fillColor(faint ? COLORS.muted : COLORS.ink)
-          .text(label, totalsCardX + 14, textY, { width: totalsCardW / 2, align: 'left', lineBreak: false });
+          .text(label, totalsCardX + 14, labelY, { width: labelW, align: 'left' });
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
           .fontSize(band ? 11 : 9)
-          .fillColor(valueColor || (band ? COLORS.ink : COLORS.ink))
-          .text(value, totalsCardX + totalsCardW / 2, textY, { width: totalsCardW / 2 - 14, align: 'right', lineBreak: false });
+          .fillColor(valueColor || COLORS.ink)
+          .text(value, totalsCardX + totalsCardW / 2, valueY, { width: valueW, align: 'right', lineBreak: false });
         rightY += h;
       };
       const drawDivider = () => {
@@ -356,48 +403,50 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           .moveTo(totalsCardX + 14, rightY).lineTo(totalsCardX + totalsCardW - 14, rightY).stroke();
       };
 
-      const gross = Number(invoice.gross) || 0;
-      const discount = Number(invoice.discount) || 0;
-      const taxable = Math.max(0, gross - discount);
-      const tdsAmt = Number(invoice.tdsAmount) || 0;
-      const gstAmt = Number(invoice.gstAmount) || 0;
-      const netTotal = Number(invoice.netTotal) || (taxable + gstAmt - tdsAmt);
-      const amountPaid = Number(invoice.amountPaid) || 0;
-      const roundOff = Number(invoice.roundOff) || 0;
-      const previousBalance = Number(invoice.previousBalance) || 0;
-      const thisBalance = netTotal + roundOff - amountPaid;
-      const currentBalance = thisBalance + previousBalance;
+      // Flow (values that resolve to zero are omitted, per the request):
+      //   Sub Total
+      //   Discount              (only if > 0)
+      //   GST (X%)              (only if > 0)
+      //   Invoice Value (Including GST)   ← highlighted band, only if GST > 0
+      //   TDS @ X%              (only if > 0)
+      //   Round Off             (only if != 0)
+      //   Net Payable Amount    ← highlighted band, always
+      //   Received              (only if > 0)
+      //   Previous Balance      (only if > 0)
+      //   Balance Payable       ← highlighted band, always (red if owed, green if credit)
+      const invoiceValueWithGst = taxable + gstAmt;
+      const netPayable = netTotal + roundOff;
 
-      // ---- Section 1: charges build-up ----
       drawRow('Sub Total', formatINR(gross), { faint: true });
       if (discount) {
         drawRow('Discount', `- ${formatINR(discount)}`, { faint: true, valueColor: COLORS.green });
-        drawRow('Taxable Value', formatINR(taxable), { faint: true });
       }
-      if (gstAmt) drawRow(`GST (${invoice.gstRate}%)`, formatINR(gstAmt), { faint: true });
+      if (gstAmt) {
+        drawRow(`GST (${invoice.gstRate}%)`, formatINR(gstAmt), { faint: true });
+        drawRow('Invoice Value (Including GST)', formatINR(invoiceValueWithGst),
+          { bold: true, band: COLORS.primary50, valueColor: COLORS.primary600 });
+      }
       if (tdsAmt) {
         const section = invoice.tdsSection ? ` (${invoice.tdsSection})` : '';
         drawRow(`TDS @ ${invoice.tdsRate}%${section}`, `- ${formatINR(tdsAmt)}`, { faint: true, valueColor: COLORS.red });
       }
       if (roundOff) drawRow('Round Off', formatINR(roundOff), { faint: true });
 
-      // ---- Section 2: net total band (primary tint) ----
-      drawRow('Total', formatINR(netTotal), { bold: true, band: COLORS.primary50, valueColor: COLORS.primary600 });
+      drawRow('Net Payable Amount', formatINR(netPayable),
+        { bold: true, band: COLORS.primary50, valueColor: COLORS.primary600 });
 
-      // ---- Section 3: payment status ----
-      drawDivider();
-      drawRow('Received', formatINR(amountPaid), { faint: true, valueColor: amountPaid ? COLORS.green : undefined });
-      drawRow('Balance', formatINR(thisBalance), { faint: true });
-      drawDivider();
-      drawRow('Previous Balance', formatINR(previousBalance), { faint: true });
+      // Payment-status section: only rendered when there's actually something
+      // to show. A divider precedes it so the payable block visually detaches
+      // from the charges above.
+      if (amountPaid || previousBalance) {
+        drawDivider();
+        if (amountPaid) drawRow('Received', formatINR(amountPaid), { faint: true, valueColor: COLORS.green });
+        if (previousBalance) drawRow('Previous Balance', formatINR(previousBalance), { faint: true });
+      }
 
-      // ---- Section 4: current balance band (red/green by sign) ----
       const balanceBg = currentBalance > 0 ? '#fef2f2' : '#f0fdf4'; // soft red / green
       const balanceFg = currentBalance > 0 ? COLORS.red : COLORS.green;
-      drawRow('Current Balance', formatINR(currentBalance), { bold: true, band: balanceBg, valueColor: balanceFg });
-
-      drawDivider();
-      drawRow('Invoice Value Before TDS', formatINR(taxable), { bold: true });
+      drawRow('Balance Payable', formatINR(currentBalance), { bold: true, band: balanceBg, valueColor: balanceFg });
 
       // Frame the totals card after we know its height (drawn on top so the
       // bands stay clipped to the rounded corners visually).
