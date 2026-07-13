@@ -1550,8 +1550,9 @@ exports.previewPdf = async (req, res) => {
 // Build the human-readable filename that browsers use for the PDF tab title
 // and the "Save As" default. Mirrors frontend/src/pages/invoices/bulkInvoiceUtils.js
 // so the single-download and bulk-ZIP flows produce identical names.
-//   "<Hospital Name> - Bill of <Month> <Year>.pdf"       (regular)
-//   "<Patient Name>  - Bill of <Month> <Year>.pdf"       (direct-patient)
+//   "<HOSPITAL NAME> - BILL OF <MONTH> <YEAR>.pdf"       (regular)
+//   "<PATIENT NAME>  - BILL OF <MONTH> <YEAR>.pdf"       (direct-patient)
+// Uppercased so operators can spot the file at a glance in downloads folders.
 // For direct-patient invoices the patient is parsed from the first TPA-desk
 // line ("TPA Desk — <PATIENT> (CCN <X>)" — see buildInvoiceLines).
 const buildInvoiceDownloadName = (invoice) => {
@@ -1567,7 +1568,7 @@ const buildInvoiceDownloadName = (invoice) => {
   }
   // eslint-disable-next-line no-control-regex
   const strip = (s) => String(s).replace(/[\\/:*?"<>|\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim();
-  return `${strip(base)} - Bill of ${strip(monthLabel)}.pdf`;
+  return `${strip(base).toUpperCase()} - BILL OF ${strip(monthLabel).toUpperCase()}.pdf`;
 };
 
 // Shared helper: fetch one invoice + its linked claims + template, and hand

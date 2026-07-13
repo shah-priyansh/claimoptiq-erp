@@ -10,10 +10,11 @@ export const monthLabel = (m) => {
 };
 
 // Build the filename we want on saved / zipped invoice PDFs:
-//   "<Hospital Name> - Bill of <Month> <Year>.pdf"       (regular)
-//   "<Patient Name>  - Bill of <Month> <Year>.pdf"       (direct-patient)
-// For direct-patient invoices the patient name is parsed from the first
-// TPA-desk line — its description is emitted by the backend as
+//   "<HOSPITAL NAME> - BILL OF <MONTH> <YEAR>.pdf"       (regular)
+//   "<PATIENT NAME>  - BILL OF <MONTH> <YEAR>.pdf"       (direct-patient)
+// Uppercased so operators can spot the file at a glance in downloads folders
+// full of vendor PDFs. For direct-patient invoices the patient name is parsed
+// from the first TPA-desk line — its description is emitted by the backend as
 // "TPA Desk — <PATIENT NAME> (CCN <CCN>)". Multi-patient direct-patient
 // invoices (rare) fall back to the reference hospital name.
 export const invoiceFilename = ({ isDirectPatient, hospitalName, month, lineItems }) => {
@@ -28,7 +29,7 @@ export const invoiceFilename = ({ isDirectPatient, hospitalName, month, lineItem
   // spaces and dashes intact, then collapse repeated whitespace.
   // eslint-disable-next-line no-control-regex
   const strip = (s) => String(s).replace(/[\\/:*?"<>|\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim();
-  return `${strip(base)} - Bill of ${strip(monthLabel(month))}.pdf`;
+  return `${strip(base).toUpperCase()} - BILL OF ${strip(monthLabel(month)).toUpperCase()}.pdf`;
 };
 
 // 'TPA Desk — RAJESH PATEL (CCN-0001)' → 'TPA Desk'
