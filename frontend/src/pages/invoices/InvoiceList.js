@@ -18,6 +18,7 @@ import {
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import BulkReceivePaymentModal from './BulkReceivePaymentModal';
+import { invoiceFilename } from './bulkInvoiceUtils';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const STATUS_COLORS = {
@@ -107,7 +108,12 @@ const InvoiceList = () => {
   const downloadPdf = async (inv) => {
     setPdfLoadingId(inv._id);
     try {
-      await openInvoicePdf(inv._id, inv.invoiceNumber || `draft-${(inv._id || '').slice(0, 8)}`);
+      await openInvoicePdf(inv._id, invoiceFilename({
+        isDirectPatient: inv.isDirectPatient,
+        hospitalName: inv.hospital?.name,
+        month: inv.month,
+        lineItems: inv.lineItems,
+      }));
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load PDF');
     } finally {
