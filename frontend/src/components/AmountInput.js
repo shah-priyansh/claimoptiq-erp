@@ -1,50 +1,121 @@
-import React, { useState } from 'react';
-import { formatINR, formatINRWords } from '../utils/format';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { formatINRWords } from '../utils/format';
 
-const AmountInput = ({ value, onChange, className, placeholder, allowDecimal = false, allowNegative = false }) => {
-  const [focused, setFocused] = useState(false);
-  const [raw, setRaw] = useState('');
+// Formats a raw numeric string with Indian digit grouping while preserving
+// mid-entry states a number can't represent ("-", ".", "1.") so decimals /
+// negatives feel natural to type.
+const formatIndian = (raw) => {
+  if (raw === '' || raw == null) return '';
+  let s = String(raw);
+  if (s === '-' || s === '.' || s === '-.') return s;
+  const negative = s.startsWith('-');
+  if (negative) s = s.slice(1);
+  const hasDot = s.includes('.');
+  const [intPart, decPart = ''] = s.split('.');
+  const cleanInt = intPart.replace(/\D/g, '');
+  const intFmt = cleanInt ? Number(cleanInt).toLocaleString('en-IN') : (hasDot ? '0' : '');
+  const sign = negative ? '-' : '';
+  return hasDot ? `${sign}${intFmt}.${decPart}` : `${sign}${intFmt}`;
+};
 
-  const handleFocus = () => {
-    setFocused(true);
-    setRaw(value === 0 ? '' : String(value));
-  };
+const sanitize = (str, allowDecimal, allowNegative) => {
+  if (!str) return '';
+  const strip = allowDecimal
+    ? (allowNegative ? /[^\d.-]/g : /[^\d.]/g)
+    : (allowNegative ? /[^\d-]/g : /\D/g);
+  let s = String(str).replace(strip, '');
+  if (allowNegative) {
+    const wasNeg = s.startsWith('-');
+    s = s.replace(/-/g, '');
+    if (wasNeg) s = '-' + s;
+  }
+  if (allowDecimal) {
+    const dot = s.indexOf('.');
+    if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '');
+  }
+  // "007" → "7" but keep "0" and "0.5"
+  s = s.replace(/^(-?)0+(?=\d)/, '$1');
+  return s;
+};
+
+const rawToNumber = (raw, allowDecimal) => {
+  if (!raw || raw === '-' || raw === '.' || raw === '-.') return 0;
+  const n = allowDecimal ? parseFloat(raw) : parseInt(raw, 10);
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Convert a parent-provided value (number/string/null) back to the raw string
+// used for display. Zero renders as empty so the placeholder shows through.
+const valueToRaw = (val) => {
+  if (val === '' || val == null) return '';
+  const n = Number(val);
+  if (!Number.isFinite(n) || n === 0) return '';
+  return String(n);
+};
+
+const AmountInput = ({
+  value,
+  onChange,
+  className = '',
+  placeholder = '0',
+  allowDecimal = false,
+  allowNegative = false,
+  showWords = true,
+}) => {
+  const inputRef = useRef(null);
+  const caretFromRight = useRef(null);
+  const [rawStr, setRawStr] = useState(() => valueToRaw(value));
+
+  // Resync local text when the parent value diverges from our numeric
+  // interpretation (e.g. an auto-computed field like Final Approval Amount
+  // that changes in response to sibling fields). Comparing via numbers
+  // means our own onChange won't wipe out mid-entry states like "1." or "-".
+  useEffect(() => {
+    const currentNum = rawToNumber(rawStr, allowDecimal);
+    const propNum = Number(value) || 0;
+    if (currentNum !== propNum) {
+      setRawStr(valueToRaw(value));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const display = formatIndian(rawStr);
+
+  // After React commits a new formatted value, put the caret back at the same
+  // offset from the right. Typing at the end feels natural (caret stays put
+  // when a comma is inserted); mid-string edits stay reasonably stable.
+  useLayoutEffect(() => {
+    if (caretFromRight.current == null || !inputRef.current) return;
+    const el = inputRef.current;
+    const pos = Math.max(0, el.value.length - caretFromRight.current);
+    el.setSelectionRange(pos, pos);
+    caretFromRight.current = null;
+  });
 
   const handleChange = (e) => {
-    let v = e.target.value;
-    if (allowNegative) {
-      // allow leading minus, then digits (and dot if decimal)
-      v = v.replace(allowDecimal ? /[^0-9.\-]/g : /[^0-9\-]/g, '');
-      // only one minus, only at start
-      v = v.replace(/(?!^)-/g, '');
-    } else {
-      v = v.replace(allowDecimal ? /[^0-9.]/g : /[^0-9]/g, '');
-    }
-    setRaw(v);
+    const el = e.target;
+    const caret = el.selectionStart ?? el.value.length;
+    caretFromRight.current = el.value.length - caret;
+    const clean = sanitize(el.value, allowDecimal, allowNegative);
+    setRawStr(clean);
+    onChange(rawToNumber(clean, allowDecimal));
   };
 
-  const handleBlur = () => {
-    setFocused(false);
-    const parsed = allowDecimal ? parseFloat(raw) || 0 : parseInt(raw, 10) || 0;
-    onChange(parsed);
-  };
-
-  const words = formatINRWords(Math.abs(Number(value)));
-  const displayValue = focused ? raw : (value < 0 ? `−${formatINR(Math.abs(value))}` : formatINR(value));
+  const num = Number(value) || 0;
+  const words = showWords ? formatINRWords(Math.abs(num)) : '';
 
   return (
     <div>
       <input
+        ref={inputRef}
         type="text"
         inputMode={allowDecimal ? 'decimal' : 'numeric'}
-        value={displayValue}
-        placeholder={placeholder || '0'}
+        value={display}
+        placeholder={placeholder}
         className={className}
-        onFocus={handleFocus}
         onChange={handleChange}
-        onBlur={handleBlur}
       />
-      {words && <p className="text-xs text-gray-400 mt-0.5">{value < 0 ? '−' : ''}{words}</p>}
+      {words && <p className="text-xs text-gray-400 mt-0.5">{num < 0 ? '−' : ''}{words}</p>}
     </div>
   );
 };
