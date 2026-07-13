@@ -3,6 +3,7 @@ import {
   HiOutlinePlus, HiOutlineTrash, HiChevronRight, HiChevronDown,
 } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import AmountInput from '../../components/ui/AmountInput';
 import {
   formatINR, baseServiceName, LINE_TYPE_LABEL, TYPE_PILL, computeTotals,
 } from './bulkInvoiceUtils';
@@ -166,7 +167,7 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
               <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-10">#</th>
               <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
               <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-28">Type</th>
-              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-32">Amount</th>
+              <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-44">Amount</th>
               <th className="py-3 px-4 w-10" />
             </tr>
           </thead>
@@ -191,8 +192,8 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <input type="number" value={row.amount}
-                        onChange={(e) => updateLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                      <AmountInput value={row.amount}
+                        onChange={(v) => updateLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: v } : r))}
                         className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                     </td>
                     <td className="py-3 px-4 text-right">
@@ -241,8 +242,8 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                       </td>
                       <td className="py-2 px-4" />
                       <td className="py-2 px-4">
-                        <input type="number" value={row.amount}
-                          onChange={(e) => updateLines((arr) => arr.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                        <AmountInput value={row.amount}
+                          onChange={(v) => updateLines((arr) => arr.map((r, i) => i === idx ? { ...r, amount: v } : r))}
                           className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                       </td>
                       <td className="py-2 px-4 text-right">

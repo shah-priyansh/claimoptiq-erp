@@ -15,6 +15,7 @@ import {
   getBankAccountsAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import AmountInput from '../../components/ui/AmountInput';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
 
@@ -485,7 +486,7 @@ const InvoiceDetail = () => {
                     <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-12">#</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-28">Type</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-32">Amount</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-44">Amount</th>
                     <th className="py-3 px-4 w-10"></th>
                   </tr>
                 </thead>
@@ -516,8 +517,8 @@ const InvoiceDetail = () => {
                             </span>
                           </td>
                           <td className="py-3 px-4">
-                            <input type="number" value={row.amount}
-                              onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                            <AmountInput value={row.amount}
+                              onChange={(v) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: v } : r))}
                               className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                           </td>
                           <td className="py-3 px-4 text-right">
@@ -571,8 +572,8 @@ const InvoiceDetail = () => {
                             </td>
                             <td className="py-2 px-4" />
                             <td className="py-2 px-4">
-                              <input type="number" value={row.amount}
-                                onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                              <AmountInput value={row.amount}
+                                onChange={(v) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: v } : r))}
                                 className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                             </td>
                             <td className="py-2 px-4 text-right">
