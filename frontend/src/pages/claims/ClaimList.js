@@ -1263,7 +1263,7 @@ const ClaimList = () => {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${
                         c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'
                       }`}>
-                        {c.isBilled ? 'Billed' : 'Unbilled'}
+                        {c.isBilled ? 'FCC Billed' : 'Unbilled'}
                       </span>
                       <button
                         onClick={(e) => openActionMenu(e, c._id)}
@@ -1363,7 +1363,7 @@ const ClaimList = () => {
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                       c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'
                     }`}>
-                      {c.isBilled ? 'Billed' : 'Unbilled'}
+                      {c.isBilled ? 'FCC Billed' : 'Unbilled'}
                     </span>
                   </td>
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>

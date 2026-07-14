@@ -21,8 +21,20 @@ export const invoiceFilename = ({ isDirectPatient, hospitalName, month, lineItem
   let base = hospitalName || 'invoice';
   if (isDirectPatient) {
     const firstTpa = (lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
-    const afterDash = (firstTpa?.description || '').split(/\s+[—-]\s+/)[1] || '';
-    const patient = afterDash.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
+    const desc = firstTpa?.description || '';
+    // Em-dash is the canonical service/patient separator. Some service names
+    // contain " - " themselves (e.g. "TPA DESK SERVICE - REIMBURSEMENT"), so
+    // we can't split on hyphen — fall back to the last " - " only when no
+    // em-dash is present (very old invoices).
+    let afterSep = '';
+    if (desc.includes('—')) {
+      const parts = desc.split(/\s*—\s*/);
+      afterSep = parts.slice(1).join(' — ');
+    } else {
+      const idx = desc.lastIndexOf(' - ');
+      afterSep = idx >= 0 ? desc.slice(idx + 3) : '';
+    }
+    const patient = afterSep.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
     if (patient) base = patient;
   }
   // Strip characters Windows/macOS don't allow in filenames while keeping

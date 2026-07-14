@@ -800,7 +800,7 @@ const ClaimDetail = () => {
               )}
               {isSuperAdmin && (
                 <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${claim.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>
-                  {claim.isBilled ? 'Billed' : 'Unbilled'}
+                  {claim.isBilled ? 'FCC Billed' : 'Unbilled'}
                 </span>
               )}
               <button onClick={() => setStickerOpen(true)}
