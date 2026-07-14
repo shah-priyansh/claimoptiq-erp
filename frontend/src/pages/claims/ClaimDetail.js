@@ -15,7 +15,7 @@ import {
   HiOutlineClipboardList, HiOutlinePrinter,
 } from 'react-icons/hi';
 import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency, calculateFilePrice, formatDate as _formatDate } from '../../utils/format';
+import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatDateTime as _formatDateTime } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { isValidPhone, onPhoneInput } from '../../utils/validators';
@@ -868,6 +868,29 @@ const ClaimDetail = () => {
               </div>
             )}
           </div>
+
+          {/* Audit footer — who created / last updated this claim */}
+          {(claim.createdBy || claim.updatedBy || claim.createdAt) && (
+            <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
+              {claim.createdAt && (
+                <span>
+                  Created
+                  {claim.createdBy?.name && <> by <span className="font-medium text-gray-600">{claim.createdBy.name}</span></>}
+                  {' '}on {_formatDateTime(claim.createdAt)}
+                </span>
+              )}
+              {claim.updatedAt && claim.updatedAt !== claim.createdAt && (
+                <>
+                  <span className="text-gray-200">·</span>
+                  <span>
+                    Updated
+                    {claim.updatedBy?.name && <> by <span className="font-medium text-gray-600">{claim.updatedBy.name}</span></>}
+                    {' '}on {_formatDateTime(claim.updatedAt)}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
