@@ -32,7 +32,10 @@ const SearchableSelect = ({
     const r = triggerRef.current.getBoundingClientRect();
     const spaceBelow = window.innerHeight - r.bottom;
     const openUp = spaceBelow < 280 && r.top > 280;
-    setPos({ top: r.bottom + 4, left: r.left, width: r.width, openUp, bottom: window.innerHeight - r.top + 4 });
+    // Cap dropdown width so it can grow past the trigger to fit long
+    // option labels but still stops at the viewport's right edge.
+    const maxWidth = Math.max(r.width, window.innerWidth - r.left - 8);
+    setPos({ top: r.bottom + 4, left: r.left, width: r.width, maxWidth, openUp, bottom: window.innerHeight - r.top + 4 });
     setIsOpen(true);
     setSearch('');
     setTimeout(() => searchRef.current?.focus(), 30);
@@ -116,9 +119,14 @@ const SearchableSelect = ({
           <div
             ref={dropRef}
             style={
+              // Dropdown is anchored to the trigger's left edge but is
+              // allowed to grow wider than the trigger — narrow filters
+              // (e.g. "All Status") otherwise chop long option labels
+              // like "Pre-Auth Claim Und…". Bounded so it can't exceed
+              // the viewport.
               pos.openUp
-                ? { bottom: pos.bottom, left: pos.left, width: pos.width }
-                : { top: pos.top, left: pos.left, width: pos.width }
+                ? { bottom: pos.bottom, left: pos.left, minWidth: pos.width, maxWidth: 'min(480px, calc(100vw - 16px))' }
+                : { top: pos.top, left: pos.left, minWidth: pos.width, maxWidth: 'min(480px, calc(100vw - 16px))' }
             }
             className="fixed z-50 bg-white rounded-xl shadow-2xl shadow-black/10 border border-gray-100 overflow-hidden"
           >
@@ -168,9 +176,9 @@ const SearchableSelect = ({
                       }`}
                     >
                       {o.badgeClass ? (
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold truncate ${o.badgeClass}`}>{o.label}</span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${o.badgeClass}`}>{o.label}</span>
                       ) : (
-                        <span className={`truncate ${isActive ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>{o.label}</span>
+                        <span className={`whitespace-nowrap ${isActive ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>{o.label}</span>
                       )}
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>

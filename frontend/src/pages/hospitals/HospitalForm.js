@@ -7,6 +7,7 @@ import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } fr
 import { formatINR } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import { useAuth } from '../../context/AuthContext';
 
 const BILLING_TYPE_OPTIONS = [
   { value: 'fixed_monthly',  label: 'Fixed Monthly' },
@@ -53,6 +54,12 @@ const HospitalForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const { user } = useAuth();
+  // Billing services (pricing rules) are super-admin only — staff editing a
+  // hospital shouldn't see or manage the pricing config. Existing billing
+  // services still round-trip through form state so a staff save doesn't
+  // wipe them (hospital PUT recreates from the request body).
+  const isSuperAdmin = user?.role?.slug === 'super_admin';
 
   const [form, setForm] = useState({
     name: '', contact: '', email: '', phone: '', address: '',
@@ -304,15 +311,25 @@ const HospitalForm = () => {
                     noneLabel="— No reference —"
                     allowClear
                     options={references.map((r) => {
+                      // Per-service commissions are the source of truth going forward;
+                      // the top-level r.commissionRate is a legacy field that can go
+                      // stale once per-service rows are edited. Prefer the per-service
+                      // config, and only fall back to the legacy rate when no per-service
+                      // rows exist. Otherwise a stale legacy rate would mask the real
+                      // (varying) per-service data — e.g. showing "(7%)" against a
+                      // reference whose per-service rows are actually 5%/10%.
                       const svcs = r.applicableServices || [];
-                      const pctSvcs = svcs.filter((s) => s.commissionType === 'percentage');
                       let suffix = '';
-                      if (r.commissionRate > 0) {
-                        suffix = ` (${r.commissionRate}%)`;
-                      } else if (pctSvcs.length && pctSvcs.every((s) => s.commissionValue === pctSvcs[0].commissionValue)) {
-                        suffix = ` (${pctSvcs[0].commissionValue}%)`;
-                      } else if (svcs.length) {
-                        suffix = ` (${svcs.length} service${svcs.length === 1 ? '' : 's'})`;
+                      if (svcs.length === 0) {
+                        if (r.commissionRate > 0) suffix = ` (${r.commissionRate}%)`;
+                      } else {
+                        const allPct = svcs.every((s) => s.commissionType === 'percentage');
+                        const uniform = svcs.every((s) => s.commissionValue === svcs[0].commissionValue);
+                        if (allPct && uniform && svcs[0].commissionValue > 0) {
+                          suffix = ` (${svcs[0].commissionValue}%)`;
+                        } else {
+                          suffix = ` (${svcs.length} service${svcs.length === 1 ? '' : 's'})`;
+                        }
                       }
                       return { value: r._id, label: `${r.name}${suffix}` };
                     })}
@@ -451,7 +468,8 @@ const HospitalForm = () => {
           )}
         </div>
 
-        {/* Billing Services */}
+        {/* Billing Services — super admin only */}
+        {isSuperAdmin && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
           <div className="flex items-center justify-between mb-5">
             <div>
@@ -1036,6 +1054,7 @@ const HospitalForm = () => {
             );
           })}
         </div>
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-3">

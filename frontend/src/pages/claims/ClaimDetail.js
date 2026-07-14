@@ -786,7 +786,11 @@ const ClaimDetail = () => {
                 <button ref={statusBtnRef}
                   onClick={() => {
                     const r = statusBtnRef.current.getBoundingClientRect();
-                    setStatusDropPos({ top: r.bottom + 6, left: r.left });
+                    // Clamp so the dropdown (which can grow up to ~360px to
+                    // fit long status labels) doesn't spill off the viewport.
+                    const maxWidth = Math.min(360, window.innerWidth - 16);
+                    const left = Math.max(8, Math.min(r.left, window.innerWidth - maxWidth - 8));
+                    setStatusDropPos({ top: r.bottom + 6, left, maxWidth });
                     setStatusSearch(''); setStatusDropOpen(v => !v);
                   }}
                   disabled={statusUpdating}
@@ -1644,8 +1648,8 @@ const ClaimDetail = () => {
       {statusDropOpen && !statusUpdating && ReactDOM.createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={() => setStatusDropOpen(false)} />
-          <div style={{ top: statusDropPos.top, left: statusDropPos.left }}
-            className="fixed z-50 w-56 bg-white rounded-2xl shadow-2xl shadow-black/10 border border-gray-100 overflow-hidden">
+          <div style={{ top: statusDropPos.top, left: statusDropPos.left, minWidth: 224, maxWidth: statusDropPos.maxWidth }}
+            className="fixed z-50 bg-white rounded-2xl shadow-2xl shadow-black/10 border border-gray-100 overflow-hidden">
             <p className="px-4 pt-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
               Update Status
             </p>
@@ -1676,7 +1680,7 @@ const ClaimDetail = () => {
                     <button key={s._id}
                       onClick={() => { handleUpdateStatus(s.slug); setStatusDropOpen(false); }}
                       className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
-                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{s.label}</span>
+                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${cls}`}>{s.label}</span>
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>
                   );

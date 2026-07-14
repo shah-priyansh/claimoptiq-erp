@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { createHospital, getHospitals, getHospital, updateHospital, deleteHospital, deleteAllHospitals, bulkImportHospitals } = require('../controllers/hospitalController');
-const { protect, checkPermission } = require('../middleware/auth');
+const { createHospital, getHospitals, getHospital, updateHospital, deleteHospital, deleteAllHospitals, bulkImportHospitals, addHospitalDoctor } = require('../controllers/hospitalController');
+const { protect, checkPermission, checkAnyPermission } = require('../middleware/auth');
 
 router.use(protect);
 
@@ -11,6 +11,18 @@ router.route('/')
   .delete(checkPermission('hospitals', 'delete'), deleteAllHospitals);
 
 router.post('/import', checkPermission('hospitals', 'create'), bulkImportHospitals);
+
+// Inline doctor add — reachable from the claim form, so claim creators/editors
+// can register a panel doctor without needing full hospital edit access.
+router.post(
+  '/:id/doctors',
+  checkAnyPermission([
+    ['hospitals', 'edit'],
+    ['claims', 'create'],
+    ['claims', 'edit'],
+  ]),
+  addHospitalDoctor,
+);
 
 router.route('/:id')
   .get(checkPermission('hospitals', 'view'), getHospital)

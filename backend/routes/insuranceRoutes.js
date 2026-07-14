@@ -1,12 +1,25 @@
 const express = require('express');
 const router = express.Router();
 const ctrl = require('../controllers/insuranceController');
-const { protect, checkPermission } = require('../middleware/auth');
+const { protect, checkPermission, checkAnyPermission } = require('../middleware/auth');
 
 router.use(protect);
 
+// GET is used as a lookup (id → name) by the hospital + claim forms, so any
+// user who can view/edit those modules must be able to read the list even
+// without a dedicated insurance:view permission — otherwise the UI shows
+// raw UUIDs in place of company names.
 router.route('/')
-  .get(checkPermission('insurance', 'view'), ctrl.getAll)
+  .get(
+    checkAnyPermission([
+      ['insurance', 'view'],
+      ['hospitals', 'view'],
+      ['hospitals', 'edit'],
+      ['claims', 'view'],
+      ['claims', 'edit'],
+    ]),
+    ctrl.getAll,
+  )
   .post(checkPermission('insurance', 'create'), ctrl.create);
 
 router.post('/import', checkPermission('insurance', 'create'), ctrl.bulkImport);
