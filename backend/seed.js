@@ -115,14 +115,37 @@ const tpas = [
   'Family Health Plan', 'Vidal Health', 'Heritage Health',
 ];
 
+// CLAIM STATUS MASTER — sourced from CLAIM STATUS MASTER.xlsx (21 rows).
+// Legacy slugs (discharged / submitted / rejected) are still written by
+// hardcoded workflows in claimController + frontend, so they stay as system
+// rows to keep old claim.status values resolvable to a label/color.
 const claimStatuses = [
-  { slug: 'admitted',      label: 'Admitted',      color: 'blue',   order: 1, isSystem: true },
-  { slug: 'discharged',    label: 'Discharged',    color: 'orange', order: 2, isSystem: true },
-  { slug: 'file_received', label: 'File Received', color: 'purple', order: 3, isSystem: true },
-  { slug: 'submitted',     label: 'Submitted',     color: 'indigo', order: 4, isSystem: true },
-  { slug: 'settled',       label: 'Settled',       color: 'green',  order: 5, isSystem: true },
-  { slug: 'rejected',      label: 'Rejected',      color: 'red',    order: 6, isSystem: true },
-  { slug: 'billed',        label: 'Billed',        color: 'teal',   order: 7, isSystem: true, superAdminOnly: true },
+  { slug: 'admitted',                       label: 'Patient Admitted',               color: 'blue',   order: 1,  isSystem: true },
+  { slug: 'pre_auth_claim_under_process',   label: 'Pre-Auth Claim Under Process',   color: 'yellow', order: 2,  isSystem: true },
+  { slug: 'query',                          label: 'Query',                          color: 'yellow', order: 3,  isSystem: true },
+  { slug: 'pre_auth_approved',              label: 'Pre-auth Approved',              color: 'purple', order: 4,  isSystem: true },
+  { slug: 'enhancement_submitted',          label: 'Enhancement Submitted',          color: 'indigo', order: 5,  isSystem: true },
+  { slug: 'enhancement_under_process',      label: 'Enhancement Under Process',      color: 'yellow', order: 6,  isSystem: true },
+  { slug: 'enhancement_approved',           label: 'Enhancement Approved',           color: 'purple', order: 7,  isSystem: true },
+  { slug: 'discharged_submitted',           label: 'Discharged Submitted',           color: 'orange', order: 8,  isSystem: true },
+  { slug: 'discharged_claim_under_process', label: 'Discharged Claim Under Process', color: 'yellow', order: 9,  isSystem: true },
+  { slug: 'discharge_approved',             label: 'Discharge Approved',             color: 'purple', order: 10, isSystem: true },
+  { slug: 'claim_rejected',                 label: 'Claim Rejected',                 color: 'red',    order: 11, isSystem: true },
+  { slug: 'reconsider_claim_submitted',     label: 'Reconsider Claim Submitted',     color: 'pink',   order: 12, isSystem: true },
+  { slug: 'reconsider_claim_under_process', label: 'Reconsider Claim Under Process', color: 'pink',   order: 13, isSystem: true },
+  { slug: 'claim_online_submitted',         label: 'Claim Online Submitted',         color: 'indigo', order: 14, isSystem: true },
+  { slug: 'file_pending',                   label: 'File Pending',                   color: 'gray',   order: 15, isSystem: true },
+  { slug: 'file_received',                  label: 'File Received',                  color: 'purple', order: 16, isSystem: true },
+  { slug: 'file_submitted',                 label: 'File Submitted',                 color: 'indigo', order: 17, isSystem: true },
+  { slug: 'claim_settlement_under_process', label: 'Claim Settlement Under Process', color: 'yellow', order: 18, isSystem: true },
+  { slug: 'claim_settlement_approved',      label: 'Claim Settlement Approved',      color: 'green',  order: 19, isSystem: true },
+  { slug: 'settled',                        label: 'Claim Settled',                  color: 'green',  order: 20, isSystem: true },
+  { slug: 'billed',                         label: 'FCC Billed',                     color: 'teal',   order: 21, isSystem: true, superAdminOnly: true },
+
+  // Legacy — retained so old claims and hardcoded workflows still resolve.
+  { slug: 'discharged',                     label: 'Discharged',                     color: 'orange', order: 100, isSystem: true },
+  { slug: 'submitted',                      label: 'Submitted',                      color: 'indigo', order: 101, isSystem: true },
+  { slug: 'rejected',                       label: 'Rejected',                       color: 'red',    order: 102, isSystem: true },
 ];
 
 // Expense categories — four system rows the operator cannot delete.
@@ -181,9 +204,23 @@ async function main() {
   await prisma.tPA.createMany({ data: tpas.map((name) => ({ name })) });
   console.log(`  ✓ ${tpas.length} TPAs`);
 
-  await prisma.claimStatus.deleteMany();
-  await prisma.claimStatus.createMany({ data: claimStatuses });
-  console.log(`  ✓ ${claimStatuses.length} claim statuses`);
+  // Idempotent claim status seed — upsert by slug so any custom statuses the
+  // operator added via the UI survive re-seeds. Label/color/order on system
+  // rows are refreshed to match the master list.
+  for (const s of claimStatuses) {
+    await prisma.claimStatus.upsert({
+      where: { slug: s.slug },
+      update: {
+        label: s.label,
+        color: s.color,
+        order: s.order,
+        isSystem: true,
+        superAdminOnly: s.superAdminOnly ?? false,
+      },
+      create: s,
+    });
+  }
+  console.log(`  ✓ ${claimStatuses.length} claim statuses (idempotent)`);
 
   await prisma.claimDocumentType.deleteMany();
   await prisma.claimDocumentType.createMany({ data: claimDocumentTypes });

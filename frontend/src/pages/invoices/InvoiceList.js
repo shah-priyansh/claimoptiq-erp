@@ -36,6 +36,29 @@ const formatMonth = (d) => {
   return dt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 };
 
+// Direct-patient invoices are billed to the patient, so the list should lead
+// with the patient's name (extracted from the first TPA-desk line item).
+// The description convention is `<service> — <patient> [ (CCN X) ]` — always
+// em-dash between service and patient. We can't split on ASCII hyphen too
+// because service names like "TPA DESK SERVICE - REIMBURSEMENT" carry their
+// own hyphens; the last " - " fallback handles very old invoices that used
+// hyphen as the separator.
+const patientNameForInvoice = (inv) => {
+  if (!inv?.isDirectPatient) return null;
+  const firstTpa = (inv.lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
+  const desc = firstTpa?.description || '';
+  let afterSep = '';
+  if (desc.includes('—')) {
+    const parts = desc.split(/\s*—\s*/);
+    afterSep = parts.slice(1).join(' — ');
+  } else {
+    const idx = desc.lastIndexOf(' - ');
+    afterSep = idx >= 0 ? desc.slice(idx + 3) : '';
+  }
+  const name = afterSep.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
+  return name || 'Direct Patient';
+};
+
 const InvoiceList = () => {
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -55,7 +78,7 @@ const InvoiceList = () => {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = usePersistedFilters('invoices:filters', { hospitalId: '', status: '', month: '' });
+  const [filters, setFilters] = usePersistedFilters('invoices:filters', { hospitalId: '', status: '', month: '', type: '' });
   const [page, setPage] = usePersistedFilters('invoices:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('invoices:pageSize', 25);
   const [total, setTotal] = useState(0);
@@ -178,7 +201,7 @@ const InvoiceList = () => {
   // Avoids surfacing a stale selection that no longer matches what the
   // operator sees on screen.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setSelectedIds([]); }, [page, pageSize, filters.hospitalId, filters.status, filters.month]);
+  useEffect(() => { setSelectedIds([]); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type]);
 
   const selectedInvoices = items.filter((x) => selectedIds.includes(x._id));
   const selectionHospitalId = selectedInvoices[0]?.hospital?._id || null;
@@ -214,6 +237,8 @@ const InvoiceList = () => {
       if (filters.hospitalId) params.hospitalId = filters.hospitalId;
       if (filters.status) params.status = filters.status;
       if (filters.month) params.month = filters.month + '-01';
+      if (filters.type === 'direct') params.isDirectPatient = 'true';
+      else if (filters.type === 'hospital') params.isDirectPatient = 'false';
       const { data } = await getInvoicesAPI(params);
       setItems(data.invoices || []);
       setTotal(data.total || 0);
@@ -248,7 +273,7 @@ const InvoiceList = () => {
   useEffect(() => { refreshOpenInvoiceHospitals(); }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month]);
+  useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type]);
 
   const handleDelete = async (item) => {
     if (item.status !== 'draft' && item.status !== 'void') {
@@ -352,7 +377,7 @@ const InvoiceList = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Hospital</label>
             <SearchableSelect
@@ -406,13 +431,28 @@ const InvoiceList = () => {
             />
           </div>
           <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
+            <SearchableSelect
+              value={filters.type}
+              onChange={(v) => { setFilters((f) => ({ ...f, type: v })); setPage(1); }}
+              placeholder="All types"
+              searchPlaceholder="Search type..."
+              noneLabel="All types"
+              allowClear
+              options={[
+                { value: 'hospital', label: 'Hospital',       badgeClass: 'bg-blue-50 text-blue-700' },
+                { value: 'direct',   label: 'Direct Patient', badgeClass: 'bg-purple-50 text-purple-700' },
+              ]}
+            />
+          </div>
+          <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Month</label>
             <input type="month" value={filters.month}
               onChange={(e) => { setFilters((f) => ({ ...f, month: e.target.value })); setPage(1); }}
               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-700" />
           </div>
           <div className="flex items-end">
-            <button onClick={() => { setFilters({ hospitalId: '', status: '', month: '' }); setPage(1); }}
+            <button onClick={() => { setFilters({ hospitalId: '', status: '', month: '', type: '' }); setPage(1); }}
               className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors">
               Clear filters
             </button>
@@ -475,8 +515,22 @@ const InvoiceList = () => {
                         {inv.invoiceNumber || `Draft-${(inv._id || '').slice(0, 8)}`}
                       </Link>
                     </td>
-                    <td className="py-3 px-4 text-gray-600 align-top max-w-[220px]">
-                      <p className="break-words">{inv.hospital?.name || '-'}</p>
+                    <td className="py-3 px-4 text-gray-600 align-top max-w-[240px]">
+                      {inv.isDirectPatient ? (
+                        <>
+                          <div className="flex items-start gap-1.5 flex-wrap">
+                            <span className="font-semibold text-gray-800 break-words">{patientNameForInvoice(inv)}</span>
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 flex-shrink-0">Direct</span>
+                          </div>
+                          {inv.hospital?.name && (
+                            <p className="text-xs text-gray-400 mt-0.5 break-words leading-snug">
+                              Ref: {inv.hospital.name}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="break-words">{inv.hospital?.name || '-'}</p>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-gray-600 align-top whitespace-nowrap">{formatMonth(inv.month)}</td>
                     <td className="py-3 px-4">

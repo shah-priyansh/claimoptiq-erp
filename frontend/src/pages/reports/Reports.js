@@ -1184,7 +1184,7 @@ const Reports = () => {
                           c.isBilled ? 'bg-teal-100 text-teal-800 hover:bg-teal-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         } ${billMode || billingLoading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
                       >
-                        {c.isBilled ? 'Billed' : 'Unbilled'}
+                        {c.isBilled ? 'FCC Billed' : 'Unbilled'}
                       </button>
                     </td>
                   )}

@@ -155,20 +155,54 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       y = Math.max(logoBoxY + logoBoxH, metaY) + 22;
 
       // ===== Bill To card =====
+      // For direct-patient invoices the linked "hospital" is the referring
+      // hospital, not the billing recipient — bill the patient. If the invoice
+      // groups multiple direct-patient claims under one reference hospital,
+      // collapse to "Multiple patients (Ref: <Hospital>)".
+      let billName = hospital.name || '-';
+      let billAddrPieces = [
+        hospital.address,
+        [hospital.city, hospital.state, hospital.pincode].filter(Boolean).join(', '),
+        hospital.phone ? `Phone: ${hospital.phone}` : '',
+      ].filter(Boolean);
+      if (invoice.isDirectPatient) {
+        // Prefer claims referenced by line items (issued invoices carry
+        // claimId on each line). Fall back to every claim in the passed map
+        // — preview payloads don't set per-line claimId, so this is the only
+        // signal we have.
+        let patientClaims = (invoice.lineItems || [])
+          .filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId)
+          .map((l) => claimsById.get(l.claimId))
+          .filter(Boolean);
+        if (!patientClaims.length && claimsById && claimsById.size) {
+          patientClaims = [...claimsById.values()];
+        }
+        const uniqPatients = [...new Map(patientClaims.map((c) => [c.patientName || c.id, c])).values()];
+        if (uniqPatients.length === 1) {
+          const p = uniqPatients[0];
+          billName = p.patientName || 'Direct Patient';
+          billAddrPieces = [
+            p.patientAddress,
+            p.patientMobile ? `Phone: ${p.patientMobile}` : '',
+            hospital.name ? `Referred by: ${hospital.name}` : '',
+          ].filter(Boolean);
+        } else if (uniqPatients.length > 1) {
+          billName = `Direct Patients (${uniqPatients.length})`;
+          billAddrPieces = [
+            hospital.name ? `Referred by: ${hospital.name}` : '',
+          ].filter(Boolean);
+        }
+      }
+
       const cardPad = 16;
       const billCardW = W - 2 * PAD;
       const billContentW = billCardW - 2 * cardPad;
 
       // Pre-measure the content so the card hugs it instead of leaving dead space.
       const nameH = doc.font('Helvetica-Bold').fontSize(13)
-        .heightOfString(hospital.name || '-', { width: billContentW });
-      const addrPieces = [
-        hospital.address,
-        [hospital.city, hospital.state, hospital.pincode].filter(Boolean).join(', '),
-        hospital.phone ? `Phone: ${hospital.phone}` : '',
-      ].filter(Boolean);
+        .heightOfString(billName, { width: billContentW });
       doc.font('Helvetica').fontSize(8.5);
-      const addrH = addrPieces.reduce(
+      const addrH = billAddrPieces.reduce(
         (acc, line) => acc + doc.heightOfString(line, { width: billContentW }) + 2,
         0,
       );
@@ -181,11 +215,11 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(8)
         .text('BILL TO', PAD + cardPad, y + cardPad - 2, { characterSpacing: 1 });
       doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(13)
-        .text(hospital.name || '-', PAD + cardPad, y + cardPad + 11, { width: billContentW });
+        .text(billName, PAD + cardPad, y + cardPad + 11, { width: billContentW });
 
       doc.fillColor(COLORS.muted).font('Helvetica').fontSize(8.5);
       let bly = doc.y + 4;
-      addrPieces.forEach((line) => {
+      billAddrPieces.forEach((line) => {
         doc.text(line, PAD + cardPad, bly, { width: billContentW });
         bly = doc.y + 2;
       });
@@ -353,7 +387,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           doc.text(`•  ${line.trim()}`, PAD + 12, termY, { width: termTextW, lineGap: 3 });
           termY = doc.y + 4;
         });
-        leftY += termsCardH + 12;
+        leftY += termsCardH;
       }
 
       // ----- RIGHT column: totals card -----
@@ -459,8 +493,10 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       const footerY = H - 24;
       const footerRuleY = footerY - 8;
       const bankCardH = 118;
+      // Comfortable clearance below the taller of {terms, totals} so the
+      // "BANK DETAILS" label has breathing room above the card.
       const bottomBlockTop = Math.min(
-        Math.max(leftY + 6, rightY + 16),
+        Math.max(leftY, rightY) + 30,
         footerRuleY - 12 - bankCardH,
       );
 

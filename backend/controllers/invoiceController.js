@@ -34,9 +34,17 @@ const invoiceInclude = {
 // Lean include for the invoice list view — drops `lineItems` (the main weight,
 // 50+ TPA Desk rows per invoice), createdBy/issuedBy/tdsRateMaster, and pares
 // `hospital` down to the columns the list table actually renders. Cuts the
-// response payload by ~95% on heavy months.
+// response payload by ~95% on heavy months. We keep just the first TPA-desk
+// line's description so the list can render the patient name on direct-
+// patient invoices (and the download-filename helper can pull the same).
 const invoiceListInclude = {
   hospital: { select: { id: true, name: true } },
+  lineItems: {
+    where: { lineType: 'claim_tpa_desk' },
+    select: { lineType: true, description: true },
+    orderBy: { order: 'asc' },
+    take: 1,
+  },
 };
 
 const resolveTdsRate = async (tdsRateId, fallbackRate) => {
@@ -325,7 +333,12 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
 
   // 4. Previous balance = Σ amountPending of issued|partially_paid prior
   //    invoices for this hospital. `priorOpen` was fetched in parallel above.
-  const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
+  //    Direct-patient invoices are per-patient now, so a hospital-wide
+  //    carry-forward would leak other patients' outstanding dues onto this
+  //    patient's bill — pin it to 0 for the direct-patient stream.
+  const previousBalance = isDirectPatient
+    ? 0
+    : priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
 
   // Resolve TDS + GST: per-invoice override wins, otherwise the site-wide
   // default from Settings → Tax & Numbering Defaults. The per-hospital
@@ -470,25 +483,22 @@ exports.previewBulk = async (req, res) => {
       if (m > g.month) g.month = m; // keep the latest month as default
     }
 
-    // Direct-patient claims collapse into one bucket per hint hospital (or a
-    // single "requires-pick" bucket when hints disagree / are missing).
-    // Same month-combining semantics as regular hospitals — operator can edit
-    // the picked month in the drawer.
+    // Direct-patient claims: one draft per patient (per claim). The hospital
+    // on a direct-patient invoice is a pure reference (billing template +
+    // display) — the invoice is billed to the patient. If the operator's
+    // claim has a hospitalId hint we use it as the reference; otherwise the
+    // drawer prompts for one (`requiresHospitalPick`).
     const directGroups = new Map();
     for (const c of directPatientClaims) {
       const m = monthOfClaim(c);
-      const key = c.hospitalId ? `direct|${c.hospitalId}` : 'direct|__unassigned__';
-      if (!directGroups.has(key)) {
-        directGroups.set(key, {
-          month: m,
-          claimIds: [],
-          hospitalIdHints: new Set(),
-        });
-      }
-      const g = directGroups.get(key);
-      g.claimIds.push(c.id);
-      if (c.hospitalId) g.hospitalIdHints.add(c.hospitalId);
-      if (m > g.month) g.month = m;
+      const key = `direct|${c.id}`;
+      const hints = new Set();
+      if (c.hospitalId) hints.add(c.hospitalId);
+      directGroups.set(key, {
+        month: m,
+        claimIds: [c.id],
+        hospitalIdHints: hints,
+      });
     }
 
     // Batch every dependency that `buildInvoiceLines` needs across ALL groups
@@ -510,14 +520,15 @@ exports.previewBulk = async (req, res) => {
       .filter(Boolean);
     const allHospitalIds = [...new Set([...regularHospitalIds, ...directHospitalIds])];
 
-    const existingInvoiceWhere = [
-      ...[...groups.values()].map((g) => ({ hospitalId: g.hospitalId, month: g.month, isDirectPatient: false })),
-      ...[...directGroups.values()]
-        .filter((g) => g.hospitalIdHints.size === 1)
-        .map((g) => ({ hospitalId: [...g.hospitalIdHints][0], month: g.month, isDirectPatient: true })),
-    ];
+    // Regular invoices collide on (hospitalId, month, isDirectPatient=false)
+    // — same partial unique index we enforce at the DB layer. Direct-patient
+    // invoices are per-claim now, so their "already invoiced?" check is a
+    // per-claim lookup on invoice line items further down.
+    const existingInvoiceWhere = [...groups.values()]
+      .map((g) => ({ hospitalId: g.hospitalId, month: g.month, isDirectPatient: false }));
+    const allDirectClaimIds = [...directGroups.values()].flatMap((g) => g.claimIds);
 
-    const [preloadedTpl, hospitalRows, priorOpenRows, existingInvoiceRows] = await Promise.all([
+    const [preloadedTpl, hospitalRows, priorOpenRows, existingInvoiceRows, existingDirectLines] = await Promise.all([
       getInvoiceTemplate(),
       allHospitalIds.length
         ? prisma.hospital.findMany({
@@ -540,6 +551,18 @@ exports.previewBulk = async (req, res) => {
             select: { id: true, status: true, invoiceNumber: true, hospitalId: true, month: true, isDirectPatient: true },
           })
         : Promise.resolve([]),
+      allDirectClaimIds.length
+        ? prisma.invoiceLineItem.findMany({
+            where: {
+              claimId: { in: allDirectClaimIds },
+              invoice: { status: { not: 'void' } },
+            },
+            select: {
+              claimId: true,
+              invoice: { select: { id: true, status: true, invoiceNumber: true } },
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
     const hospitalsById = new Map(hospitalRows.map((h) => [h.id, h]));
@@ -551,8 +574,15 @@ exports.previewBulk = async (req, res) => {
     }
     const existingByKey = new Map();
     for (const r of existingInvoiceRows) {
-      const key = `${r.hospitalId}|${new Date(r.month).toISOString()}|${r.isDirectPatient ? 'dp' : 'reg'}`;
+      const key = `${r.hospitalId}|${new Date(r.month).toISOString()}|reg`;
       existingByKey.set(key, r);
+    }
+    // claim.id → the live invoice that already contains it (if any)
+    const existingDirectByClaim = new Map();
+    for (const li of existingDirectLines) {
+      if (li.claimId && !existingDirectByClaim.has(li.claimId)) {
+        existingDirectByClaim.set(li.claimId, li.invoice);
+      }
     }
     // Only expose the fields `buildInvoiceLines` actually reads.
     const claimsById = new Map(
@@ -616,11 +646,13 @@ exports.previewBulk = async (req, res) => {
           suggestedHospitalId: null,
         };
       }
-      const existingKey = `${suggested}|${new Date(g.month).toISOString()}|dp`;
       const built = await buildInvoiceLines(suggested, g.month, {
         tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, isDirectPatient: true, preloadedTpl, bulkContext,
       });
-      const existing = existingByKey.get(existingKey) || null;
+      // Per-claim "already invoiced?" — direct-patient groups are single-claim
+      // now, so we just check whether that one claim already appears on a live
+      // invoice line item.
+      const existing = existingDirectByClaim.get(g.claimIds[0]) || null;
       return {
         hospitalId: suggested,
         hospital: toResponse(built.hospital),
@@ -691,15 +723,23 @@ exports.create = async (req, res) => {
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
-    // Uniqueness is enforced via a partial unique index (status <> 'void'),
-    // so findFirst with the same predicate stands in for findUnique here.
-    // Direct-patient invoices live in a separate slot per hospital+month —
-    // they don't conflict with a regular invoice for the same hospital+month.
+    // Regular invoices aggregate every claim for a (hospital, month) into a
+    // single invoice — uniqueness is enforced via a partial unique index
+    // (status <> 'void'), so findFirst with the same predicate stands in for
+    // findUnique here.
+    //
+    // Direct-patient invoices are per-patient: the hospital on them is a pure
+    // reference (billing template + display), not a billing target. Each
+    // patient's claim gets its own invoice, so we skip the (hospital, month)
+    // uniqueness gate for them. Double-billing is still prevented at the
+    // claim level via buildInvoiceLines' `isBilled: false` filter.
     const isDirectPatientInvoice = !!isDirectPatient;
-    const existing = await prisma.invoice.findFirst({
-      where: { hospitalId, month, isDirectPatient: isDirectPatientInvoice, status: { not: 'void' } },
-      include: invoiceInclude,
-    });
+    const existing = isDirectPatientInvoice
+      ? null
+      : await prisma.invoice.findFirst({
+          where: { hospitalId, month, isDirectPatient: false, status: { not: 'void' } },
+          include: invoiceInclude,
+        });
     if (existing && existing.status !== 'draft') {
       return res.status(409).json({ message: `Invoice already ${existing.status} for this hospital and month`, invoice: toResponse(existing) });
     }
@@ -1141,19 +1181,22 @@ exports.issue = async (req, res) => {
 
     let commissionAutoFlow = { rowsCreated: 0, totalAmount: 0, skipped: true, reason: 'not run' };
     const result = await prisma.$transaction(async (tx) => {
-      // Recompute previousBalance at issue time (drift safety). Scope to
-      // the same stream — regular invoices ignore direct-patient dues and
-      // vice versa.
-      const priorOpen = await tx.invoice.findMany({
-        where: {
-          hospitalId: invoice.hospitalId,
-          isDirectPatient: invoice.isDirectPatient,
-          status: { in: ['issued', 'partially_paid'] },
-          id: { not: invoice.id },
-        },
-        select: { amountPending: true },
-      });
-      const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
+      // Recompute previousBalance at issue time (drift safety). Direct-patient
+      // invoices are per-patient — no hospital-wide carry-forward — so they
+      // pin to 0. Regular invoices still sum the hospital's open dues.
+      const previousBalance = invoice.isDirectPatient
+        ? 0
+        : await tx.invoice
+            .findMany({
+              where: {
+                hospitalId: invoice.hospitalId,
+                isDirectPatient: false,
+                status: { in: ['issued', 'partially_paid'] },
+                id: { not: invoice.id },
+              },
+              select: { amountPending: true },
+            })
+            .then((rows) => rows.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0));
       const grandTotal = (invoice.netTotal || 0) + previousBalance;
 
       // Drafts created via exports.create already hold a reserved
@@ -1425,7 +1468,7 @@ exports.removeAll = async (req, res) => {
 //               gstRate?, tdsRateId?, roundOff?, notes? }
 exports.previewPdf = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes, discount, isDirectPatient } = req.body;
+    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes, discount, isDirectPatient, claimIds: bodyClaimIds = [] } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month are required' });
     const isDirectPatientPreview = !!isDirectPatient;
@@ -1454,16 +1497,17 @@ exports.previewPdf = async (req, res) => {
       : { rate: 0, name: '', section: '' };
 
     // Previous balance = open prior invoices for the hospital on the same
-    // stream (regular vs direct-patient — they don't mix).
-    const priorOpen = await prisma.invoice.findMany({
-      where: {
-        hospitalId,
-        isDirectPatient: isDirectPatientPreview,
-        status: { in: ['issued', 'partially_paid'] },
-      },
-      select: { amountPending: true },
-    });
-    const previousBalance = priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
+    // stream (regular vs direct-patient — they don't mix). Direct-patient
+    // invoices are per-patient now, so we don't roll a hospital-wide balance
+    // into a single patient's bill.
+    const previousBalance = isDirectPatientPreview
+      ? 0
+      : await prisma.invoice
+          .findMany({
+            where: { hospitalId, isDirectPatient: false, status: { in: ['issued', 'partially_paid'] } },
+            select: { amountPending: true },
+          })
+          .then((rows) => rows.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0));
 
     const normalize = (l, idx) => ({
       lineType: l.lineType || 'manual',
@@ -1517,15 +1561,37 @@ exports.previewPdf = async (req, res) => {
       amountPaid: 0,
       amountPending,
       lineItems: allLines,
+      isDirectPatient: isDirectPatientPreview,
     };
 
     const template = await getInvoiceTemplate();
 
     // Same claim hydration as the issued-invoice PDF endpoint so the preview
-    // reflects the operator's chosen summary columns.
+    // reflects the operator's chosen summary columns. Client-side lines don't
+    // carry per-line `claimId`, so fall back to `bodyClaimIds` (aggregated
+    // at the top of the payload) and, as a last resort for direct-patient
+    // invoices, resolve claims from the DB by (hospitalId, month, isDirectPatient)
+    // so the BILL TO card can render the patient info even if the client
+    // hasn't been reloaded to send the new fields.
     const previewClaimIds = allLines
       .filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId)
       .map((l) => l.claimId);
+    if (!previewClaimIds.length && Array.isArray(bodyClaimIds) && bodyClaimIds.length) {
+      previewClaimIds.push(...bodyClaimIds);
+    }
+    if (!previewClaimIds.length && isDirectPatientPreview) {
+      // Claim.month is stored with the real day-of-month, so match by range
+      // instead of exact equality (parseMonth normalises to the 1st).
+      const fallbackClaims = await prisma.claim.findMany({
+        where: {
+          hospitalId,
+          isDirectPatient: true,
+          month: { gte: month, lt: monthEnd(month) },
+        },
+        select: { id: true },
+      });
+      previewClaimIds.push(...fallbackClaims.map((c) => c.id));
+    }
     const previewClaims = previewClaimIds.length
       ? await prisma.claim.findMany({
           where: { id: { in: previewClaimIds } },
@@ -1562,8 +1628,20 @@ const buildInvoiceDownloadName = (invoice) => {
   let base = invoice.hospital?.name || 'invoice';
   if (invoice.isDirectPatient) {
     const firstTpa = (invoice.lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
-    const afterDash = (firstTpa?.description || '').split(/\s+[—-]\s+/)[1] || '';
-    const patient = afterDash.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
+    const desc = firstTpa?.description || '';
+    // Split only on em-dash — that's the canonical service/patient separator
+    // (see buildInvoiceLines line ~228). Service names may contain " - "
+    // (e.g. "TPA DESK SERVICE - REIMBURSEMENT"), so a hyphen split would
+    // return the wrong token. Fall back to the last " - " for older data.
+    let afterSep = '';
+    if (desc.includes('—')) {
+      const parts = desc.split(/\s*—\s*/);
+      afterSep = parts.slice(1).join(' — ');
+    } else {
+      const idx = desc.lastIndexOf(' - ');
+      afterSep = idx >= 0 ? desc.slice(idx + 3) : '';
+    }
+    const patient = afterSep.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
     if (patient) base = patient;
   }
   // eslint-disable-next-line no-control-regex

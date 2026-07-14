@@ -65,6 +65,32 @@ const statusLabel = (s) => {
   return 'Pending';
 };
 
+// Mirrors backend `buildInvoiceDownloadName` — for direct-patient drafts,
+// pull the patient name from the first TPA-desk line's description
+// ("TPA Desk — VARSHA WAGH (CCN 0001)" → "VARSHA WAGH") so the modal header
+// bills to the patient, not the reference hospital. The em-dash is the
+// canonical separator; service names may themselves contain " - " (e.g.
+// "TPA DESK SERVICE - REIMBURSEMENT"), so splitting on hyphen would pick
+// the wrong token.
+const previewTitleFor = (draft) => {
+  if (!draft) return '-';
+  if (!draft.isDirectPatient) return draft.hospital?.name || '-';
+  const firstTpa = (draft.editLines || draft.previewLines || []).find((l) => l.lineType === 'claim_tpa_desk');
+  const desc = firstTpa?.description || '';
+  let afterSep = '';
+  if (desc.includes('—')) {
+    const parts = desc.split(/\s*—\s*/);
+    afterSep = parts.slice(1).join(' — ');
+  } else {
+    const idx = desc.lastIndexOf(' - ');
+    afterSep = idx >= 0 ? desc.slice(idx + 3) : '';
+  }
+  const patient = afterSep.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
+  if (patient) return patient;
+  if (draft.claimIds?.length > 1) return `Direct Patients (${draft.claimIds.length})`;
+  return 'Direct Patient';
+};
+
 const BulkInvoiceWizard = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -245,6 +271,8 @@ const BulkInvoiceWizard = () => {
       const { data } = await previewInvoicePdfAPI({
         hospitalId: draft.hospitalId,
         month: monthArg,
+        isDirectPatient: draft.isDirectPatient,
+        claimIds: draft.claimIds,
         lines: draft.editLines.map((l) => ({
           description: l.description,
           amount: Number(l.amount) || 0,
@@ -396,10 +424,11 @@ const BulkInvoiceWizard = () => {
             </button>
             <div className="min-w-0 ml-1">
               <h3 className="text-base font-semibold text-gray-900 truncate">
-                Invoice Preview — {previewDraft.hospital?.name}
+                Invoice Preview — {previewTitleFor(previewDraft)}
               </h3>
               <p className="text-xs text-gray-500 truncate">
                 Draft {previewIdx + 1} of {drafts.length} • {monthLabel(previewDraft.month)} • {previewDraft.claimIds.length} claim{previewDraft.claimIds.length === 1 ? '' : 's'}
+                {previewDraft.isDirectPatient && previewDraft.hospital?.name ? ` • Ref: ${previewDraft.hospital.name}` : ''}
               </p>
             </div>
           </div>
