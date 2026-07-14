@@ -28,6 +28,11 @@ const maybeBackupSettledClaims = (claimId, userId) => {
     .catch(() => { /* never block the request on backup */ });
 };
 
+// createdBy/updatedBy are cheap (single-row FK join, 2 columns) so we
+// include them on every claim response — the UI now shows an audit line
+// on the detail page and the list will surface them on hover / export.
+const auditorSelect = { select: { id: true, name: true } };
+
 const claimInclude = {
   hospital: {
     select: {
@@ -41,6 +46,8 @@ const claimInclude = {
   },
   insuranceCompany: { select: { id: true, name: true, address: true, mobile: true } },
   tpa: { select: { id: true, name: true, address: true, mobile: true } },
+  createdBy: auditorSelect,
+  updatedBy: auditorSelect,
 };
 
 // Lean include used for list views — keeps everything `claimInclude` did
@@ -54,16 +61,16 @@ const claimListInclude = {
   },
   insuranceCompany: { select: { id: true, name: true, address: true, mobile: true } },
   tpa: { select: { id: true, name: true, address: true, mobile: true } },
+  createdBy: auditorSelect,
+  updatedBy: auditorSelect,
 };
 
 const claimFullInclude = {
   ...claimInclude,
-  createdBy: { select: { id: true, name: true } },
-  updatedBy: { select: { id: true, name: true } },
   documents: true,
   statusHistory: {
     orderBy: { changedAt: 'asc' },
-    include: { changedBy: { select: { id: true, name: true } } },
+    include: { changedBy: auditorSelect },
   },
 };
 

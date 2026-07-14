@@ -3,28 +3,47 @@ export const formatINR = (amount) => {
   return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(num);
 };
 
-// Always returns DD/MM/YYYY (zero-padded). Locale-independent so machines with
-// a non-Indian default locale still render the project standard.
-// `dash` is shown for null/undefined/invalid input.
+// All timestamps in the app render in IST regardless of the browser's
+// timezone. FCC operates entirely from Surat, so a claim created at
+// "12:32 IST" must read "12:32" for every user — a rep opening the app
+// on a laptop set to UTC / EST would otherwise see a shifted time.
+const IST_TZ = 'Asia/Kolkata';
+const _istParts = (dt) => {
+  // Intl parts give us the wall-clock values in the target zone without
+  // manually adding a 5:30 offset (which breaks around DST boundaries in
+  // other zones and around date rollovers).
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: IST_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(dt);
+  const out = {};
+  for (const p of parts) if (p.type !== 'literal') out[p.type] = p.value;
+  return out;
+};
+
+// Always returns DD/MM/YYYY (zero-padded) in IST. Locale-independent so
+// machines with a non-Indian default locale still render the project
+// standard. `dash` is shown for null/undefined/invalid input.
 export const formatDate = (input, dash = '-') => {
   if (!input) return dash;
   const dt = input instanceof Date ? input : new Date(input);
   if (isNaN(dt.getTime())) return dash;
-  const dd = String(dt.getDate()).padStart(2, '0');
-  const mm = String(dt.getMonth() + 1).padStart(2, '0');
-  const yyyy = dt.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+  const { day, month, year } = _istParts(dt);
+  return `${day}/${month}/${year}`;
 };
 
-// DD/MM/YYYY HH:MM — for timestamps where the time matters (audit rows etc.).
+// DD/MM/YYYY HH:MM in IST — for timestamps where the time matters
+// (audit rows etc.). Renders IST regardless of the browser's timezone.
 export const formatDateTime = (input, dash = '-') => {
   if (!input) return dash;
   const dt = input instanceof Date ? input : new Date(input);
   if (isNaN(dt.getTime())) return dash;
-  const date = formatDate(dt);
-  const hh = String(dt.getHours()).padStart(2, '0');
-  const mi = String(dt.getMinutes()).padStart(2, '0');
-  return `${date} ${hh}:${mi}`;
+  const { day, month, year, hour, minute } = _istParts(dt);
+  // Intl's en-GB `hour: '2-digit', hour12: false` can render midnight as
+  // "24" instead of "00" on some ICU builds — normalise defensively.
+  const hh = hour === '24' ? '00' : hour;
+  return `${day}/${month}/${year} ${hh}:${minute}`;
 };
 
 // Month label: `MMM-YYYY` (e.g. `Dec-2025`) — used by invoice month columns,
