@@ -28,9 +28,13 @@ const hospitalListInclude = {
 // Tiny include for dropdown callsites — only the fields a SearchableSelect
 // renders. Cuts the response by ~99% vs the full hospitalInclude, so
 // dropdowns can fetch every hospital in one shot without dragging billing
-// services / slabs / doctors over the wire.
+// services / slabs over the wire. Doctors (id + name) are included because
+// the claim form uses this endpoint to populate its per-hospital Doctor
+// dropdown — stripping them here made the claim form think every hospital
+// had zero doctors.
 const hospitalDropdownSelect = {
   id: true, name: true, isActive: true, referenceBy: true,
+  doctors: { select: { id: true, name: true } },
 };
 
 const validateHospitalFields = (body) => {
@@ -375,6 +379,42 @@ exports.deleteAllHospitals = async (req, res) => {
     });
     bustDropdownCache();
     res.json({ message: `${result.count} hospital(s) deactivated`, count: result.count });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Inline doctor add — used from the claim form so staff can register a new
+// panel doctor without leaving the claim flow. Permission is deliberately
+// wider than `hospitals:edit` (claim creators need it too), gated at the
+// route layer.
+exports.addHospitalDoctor = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, specialization, phone, email } = req.body || {};
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: 'Doctor name is required' });
+    }
+    if (phone && !isValidPhone(phone)) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit Indian mobile number' });
+    }
+    if (email && !isValidEmail(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address' });
+    }
+    const hospital = await prisma.hospital.findUnique({ where: { id }, select: { id: true } });
+    if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
+
+    const doctor = await prisma.hospitalDoctor.create({
+      data: {
+        hospitalId: id,
+        name: name.trim(),
+        specialization: specialization || '',
+        phone: phone || '',
+        email: email || '',
+      },
+    });
+    bustDropdownCache();
+    res.status(201).json(toResponse(doctor));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }

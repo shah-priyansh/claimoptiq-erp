@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   createClaimAPI, updateClaimAPI, getClaimAPI,
   getHospitalsAPI, getInsuranceAPI, getTPAAPI,
   updateSubmissionAPI, uploadDocumentsAPI, deleteDocumentAPI,
+  addHospitalDoctorAPI,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -60,6 +61,12 @@ const ClaimForm = () => {
   const [deletingDocId, setDeletingDocId] = useState(null);
   const [pendingPreview, setPendingPreview] = useState(null);
   const [loadedHospital, setLoadedHospital] = useState(null);
+
+  // Inline "Add Doctor" modal — lets the user register a panel doctor
+  // against the selected hospital without leaving the claim form.
+  const [showAddDoctor, setShowAddDoctor] = useState(false);
+  const [doctorDraft, setDoctorDraft] = useState({ name: '', specialization: '', phone: '', email: '' });
+  const [savingDoctor, setSavingDoctor] = useState(false);
 
   const [form, setForm] = useState({
     hospital: user?.hospital?._id || '', month: new Date().toISOString().slice(0, 7),
@@ -174,6 +181,49 @@ const ClaimForm = () => {
       toast.error('Failed to delete');
     } finally {
       setDeletingDocId(null);
+    }
+  };
+
+  const openAddDoctor = () => {
+    if (!form.hospital) {
+      toast.error('Select a hospital first');
+      return;
+    }
+    setDoctorDraft({ name: '', specialization: '', phone: '', email: '' });
+    setShowAddDoctor(true);
+  };
+
+  const handleSaveDoctor = async (e) => {
+    e.preventDefault();
+    const name = doctorDraft.name.trim();
+    if (!name) {
+      toast.error('Doctor name is required');
+      return;
+    }
+    if (doctorDraft.phone && !isValidPhone(doctorDraft.phone)) {
+      toast.error('Enter a valid 10-digit Indian mobile number');
+      return;
+    }
+    setSavingDoctor(true);
+    try {
+      const { data: newDoc } = await addHospitalDoctorAPI(form.hospital, {
+        name,
+        specialization: doctorDraft.specialization.trim(),
+        phone: doctorDraft.phone.trim(),
+        email: doctorDraft.email.trim(),
+      });
+      setHospitals(prev => prev.map(h => {
+        if (h._id !== form.hospital) return h;
+        const doctors = [...(h.doctors || []), newDoc];
+        return { ...h, doctors };
+      }));
+      set('doctorName', newDoc.name);
+      setShowAddDoctor(false);
+      toast.success('Doctor added');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to add doctor');
+    } finally {
+      setSavingDoctor(false);
     }
   };
 
@@ -339,7 +389,13 @@ const ClaimForm = () => {
             </div>
             {form.hospital && !form.isDirectPatient && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Doctor Name *</label>
+                  <button type="button" onClick={openAddDoctor}
+                    className="text-xs font-medium text-primary-600 hover:text-primary-700">
+                    + Add Doctor
+                  </button>
+                </div>
                 {dataLoading || doctorOptions.length > 0 ? (
                   <SearchableSelect
                     options={doctorOptions}
@@ -353,12 +409,10 @@ const ClaimForm = () => {
                 ) : (
                   <div className="flex items-center gap-2 px-3 py-2.5 border border-dashed border-gray-300 rounded-lg bg-gray-50">
                     <span className="text-sm text-gray-400">No doctors registered for this hospital.</span>
-                    <Link
-                      to={`/hospitals/${form.hospital}`}
-                      className="text-sm text-primary-600 hover:underline font-medium flex-shrink-0"
-                    >
+                    <button type="button" onClick={openAddDoctor}
+                      className="text-sm text-primary-600 hover:underline font-medium flex-shrink-0">
                       Add Doctor
-                    </Link>
+                    </button>
                   </div>
                 )}
               </div>
@@ -647,6 +701,66 @@ const ClaimForm = () => {
           </div>
           <div className="flex items-center justify-center py-2.5 bg-black/60 flex-shrink-0">
             <p className="text-[11px] text-white/30">Esc to close</p>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Add Doctor modal */}
+      {showAddDoctor && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h3 className="text-base font-semibold text-gray-800">Add Doctor</h3>
+              <button type="button" onClick={() => setShowAddDoctor(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+                <HiOutlineX className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveDoctor}>
+              <div className="px-5 py-4 space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name *</label>
+                  <input autoFocus value={doctorDraft.name}
+                    onChange={e => setDoctorDraft(d => ({ ...d, name: e.target.value }))}
+                    required placeholder="Dr. Full Name"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Specialization</label>
+                  <input value={doctorDraft.specialization}
+                    onChange={e => setDoctorDraft(d => ({ ...d, specialization: e.target.value }))}
+                    placeholder="e.g. Cardiologist"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <input value={doctorDraft.phone}
+                      onChange={e => setDoctorDraft(d => ({ ...d, phone: onPhoneInput(e.target.value) }))}
+                      inputMode="numeric" maxLength={10} placeholder="10-digit mobile"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" value={doctorDraft.email}
+                      onChange={e => setDoctorDraft(d => ({ ...d, email: e.target.value }))}
+                      placeholder="name@example.com"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 px-5 py-3 bg-gray-50 border-t border-gray-200 rounded-b-xl">
+                <button type="button" onClick={() => setShowAddDoctor(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 bg-white rounded-lg hover:bg-gray-100">
+                  Cancel
+                </button>
+                <button type="submit" disabled={savingDoctor}
+                  className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg disabled:opacity-50">
+                  {savingDoctor ? 'Saving...' : 'Save Doctor'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>,
         document.body

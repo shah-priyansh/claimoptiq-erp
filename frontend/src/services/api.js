@@ -52,6 +52,7 @@ export const updateHospitalAPI = (id, data) => API.put(`/hospitals/${id}`, data)
 export const deleteHospitalAPI = (id) => API.delete(`/hospitals/${id}`);
 export const deleteAllHospitalsAPI = () => API.delete('/hospitals', { data: { confirm: 'DELETE_ALL' } });
 export const importHospitalsAPI = (rows, mode = 'skip') => API.post('/hospitals/import', { rows, mode });
+export const addHospitalDoctorAPI = (hospitalId, data) => API.post(`/hospitals/${hospitalId}/doctors`, data);
 
 // Insurance
 export const getInsuranceAPI = () => API.get('/insurance');
