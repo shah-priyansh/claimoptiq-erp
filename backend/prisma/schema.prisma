@@ -512,6 +512,10 @@ model ClaimStatus {
   isActive        Boolean  @default(true) @map("is_active")
   isSystem        Boolean  @default(false) @map("is_system")
   superAdminOnly  Boolean  @default(false) @map("super_admin_only")
+  // Claim types this status is selectable for. Empty [] = no restriction
+  // (applies to every claim type). Values match Claim.claimType
+  // (cashless / cashless_anywhere / reimbursement / grievance).
+  claimTypes Json    @default("[]") @map("claim_types")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
