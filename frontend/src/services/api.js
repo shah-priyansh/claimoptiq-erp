@@ -120,6 +120,47 @@ export const openInvoicePdf = async (id, filename) => {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };
 
+// Opens the invoice PDF inline in a NEW TAB for on-screen preview. The tab is
+// opened synchronously (inside the click gesture) so popup blockers don't kill
+// it, then pointed at a blob URL once the authenticated fetch resolves — the
+// endpoint needs the JWT, so a direct <a target="_blank"> would 401.
+export const previewInvoicePdf = async (id) => {
+  const win = window.open('', '_blank');
+  try {
+    const { data } = await API.get(`/invoices/${id}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(data);
+    if (win) win.location = url;
+    else window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (err) {
+    if (win) win.close();
+    throw err;
+  }
+};
+
+// Fetches the invoice PDF (with the JWT) and opens the browser's print dialog
+// via a hidden iframe — no download, no visible tab. Blob URLs are same-origin
+// so contentWindow access is allowed.
+export const printInvoicePdf = async (id) => {
+  const { data } = await API.get(`/invoices/${id}/pdf`, { responseType: 'blob' });
+  const url = URL.createObjectURL(data);
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } catch {
+      // Fallback: open in a tab so the user can print (Ctrl/Cmd+P) manually.
+      window.open(url, '_blank');
+    }
+  };
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  // Keep the iframe/blob alive long enough for the print dialog, then clean up.
+  setTimeout(() => { iframe.remove(); URL.revokeObjectURL(url); }, 60_000);
+};
+
 // Expenses
 export const getExpenseCategoriesAPI  = (params) => API.get('/expense-categories', { params });
 export const createExpenseCategoryAPI = (data) => API.post('/expense-categories', data);

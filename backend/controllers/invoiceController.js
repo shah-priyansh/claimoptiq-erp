@@ -1362,12 +1362,11 @@ exports.remove = async (req, res) => {
     if (invoice.status !== 'draft' && invoice.status !== 'void') {
       return res.status(400).json({ message: 'Cancel the invoice before deleting it' });
     }
-    if ((invoice.amountPaid || 0) > 0) {
-      return res.status(400).json({ message: 'Cannot delete an invoice with recorded payments' });
-    }
     await prisma.$transaction(async (tx) => {
       // Null out any cash/bank entries that still reference this invoice
-      // (typically refunds linked to a void invoice) so we don't violate FKs.
+      // (refunds linked to a void invoice, or recorded payments) so we don't
+      // violate FKs. Deletion is allowed even with payments — the cash/bank
+      // entries are kept but unlinked from the now-deleted invoice.
       await tx.cashBankEntry.updateMany({
         where: { invoiceId: invoice.id },
         data: { invoiceId: null },
