@@ -12,7 +12,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getInvoicesAPI, deleteInvoiceAPI, deleteAllInvoicesAPI, voidInvoiceAPI,
-  getHospitalsAPI, openInvoicePdf, createCashBankAPI, getBankAccountsAPI,
+  getHospitalsAPI, openInvoicePdf, previewInvoicePdf, printInvoicePdf, createCashBankAPI, getBankAccountsAPI,
   getOpenInvoiceHospitalsAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -137,6 +137,30 @@ const InvoiceList = () => {
         month: inv.month,
         lineItems: inv.lineItems,
       }));
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load PDF');
+    } finally {
+      setPdfLoadingId(null);
+    }
+  };
+
+  // Open the PDF inline in a new tab (on-screen preview, no download).
+  const previewPdf = async (inv) => {
+    setPdfLoadingId(inv._id);
+    try {
+      await previewInvoicePdf(inv._id);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load PDF');
+    } finally {
+      setPdfLoadingId(null);
+    }
+  };
+
+  // Send the PDF straight to the browser's print dialog (no download).
+  const printPdf = async (inv) => {
+    setPdfLoadingId(inv._id);
+    try {
+      await printInvoicePdf(inv._id);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load PDF');
     } finally {
@@ -280,9 +304,12 @@ const InvoiceList = () => {
       toast.error('Cancel the invoice before deleting it');
       return;
     }
-    const label = item.status === 'draft'
+    let label = item.status === 'draft'
       ? `Delete draft for ${item.hospital?.name} ${formatMonth(item.month)}?`
       : `Permanently delete cancelled invoice ${item.invoiceNumber || ''}?`;
+    if ((item.amountPaid || 0) > 0) {
+      label += ` This invoice has recorded payments (${formatINR(item.amountPaid)}) — those cash/bank entries will be kept but unlinked from the invoice.`;
+    }
     if (!(await confirm(label, { title: 'Delete Invoice', confirmLabel: 'Delete', variant: 'danger' }))) return;
     try {
       await deleteInvoiceAPI(item._id);
@@ -583,7 +610,6 @@ const InvoiceList = () => {
             (inv.status === 'issued' || inv.status === 'partially_paid')
             && (inv.amountPending || 0) > 0;
           const canCancel = inv.status === 'issued' && (inv.amountPaid || 0) === 0;
-          const canDeleteRow = inv.status === 'draft' || inv.status === 'void';
           return (
             <div
               ref={actionMenuRef}
@@ -607,7 +633,7 @@ const InvoiceList = () => {
                   <HiOutlineBan className="w-4 h-4" /> Cancel Invoice
                 </button>
               )}
-              {canDelete && canDeleteRow && (
+              {canDelete && (
                 <button
                   onClick={() => { setActionMenu(null); handleDelete(inv); }}
                   className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
@@ -618,15 +644,15 @@ const InvoiceList = () => {
               <button
                 onClick={() => { setActionMenu(null); downloadPdf(inv); }}
                 className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                <HiOutlineDownload className="w-4 h-4 text-primary-600" /> Open PDF
+                <HiOutlineDownload className="w-4 h-4 text-primary-600" /> Download PDF
               </button>
               <button
-                onClick={() => { setActionMenu(null); downloadPdf(inv); }}
+                onClick={() => { setActionMenu(null); previewPdf(inv); }}
                 className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                 <HiOutlineEye className="w-4 h-4 text-primary-600" /> Preview
               </button>
               <button
-                onClick={() => { setActionMenu(null); downloadPdf(inv); }}
+                onClick={() => { setActionMenu(null); printPdf(inv); }}
                 className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                 <HiOutlinePrinter className="w-4 h-4 text-primary-600" /> Print
               </button>

@@ -10,7 +10,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
-  getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, openInvoicePdf,
+  getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, previewInvoicePdf, printInvoicePdf,
   getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI, createCashBankAPI,
   getBankAccountsAPI,
 } from '../../services/api';
@@ -18,7 +18,6 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
-import { invoiceFilename } from './bulkInvoiceUtils';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -381,12 +380,9 @@ const InvoiceDetail = () => {
             onClick={async () => {
               setLoadingPdf(true);
               try {
-                await openInvoicePdf(id, invoiceFilename({
-                  isDirectPatient: invoice.isDirectPatient,
-                  hospitalName: invoice.hospital?.name,
-                  month: invoice.month,
-                  lineItems: invoice.lineItems,
-                }));
+                // Draft → preview inline in a new tab; issued → print dialog.
+                if (isDraft) await previewInvoicePdf(id);
+                else await printInvoicePdf(id);
               } catch (err) {
                 toast.error(err.response?.data?.message || 'Failed to load PDF');
               } finally {
@@ -906,45 +902,47 @@ const InvoiceDetail = () => {
                 </div>
               </div>
               <div className="space-y-1 text-gray-600">
-                <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(t.gross)}</span></div>
+                {/* Mirrors the printed PDF totals (renderInvoicePdf.js): same
+                    labels, order, conditional rows and highlighted bands. */}
+                <div className="flex justify-between px-2 py-1"><span>Sub Total</span><span className="tabular-nums">{formatINR(t.gross)}</span></div>
                 {(t.discount || 0) > 0 && (
-                  <>
-                    <div className="flex justify-between text-green-700">
-                      <span>Discount</span>
-                      <span className="tabular-nums">- {formatINR(t.discount)}</span>
-                    </div>
-                    <div className="flex justify-between"><span>Taxable Value</span><span className="tabular-nums">{formatINR(taxable)}</span></div>
-                  </>
-                )}
-                {t.gstAmount > 0 && (
-                  <div className="flex justify-between"><span>GST ({t.gstRate}%)</span><span className="tabular-nums">{formatINR(t.gstAmount)}</span></div>
-                )}
-                {t.tdsAmount > 0 && (
-                  <div className="flex justify-between text-red-600">
-                    <span>TDS@{t.tdsRate}%{t.tdsSection ? `(${t.tdsSection})` : ''}</span>
-                    <span className="tabular-nums">{formatINR(t.tdsAmount)}</span>
+                  <div className="flex justify-between px-2 py-1 text-green-700">
+                    <span>Discount</span>
+                    <span className="tabular-nums">- {formatINR(t.discount)}</span>
                   </div>
                 )}
-                <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1 mt-1">
-                  <span>Total</span><span className="tabular-nums">{formatINR(t.netTotal)}</span>
-                </div>
-                <div className="flex justify-between"><span>Received</span><span className="tabular-nums">{formatINR(t.amountPaid)}</span></div>
-                <div className="flex justify-between">
-                  <span>Balance</span>
-                  <span className="tabular-nums">{formatINR(t.thisBalance)}</span>
-                </div>
-                <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
-                  <span>Previous Balance</span><span className="tabular-nums">{formatINR(t.previousBalance)}</span>
-                </div>
-                <div className={`flex justify-between font-bold ${(t.amountPending || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  <span>Current Balance</span><span className="tabular-nums">{formatINR(t.amountPending)}</span>
-                </div>
-                <div className="flex justify-between font-bold text-gray-900">
-                  <span>Invoice Value Before TDS</span><span className="tabular-nums">{formatINR(taxable)}</span>
-                </div>
-                {t.roundOff !== 0 && (
-                  <div className="flex justify-between"><span>Round Off</span><span className="tabular-nums">{formatINR(t.roundOff)}</span></div>
+                {t.gstAmount > 0 && (
+                  <>
+                    <div className="flex justify-between px-2 py-1"><span>GST ({t.gstRate}%)</span><span className="tabular-nums">{formatINR(t.gstAmount)}</span></div>
+                    <div className="flex justify-between px-2 py-1.5 rounded-md bg-primary-50 font-semibold text-primary-700">
+                      <span>Invoice Value (Including GST)</span><span className="tabular-nums">{formatINR(taxable + (t.gstAmount || 0))}</span>
+                    </div>
+                  </>
                 )}
+                {t.tdsAmount > 0 && (
+                  <div className="flex justify-between px-2 py-1 text-red-600">
+                    <span>TDS @ {t.tdsRate}%{t.tdsSection ? ` (${t.tdsSection})` : ''}</span>
+                    <span className="tabular-nums">- {formatINR(t.tdsAmount)}</span>
+                  </div>
+                )}
+                {t.roundOff !== 0 && (
+                  <div className="flex justify-between px-2 py-1"><span>Round Off</span><span className="tabular-nums">{formatINR(t.roundOff)}</span></div>
+                )}
+                <div className="flex justify-between px-2 py-1.5 rounded-md bg-primary-50 font-semibold text-primary-700">
+                  <span>Net Payable Amount</span><span className="tabular-nums">{formatINR((t.netTotal || 0) + (t.roundOff || 0))}</span>
+                </div>
+                {((t.amountPaid || 0) > 0 || (t.previousBalance || 0) > 0) && (
+                  <div className="border-t border-gray-200 my-1" />
+                )}
+                {(t.amountPaid || 0) > 0 && (
+                  <div className="flex justify-between px-2 py-1 text-green-700"><span>Received</span><span className="tabular-nums">{formatINR(t.amountPaid)}</span></div>
+                )}
+                {(t.previousBalance || 0) > 0 && (
+                  <div className="flex justify-between px-2 py-1"><span>Previous Balance</span><span className="tabular-nums">{formatINR(t.previousBalance)}</span></div>
+                )}
+                <div className={`flex justify-between px-2 py-1.5 rounded-md font-bold ${(t.amountPending || 0) > 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                  <span>Balance Payable</span><span className="tabular-nums">{formatINR(t.amountPending)}</span>
+                </div>
               </div>
             </div>
           );
