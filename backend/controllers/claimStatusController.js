@@ -2,6 +2,22 @@ const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const { invalidateStatusCache } = require('./claimController');
 
+const VALID_CLAIM_TYPES = ['cashless', 'cashless_anywhere', 'reimbursement', 'grievance'];
+
+// Coerce whatever the client sent (array | undefined | garbage) into a
+// sanitized string[] of allowed claim types. Empty array means "no
+// restriction" so the status is selectable for any claim type.
+const sanitizeClaimTypes = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  const unique = new Set();
+  for (const v of raw) {
+    if (typeof v !== 'string') continue;
+    const norm = v.trim().toLowerCase();
+    if (VALID_CLAIM_TYPES.includes(norm)) unique.add(norm);
+  }
+  return [...unique];
+};
+
 // Claim statuses are effectively static config — every page load re-fetching
 // the full list was pointless. 5-minute in-memory cache; every mutation
 // below busts it.
@@ -26,7 +42,7 @@ exports.getAll = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { label, slug, color, order } = req.body;
+    const { label, slug, color, order, claimTypes } = req.body;
     if (!label || !label.trim()) return res.status(400).json({ message: 'Label is required' });
 
     const generatedSlug = (slug || label).toLowerCase().trim().replace(/\s+/g, '_');
@@ -37,7 +53,13 @@ exports.create = async (req, res) => {
     const newOrder = order !== undefined ? Number(order) : (last?.order ?? 0) + 1;
 
     const status = await prisma.claimStatus.create({
-      data: { label: label.trim(), slug: generatedSlug, color: color || 'gray', order: newOrder },
+      data: {
+        label: label.trim(),
+        slug: generatedSlug,
+        color: color || 'gray',
+        order: newOrder,
+        claimTypes: sanitizeClaimTypes(claimTypes),
+      },
     });
     invalidateStatusCache();
     bustLocalCache();
@@ -49,7 +71,7 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const { label, color, order, isActive } = req.body;
+    const { label, color, order, isActive, claimTypes } = req.body;
     const status = await prisma.claimStatus.findUnique({ where: { id: req.params.id } });
     if (!status) return res.status(404).json({ message: 'Status not found' });
 
@@ -58,6 +80,7 @@ exports.update = async (req, res) => {
     if (color !== undefined) updateData.color = color;
     if (order !== undefined) updateData.order = Number(order);
     if (isActive !== undefined) updateData.isActive = isActive;
+    if (claimTypes !== undefined) updateData.claimTypes = sanitizeClaimTypes(claimTypes);
 
     const updated = await prisma.claimStatus.update({ where: { id: req.params.id }, data: updateData });
     invalidateStatusCache();

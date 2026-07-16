@@ -528,12 +528,21 @@ const AdminSalaryView = ({ canEdit }) => {
 
 const MySalaryView = () => {
   const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // 'loading' → fetching · 'loaded' → data (may be empty) · 'unlinked' → no
+  // employee record tied to this account (404) · 'error' → server failure.
+  const [state, setState] = useState('loading');
   const [otMults, setOtMults] = useState(DEFAULT_OT_MULTS);
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   useEffect(() => {
-    getMySalaryAPI().then(r => setRecords(r.data)).catch(() => toast.error('Failed to load')).finally(() => setLoading(false));
+    getMySalaryAPI()
+      .then(r => { setRecords(r.data); setState('loaded'); })
+      .catch(err => {
+        // A staff account with no linked employee is an expected setup gap, not
+        // a failure — show guidance instead of a misleading error toast.
+        if (err.response?.status === 404) { setState('unlinked'); }
+        else { setState('error'); toast.error('Failed to load salary'); }
+      });
     getOtSettingsAPI()
       .then(({ data }) => setOtMults({
         dailyMultiplier: data.dailyMultiplier,
@@ -555,10 +564,20 @@ const MySalaryView = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {loading ? (
+            {state === 'loading' ? (
               <tr><td colSpan={6} className="py-8 text-center text-gray-400">Loading...</td></tr>
+            ) : state === 'unlinked' ? (
+              <tr><td colSpan={6} className="py-10 text-center text-gray-500">
+                <p className="font-medium text-gray-600">Your account isn’t linked to an employee record yet.</p>
+                <p className="text-xs text-gray-400 mt-1">Please ask your administrator to link your account under Staff → Employees.</p>
+              </td></tr>
+            ) : state === 'error' ? (
+              <tr><td colSpan={6} className="py-10 text-center text-gray-400">Couldn’t load your salary. Please try again later.</td></tr>
             ) : records.length === 0 ? (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-400">No salary records yet</td></tr>
+              <tr><td colSpan={6} className="py-10 text-center text-gray-500">
+                <p className="font-medium text-gray-600">No salary generated yet</p>
+                <p className="text-xs text-gray-400 mt-1">Your salary will appear here once payroll is processed for a month you’ve worked.</p>
+              </td></tr>
             ) : records.map(r => {
               const bd = computeBreakdown(r, otMults);
               const m = new Date(r.month);

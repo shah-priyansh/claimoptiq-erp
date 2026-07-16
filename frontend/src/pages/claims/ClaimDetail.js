@@ -14,7 +14,7 @@ import {
   HiOutlineShieldCheck, HiOutlinePencil, HiOutlineCalendar,
   HiOutlineClipboardList, HiOutlinePrinter,
 } from 'react-icons/hi';
-import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
+import { STATUS_COLOR_MAP, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatDateTime as _formatDateTime } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -1695,6 +1695,7 @@ const ClaimDetail = () => {
                   <span className="text-xs text-gray-400">Loading...</span>
                 </div>
               ) : claimStatuses
+                .filter(s => statusAppliesToType(s, claim.claimType) || s.slug === claim.status)
                 .filter(s => s.label.toLowerCase().includes(statusSearch.toLowerCase()))
                 .map(s => {
                   const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';

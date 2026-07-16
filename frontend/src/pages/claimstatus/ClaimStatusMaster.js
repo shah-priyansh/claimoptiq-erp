@@ -26,7 +26,53 @@ export const STATUS_COLOR_MAP = Object.fromEntries(
   COLOR_OPTIONS.map(c => [c.key, c.classes])
 );
 
-const emptyForm = { label: '', slug: '', color: 'blue', order: '' };
+// Claim types a status can be restricted to. Values match Claim.claimType.
+export const CLAIM_TYPE_OPTIONS = [
+  { value: 'cashless',          label: 'Cashless' },
+  { value: 'cashless_anywhere', label: 'Cashless Anywhere' },
+  { value: 'reimbursement',     label: 'Reimbursement' },
+  { value: 'grievance',         label: 'Grievance' },
+];
+export const CLAIM_TYPE_LABEL = Object.fromEntries(CLAIM_TYPE_OPTIONS.map(o => [o.value, o.label]));
+
+// A status is selectable for a claim when it has no claim-type restriction
+// (empty = universal) or explicitly lists the claim's type.
+export const statusAppliesToType = (status, claimType) => {
+  const list = Array.isArray(status?.claimTypes) ? status.claimTypes : [];
+  return list.length === 0 || list.includes(claimType);
+};
+
+// Toggle-pill selector for claim types. Empty selection = "applies to all".
+const ClaimTypeSelector = ({ value, onChange }) => {
+  const list = Array.isArray(value) ? value : [];
+  const toggle = (v) => {
+    if (list.includes(v)) onChange(list.filter(x => x !== v));
+    else onChange([...list, v]);
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {CLAIM_TYPE_OPTIONS.map(o => {
+        const active = list.includes(o.value);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => toggle(o.value)}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              active
+                ? 'bg-primary-600 text-white border-primary-600'
+                : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-700'
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+const emptyForm = { label: '', slug: '', color: 'blue', order: '', claimTypes: [] };
 
 const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
   const handleLabelChange = (val) => {
@@ -97,6 +143,15 @@ const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Claim Types</label>
+            <ClaimTypeSelector
+              value={form.claimTypes}
+              onChange={(claimTypes) => setForm(f => ({ ...f, claimTypes }))}
+            />
+            <p className="text-xs text-gray-400 mt-1.5">Leave empty to make this status available for all claim types.</p>
+          </div>
+
           {/* Preview */}
           {form.label && (
             <div className="pt-2">
@@ -143,7 +198,7 @@ const ClaimStatusMaster = () => {
   useEffect(() => { fetch(); }, []);
 
   const openCreate = () => { setForm(emptyForm); setModal('create'); };
-  const openEdit = (s) => { setForm({ ...s, order: s.order ?? '' }); setModal('edit'); };
+  const openEdit = (s) => { setForm({ ...s, order: s.order ?? '', claimTypes: Array.isArray(s.claimTypes) ? s.claimTypes : [] }); setModal('edit'); };
   const closeModal = () => { setModal(null); setForm(emptyForm); };
 
   const handleSave = async () => {
@@ -151,10 +206,10 @@ const ClaimStatusMaster = () => {
     setSaving(true);
     try {
       if (modal === 'create') {
-        await createClaimStatusAPI({ label: form.label, slug: form.slug, color: form.color, order: form.order || undefined });
+        await createClaimStatusAPI({ label: form.label, slug: form.slug, color: form.color, order: form.order || undefined, claimTypes: form.claimTypes });
         toast.success('Status created');
       } else {
-        await updateClaimStatusAPI(form._id, { label: form.label, color: form.color, order: form.order || undefined });
+        await updateClaimStatusAPI(form._id, { label: form.label, color: form.color, order: form.order || undefined, claimTypes: form.claimTypes });
         toast.success('Status updated');
       }
       closeModal();
@@ -207,6 +262,7 @@ const ClaimStatusMaster = () => {
               <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-12">Order</th>
               <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
               <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Slug</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Claim Types</th>
               <th className="text-center py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Active</th>
               <th className="text-center py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Type</th>
               <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
@@ -214,9 +270,9 @@ const ClaimStatusMaster = () => {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={7} className="py-8 text-center text-gray-400">Loading...</td></tr>
             ) : statuses.length === 0 ? (
-              <tr><td colSpan={6} className="py-10 text-center text-gray-400">No statuses found. Run seed to add defaults.</td></tr>
+              <tr><td colSpan={7} className="py-10 text-center text-gray-400">No statuses found. Run seed to add defaults.</td></tr>
             ) : statuses.map((s) => (
               <tr key={s._id} className="hover:bg-gray-50">
                 <td className="py-3 px-4 text-sm text-gray-400 font-mono">{s.order}</td>
@@ -226,6 +282,21 @@ const ClaimStatusMaster = () => {
                   </span>
                 </td>
                 <td className="py-3 px-4 text-sm text-gray-500 font-mono">{s.slug}</td>
+                <td className="py-3 px-4">
+                  {(() => {
+                    const list = Array.isArray(s.claimTypes) ? s.claimTypes : [];
+                    if (list.length === 0) return <span className="text-xs text-gray-400 italic">All types</span>;
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {list.map(ct => (
+                          <span key={ct} className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">
+                            {CLAIM_TYPE_LABEL[ct] || ct}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </td>
                 <td className="py-3 px-4 text-center">
                   <Toggle checked={s.isActive} onChange={() => handleToggleActive(s)} loading={togglingId === s._id} size="sm" />
                 </td>
