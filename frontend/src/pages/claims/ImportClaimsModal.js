@@ -30,7 +30,7 @@ const COLUMNS = [
   { key: 'dateOfAdmit',         label: 'Date of Admit *',               width: 14, note: 'YYYY-MM-DD or DD/MM/YYYY', required: true },
   { key: 'dateOfDischarge',     label: 'Date of Discharge',             width: 14, note: 'YYYY-MM-DD or DD/MM/YYYY' },
   { key: 'month',               label: 'Month',                         width: 12, note: 'Defaults to Date of Admit if blank' },
-  { key: 'status',              label: 'Status',                        width: 14, note: 'Status slug (see Statuses sheet). Defaults to admitted.' },
+  { key: 'status',              label: 'Status',                        width: 14, note: 'Status slug or label (see Statuses sheet). Defaults to admitted.' },
   { key: 'hospitalFinalBill',   label: 'Hospital Final Bill',           width: 16 },
   { key: 'mouDiscount',         label: 'MOU Discount',                  width: 14 },
   { key: 'deduction',           label: 'Deduction',                     width: 14 },
@@ -85,6 +85,22 @@ const cleanCell = (val) => {
   return s;
 };
 const norm = (s) => String(s || '').trim().toLowerCase();
+// Status cells may be a slug ("discharge_approved"), a display label ("Discharge
+// Approved"), or a spaced/hyphenated variant of either (claims exports write
+// `slug.replace(/_/g,' ')`; operators paste labels from the UI). Mirror the
+// backend resolver so the preview matches what the import will actually accept.
+const slugifyStatus = (val) => norm(val).replace(/[\s-]+/g, '_');
+const buildStatusResolver = (statusList) => {
+  const map = new Map();
+  const add = (k, s) => { if (k && !map.has(k)) map.set(k, s); };
+  statusList.forEach(s => { add(norm(s.slug), s); add(slugifyStatus(s.slug), s); });
+  statusList.forEach(s => { add(norm(s.label), s); add(slugifyStatus(s.label), s); });
+  return (val) => {
+    const n = norm(val);
+    if (!n) return null;
+    return map.get(n) || map.get(slugifyStatus(val)) || null;
+  };
+};
 const STOPWORDS = new Set(['ltd', 'limited', 'pvt', 'private', 'co', 'company', 'corp', 'corporation', 'inc', 'incorporated', 'the', 'and', 'of', '&']);
 const canonical = (s) => {
   if (!s) return '';
@@ -252,7 +268,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
     const hLookup = buildLookup(hospitals);
     const iLookup = buildLookup(insurers);
     const tLookup = buildLookup(tpas);
-    const statusSet = new Set(statuses.map(s => s.slug));
+    const resolveStatus = buildStatusResolver(statuses);
     const summary = { ok: 0, badRows: 0, byType: {} };
     const bump = (k) => { summary.byType[k] = (summary.byType[k] || 0) + 1; };
 
@@ -312,8 +328,8 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
         if (!tp) { issues.push({ type: 'tpa', label: `TPA not found: "${tName}"` }); bump('tpa'); }
         else if (norm(tp.name) !== norm(tName)) fuzzy.push({ type: 'tpa', label: `TPA auto-matched: "${tName}" → "${tp.name}"` });
       }
-      const sName = norm(cleanCell(r.status));
-      if (sName && !statusSet.has(sName)) { issues.push({ type: 'status', label: `Status invalid: "${r.status}"` }); bump('status'); }
+      const sRaw = cleanCell(r.status);
+      if (sRaw && !resolveStatus(sRaw)) { issues.push({ type: 'status', label: `Status invalid: "${r.status}"` }); bump('status'); }
 
       if (issues.length) summary.badRows += 1;
       else summary.ok += 1;

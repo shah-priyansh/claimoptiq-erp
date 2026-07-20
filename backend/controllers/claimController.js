@@ -44,8 +44,8 @@ const claimInclude = {
       },
     },
   },
-  insuranceCompany: { select: { id: true, name: true, address: true, mobile: true } },
-  tpa: { select: { id: true, name: true, address: true, mobile: true } },
+  insuranceCompany: { select: { id: true, name: true, address: true, mobile: true, statusAutomation: true } },
+  tpa: { select: { id: true, name: true, address: true, mobile: true, statusAutomation: true } },
   createdBy: auditorSelect,
   updatedBy: auditorSelect,
 };
@@ -59,8 +59,8 @@ const claimListInclude = {
   hospital: {
     select: { id: true, name: true, referenceBy: true, address: true, phone: true },
   },
-  insuranceCompany: { select: { id: true, name: true, address: true, mobile: true } },
-  tpa: { select: { id: true, name: true, address: true, mobile: true } },
+  insuranceCompany: { select: { id: true, name: true, address: true, mobile: true, statusAutomation: true } },
+  tpa: { select: { id: true, name: true, address: true, mobile: true, statusAutomation: true } },
   createdBy: auditorSelect,
   updatedBy: auditorSelect,
 };
@@ -778,6 +778,30 @@ const parseNum = (val) => {
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 
+// A Status cell on import can arrive as the slug ("discharge_approved"), the
+// human label ("Discharge Approved"), or a spaced/hyphenated variant of either
+// — the claims export writes `slug.replace(/_/g,' ')` and operators paste the
+// label straight from the UI. Collapse spaces/hyphens to underscores so all of
+// those forms compare equal to a slug.
+const slugifyStatus = (val) => norm(val).replace(/[\s-]+/g, '_');
+
+// Build a resolver mapping any of those forms back to the canonical status row.
+// Slug forms are registered first so they win on the (rare) collision where one
+// status's label normalises to another's slug.
+const buildStatusResolver = (statusList) => {
+  const map = new Map(); // normalized key → status row
+  const add = (k, s) => { if (k && !map.has(k)) map.set(k, s); };
+  for (const s of statusList) { add(norm(s.slug), s); add(slugifyStatus(s.slug), s); }
+  for (const s of statusList) { add(norm(s.label), s); add(slugifyStatus(s.label), s); }
+  return (val) => {
+    const n = norm(val);
+    if (!n) return null;
+    return map.get(n) || map.get(slugifyStatus(val)) || null;
+  };
+};
+exports.slugifyStatus = slugifyStatus;
+exports.buildStatusResolver = buildStatusResolver;
+
 // Canonicalise a company / hospital name for tolerant matching:
 //   - lowercase
 //   - strip punctuation
@@ -845,7 +869,7 @@ exports.importClaims = async (req, res) => {
       prisma.hospital.findMany({ select: { id: true, name: true, isActive: true, referenceBy: true } }),
       prisma.insuranceCompany.findMany({ select: { id: true, name: true, isActive: true } }),
       prisma.tPA.findMany({ select: { id: true, name: true, isActive: true } }),
-      prisma.claimStatus.findMany({ select: { slug: true, superAdminOnly: true } }),
+      prisma.claimStatus.findMany({ select: { slug: true, label: true, superAdminOnly: true } }),
     ]);
 
     // ── Auto-create missing masters (super-admin opt-in) ───────────────
@@ -919,13 +943,16 @@ exports.importClaims = async (req, res) => {
       // "pre-auth_approved", "claim_under_process") doesn't bounce on
       // validation. We snapshot a sensible label + color and let the operator
       // tune them in the Claim Status master afterwards.
-      const existingStatusSlugs = new Set(statuses.map(s => s.slug));
+      // Resolve against existing statuses first (by slug, label, or spaced
+      // variant) so a cell like "Discharge Approved" maps to the existing
+      // `discharge_approved` rather than spawning a malformed duplicate slug.
+      const resolveExisting = buildStatusResolver(statuses);
       const newStatuses = new Map(); // slug → label
       for (const r of rows) {
         const raw = cleanCell(r?.status);
-        if (!raw) continue;
-        const slug = norm(raw);
-        if (slug && !existingStatusSlugs.has(slug) && !newStatuses.has(slug)) {
+        if (!raw || resolveExisting(raw)) continue;
+        const slug = slugifyStatus(raw);
+        if (slug && !newStatuses.has(slug)) {
           // Title-case the original input for the label (e.g. "pre-auth_approved" → "Pre-Auth Approved").
           const label = String(raw).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
             .replace(/\w\S*/g, (t) => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase());
@@ -942,7 +969,7 @@ exports.importClaims = async (req, res) => {
         await prisma.claimStatus.createMany({ data, skipDuplicates: true });
         const created = await prisma.claimStatus.findMany({
           where: { slug: { in: [...newStatuses.keys()] } },
-          select: { slug: true, superAdminOnly: true },
+          select: { slug: true, label: true, superAdminOnly: true },
         });
         statuses = statuses.concat(created);
         autoCreated.statuses = created.map(c => c.slug);
@@ -951,7 +978,7 @@ exports.importClaims = async (req, res) => {
     const hospitalMap = new Map(hospitals.map(h => [norm(h.name), h]));
     const insurerMap  = new Map(insurers.map(i => [norm(i.name), i]));
     const tpaMap      = new Map(tpas.map(t => [norm(t.name), t]));
-    const statusMap   = new Map(statuses.map(s => [s.slug, s]));
+    const resolveStatus = buildStatusResolver(statuses);
     // Canonical fallback maps — only register names whose canonical form is unique.
     const buildCanonicalMap = (list) => {
       const counts = new Map();
@@ -1204,12 +1231,20 @@ exports.importClaims = async (req, res) => {
       }
 
       // ── Status ──────────────────────────────────────────────────────
+      // Accept the slug, the display label, or a spaced/hyphenated variant of
+      // either (claims exports and UI copy-paste produce the latter two). Store
+      // the canonical slug regardless of which form was supplied.
       const statusInput = cleanCell(row.status);
-      let status = norm(statusInput) || 'admitted';
-      if (!statusMap.has(status)) {
-        rowErrors.push(`Status "${statusInput}" is not a valid claim status slug — see the Statuses sheet for valid values.`);
-      } else if (statusMap.get(status).superAdminOnly && !isSuperAdmin) {
-        rowErrors.push(`Status "${status}" can only be set by super admin`);
+      let status = 'admitted';
+      if (statusInput) {
+        const resolved = resolveStatus(statusInput);
+        if (!resolved) {
+          rowErrors.push(`Status "${statusInput}" is not a valid claim status — see the Statuses sheet for valid values.`);
+        } else if (resolved.superAdminOnly && !isSuperAdmin) {
+          rowErrors.push(`Status "${resolved.slug}" can only be set by super admin`);
+        } else {
+          status = resolved.slug;
+        }
       }
 
       // ── Dates ───────────────────────────────────────────────────────
@@ -1622,12 +1657,12 @@ exports.getDashboardStats = async (req, res) => {
     statusGroups.forEach(g => { countMap[g.status] = g._count.id; });
     const statusBreakdown = allStatuses.map(s => ({ slug: s.slug, label: s.label, color: s.color, count: countMap[s.slug] || 0 }));
 
-    const settled      = countMap['settled']       || 0;
-    const rejected     = countMap['rejected']      || 0;
-    const admitted     = countMap['admitted']      || 0;
-    const discharged   = countMap['discharged']    || 0;
-    const fileReceived = countMap['file_received'] || 0;
-    const submitted    = countMap['submitted']     || 0;
+    const settled      = countMap['settled']              || 0;
+    const rejected     = countMap['claim_rejected']       || 0;
+    const admitted     = countMap['admitted']             || 0;
+    const discharged   = countMap['discharged_submitted'] || 0;
+    const fileReceived = countMap['file_received']        || 0;
+    const submitted    = countMap['file_submitted']       || 0;
 
     const totalSettlement = monthlySettledAgg._sum.bankTransferAmount || 0;
     const totalApprovalAmount = monthlySettledAgg._sum.finalApprovalAmount || 0;

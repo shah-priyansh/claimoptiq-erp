@@ -1,12 +1,104 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { HiOutlineX } from 'react-icons/hi';
+import { HiOutlineX, HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi';
 
-const blank = { name: '', address: '', contactPerson: '', mobile: '', email: '' };
+const blank = { name: '', address: '', contactPerson: '', mobile: '', email: '', statusAutomation: [] };
 
-const MasterContactFormModal = ({ open, item, onClose, onSave, entityLabel = 'Item' }) => {
+// Claim types — match Claim.claimType and the Claim Status master's options.
+const CLAIM_TYPE_OPTIONS = [
+  { value: 'cashless',          label: 'Cashless' },
+  { value: 'cashless_anywhere', label: 'Cashless Anywhere' },
+  { value: 'reimbursement',     label: 'Reimbursement' },
+  { value: 'grievance',         label: 'Grievance' },
+];
+
+// Editor for the per-insurer/TPA rules that auto-set a claim's status on
+// Discharge Submit, matched by claim type.
+const StatusAutomationEditor = ({ value, onChange, claimStatuses }) => {
+  const rules = Array.isArray(value) ? value : [];
+  const setRule = (i, patch) => onChange(rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addRule = () => onChange([...rules, { claimTypes: [], status: '' }]);
+  const removeRule = (i) => onChange(rules.filter((_, idx) => idx !== i));
+  const toggleType = (i, t) => {
+    const cur = Array.isArray(rules[i].claimTypes) ? rules[i].claimTypes : [];
+    setRule(i, { claimTypes: cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t] });
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="block text-xs font-medium text-gray-700">Status Automation</label>
+        <button
+          type="button"
+          onClick={addRule}
+          className="flex items-center gap-1 text-xs font-medium text-primary-700 hover:text-primary-800"
+        >
+          <HiOutlinePlus className="w-3.5 h-3.5" /> Add rule
+        </button>
+      </div>
+      <p className="text-xs text-gray-400 mb-2">
+        Auto-set the claim status on <span className="font-medium">Discharge Submit</span>, matched by claim type. TPA rules override insurance-company rules.
+      </p>
+
+      {rules.length === 0 && (
+        <p className="text-xs text-gray-400 italic">No rules — Discharge Submit uses the default status.</p>
+      )}
+
+      <div className="space-y-2">
+        {rules.map((r, i) => (
+          <div key={i} className="border border-gray-200 rounded-lg p-2.5">
+            <div className="flex items-start gap-2">
+              <div className="flex-1 space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {CLAIM_TYPE_OPTIONS.map(o => {
+                    const active = (r.claimTypes || []).includes(o.value);
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        onClick={() => toggleType(i, o.value)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          active
+                            ? 'bg-primary-600 text-white border-primary-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-700'
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <select
+                  value={r.status || ''}
+                  onChange={(e) => setRule(i, { status: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                >
+                  <option value="" disabled>Select status…</option>
+                  {claimStatuses.map(s => (
+                    <option key={s.slug} value={s.slug}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeRule(i)}
+                title="Remove rule"
+                className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+              >
+                <HiOutlineTrash className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const MasterContactFormModal = ({ open, item, onClose, onSave, entityLabel = 'Item', claimStatuses = [] }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  const showAutomation = Array.isArray(claimStatuses) && claimStatuses.length > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -16,6 +108,7 @@ const MasterContactFormModal = ({ open, item, onClose, onSave, entityLabel = 'It
       contactPerson: item.contactPerson || '',
       mobile: item.mobile || '',
       email: item.email || '',
+      statusAutomation: Array.isArray(item.statusAutomation) ? item.statusAutomation : [],
     } : blank);
   }, [open, item]);
 
@@ -32,6 +125,10 @@ const MasterContactFormModal = ({ open, item, onClose, onSave, entityLabel = 'It
       alert('Please enter a valid email or leave blank');
       return;
     }
+    // Drop incomplete rules (no claim type selected, or no status chosen).
+    const statusAutomation = (form.statusAutomation || []).filter(
+      r => Array.isArray(r.claimTypes) && r.claimTypes.length > 0 && r.status
+    );
     setSaving(true);
     try {
       await onSave({
@@ -40,6 +137,7 @@ const MasterContactFormModal = ({ open, item, onClose, onSave, entityLabel = 'It
         contactPerson: form.contactPerson.trim(),
         mobile: form.mobile.trim(),
         email: form.email.trim(),
+        ...(showAutomation ? { statusAutomation } : {}),
       });
     } catch { /* handled by parent toast */ }
     finally { setSaving(false); }
@@ -123,6 +221,16 @@ const MasterContactFormModal = ({ open, item, onClose, onSave, entityLabel = 'It
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
           </div>
+
+          {showAutomation && (
+            <div className="pt-2 border-t border-gray-100">
+              <StatusAutomationEditor
+                value={form.statusAutomation}
+                onChange={(statusAutomation) => update('statusAutomation', statusAutomation)}
+                claimStatuses={claimStatuses}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100">

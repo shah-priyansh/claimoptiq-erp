@@ -1,7 +1,11 @@
-// Syncs the CLAIM STATUS MASTER (21 rows from CLAIM STATUS MASTER.xlsx +
-// 3 legacy slugs) into the DB. Safe to run against production: touches
-// nothing but the `claim_statuses` table, and upserts by slug so any custom
-// statuses the operator added via the UI are preserved.
+// Syncs the CLAIM STATUS MASTER (21 rows from CLAIM STATUS MASTER.xlsx) into
+// the DB. Safe to run against production: touches nothing but the
+// `claim_statuses` table, and upserts by slug so any custom statuses the
+// operator added via the UI are preserved.
+//
+// The old generic slugs (discharged / submitted / rejected) were consolidated
+// into discharged_submitted / file_submitted / claim_rejected and removed —
+// see scripts/consolidate-legacy-statuses.js.
 //
 // Usage:
 //   node backend/scripts/sync-claim-status-master.js
@@ -30,13 +34,6 @@ const claimStatuses = [
   { slug: 'claim_settlement_approved',      label: 'Claim Settlement Approved',      color: 'green',  order: 19, isSystem: true },
   { slug: 'settled',                        label: 'Claim Settled',                  color: 'green',  order: 20, isSystem: true },
   { slug: 'billed',                         label: 'FCC Billed',                     color: 'teal',   order: 21, isSystem: true, superAdminOnly: true },
-
-  // Legacy slugs still written by hardcoded workflows in claimController +
-  // frontend (discharge / file-submit / reject actions). Kept as system rows
-  // so existing claim.status values continue to resolve to a label/color.
-  { slug: 'discharged',                     label: 'Discharged',                     color: 'orange', order: 100, isSystem: true },
-  { slug: 'submitted',                      label: 'Submitted',                      color: 'indigo', order: 101, isSystem: true },
-  { slug: 'rejected',                       label: 'Rejected',                       color: 'red',    order: 102, isSystem: true },
 ];
 
 async function main() {

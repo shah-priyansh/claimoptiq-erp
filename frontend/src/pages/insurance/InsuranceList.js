@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI, importInsuranceAPI } from '../../services/api';
+import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI, importInsuranceAPI, getClaimStatusesAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -18,9 +18,10 @@ const INSURANCE_IMPORT_CONFIG = {
     { key: 'mobile',        label: 'Mobile',          width: 14 },
     { key: 'email',         label: 'Email',           width: 26 },
     { key: 'address',       label: 'Address',         width: 30 },
+    { key: 'statusAutomation', label: 'Status Automation', width: 44, note: 'Optional. Auto-set status on Discharge Submit. Format: cashless:discharge_approved | reimbursement,grievance:discharged_submitted' },
   ],
-  sampleRow1: { name: 'Care Health Insurance Co. Ltd', contactPerson: 'Ravi Patel', mobile: '9876543210', email: 'support@carehealth.in', address: 'Mumbai' },
-  sampleRow2: { name: 'HDFC ERGO General Insurance Co. Ltd', contactPerson: '', mobile: '', email: '', address: '' },
+  sampleRow1: { name: 'Care Health Insurance Co. Ltd', contactPerson: 'Ravi Patel', mobile: '9876543210', email: 'support@carehealth.in', address: 'Mumbai', statusAutomation: 'cashless:discharge_approved | reimbursement:discharged_submitted' },
+  sampleRow2: { name: 'HDFC ERGO General Insurance Co. Ltd', contactPerson: '', mobile: '', email: '', address: '', statusAutomation: '' },
   uploadAPI:  importInsuranceAPI,
 };
 
@@ -32,6 +33,7 @@ const InsuranceList = () => {
   const canDelete = can('insurance', 'delete');
 
   const [items, setItems] = useState([]);
+  const [claimStatuses, setClaimStatuses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
   const [importOpen, setImportOpen] = useState(false);
@@ -57,6 +59,12 @@ const InsuranceList = () => {
   };
 
   useEffect(() => { fetchItems(); }, []);
+
+  useEffect(() => {
+    getClaimStatusesAPI()
+      .then(({ data }) => setClaimStatuses((data || []).filter(s => s.isActive)))
+      .catch(() => setClaimStatuses([]));
+  }, []);
 
   const handleSave = async (form) => {
     try {
@@ -169,6 +177,7 @@ const InsuranceList = () => {
         onClose={() => setModal({ open: false, item: null })}
         onSave={handleSave}
         entityLabel="Insurance Company"
+        claimStatuses={claimStatuses}
       />
 
       <MasterImportModal
