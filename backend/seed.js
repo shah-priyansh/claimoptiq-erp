@@ -115,10 +115,10 @@ const tpas = [
   'Family Health Plan', 'Vidal Health', 'Heritage Health',
 ];
 
-// CLAIM STATUS MASTER — sourced from CLAIM STATUS MASTER.xlsx (21 rows).
-// Legacy slugs (discharged / submitted / rejected) are still written by
-// hardcoded workflows in claimController + frontend, so they stay as system
-// rows to keep old claim.status values resolvable to a label/color.
+// CLAIM STATUS MASTER — sourced from CLAIM STATUS MASTER.xlsx.
+// The old generic slugs (discharged / submitted / rejected) were consolidated
+// into the granular statuses below (discharged_submitted / file_submitted /
+// claim_rejected) and removed — see scripts/consolidate-legacy-statuses.js.
 const claimStatuses = [
   { slug: 'admitted',                       label: 'Patient Admitted',               color: 'blue',   order: 1,  isSystem: true },
   { slug: 'pre_auth_claim_under_process',   label: 'Pre-Auth Claim Under Process',   color: 'yellow', order: 2,  isSystem: true },
@@ -141,11 +141,6 @@ const claimStatuses = [
   { slug: 'claim_settlement_approved',      label: 'Claim Settlement Approved',      color: 'green',  order: 19, isSystem: true },
   { slug: 'settled',                        label: 'Claim Settled',                  color: 'green',  order: 20, isSystem: true },
   { slug: 'billed',                         label: 'FCC Billed',                     color: 'teal',   order: 21, isSystem: true, superAdminOnly: true },
-
-  // Legacy — retained so old claims and hardcoded workflows still resolve.
-  { slug: 'discharged',                     label: 'Discharged',                     color: 'orange', order: 100, isSystem: true },
-  { slug: 'submitted',                      label: 'Submitted',                      color: 'indigo', order: 101, isSystem: true },
-  { slug: 'rejected',                       label: 'Rejected',                       color: 'red',    order: 102, isSystem: true },
 ];
 
 // Expense categories — four system rows the operator cannot delete.

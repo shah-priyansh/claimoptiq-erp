@@ -19,6 +19,7 @@ import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatDa
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { isValidPhone, onPhoneInput } from '../../utils/validators';
+import { resolveAutomationStatus } from '../../utils/statusAutomation';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const CATEGORY_LABELS = {
@@ -430,13 +431,13 @@ const ClaimDetail = () => {
 
   const handleUpdateStatus = (slug) => {
     if (slug === claim.status) return;
-    if (slug === 'rejected') {
+    if (slug === 'claim_rejected') {
       setRejectionInput('');
       setRejectionModal(true);
       return;
     }
-    const extra = claim.status === 'rejected' ? { rejectedReason: '' } : {};
-    if (claim.status === 'rejected') {
+    const extra = claim.status === 'claim_rejected' ? { rejectedReason: '' } : {};
+    if (claim.status === 'claim_rejected') {
       setSettlementForm(sf => ({ ...sf, rejectedReason: '' }));
     }
     doStatusUpdate(slug, extra);
@@ -446,7 +447,7 @@ const ClaimDetail = () => {
     if (!rejectionInput.trim()) { toast.error('Please enter a rejection reason'); return; }
     setRejectionModal(false);
     setSettlementForm(sf => ({ ...sf, rejectedReason: rejectionInput.trim() }));
-    await doStatusUpdate('rejected', { rejectedReason: rejectionInput.trim() });
+    await doStatusUpdate('claim_rejected', { rejectedReason: rejectionInput.trim() });
   };
 
   const handleFileSelect = (e, category) => {
@@ -546,7 +547,10 @@ const ClaimDetail = () => {
   const handleSaveDischarge = async () => {
     setSaving(true);
     try {
-      await updateClaimAPI(id, { ...dischargeForm, status: 'discharged' });
+      // Auto-set status from the claim's TPA/insurer automation rules (by claim
+      // type); fall back to the default discharge status when no rule matches.
+      const status = resolveAutomationStatus(claim) || 'discharged_submitted';
+      await updateClaimAPI(id, { ...dischargeForm, status });
       await uploadPendingFiles('discharge', pendingFiles.discharge);
       toast.success('Discharge details saved');
       await fetchClaim(true);
@@ -558,7 +562,7 @@ const ClaimDetail = () => {
   const handleSaveFileReceive = async () => {
     setSaving(true);
     try {
-      const status = fileForm.courierSubmitDate || fileForm.onlineSubmitDate ? 'submitted' : 'file_received';
+      const status = fileForm.courierSubmitDate || fileForm.onlineSubmitDate ? 'file_submitted' : 'file_received';
       await updateClaimAPI(id, { ...fileForm, status });
       await uploadPendingFiles('pod', pendingFiles.pod);
       toast.success('File & submit details saved');
@@ -571,7 +575,7 @@ const ClaimDetail = () => {
   const handleSaveSettlement = async () => {
     setSaving(true);
     try {
-      const status = settlementForm.rejectedReason ? 'rejected' : 'settled';
+      const status = settlementForm.rejectedReason ? 'claim_rejected' : 'settled';
       await updateClaimAPI(id, { ...settlementForm, status });
       await uploadPendingFiles('settlement_proof', pendingFiles.settlement_proof);
       toast.success('Settlement details saved');

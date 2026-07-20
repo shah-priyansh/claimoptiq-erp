@@ -367,16 +367,16 @@ const ClaimList = () => {
   // ── Status change ─────────────────────────────────────────────────────────
 
   const handleStatusChange = async (claimId, newStatus, currentStatus, rejectedReason) => {
-    if (newStatus === 'rejected' && rejectedReason === undefined) {
+    if (newStatus === 'claim_rejected' && rejectedReason === undefined) {
       setRejectionInput('');
       setRejectionPending({ claimId, currentStatus });
       return;
     }
     setUpdatingId(claimId);
     try {
-      const extra = newStatus === 'rejected'
+      const extra = newStatus === 'claim_rejected'
         ? { rejectedReason: rejectedReason || '' }
-        : currentStatus === 'rejected'
+        : currentStatus === 'claim_rejected'
         ? { rejectedReason: '' }
         : {};
       await updateClaimAPI(claimId, { status: newStatus, ...extra });
@@ -397,7 +397,7 @@ const ClaimList = () => {
     if (!rejectionInput.trim()) { toast.error('Please enter a rejection reason'); return; }
     const { claimId, currentStatus } = rejectionPending;
     setRejectionPending(null);
-    handleStatusChange(claimId, 'rejected', currentStatus, rejectionInput.trim());
+    handleStatusChange(claimId, 'claim_rejected', currentStatus, rejectionInput.trim());
   };
 
   // ── Delete ────────────────────────────────────────────────────────────────

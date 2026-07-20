@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { sanitizeStatusAutomation, parseStatusAutomationCell } = require('../utils/statusAutomation');
 
 const pickFields = (body) => {
   const data = {};
@@ -9,6 +10,7 @@ const pickFields = (body) => {
   if (body.mobile !== undefined) data.mobile = String(body.mobile || '').trim();
   if (body.email !== undefined) data.email = String(body.email || '').trim();
   if (body.isActive !== undefined) data.isActive = !!body.isActive;
+  if (body.statusAutomation !== undefined) data.statusAutomation = sanitizeStatusAutomation(body.statusAutomation);
   return data;
 };
 
@@ -61,6 +63,8 @@ exports.bulkImport = async (req, res) => {
     if (rows.length > 2000) return res.status(400).json({ message: 'Maximum 2000 rows per import' });
 
     const existing = await prisma.insuranceCompany.findMany({ select: { id: true, name: true, isActive: true } });
+    const statusRows = await prisma.claimStatus.findMany({ select: { slug: true } });
+    const validSlugs = new Set(statusRows.map(s => s.slug));
     const activeMap = new Map();
     const inactiveMap = new Map();
     for (const e of existing) {
@@ -93,6 +97,7 @@ exports.bulkImport = async (req, res) => {
 
       try {
         const data = pickFields({ name, address: row.address, contactPerson: row.contactPerson, mobile: row.mobile, email: row.email });
+        data.statusAutomation = parseStatusAutomationCell(row.statusAutomation, validSlugs);
         const inactive = inactiveMap.get(key);
         if (activeExisting) {
           const item = await prisma.insuranceCompany.update({

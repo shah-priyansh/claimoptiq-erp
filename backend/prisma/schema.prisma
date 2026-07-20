@@ -481,6 +481,10 @@ model InsuranceCompany {
   mobile        String   @default("")
   email         String   @default("")
   isActive      Boolean  @default(true) @map("is_active")
+  // Rules that auto-set a claim's status on Discharge Submit, matched by claim
+  // type. Shape: [{ claimTypes: ["cashless"], status: "discharge_approved" }].
+  // Empty [] = no automation (falls back to the default discharge status).
+  statusAutomation Json  @default("[]") @map("status_automation")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
   claims        Claim[]
@@ -496,6 +500,10 @@ model TPA {
   mobile        String   @default("")
   email         String   @default("")
   isActive      Boolean  @default(true) @map("is_active")
+  // Rules that auto-set a claim's status on Discharge Submit, matched by claim
+  // type. Shape: [{ claimTypes: ["cashless"], status: "discharge_approved" }].
+  // TPA rules take precedence over the insurance company's rules.
+  statusAutomation Json  @default("[]") @map("status_automation")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
   claims        Claim[]
