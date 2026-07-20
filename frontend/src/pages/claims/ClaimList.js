@@ -1015,7 +1015,7 @@ const ClaimList = () => {
 
     if (!can('claims', 'edit')) {
       return (
-        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${colorCls}`}>
+        <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${colorCls}`}>
           {label}
         </span>
       );
@@ -1027,7 +1027,7 @@ const ClaimList = () => {
           ref={btnRef}
           onClick={openDrop}
           disabled={isUpdating}
-          className={`inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-xs font-semibold transition-opacity ${colorCls} ${isUpdating ? 'opacity-60' : ''}`}
+          className={`inline-flex items-center whitespace-nowrap gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-xs font-semibold transition-opacity ${colorCls} ${isUpdating ? 'opacity-60' : ''}`}
         >
           {isUpdating ? (
             <><div className="w-3 h-3 border-[1.5px] border-current border-t-transparent rounded-full animate-spin" /><span>Saving…</span></>
