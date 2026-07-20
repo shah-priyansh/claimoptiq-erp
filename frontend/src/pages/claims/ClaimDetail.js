@@ -794,13 +794,13 @@ const ClaimDetail = () => {
                     setStatusSearch(''); setStatusDropOpen(v => !v);
                   }}
                   disabled={statusUpdating}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${statusBadgeCls} ${statusUpdating ? 'opacity-60' : 'hover:shadow-sm'}`}>
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold capitalize transition-all ${statusBadgeCls} ${statusUpdating ? 'opacity-60' : 'hover:shadow-sm'}`}>
                   {statusUpdating ? <><Spinner sm /><span>Saving…</span></> : (
                     <><span>{statusLabel}</span><HiChevronDown className={`w-3.5 h-3.5 opacity-60 transition-transform ${statusDropOpen ? 'rotate-180' : ''}`} /></>
                   )}
                 </button>
               ) : (
-                <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${statusBadgeCls}`}>{statusLabel}</span>
+                <span className={`px-3 py-1.5 rounded-full text-xs font-bold capitalize ${statusBadgeCls}`}>{statusLabel}</span>
               )}
               {isSuperAdmin && (
                 <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${claim.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>
@@ -1704,7 +1704,7 @@ const ClaimDetail = () => {
                     <button key={s._id}
                       onClick={() => { handleUpdateStatus(s.slug); setStatusDropOpen(false); }}
                       className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
-                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${cls}`}>{s.label}</span>
+                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${cls}`}>{s.label}</span>
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>
                   );

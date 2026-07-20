@@ -156,7 +156,7 @@ const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
           {form.label && (
             <div className="pt-2">
               <p className="text-xs text-gray-500 mb-2">Preview:</p>
-              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_COLOR_MAP[form.color] || 'bg-gray-100 text-gray-700'}`}>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${STATUS_COLOR_MAP[form.color] || 'bg-gray-100 text-gray-700'}`}>
                 {form.label}
               </span>
             </div>
@@ -277,7 +277,7 @@ const ClaimStatusMaster = () => {
               <tr key={s._id} className="hover:bg-gray-50">
                 <td className="py-3 px-4 text-sm text-gray-400 font-mono">{s.order}</td>
                 <td className="py-3 px-4">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700'}`}>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700'}`}>
                     {s.label}
                   </span>
                 </td>

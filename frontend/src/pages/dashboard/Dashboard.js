@@ -193,7 +193,7 @@ const Dashboard = () => {
                   >
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${c.bar}`} />
                     <p className={`text-2xl font-bold tabular-nums mb-1 pl-3 ${c.num}`}>{item.count}</p>
-                    <p className={`text-xs font-semibold leading-tight pl-3 ${c.text}`}>{item.label}</p>
+                    <p className={`text-xs font-semibold leading-tight pl-3 capitalize ${c.text}`}>{item.label}</p>
                   </button>
                 );
               })}

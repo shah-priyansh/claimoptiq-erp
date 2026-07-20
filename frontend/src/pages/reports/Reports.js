@@ -1023,7 +1023,7 @@ const Reports = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           <SearchableSelect
             options={[
-              ...claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700' })),
+              ...claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: `capitalize ${STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700'}` })),
               { value: '__unbilled', label: 'Unbilled', badgeClass: 'bg-gray-100 text-gray-600' },
             ]}
             value={filters.status}
