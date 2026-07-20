@@ -192,6 +192,9 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
   // Bypasses the CCN + name/hospital/admit-date duplicate checks. Used when
   // re-importing the failed-rows export after fixing data.
   const [allowDuplicates, setAllowDuplicates] = useState(false);
+  // Super-admin only: when a row's SR No already exists, update that claim in
+  // place instead of skipping it as "already exists".
+  const [updateExisting, setUpdateExisting] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, batch: 0, batches: 0, imported: 0, failed: 0, etaSec: null });
   // `cancelRef` is the synchronous source of truth read inside the import loop.
   // `cancelling` mirrors it as React state so the UI can re-render the button
@@ -239,7 +242,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
     // Reset upload/preview state when the modal closes — but keep `result` and
     // `failedSourceRows` so the user can come back and download the failed rows.
     // If a result is currently shown, leave step on 'result' so reopening shows it.
-    setRows([]); setPreviewLimit(200); setOnlyIssues(false); setAutoCreateMasters(false);
+    setRows([]); setPreviewLimit(200); setOnlyIssues(false); setAutoCreateMasters(false); setUpdateExisting(false);
     if (!result) { setStep('upload'); setFileName(''); }
   }, [open, result]);
 
@@ -620,6 +623,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       reactivated:  { hospitals: [], insurers: [], tpas: [] },
       totalRows:    rows.length,
       successCount: 0,
+      updatedCount: 0,
       errorCount:   0,
       duplicateCount: 0,
     };
@@ -653,6 +657,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
             {
               autoCreateMasters: isSuperAdmin && autoCreateMasters,
               allowDuplicates: isSuperAdmin && allowDuplicates,
+              updateExisting: isSuperAdmin && updateExisting,
             },
             { signal: controller.signal },
           ));
@@ -685,6 +690,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
         aggregated.created.push(...shifted(data.created));
         aggregated.errors.push(...shifted(data.errors));
         aggregated.successCount   += data.successCount   || 0;
+        aggregated.updatedCount   += data.updatedCount   || 0;
         aggregated.errorCount     += data.errorCount     || 0;
         aggregated.duplicateCount += data.duplicateCount || 0;
         if (data.fuzzyMatches) {
@@ -714,7 +720,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
 
       aggregated.message = cancelRef.current
         ? `Cancelled at ${aggregated.successCount} of ${rows.length} claim(s)`
-        : `Imported ${aggregated.successCount} of ${rows.length} claim(s)`;
+        : `Imported ${aggregated.successCount} of ${rows.length} claim(s)${aggregated.updatedCount ? `, updated ${aggregated.updatedCount}` : ''}`;
       const failedMap = {};
       aggregated.errors.forEach(e => {
         const src = rows[e.row - 2];
@@ -724,7 +730,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       setFailedSourceRows(failedMap);
       persistResult(aggregated, failedMap, fileName);
       setStep('result');
-      if (aggregated.successCount > 0) {
+      if (aggregated.successCount > 0 || aggregated.updatedCount > 0) {
         toast.success(aggregated.message);
         onImported?.();
       } else {
@@ -1026,6 +1032,24 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
                   </div>
                 )}
 
+                {isSuperAdmin && (
+                  <div className={`border rounded-lg p-3 text-xs space-y-2 ${updateExisting ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+                    <label className="flex items-start gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={updateExisting}
+                        onChange={e => setUpdateExisting(e.target.checked)}
+                        className="rounded mt-0.5"
+                      />
+                      <div className="flex-1">
+                        <p className="font-semibold text-gray-800">Update existing claims (match by SR No)</p>
+                        <p className="text-[11px] text-gray-600 mt-1">When a row's SR No already exists, overwrite that claim with the row's data instead of skipping it as "already exists". Use to push edits from a corrected export back into existing claims.</p>
+                        <p className="text-[11px] text-amber-700 mt-1">⚠ Overwrites every field of the matched claim with the file's values — a blank cell will clear existing data.</p>
+                      </div>
+                    </label>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
                     <input type="checkbox" checked={onlyIssues} onChange={e => { setOnlyIssues(e.target.checked); setPreviewLimit(200); }} className="rounded" />
@@ -1095,7 +1119,7 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
 
           {step === 'result' && result && (
             <div className="space-y-4">
-              <div className="grid grid-cols-4 gap-3">
+              <div className={`grid ${(result.updatedCount || 0) > 0 ? 'grid-cols-5' : 'grid-cols-4'} gap-3`}>
                 <div className="bg-gray-50 rounded-lg p-3 text-center">
                   <p className="text-xs text-gray-500">Total Rows</p>
                   <p className="text-2xl font-bold text-gray-800 mt-1">{result.totalRows}</p>
@@ -1104,6 +1128,12 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
                   <p className="text-xs text-emerald-700">Imported</p>
                   <p className="text-2xl font-bold text-emerald-700 mt-1">{result.successCount}</p>
                 </div>
+                {(result.updatedCount || 0) > 0 && (
+                  <div className="bg-amber-50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-amber-700">Updated</p>
+                    <p className="text-2xl font-bold text-amber-700 mt-1">{result.updatedCount}</p>
+                  </div>
+                )}
                 <div className="bg-slate-50 rounded-lg p-3 text-center">
                   <p className="text-xs text-slate-600">Duplicates skipped</p>
                   <p className="text-2xl font-bold text-slate-700 mt-1">{result.duplicateCount || 0}</p>

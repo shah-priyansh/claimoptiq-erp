@@ -821,7 +821,7 @@ const suggestMatches = (input, list, limit = 3) => {
 
 exports.importClaims = async (req, res) => {
   try {
-    const { rows, autoCreateMasters, allowDuplicates } = req.body;
+    const { rows, autoCreateMasters, allowDuplicates, updateExisting } = req.body;
     if (!Array.isArray(rows) || !rows.length) {
       return res.status(400).json({ message: 'rows (non-empty array) is required' });
     }
@@ -834,6 +834,11 @@ exports.importClaims = async (req, res) => {
     // duplicate checks. Used when re-importing the failed-rows export after
     // fixing data, where the original imports are already in the DB.
     const shouldAllowDuplicates = !!allowDuplicates && isSuperAdminFlag;
+    // Opt-in toggle (super-admin only): when a row's SR No already exists,
+    // UPDATE that claim with the row's data instead of rejecting it as
+    // "already exists". Lets an operator re-import a corrected export to push
+    // edits back into existing claims.
+    const shouldUpdateExisting = !!updateExisting && isSuperAdminFlag;
 
     // Resolve hospital/insurance/TPA by name (case-insensitive). Pre-load lookups once.
     let [hospitals, insurers, tpas, statuses] = await Promise.all([
@@ -1013,12 +1018,16 @@ exports.importClaims = async (req, res) => {
         return Number.isInteger(n) && n > 0 ? n : null;
       }).filter(n => n !== null)
     )];
-    const existingSrNos = incomingSrNos.length
-      ? new Set((await prisma.claim.findMany({
-          where: { srNo: { in: incomingSrNos } },
-          select: { srNo: true },
-        })).map(c => c.srNo))
-      : new Set();
+    // Map srNo → { id, status } so update-existing mode can target the matched
+    // claim and decide whether the status changed (for the history log).
+    const existingSrNoMap = new Map();
+    if (incomingSrNos.length) {
+      const existingClaims = await prisma.claim.findMany({
+        where: { srNo: { in: incomingSrNos } },
+        select: { srNo: true, id: true, status: true },
+      });
+      for (const c of existingClaims) existingSrNoMap.set(c.srNo, c);
+    }
     const batchSrNos = new Set();
     let maxAttemptedSrNo = 0;
 
@@ -1046,6 +1055,7 @@ exports.importClaims = async (req, res) => {
     const monthKey = (d) => `${d.getFullYear()}-${d.getMonth()}`;
 
     const created = [];
+    const updated = [];
     const errors = [];
     // Hospitals whose blank `referenceBy` should be back-filled from the import.
     // Persisted in a single batch after the row loop so old hospitals adopt the
@@ -1067,13 +1077,21 @@ exports.importClaims = async (req, res) => {
 
       // ── SR No (optional, but must be unique if provided) ────────────
       let srNo = null;
+      // When update-existing is on and the SR No matches a stored claim, this
+      // holds { id, status } of that claim so the row updates it in place.
+      let updateTarget = null;
       const srRaw = cleanCell(row.srNo);
       if (srRaw) {
         const n = Number(srRaw);
         if (!Number.isInteger(n) || n <= 0) {
           rowErrors.push(`SR No "${row.srNo}" is invalid — must be a positive integer`);
-        } else if (existingSrNos.has(n)) {
-          rowErrors.push(`SR No ${n} already exists in the database`);
+        } else if (existingSrNoMap.has(n)) {
+          if (shouldUpdateExisting) {
+            srNo = n;
+            updateTarget = existingSrNoMap.get(n);
+          } else {
+            rowErrors.push(`SR No ${n} already exists in the database`);
+          }
         } else if (batchSrNos.has(n)) {
           rowErrors.push(`SR No ${n} appears more than once in this import`);
         } else {
@@ -1223,7 +1241,9 @@ exports.importClaims = async (req, res) => {
         ? `${norm(patientName)}|${hospitalId || ''}|${dateKey(dateOfAdmit)}|${ccnKey || ''}`
         : null;
       let isDuplicate = false;
-      if (!shouldAllowDuplicates) {
+      // Update-existing rows intentionally match a stored claim, so skip the
+      // CCN / composite duplicate guard for them.
+      if (!shouldAllowDuplicates && !updateTarget) {
         if (ccnKey && (dbCcnKeys.has(ccnKey) || batchCcnKeys.has(ccnKey))) {
           rowErrors.push(`Duplicate — a claim with CCN "${ccnVal}" already exists; skipped`);
           isDuplicate = true;
@@ -1240,71 +1260,93 @@ exports.importClaims = async (req, res) => {
       }
 
       try {
-        const mk = monthKey(monthVal);
-        if (!monthCounters.has(mk)) {
-          const monthStart = new Date(monthVal.getFullYear(), monthVal.getMonth(), 1);
-          const monthEnd   = new Date(monthVal.getFullYear(), monthVal.getMonth() + 1, 0, 23, 59, 59, 999);
-          const existing = await prisma.claim.count({ where: { month: { gte: monthStart, lte: monthEnd } } });
-          monthCounters.set(mk, existing);
-        }
-        const nextNo = monthCounters.get(mk) + 1;
-        monthCounters.set(mk, nextNo);
-
         const filePriceVal = isSuperAdmin ? parseNum(row.filePrice) : 0;
 
-        const claim = await prisma.claim.create({
-          data: {
-            ...(srNo !== null ? { srNo } : {}),
-            monthClaimNo: nextNo,
-            status,
-            hospitalId,
-            isDirectPatient,
-            month: monthVal,
-            patientName,
-            patientMobile: cleanCell(row.patientMobile),
-            doctorName: cleanCell(row.doctorName),
-            claimType,
-            insuranceCompanyId,
-            tpaId,
-            policyNo: cleanCell(row.policyNo),
-            clientId: cleanCell(row.clientId),
-            ccnNo: cleanCell(row.ccnNo),
-            dateOfAdmit,
-            dateOfDischarge,
-            hospitalFinalBill: parseNum(row.hospitalFinalBill),
-            mouDiscount: parseNum(row.mouDiscount),
-            deduction: parseNum(row.deduction),
-            finalApprovalAmount: parseNum(row.finalApprovalAmount),
-            finalApprovalDate,
-            fileReceivedDate,
-            submitMode,
-            courierSubmitDate,
-            onlineSubmitDate,
-            courierCompanyName: cleanCell(row.courierCompanyName),
-            podNumber: cleanCell(row.podNumber),
-            settlementAmount: parseNum(row.settlementAmount),
-            settlementAmountDeduction: parseNum(row.settlementAmountDeduction),
-            mouDiscountOnSettlement: parseNum(row.mouDiscountOnSettlement),
-            tds: parseNum(row.tds),
-            bankTransferAmount: parseNum(row.bankTransferAmount),
-            settlementDate,
-            neftNo: cleanCell(row.neftNo),
-            treatmentType: cleanCell(row.treatmentType),
-            diagnosis: cleanCell(row.diagnosis),
-            surgeryName: cleanCell(row.surgeryName),
-            remarks: cleanCell(row.remarks),
-            rejectedReason: cleanCell(row.rejectedReason),
-            filePrice: filePriceVal,
-            filePriceOverridden: filePriceVal > 0,
-            createdById: req.user.id,
-            updatedById: req.user.id,
-            statusHistory: {
-              create: { status, changedById: req.user.id },
+        // Fields shared by create and update. Excludes system fields that must
+        // never change on an update: srNo (the match key), monthClaimNo (the
+        // per-month sequence) and createdById/createdAt.
+        const claimData = {
+          status,
+          hospitalId,
+          isDirectPatient,
+          month: monthVal,
+          patientName,
+          patientMobile: cleanCell(row.patientMobile),
+          doctorName: cleanCell(row.doctorName),
+          claimType,
+          insuranceCompanyId,
+          tpaId,
+          policyNo: cleanCell(row.policyNo),
+          clientId: cleanCell(row.clientId),
+          ccnNo: cleanCell(row.ccnNo),
+          dateOfAdmit,
+          dateOfDischarge,
+          hospitalFinalBill: parseNum(row.hospitalFinalBill),
+          mouDiscount: parseNum(row.mouDiscount),
+          deduction: parseNum(row.deduction),
+          finalApprovalAmount: parseNum(row.finalApprovalAmount),
+          finalApprovalDate,
+          fileReceivedDate,
+          submitMode,
+          courierSubmitDate,
+          onlineSubmitDate,
+          courierCompanyName: cleanCell(row.courierCompanyName),
+          podNumber: cleanCell(row.podNumber),
+          settlementAmount: parseNum(row.settlementAmount),
+          settlementAmountDeduction: parseNum(row.settlementAmountDeduction),
+          mouDiscountOnSettlement: parseNum(row.mouDiscountOnSettlement),
+          tds: parseNum(row.tds),
+          bankTransferAmount: parseNum(row.bankTransferAmount),
+          settlementDate,
+          neftNo: cleanCell(row.neftNo),
+          treatmentType: cleanCell(row.treatmentType),
+          diagnosis: cleanCell(row.diagnosis),
+          surgeryName: cleanCell(row.surgeryName),
+          remarks: cleanCell(row.remarks),
+          rejectedReason: cleanCell(row.rejectedReason),
+          filePrice: filePriceVal,
+          filePriceOverridden: filePriceVal > 0,
+          updatedById: req.user.id,
+        };
+
+        if (updateTarget) {
+          // Update-existing mode: overwrite the matched claim in place. Only add
+          // a status-history entry when the status actually changed.
+          const data = { ...claimData };
+          if (status !== updateTarget.status) {
+            data.statusHistory = { create: { status, changedById: req.user.id } };
+          }
+          const claim = await prisma.claim.update({
+            where: { id: updateTarget.id },
+            data,
+            select: { id: true, patientName: true, srNo: true },
+          });
+          updated.push({ row: rowNum, id: claim.id, srNo: claim.srNo, patientName: claim.patientName });
+        } else {
+          const mk = monthKey(monthVal);
+          if (!monthCounters.has(mk)) {
+            const monthStart = new Date(monthVal.getFullYear(), monthVal.getMonth(), 1);
+            const monthEnd   = new Date(monthVal.getFullYear(), monthVal.getMonth() + 1, 0, 23, 59, 59, 999);
+            const existing = await prisma.claim.count({ where: { month: { gte: monthStart, lte: monthEnd } } });
+            monthCounters.set(mk, existing);
+          }
+          const nextNo = monthCounters.get(mk) + 1;
+          monthCounters.set(mk, nextNo);
+
+          const claim = await prisma.claim.create({
+            data: {
+              ...(srNo !== null ? { srNo } : {}),
+              monthClaimNo: nextNo,
+              ...claimData,
+              createdById: req.user.id,
+              statusHistory: {
+                create: { status, changedById: req.user.id },
+              },
             },
-          },
-          select: { id: true, patientName: true, srNo: true },
-        });
-        created.push({ row: rowNum, id: claim.id, srNo: claim.srNo, patientName: claim.patientName });
+            select: { id: true, patientName: true, srNo: true },
+          });
+          created.push({ row: rowNum, id: claim.id, srNo: claim.srNo, patientName: claim.patientName });
+        }
         if (ccnKey)       batchCcnKeys.add(ccnKey);
         if (compositeKey) batchCompositeKeys.add(compositeKey);
       } catch (e) {
@@ -1354,14 +1396,16 @@ exports.importClaims = async (req, res) => {
     // batches from uploading. 5xx is still reserved for real server failures
     // (handled by the outer catch).
     res.status(200).json({
-      message: `Imported ${created.length} of ${rows.length} claim(s)${duplicateCount ? ` (${duplicateCount} duplicate(s) skipped)` : ''}`,
+      message: `Imported ${created.length} of ${rows.length} claim(s)${updated.length ? `, updated ${updated.length}` : ''}${duplicateCount ? ` (${duplicateCount} duplicate(s) skipped)` : ''}`,
       created,
+      updated,
       errors,
       fuzzyMatches: fuzzy,
       autoCreated,
       reactivated,
       totalRows: rows.length,
       successCount: created.length,
+      updatedCount: updated.length,
       errorCount: errors.length,
       duplicateCount,
     });
