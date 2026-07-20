@@ -1015,7 +1015,7 @@ const ClaimList = () => {
 
     if (!can('claims', 'edit')) {
       return (
-        <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${colorCls}`}>
+        <span className={`inline-flex whitespace-nowrap capitalize px-2.5 py-1 rounded-full text-xs font-semibold ${colorCls}`}>
           {label}
         </span>
       );
@@ -1027,7 +1027,7 @@ const ClaimList = () => {
           ref={btnRef}
           onClick={openDrop}
           disabled={isUpdating}
-          className={`inline-flex items-center whitespace-nowrap gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-xs font-semibold transition-opacity ${colorCls} ${isUpdating ? 'opacity-60' : ''}`}
+          className={`inline-flex items-center whitespace-nowrap capitalize gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-xs font-semibold transition-opacity ${colorCls} ${isUpdating ? 'opacity-60' : ''}`}
         >
           {isUpdating ? (
             <><div className="w-3 h-3 border-[1.5px] border-current border-t-transparent rounded-full animate-spin" /><span>Saving…</span></>
@@ -1070,7 +1070,7 @@ const ClaimList = () => {
                       onClick={() => { handleStatusChange(c._id, s.slug, c.status); setIsOpen(false); }}
                       className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
                     >
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${cls}`}>{s.label}</span>
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${cls}`}>{s.label}</span>
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>
                   );
@@ -1209,7 +1209,7 @@ const ClaimList = () => {
             />
           )}
           <SearchableSelect
-            options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700' }))}
+            options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: `capitalize ${STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700'}` }))}
             value={filters.status}
             onChange={val => setFilters({ ...filters, status: val, page: 1 })}
             placeholder="All Status"

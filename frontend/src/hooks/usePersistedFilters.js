@@ -1,45 +1,30 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
-// useState-like hook that mirrors its value into sessionStorage under `key`
-// so the user's filter selections survive navigating away to a detail page
-// and back. Scoped to sessionStorage (not localStorage) so different tabs
-// keep their own state and a fresh app launch starts clean.
+// State hook for list-page filters and pagination.
+//
+// Product decision: filter/pagination selections must NOT carry across
+// navigation. Every list page (Claims, Invoices, Expenses, Cash/Bank, Account
+// Entries, Hospitals, …) opens fresh with its default filters and page 1 each
+// time it is visited — leaving a page and coming back always resets the
+// filters (search, status, dates, hospital, page, page size, etc.).
+//
+// This used to mirror state into sessionStorage so selections survived a trip
+// to a detail page and back; that persistence was intentionally removed. Kept
+// as a thin wrapper with the same name/signature so the list pages don't need
+// to change and persistence could be re-enabled in this one place if ever
+// wanted. `key` is unused now but retained so call sites stay untouched.
 //
 // usage:
 //   const [filters, setFilters] = usePersistedFilters('claims:filters', {
 //     hospital: '', status: '', dateFrom: '', dateTo: '',
 //   });
 export default function usePersistedFilters(key, defaults) {
-  const [state, setState] = useState(() => {
-    try {
-      const raw = sessionStorage.getItem(key);
-      if (raw === null) return defaults;
-      const parsed = JSON.parse(raw);
-      // Merge with defaults for objects so a newly-added field doesn't trip
-      // the UI when an older session payload is still around. Primitives /
-      // arrays are returned as-is.
-      const isPlainObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-      if (isPlainObj(defaults) && isPlainObj(parsed)) return { ...defaults, ...parsed };
-      return parsed;
-    } catch {
-      return defaults;
-    }
-  });
-
-  // Avoid the redundant write that fires on the first render. Without this
-  // guard React StrictMode (which double-invokes effects) and our defaults
-  // can clobber filters that were just rehydrated.
-  const skipFirst = useRef(true);
-  useEffect(() => {
-    if (skipFirst.current) { skipFirst.current = false; return; }
-    try { sessionStorage.setItem(key, JSON.stringify(state)); } catch {}
-  }, [key, state]);
-
-  return [state, setState];
+  return useState(defaults);
 }
 
-// Helper to clear a persisted filter bucket — handy when an action like
-// "Clear filters" should also wipe what we previously remembered.
+// Retained for call sites that clear a filter bucket. Since we no longer write
+// to sessionStorage this is effectively a no-op, but it still wipes any stale
+// key left over from before persistence was removed.
 export function clearPersistedFilters(key) {
   try { sessionStorage.removeItem(key); } catch {}
 }
