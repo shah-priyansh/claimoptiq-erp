@@ -5,9 +5,10 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlinePencil, HiOutlineTrash,
-  HiOutlineLockClosed, HiOutlineX, HiOutlineCheck
+  HiOutlineLockClosed, HiOutlineX, HiOutlineCheck, HiOutlineDownload
 } from 'react-icons/hi';
 import Toggle from '../../components/ui/Toggle';
+import { exportRowsXlsx } from '../reports/reportUtils';
 
 const COLOR_OPTIONS = [
   { key: 'blue',   label: 'Blue',   classes: 'bg-blue-100 text-blue-700' },
@@ -240,10 +241,41 @@ const ClaimStatusMaster = () => {
     }
   };
 
+  // Export the status list so users know exactly what to type in the Status
+  // column of the claim import file. The importer accepts either the slug or
+  // the display label; the Active column flags which statuses are usable.
+  const handleExport = () => {
+    exportRowsXlsx(
+      statuses,
+      [
+        { label: 'Status Slug (use this in import Status column)', field: 'slug' },
+        { label: 'Display Label', field: 'label' },
+        {
+          label: 'Claim Types',
+          field: 'claimTypes',
+          format: (v) => {
+            const list = Array.isArray(v) ? v : [];
+            return list.length === 0 ? 'All' : list.map((ct) => CLAIM_TYPE_LABEL[ct] || ct).join(', ');
+          },
+        },
+        { label: 'Active', field: 'isActive', format: (v) => (v ? 'Yes' : 'No') },
+      ],
+      'claim_statuses'
+    );
+  };
+
   return (
     <div>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 mb-6">
+        <button
+          onClick={handleExport}
+          disabled={loading || statuses.length === 0}
+          title="Download the status list to reference when preparing an import file"
+          className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <HiOutlineDownload className="w-4 h-4" /> Export
+        </button>
         {can('claim_statuses', 'create') && (
           <button
             onClick={openCreate}
