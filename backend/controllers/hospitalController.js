@@ -351,6 +351,31 @@ exports.updateHospital = async (req, res) => {
   }
 };
 
+// Status-only toggle for the Hospitals list. Kept separate from updateHospital
+// because that endpoint is a full replace that wipes billing services/doctors
+// and blanks unspecified scalar fields — a partial { isActive } body there
+// would be destructive. This touches nothing but the isActive flag.
+exports.setHospitalStatus = async (req, res) => {
+  try {
+    const { isActive } = req.body;
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({ message: 'isActive (boolean) is required' });
+    }
+    const existing = await prisma.hospital.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ message: 'Hospital not found' });
+
+    const hospital = await prisma.hospital.update({
+      where: { id: req.params.id },
+      data: { isActive },
+      include: hospitalInclude,
+    });
+    bustDropdownCache();
+    res.json(toResponse(hospital));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.deleteHospital = async (req, res) => {
   try {
     const hospital = await prisma.hospital.update({

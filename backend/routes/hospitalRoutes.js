@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createHospital, getHospitals, getHospital, updateHospital, deleteHospital, deleteAllHospitals, bulkImportHospitals, addHospitalDoctor } = require('../controllers/hospitalController');
+const { createHospital, getHospitals, getHospital, updateHospital, setHospitalStatus, deleteHospital, deleteAllHospitals, bulkImportHospitals, addHospitalDoctor } = require('../controllers/hospitalController');
 const { protect, checkPermission, checkAnyPermission } = require('../middleware/auth');
 
 router.use(protect);
@@ -23,6 +23,9 @@ router.post(
   ]),
   addHospitalDoctor,
 );
+
+// Inline Active/Inactive toggle from the Hospitals list — status-only, non-destructive.
+router.patch('/:id/status', checkPermission('hospitals', 'edit'), setHospitalStatus);
 
 router.route('/:id')
   .get(checkPermission('hospitals', 'view'), getHospital)
