@@ -735,6 +735,7 @@ const InvoiceList = () => {
         loadingInvoices={false}
         loadingExpenses={false}
         loadingBankAccounts={loadingBankAccounts}
+        lockDirection="in"
         onClose={() => setPaymentInvoice(null)}
         onSave={handlePaymentSave}
       />

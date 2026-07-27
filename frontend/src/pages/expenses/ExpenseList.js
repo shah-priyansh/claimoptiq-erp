@@ -680,6 +680,7 @@ const ExpenseList = () => {
         expenses={paymentExpense ? [paymentExpense] : []}
         bankAccounts={bankAccounts}
         loadingBankAccounts={loadingBankAccounts}
+        lockDirection="out"
         onClose={() => !paymentSaving && setPaymentExpense(null)}
         onSave={handlePaymentSave}
       />

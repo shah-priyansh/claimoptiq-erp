@@ -967,6 +967,7 @@ const InvoiceDetail = () => {
         loadingInvoices={false}
         loadingExpenses={false}
         loadingBankAccounts={loadingBankAccounts}
+        lockDirection="in"
         onClose={() => setMarkPaidOpen(false)}
         onSave={handleMarkPaidSave}
       />

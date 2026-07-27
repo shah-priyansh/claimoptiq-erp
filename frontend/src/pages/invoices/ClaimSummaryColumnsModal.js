@@ -73,8 +73,21 @@ const DEFAULT_KEYS = [
   'tpaFee',
 ];
 
-const ClaimSummaryColumnsModal = ({ open, onClose }) => {
-  const [selected, setSelected] = useState(DEFAULT_KEYS);
+// Reused by two gears on the Reports page:
+//   • Invoice summary columns → settingKey='invoice_summary_columns' (invoice PDF)
+//   • Report table columns     → settingKey='report_table_columns'   (on-screen table)
+// `fallbackKey` lets the report gear inherit the legacy invoice_summary_columns
+// value on first load before report_table_columns has ever been saved.
+const ClaimSummaryColumnsModal = ({
+  open,
+  onClose,
+  settingKey = 'invoice_summary_columns',
+  fallbackKey = null,
+  defaultKeys = DEFAULT_KEYS,
+  title = 'Claims Summary Columns',
+  subtitle = 'Choose which claim fields appear in the summary table appended after the invoice.',
+}) => {
+  const [selected, setSelected] = useState(defaultKeys);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -85,16 +98,14 @@ const ClaimSummaryColumnsModal = ({ open, onClose }) => {
     setSearch('');
     getPublicStatsAPI()
       .then(({ data }) => {
-        const raw = data?.invoice_summary_columns;
-        const parsed = String(raw || '')
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        setSelected(parsed.length ? parsed : DEFAULT_KEYS);
+        const parse = (raw) => String(raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+        let parsed = parse(data?.[settingKey]);
+        if (!parsed.length && fallbackKey) parsed = parse(data?.[fallbackKey]);
+        setSelected(parsed.length ? parsed : defaultKeys);
       })
-      .catch(() => setSelected(DEFAULT_KEYS))
+      .catch(() => setSelected(defaultKeys))
       .finally(() => setLoading(false));
-  }, [open]);
+  }, [open, settingKey, fallbackKey, defaultKeys]);
 
   const toggle = (key) =>
     setSelected((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -114,8 +125,8 @@ const ClaimSummaryColumnsModal = ({ open, onClose }) => {
   const save = async () => {
     setSaving(true);
     try {
-      await updateSiteSettingsAPI({ invoice_summary_columns: selected.join(',') });
-      toast.success('Claims summary columns saved');
+      await updateSiteSettingsAPI({ [settingKey]: selected.join(',') });
+      toast.success('Columns saved');
       onClose?.();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to save');
@@ -133,10 +144,10 @@ const ClaimSummaryColumnsModal = ({ open, onClose }) => {
         <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-gray-100">
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <HiOutlineCog className="w-5 h-5 text-primary-600" /> Claims Summary Columns
+              <HiOutlineCog className="w-5 h-5 text-primary-600" /> {title}
             </h3>
             <p className="text-xs text-gray-500 mt-1">
-              Choose which claim fields appear in the summary table appended after the invoice.
+              {subtitle}
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-2">
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-primary-50 text-primary-700 text-xs font-semibold">

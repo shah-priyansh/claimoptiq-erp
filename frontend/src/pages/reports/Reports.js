@@ -186,24 +186,26 @@ const Reports = () => {
 
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef(null);
-  const [columnsModalOpen, setColumnsModalOpen] = useState(false);
+  const [reportColsModalOpen, setReportColsModalOpen] = useState(false);
+  const [invoiceColsModalOpen, setInvoiceColsModalOpen] = useState(false);
   const [summaryCols, setSummaryCols] = useState(TABLE_DEFAULT_COLS);
 
-  // Load (and reload after the gear-modal closes) the column selection
-  // configured in the Claims Summary Columns site setting.
+  // Load (and reload after either gear-modal closes) the on-screen table's
+  // column selection. Reads report_table_columns; on the first load after this
+  // feature shipped that key may be unset, so fall back to the legacy
+  // invoice_summary_columns value (which used to drive the table too), then to
+  // the built-in defaults — so the operator's current columns don't reset.
   useEffect(() => {
-    if (columnsModalOpen) return;
+    if (reportColsModalOpen || invoiceColsModalOpen) return;
     getPublicStatsAPI()
       .then(({ data }) => {
-        const raw = data?.invoice_summary_columns;
-        const parsed = String(raw || '')
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
+        const parse = (raw) => String(raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+        let parsed = parse(data?.report_table_columns);
+        if (!parsed.length) parsed = parse(data?.invoice_summary_columns);
         setSummaryCols(parsed.length ? parsed : TABLE_DEFAULT_COLS);
       })
       .catch(() => setSummaryCols(TABLE_DEFAULT_COLS));
-  }, [columnsModalOpen]);
+  }, [reportColsModalOpen, invoiceColsModalOpen]);
 
   // Field selection modal
   const [fieldModal, setFieldModal] = useState({ open: false, pendingAction: null });
@@ -970,11 +972,20 @@ const Reports = () => {
                 {loading ? 'Loading...' : 'Generate Bill'}
               </button>
               <button
-                onClick={() => setColumnsModalOpen(true)}
-                className="flex items-center justify-center bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                title="Choose which claim fields appear in the summary table appended to invoices"
+                onClick={() => setReportColsModalOpen(true)}
+                className="flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                title="Choose which fields appear as columns in the report table below"
               >
                 <HiOutlineCog className="w-4 h-4 text-primary-600" />
+                <span className="hidden sm:inline">Report Columns</span>
+              </button>
+              <button
+                onClick={() => setInvoiceColsModalOpen(true)}
+                className="flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                title="Choose which fields appear in the summary table appended to the invoice PDF"
+              >
+                <HiOutlineCog className="w-4 h-4 text-primary-600" />
+                <span className="hidden sm:inline">Invoice Columns</span>
               </button>
             </div>
           )
@@ -1337,8 +1348,21 @@ const Reports = () => {
       })()}
 
       <ClaimSummaryColumnsModal
-        open={columnsModalOpen}
-        onClose={() => setColumnsModalOpen(false)}
+        open={reportColsModalOpen}
+        onClose={() => setReportColsModalOpen(false)}
+        settingKey="report_table_columns"
+        fallbackKey="invoice_summary_columns"
+        defaultKeys={TABLE_DEFAULT_COLS}
+        title="Report Table Columns"
+        subtitle="Choose which claim fields appear as columns in the report table on this page."
+      />
+
+      <ClaimSummaryColumnsModal
+        open={invoiceColsModalOpen}
+        onClose={() => setInvoiceColsModalOpen(false)}
+        settingKey="invoice_summary_columns"
+        title="Invoice Summary Columns"
+        subtitle="Choose which claim fields appear in the summary table appended after the invoice."
       />
     </div>
   );
