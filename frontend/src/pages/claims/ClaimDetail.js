@@ -223,8 +223,9 @@ const UploadLabel = ({ onChange, label }) => (
 const ClaimDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { can, roleSlug } = useAuth();
+  const { can, roleSlug, user } = useAuth();
   const isSuperAdmin = roleSlug === 'super_admin';
+  const isHospitalUser = !!user?.hospital;
   const confirm = useConfirm();
   const [claim, setClaim] = useState(null);
   const [claimStatuses, setClaimStatuses] = useState([]);
@@ -559,8 +560,8 @@ const ClaimDetail = () => {
       toast.error('Patient name is required');
       return;
     }
-    if (!admissionForm.hospital) {
-      toast.error('Hospital is required');
+    if (!admissionForm.isDirectPatient && !admissionForm.hospital) {
+      toast.error('Hospital is required (or mark as Direct Patient)');
       return;
     }
     if (!admissionForm.insuranceCompany) {
@@ -588,10 +589,16 @@ const ClaimDetail = () => {
   const handleSaveDischarge = async () => {
     setSaving(true);
     try {
-      // Auto-set status from the claim's TPA/insurer automation rules (by claim
-      // type); fall back to the default discharge status when no rule matches.
-      const status = resolveAutomationStatus(claim) || 'discharged_submitted';
-      await updateClaimAPI(id, { ...dischargeForm, status });
+      // On Discharge Submit always record "Discharged Submitted" first, then — if
+      // the claim's TPA/insurer has a status-automation rule for this claim type —
+      // advance to that automated status. This keeps both steps in the Status
+      // Journey instead of jumping straight to the automated one (which skipped
+      // the discharge step entirely).
+      await updateClaimAPI(id, { ...dischargeForm, status: 'discharged_submitted' });
+      const autoStatus = resolveAutomationStatus(claim);
+      if (autoStatus && autoStatus !== 'discharged_submitted') {
+        await updateClaimAPI(id, { status: autoStatus });
+      }
       await uploadPendingFiles('discharge', pendingFiles.discharge);
       toast.success('Discharge details saved');
       await fetchClaim(true);
@@ -1138,6 +1145,18 @@ const ClaimDetail = () => {
           <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
             <SectionHeader icon={HiOutlineUser} title="Admission Details" />
 
+            {isEditable && !isHospitalUser && (
+              <label className="inline-flex items-center gap-2 cursor-pointer px-3 py-1.5 mb-3 rounded-lg border border-gray-200 hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={!!admissionForm.isDirectPatient}
+                  onChange={e => setAdmissionForm(f => ({ ...f, isDirectPatient: e.target.checked }))}
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4"
+                />
+                <span className="text-sm font-medium text-gray-700">Direct Patient (hospital optional, kept for reference only)</span>
+              </label>
+            )}
+
             {isEditable ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="md:col-span-2 lg:col-span-3">
@@ -1156,11 +1175,14 @@ const ClaimDetail = () => {
                 </div>
 
                 <div>
-                  <label className={labelCls}>Hospital *</label>
+                  <label className={labelCls}>
+                    Hospital {admissionForm.isDirectPatient ? '(reference only)' : '*'}
+                  </label>
                   <SearchableSelect
                     value={admissionForm.hospital}
                     onChange={v => setAdmissionForm(f => ({ ...f, hospital: v, doctorName: '' }))}
                     options={hospitalOptions}
+                    allowClear={!!admissionForm.isDirectPatient}
                     placeholder="Select hospital" />
                 </div>
 
