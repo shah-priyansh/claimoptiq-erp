@@ -13,8 +13,9 @@ const CLAIM_TYPE_OPTIONS = [
 ];
 
 // Editor for the per-insurer/TPA rules that auto-set a claim's status on
-// Discharge Submit, matched by claim type.
-const StatusAutomationEditor = ({ value, onChange, claimStatuses }) => {
+// Discharge Submit, matched by claim type. Exported so the bulk-apply modal
+// can reuse the exact same editor.
+export const StatusAutomationEditor = ({ value, onChange, claimStatuses }) => {
   const rules = Array.isArray(value) ? value : [];
   const setRule = (i, patch) => onChange(rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addRule = () => onChange([...rules, { claimTypes: [], status: '' }]);

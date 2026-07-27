@@ -61,6 +61,7 @@ export const createInsuranceAPI = (data) => API.post('/insurance', data);
 export const updateInsuranceAPI = (id, data) => API.put(`/insurance/${id}`, data);
 export const deleteInsuranceAPI = (id) => API.delete(`/insurance/${id}`);
 export const importInsuranceAPI = (rows, mode = 'skip') => API.post('/insurance/import', { rows, mode });
+export const bulkInsuranceStatusAutomationAPI = (ids, statusAutomation) => API.put('/insurance/bulk-status-automation', { ids, statusAutomation });
 
 // TPA
 export const getTPAAPI = () => API.get('/tpa');
@@ -68,6 +69,7 @@ export const createTPAAPI = (data) => API.post('/tpa', data);
 export const updateTPAAPI = (id, data) => API.put(`/tpa/${id}`, data);
 export const deleteTPAAPI = (id) => API.delete(`/tpa/${id}`);
 export const importTPAAPI = (rows, mode = 'skip') => API.post('/tpa/import', { rows, mode });
+export const bulkTPAStatusAutomationAPI = (ids, statusAutomation) => API.put('/tpa/bulk-status-automation', { ids, statusAutomation });
 
 // References (Commission Master)
 export const getReferencesAPI = (params) => API.get('/references', { params });
