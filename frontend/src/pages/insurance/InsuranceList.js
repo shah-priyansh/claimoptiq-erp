@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI, importInsuranceAPI, getClaimStatusesAPI } from '../../services/api';
+import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI, importInsuranceAPI, getClaimStatusesAPI, bulkInsuranceStatusAutomationAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineUpload } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineUpload, HiOutlineLightningBolt, HiOutlineX } from 'react-icons/hi';
 import MasterContactFormModal from '../../components/common/MasterContactFormModal';
+import BulkStatusAutomationModal from '../../components/common/BulkStatusAutomationModal';
 import MasterImportModal from '../../components/master/MasterImportModal';
 import PaginationBar from '../../components/ui/PaginationBar';
 
@@ -39,6 +40,9 @@ const InsuranceList = () => {
   const [importOpen, setImportOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   const total = items.length;
   const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -92,6 +96,38 @@ const InsuranceList = () => {
     } catch { toast.error('Failed to delete'); }
   };
 
+  // ─── Multi-select + bulk status automation ────────────────────────────────
+  const allIds = items.map((i) => i._id);
+  const allSelected = allIds.length > 0 && selectedIds.length === allIds.length;
+  const someSelected = selectedIds.length > 0 && !allSelected;
+  const toggleOne = (id) =>
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleAll = () => setSelectedIds(allSelected ? [] : allIds);
+  const clearSelection = () => setSelectedIds([]);
+
+  const handleBulkApply = async (statusAutomation) => {
+    const willClear = !statusAutomation.length;
+    const ok = await confirm(
+      willClear
+        ? `Clear status automation on ${selectedIds.length} selected compan${selectedIds.length === 1 ? 'y' : 'ies'}?`
+        : `Apply this status automation to ${selectedIds.length} selected compan${selectedIds.length === 1 ? 'y' : 'ies'}? This replaces their existing rules.`,
+      { title: 'Apply Status Automation', confirmLabel: willClear ? 'Clear' : 'Apply', variant: willClear ? 'danger' : 'primary' },
+    );
+    if (!ok) return;
+    setApplying(true);
+    try {
+      const { data } = await bulkInsuranceStatusAutomationAPI(selectedIds, statusAutomation);
+      toast.success(data?.message || 'Status automation applied');
+      setBulkOpen(false);
+      clearSelection();
+      fetchItems();
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to apply');
+    } finally {
+      setApplying(false);
+    }
+  };
+
   return (
     <div>
       {canCreate && (
@@ -111,11 +147,42 @@ const InsuranceList = () => {
         </div>
       )}
 
+      {canEdit && selectedIds.length > 0 && (
+        <div className="flex items-center justify-between gap-3 mb-4 px-4 py-3 bg-primary-50 border border-primary-200 rounded-xl">
+          <span className="text-sm font-medium text-primary-800">{selectedIds.length} selected</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setBulkOpen(true)}
+              className="flex items-center gap-1.5 bg-primary-600 hover:bg-primary-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlineLightningBolt className="w-4 h-4" /> Apply Status Automation
+            </button>
+            <button
+              onClick={clearSelection}
+              className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800 px-2 py-2 rounded-lg"
+            >
+              <HiOutlineX className="w-4 h-4" /> Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                {canEdit && (
+                  <th className="py-3 px-4 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                      onChange={toggleAll}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                    />
+                  </th>
+                )}
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">#</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Company Name</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Contact Person</th>
@@ -127,11 +194,21 @@ const InsuranceList = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={7} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={canEdit ? 8 : 7} className="py-8 text-center text-gray-400">Loading...</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={7} className="py-8 text-center text-gray-400">No insurance companies added yet</td></tr>
+                <tr><td colSpan={canEdit ? 8 : 7} className="py-8 text-center text-gray-400">No insurance companies added yet</td></tr>
               ) : visibleItems.map((item, idx) => (
-                <tr key={item._id} className="hover:bg-gray-50">
+                <tr key={item._id} className={`hover:bg-gray-50 ${selectedIds.includes(item._id) ? 'bg-primary-50/50' : ''}`}>
+                  {canEdit && (
+                    <td className="py-3 px-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(item._id)}
+                        onChange={() => toggleOne(item._id)}
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                      />
+                    </td>
+                  )}
                   <td className="py-3 px-4 text-sm text-gray-500">{(currentPage - 1) * pageSize + idx + 1}</td>
                   <td className="py-3 px-4 text-sm font-medium text-gray-800">{item.name}</td>
                   <td className="py-3 px-4 text-sm text-gray-600">{item.contactPerson || '-'}</td>
@@ -185,6 +262,17 @@ const InsuranceList = () => {
         onClose={() => setImportOpen(false)}
         onImported={fetchItems}
         config={INSURANCE_IMPORT_CONFIG}
+      />
+
+      <BulkStatusAutomationModal
+        open={bulkOpen}
+        count={selectedIds.length}
+        entityLabel="company"
+        entityLabelPlural="companies"
+        claimStatuses={claimStatuses}
+        applying={applying}
+        onClose={() => setBulkOpen(false)}
+        onApply={handleBulkApply}
       />
     </div>
   );

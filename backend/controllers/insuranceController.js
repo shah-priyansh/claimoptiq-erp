@@ -141,6 +141,28 @@ exports.bulkImport = async (req, res) => {
   }
 };
 
+// Bulk-apply one Status Automation config to many insurance companies at once.
+// Replaces (overwrites) each selected company's statusAutomation with the given
+// rule set. An empty/omitted rule set clears automation on the selected rows.
+exports.bulkStatusAutomation = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ message: 'ids (non-empty array) is required' });
+    }
+    const statusRows = await prisma.claimStatus.findMany({ select: { slug: true } });
+    const validSlugs = new Set(statusRows.map((s) => s.slug));
+    const statusAutomation = sanitizeStatusAutomation(req.body.statusAutomation, validSlugs);
+    const result = await prisma.insuranceCompany.updateMany({
+      where: { id: { in: ids }, isActive: true },
+      data: { statusAutomation },
+    });
+    res.json({ message: `Status automation applied to ${result.count} insurance company(s)`, count: result.count });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.remove = async (req, res) => {
   try {
     await prisma.insuranceCompany.update({

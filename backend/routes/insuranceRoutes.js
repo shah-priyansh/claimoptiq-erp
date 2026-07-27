@@ -24,6 +24,10 @@ router.route('/')
 
 router.post('/import', checkPermission('insurance', 'create'), ctrl.bulkImport);
 
+// Bulk-apply status automation to many companies — must be declared before
+// '/:id' so it isn't swallowed by the param route.
+router.put('/bulk-status-automation', checkPermission('insurance', 'edit'), ctrl.bulkStatusAutomation);
+
 router.route('/:id')
   .put(checkPermission('insurance', 'edit'), ctrl.update)
   .delete(checkPermission('insurance', 'delete'), ctrl.remove);

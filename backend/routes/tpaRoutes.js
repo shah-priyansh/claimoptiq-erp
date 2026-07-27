@@ -24,6 +24,10 @@ router.route('/')
 
 router.post('/import', checkPermission('tpa', 'create'), ctrl.bulkImport);
 
+// Bulk-apply status automation to many TPAs — must be declared before '/:id'
+// so it isn't swallowed by the param route.
+router.put('/bulk-status-automation', checkPermission('tpa', 'edit'), ctrl.bulkStatusAutomation);
+
 router.route('/:id')
   .put(checkPermission('tpa', 'edit'), ctrl.update)
   .delete(checkPermission('tpa', 'delete'), ctrl.remove);
