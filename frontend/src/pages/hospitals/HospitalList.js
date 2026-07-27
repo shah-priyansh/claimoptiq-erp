@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { getHospitalsAPI, deleteHospitalAPI, deleteAllHospitalsAPI, importHospitalsAPI } from '../../services/api';
+import { getHospitalsAPI, setHospitalStatusAPI, deleteHospitalAPI, deleteAllHospitalsAPI, importHospitalsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -48,6 +48,7 @@ const HospitalList = () => {
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
   const [deletingAll, setDeletingAll] = useState(false);
+  const [togglingId, setTogglingId] = useState(null);
 
   const fetchHospitals = useCallback(async () => {
     setLoading(true);
@@ -78,6 +79,23 @@ const HospitalList = () => {
       fetchHospitals();
     } catch (error) {
       toast.error('Failed to deactivate hospital');
+    }
+  };
+
+  // Inline Active/Inactive toggle straight from the list — no need to open the
+  // edit form. Updates the row in place on success (no full refetch flash).
+  const toggleActive = async (h) => {
+    if (!can('hospitals', 'edit') || togglingId) return;
+    const next = h.isActive === false; // currently inactive → activate, else deactivate
+    setTogglingId(h._id);
+    try {
+      await setHospitalStatusAPI(h._id, next);
+      setHospitals((list) => list.map((x) => (x._id === h._id ? { ...x, isActive: next } : x)));
+      toast.success(next ? 'Hospital activated' : 'Hospital deactivated');
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to update status');
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -168,7 +186,20 @@ const HospitalList = () => {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-gray-800 truncate">{h.name}</p>
-                          {h.isActive === false ? (
+                          {can('hospitals', 'edit') ? (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleActive(h); }}
+                              disabled={togglingId === h._id}
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium flex-shrink-0 transition-colors disabled:opacity-50 ${
+                                h.isActive === false
+                                  ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  : 'bg-green-100 text-green-700 hover:bg-green-200'
+                              }`}
+                            >
+                              {h.isActive === false ? 'Inactive' : 'Active'}
+                            </button>
+                          ) : h.isActive === false ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 flex-shrink-0">Inactive</span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700 flex-shrink-0">Active</span>
@@ -257,8 +288,22 @@ const HospitalList = () => {
                     <td className="py-3 px-4 text-sm text-gray-600">{h.city || '-'}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.referenceBy || '-'}</td>
                     <td className="py-3 px-4 text-sm text-gray-600">{h.billingServices?.length || 0}</td>
-                    <td className="py-3 px-4 text-center">
-                      {h.isActive === false ? (
+                    <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      {can('hospitals', 'edit') ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleActive(h)}
+                          disabled={togglingId === h._id}
+                          title={h.isActive === false ? 'Click to activate' : 'Click to deactivate'}
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium cursor-pointer transition-colors disabled:opacity-50 ${
+                            h.isActive === false
+                              ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              : 'bg-green-100 text-green-700 hover:bg-green-200'
+                          }`}
+                        >
+                          {h.isActive === false ? 'Inactive' : 'Active'}
+                        </button>
+                      ) : h.isActive === false ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Inactive</span>
                       ) : (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Active</span>
