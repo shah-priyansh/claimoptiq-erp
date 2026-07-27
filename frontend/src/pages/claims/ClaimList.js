@@ -265,7 +265,7 @@ const ClaimList = () => {
     .filter(f => (!f.superAdminOnly || isSuperAdmin) && (!f.nonHospitalOnly || !isHospitalUser))
     .map(f =>
       f.key === 'filePrice'
-        ? { ...f, getValue: c => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0) }
+        ? { ...f, getValue: c => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType) }
         : f
     );
 

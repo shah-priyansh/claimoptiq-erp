@@ -1,8 +1,16 @@
-const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0) => {
+// `claimType` (optional) restricts which services apply: each service carries
+// `claimTypes` (resolved from the billing-service-name master). A service only
+// counts when its claimTypes is empty (universal) or includes the claim's type.
+// Without a claimType argument, no filtering happens (legacy callers unchanged).
+const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0, claimType = null) => {
   let total = 0;
   for (const svc of billingServices) {
     if (!svc.isActive) continue;
     if (svc.billingType === 'fixed_onetime' || svc.billingType === 'fixed_monthly') continue;
+    // Skip services that don't apply to this claim's type. Empty/absent
+    // claimTypes = universal (applies to every claim type).
+    const svcClaimTypes = Array.isArray(svc.claimTypes) ? svc.claimTypes : [];
+    if (claimType && svcClaimTypes.length && !svcClaimTypes.includes(claimType)) continue;
     const validBases = ['hospital_final_bill', 'final_approval'];
     if (!validBases.includes(svc.calculationBasis)) continue;
     const basis = svc.calculationBasis === 'hospital_final_bill' ? hospitalFinalBill : finalApprovalAmount;

@@ -259,6 +259,8 @@ export const importClaimsAPI = (rows, opts = {}, config = {}) => API.post('/clai
 export const getClaimAPI = (id) => API.get(`/claims/${id}`);
 export const createClaimAPI = (data) => API.post('/claims', data);
 export const updateClaimAPI = (id, data) => API.put(`/claims/${id}`, data);
+export const updateClaimStatusHistoryAPI = (claimId, historyId, data) => API.put(`/claims/${claimId}/status-history/${historyId}`, data);
+export const deleteClaimStatusHistoryAPI = (claimId, historyId) => API.delete(`/claims/${claimId}/status-history/${historyId}`);
 export const bulkUpdateStatusAPI = (ids, status) => API.put('/claims/bulk-status', { ids, status });
 export const bulkBillAPI = (ids, isBilled = true) => API.put('/claims/bulk-bill', { ids, isBilled });
 export const uploadDocumentsAPI = (id, formData) => API.post(`/claims/${id}/documents`, formData, {

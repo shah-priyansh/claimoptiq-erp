@@ -76,13 +76,20 @@ const _threeDigits = (n) => n >= 100
   ? _ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + _twoDigits(n % 100) : '')
   : _twoDigits(n);
 
-export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0) => {
+// `claimType` (optional) restricts which services apply — each service carries
+// `claimTypes` (from the billing-service-name master). A service only counts
+// when its claimTypes is empty (universal) or includes the claim's type.
+// Without a claimType argument, no filtering happens (legacy callers unchanged).
+export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0, claimType = null) => {
   let total = 0;
   for (const svc of billingServices) {
     if (!svc.isActive) continue;
     // fixed_onetime = one-time hospital charge (empanelment etc.), not per-claim
     // fixed_monthly = monthly flat fee, not per-claim
     if (svc.billingType === 'fixed_onetime' || svc.billingType === 'fixed_monthly') continue;
+    // Skip services that don't apply to this claim's type (empty = universal).
+    const svcClaimTypes = Array.isArray(svc.claimTypes) ? svc.claimTypes : [];
+    if (claimType && svcClaimTypes.length && !svcClaimTypes.includes(claimType)) continue;
     // per_claim_slab and percentage require a valid calculationBasis
     const validBases = ['hospital_final_bill', 'final_approval'];
     if (!validBases.includes(svc.calculationBasis)) continue;
