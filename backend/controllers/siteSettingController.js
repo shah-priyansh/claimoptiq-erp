@@ -36,6 +36,11 @@ const DEFAULTS = {
   // gets appended after the invoice on page 2. Operator-configurable from
   // the Invoices page settings button. See utils/invoiceSummaryFields.js.
   invoice_summary_columns:        'patientName,doctorName,insuranceCompany,ccnNo,tpa,dateOfDischarge,finalApprovalDate,tpaFee',
+  // Comma-separated list of column keys for the on-screen Claims Report table
+  // (Reports page). Independent from invoice_summary_columns so the report
+  // table and the invoice PDF summary can show different fields. Deliberately
+  // NOT prefixed `invoice_` so getInvoiceTemplate() never picks it up.
+  report_table_columns:           'patientName,hospital,claimType,hospitalFinalBill,finalApprovalAmount,settlementAmount,tds,bankTransferAmount,status',
 };
 
 // Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them

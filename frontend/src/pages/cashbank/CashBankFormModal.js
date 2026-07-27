@@ -17,7 +17,12 @@ const blank = {
   chequeNumber: '',
 };
 
-const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, onClose, onSave }) => {
+// `lockDirection` ('in' | 'out') locks the entry direction to a single value and
+// hides the other toggle button — used when the modal is opened from a context
+// that only makes sense one way: Invoices/mark-paid → 'in' (money received),
+// Expenses/record-payment → 'out' (money paid). Left null on the Cash/Bank
+// ledger page, where the operator freely picks IN or OUT.
+const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, lockDirection = null, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
@@ -27,7 +32,7 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [
       const linked = initial.invoice ? 'invoice' : initial.expense ? 'expense' : 'none';
       setForm({
         date: (initial.date || '').slice(0, 10),
-        direction: initial.direction || 'in',
+        direction: lockDirection || initial.direction || 'in',
         mode: initial.mode || 'cash',
         amount: initial.amount ?? 0,
         notes: initial.notes || '',
@@ -39,9 +44,9 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [
         chequeNumber: initial.chequeNumber || '',
       });
     } else {
-      setForm(blank);
+      setForm({ ...blank, direction: lockDirection || blank.direction });
     }
-  }, [open, initial]);
+  }, [open, initial, lockDirection]);
 
   // When mode flips to bank/upi and no account is picked yet, auto-select the
   // operator's default account so the operator can just click Save.
@@ -99,20 +104,28 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [
           </button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={() => setForm((f) => ({ ...f, direction: 'in', link: f.link === 'expense' ? 'none' : f.link }))}
-              className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                form.direction === 'in' ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-              }`}>
-              IN — Money received
-            </button>
-            <button type="button" onClick={() => setForm((f) => ({ ...f, direction: 'out', link: f.link === 'invoice' ? 'none' : f.link }))}
-              className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                form.direction === 'out' ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-              }`}>
-              OUT — Money paid
-            </button>
-          </div>
+          {lockDirection ? (
+            <div className={`px-3 py-2 rounded-lg text-sm font-medium border text-center ${
+              lockDirection === 'in' ? 'bg-green-50 border-green-300 text-green-700' : 'bg-red-50 border-red-300 text-red-700'
+            }`}>
+              {lockDirection === 'in' ? 'IN — Money received' : 'OUT — Money paid'}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setForm((f) => ({ ...f, direction: 'in', link: f.link === 'expense' ? 'none' : f.link }))}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  form.direction === 'in' ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}>
+                IN — Money received
+              </button>
+              <button type="button" onClick={() => setForm((f) => ({ ...f, direction: 'out', link: f.link === 'invoice' ? 'none' : f.link }))}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  form.direction === 'out' ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}>
+                OUT — Money paid
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
