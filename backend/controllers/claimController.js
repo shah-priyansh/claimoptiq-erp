@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { toResponse } = require('../utils/toResponse');
 const calculateFilePrice = require('../utils/calculateFilePrice');
+const { loadServiceClaimTypesMap, attachClaimTypes } = require('../utils/billingServiceClaimTypes');
 const { streamFileToResponse } = require('../services/fileRetrieval');
 const backupService = require('../services/backupService');
 const { loadConfig: loadBackupConfig } = require('../utils/backupConfig');
@@ -280,6 +281,7 @@ exports.getClaims = async (req, res) => {
             where,
             select: {
               hospitalId: true,
+              claimType: true,
               hospitalFinalBill: true,
               finalApprovalAmount: true,
               filePrice: true,
@@ -302,17 +304,22 @@ exports.getClaims = async (req, res) => {
         // `calculateFilePrice` reads. Filters out fixed_monthly / fixed_onetime
         // rows + their (empty) slabs subquery on the join, shrinking payload
         // ~50% on hospitals that carry both fee types.
-        const hosps = await prisma.hospital.findMany({
-          where: { id: { in: [...allHospitalIds] } },
-          select: {
-            id: true,
-            billingServices: {
-              where: { isActive: true, billingType: { in: ['per_claim_slab', 'percentage'] } },
-              include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+        const [hosps, svcClaimTypes] = await Promise.all([
+          prisma.hospital.findMany({
+            where: { id: { in: [...allHospitalIds] } },
+            select: {
+              id: true,
+              billingServices: {
+                where: { isActive: true, billingType: { in: ['per_claim_slab', 'percentage'] } },
+                include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+              },
             },
-          },
-        });
-        hosps.forEach((h) => { billingMap[h.id] = h.billingServices; });
+          }),
+          loadServiceClaimTypesMap(),
+        ]);
+        // Attach each service's claim-type applicability (from the master) so
+        // calculateFilePrice can skip services that don't apply to a claim's type.
+        hosps.forEach((h) => { billingMap[h.id] = attachClaimTypes(h.billingServices, svcClaimTypes); });
       }
     }
 
@@ -324,7 +331,7 @@ exports.getClaims = async (req, res) => {
         ...c,
         filePrice: c.filePriceOverridden && c.filePrice
           ? c.filePrice
-          : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0),
+          : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType),
       }));
     } else {
       stripped = claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
@@ -350,7 +357,7 @@ exports.getClaims = async (req, res) => {
         for (const c of priceRows) {
           totalFilePrice += c.filePriceOverridden && c.filePrice
             ? c.filePrice
-            : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
+            : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType);
         }
         totals.filePrice = totalFilePrice;
       }
@@ -379,6 +386,14 @@ exports.getClaim = async (req, res) => {
     const userHospitalId = getUserHospitalId(req.user);
     if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
       return res.status(403).json({ message: "You can only view your own hospital's claims" });
+    }
+
+    // Attach each billing service's claim-type applicability (from the master)
+    // so the client-side file-price calc can skip services that don't apply to
+    // this claim's type. Mirrors the server-side calc used in the claims list.
+    if (claim.hospital?.billingServices?.length) {
+      const svcClaimTypes = await loadServiceClaimTypesMap();
+      claim.hospital.billingServices = attachClaimTypes(claim.hospital.billingServices, svcClaimTypes);
     }
 
     res.json(toResponse(claim));
@@ -464,6 +479,92 @@ exports.updateClaim = async (req, res) => {
       maybeBackupSettledClaims(updated.id, req.user.id);
     }
 
+    res.json(toResponse(updated));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ─── Status-journey corrections ───────────────────────────────────────────────
+// Lets an editor fix an accidental status change: remove a wrong entry from the
+// Status Journey, or change which status a journey step represents. After either
+// operation the claim's live `status` is re-synced to the most recent remaining
+// history entry, so the header badge and the "Current" pill always agree.
+const resyncClaimStatus = async (claimId) => {
+  const remaining = await prisma.claimStatusHistory.findMany({
+    where: { claimId },
+    orderBy: { changedAt: 'asc' },
+  });
+  if (remaining.length) {
+    const current = remaining[remaining.length - 1];
+    await prisma.claim.update({ where: { id: claimId }, data: { status: current.status } });
+  }
+  return remaining;
+};
+
+// Shared guard: fetch the claim + its history, enforce hospital scope, and
+// locate the target history entry. Returns { claim, entry } or sends the error.
+const loadClaimHistoryEntry = async (req, res) => {
+  const { id, historyId } = req.params;
+  const claim = await prisma.claim.findUnique({
+    where: { id },
+    include: { statusHistory: true },
+  });
+  if (!claim) { res.status(404).json({ message: 'Claim not found' }); return null; }
+
+  const userHospitalId = getUserHospitalId(req.user);
+  if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+    res.status(403).json({ message: "You can only edit your own hospital's claims" });
+    return null;
+  }
+
+  const entry = claim.statusHistory.find((h) => h.id === historyId);
+  if (!entry) { res.status(404).json({ message: 'Status entry not found' }); return null; }
+  return { claim, entry };
+};
+
+exports.deleteStatusHistory = async (req, res) => {
+  try {
+    const loaded = await loadClaimHistoryEntry(req, res);
+    if (!loaded) return;
+    const { id } = req.params;
+    const { claim } = loaded;
+
+    // Always keep at least one entry so every claim has a status trail.
+    if (claim.statusHistory.length <= 1) {
+      return res.status(400).json({ message: 'Cannot remove the only status entry' });
+    }
+
+    await prisma.claimStatusHistory.delete({ where: { id: req.params.historyId } });
+    await resyncClaimStatus(id);
+
+    const updated = await prisma.claim.findUnique({ where: { id }, include: claimFullInclude });
+    res.json(toResponse(updated));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.updateStatusHistory = async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ message: 'status is required' });
+
+    const loaded = await loadClaimHistoryEntry(req, res);
+    if (!loaded) return;
+    const { id } = req.params;
+
+    // Only allow slugs that actually exist in the status master.
+    const statusExists = await prisma.claimStatus.findUnique({ where: { slug: status } });
+    if (!statusExists) return res.status(400).json({ message: 'Unknown status' });
+
+    await prisma.claimStatusHistory.update({
+      where: { id: req.params.historyId },
+      data: { status },
+    });
+    await resyncClaimStatus(id);
+
+    const updated = await prisma.claim.findUnique({ where: { id }, include: claimFullInclude });
     res.json(toResponse(updated));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -1620,7 +1721,7 @@ exports.getDashboardStats = async (req, res) => {
       }),
       prisma.claim.findMany({
         where: { ...baseWhere, isBilled: true, month: { gte: monthStart, lte: monthEnd } },
-        select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, hospitalId: true },
+        select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, hospitalId: true, claimType: true },
       }),
       userHospitalId
         ? Promise.resolve(0)
@@ -1639,17 +1740,20 @@ exports.getDashboardStats = async (req, res) => {
     )];
     const hospitalBillingMap = {};
     if (hospitalsNeedingCalc.length > 0) {
-      const hospitals = await prisma.hospital.findMany({
-        where: { id: { in: hospitalsNeedingCalc } },
-        select: {
-          id: true,
-          billingServices: {
-            where: { isActive: true, billingType: { in: ['per_claim_slab', 'percentage'] } },
-            include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+      const [hospitals, svcClaimTypes] = await Promise.all([
+        prisma.hospital.findMany({
+          where: { id: { in: hospitalsNeedingCalc } },
+          select: {
+            id: true,
+            billingServices: {
+              where: { isActive: true, billingType: { in: ['per_claim_slab', 'percentage'] } },
+              include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+            },
           },
-        },
-      });
-      hospitals.forEach(h => { hospitalBillingMap[h.id] = h.billingServices; });
+        }),
+        loadServiceClaimTypesMap(),
+      ]);
+      hospitals.forEach(h => { hospitalBillingMap[h.id] = attachClaimTypes(h.billingServices, svcClaimTypes); });
     }
 
     // Compute counts and breakdowns in memory
@@ -1671,7 +1775,7 @@ exports.getDashboardStats = async (req, res) => {
     for (const c of monthlyBilledClaims) {
       totalFilePrice += c.filePriceOverridden && c.filePrice
         ? c.filePrice
-        : calculateFilePrice(hospitalBillingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0);
+        : calculateFilePrice(hospitalBillingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType);
     }
 
     const payload = {

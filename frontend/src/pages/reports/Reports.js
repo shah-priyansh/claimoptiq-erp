@@ -273,7 +273,7 @@ const Reports = () => {
   }, [filters.hospital, filters.reference, filters.directPatient, filters.dateFrom, filters.dateTo, filters.status]);
 
   const getFilePrice = useCallback(
-    (c) => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0),
+    (c) => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType),
     []
   );
 

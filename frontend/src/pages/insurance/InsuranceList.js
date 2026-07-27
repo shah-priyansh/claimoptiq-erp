@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineUpload, HiOutlineLightningBolt, HiOutlineX } from 'react-icons/hi';
 import MasterContactFormModal from '../../components/common/MasterContactFormModal';
 import BulkStatusAutomationModal from '../../components/common/BulkStatusAutomationModal';
+import StatusAutomationBadges from '../../components/common/StatusAutomationBadges';
 import MasterImportModal from '../../components/master/MasterImportModal';
 import PaginationBar from '../../components/ui/PaginationBar';
 
@@ -210,7 +211,10 @@ const InsuranceList = () => {
                     </td>
                   )}
                   <td className="py-3 px-4 text-sm text-gray-500">{(currentPage - 1) * pageSize + idx + 1}</td>
-                  <td className="py-3 px-4 text-sm font-medium text-gray-800">{item.name}</td>
+                  <td className="py-3 px-4">
+                    <div className="text-sm font-medium text-gray-800">{item.name}</div>
+                    <StatusAutomationBadges rules={item.statusAutomation} claimStatuses={claimStatuses} />
+                  </td>
                   <td className="py-3 px-4 text-sm text-gray-600">{item.contactPerson || '-'}</td>
                   <td className="py-3 px-4 text-sm text-gray-600">{item.mobile || '-'}</td>
                   <td className="py-3 px-4 text-sm text-gray-600">{item.email || '-'}</td>

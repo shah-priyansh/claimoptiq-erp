@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { getClaimAPI, updateClaimAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, getClaimDocFileURL } from '../../services/api';
+import { getClaimAPI, updateClaimAPI, updateClaimStatusHistoryAPI, deleteClaimStatusHistoryAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, getClaimDocFileURL } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -247,6 +247,11 @@ const ClaimDetail = () => {
   const [statusDropOpen, setStatusDropOpen] = useState(false);
   const [statusDropPos, setStatusDropPos] = useState({ top: 0, left: 0 });
   const [statusSearch, setStatusSearch] = useState('');
+  // Status Journey corrections — edit/remove an accidental status entry
+  const [histEdit, setHistEdit] = useState(null);        // { id, slug } of entry being edited
+  const [histDropPos, setHistDropPos] = useState({ top: 0, left: 0, maxWidth: 360 });
+  const [histSearch, setHistSearch] = useState('');
+  const [histBusy, setHistBusy] = useState(false);
   const [rejectionModal, setRejectionModal] = useState(false);
   const [rejectionInput, setRejectionInput] = useState('');
   const statusBtnRef = useRef(null);
@@ -290,6 +295,7 @@ const ClaimDetail = () => {
       claim.hospital.billingServices,
       dischargeForm.hospitalFinalBill || 0,
       dischargeForm.finalApprovalAmount || 0,
+      claim.claimType,
     );
     setSettlementForm(prev => ({ ...prev, filePrice: computed }));
   }, [claim, dischargeForm.hospitalFinalBill, dischargeForm.finalApprovalAmount, filePriceManual]);
@@ -427,6 +433,41 @@ const ClaimDetail = () => {
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to update status');
     } finally { setStatusUpdating(false); }
+  };
+
+  // Open the status picker for a specific journey entry (correction flow).
+  const openHistEdit = (e, entry) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const maxWidth = Math.min(360, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - maxWidth - 8));
+    setHistDropPos({ top: r.bottom + 6, left, maxWidth });
+    setHistSearch('');
+    setHistEdit({ id: entry.id, slug: entry.slug });
+  };
+
+  const handleEditHistory = async (entry, slug) => {
+    setHistEdit(null);
+    if (slug === entry.slug) return;
+    setHistBusy(true);
+    try {
+      await updateClaimStatusHistoryAPI(id, entry.id, { status: slug });
+      toast.success('Status entry updated');
+      await fetchClaim(true);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to update status entry');
+    } finally { setHistBusy(false); }
+  };
+
+  const handleDeleteHistory = async (entry) => {
+    if (!await confirm(`Remove the "${entry.label}" step from the status journey?`, { title: 'Remove Status Entry', confirmLabel: 'Remove' })) return;
+    setHistBusy(true);
+    try {
+      await deleteClaimStatusHistoryAPI(id, entry.id);
+      toast.success('Status entry removed');
+      await fetchClaim(true);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to remove status entry');
+    } finally { setHistBusy(false); }
   };
 
   const handleUpdateStatus = (slug) => {
@@ -662,6 +703,7 @@ const ClaimDetail = () => {
     const meta = statusMeta(h.status);
     return {
       key: h._id || `${h.status}-${idx}`,
+      id: h._id || null,
       slug: h.status,
       label: meta?.label || h.status.replace(/_/g, ' '),
       color: meta?.color || 'gray',
@@ -940,11 +982,33 @@ const ClaimDetail = () => {
                               ? <span className="text-[10px] font-bold">{idx + 1}</span>
                               : <HiCheck className="w-3.5 h-3.5" />}
                           </div>
-                          {isCurrent && (
-                            <span className="text-[9px] font-bold text-primary-600 uppercase tracking-wider bg-primary-100 px-1.5 py-0.5 rounded">
-                              Current
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {isCurrent && (
+                              <span className="text-[9px] font-bold text-primary-600 uppercase tracking-wider bg-primary-100 px-1.5 py-0.5 rounded">
+                                Current
+                              </span>
+                            )}
+                            {isEditable && step.id && (
+                              <>
+                                <button
+                                  onClick={(e) => openHistEdit(e, step)}
+                                  disabled={histBusy}
+                                  title="Change this status"
+                                  className="p-1 text-gray-300 hover:text-primary-600 hover:bg-primary-50 rounded-md transition-colors disabled:opacity-50">
+                                  <HiOutlinePencil className="w-3 h-3" />
+                                </button>
+                                {journey.length > 1 && (
+                                  <button
+                                    onClick={() => handleDeleteHistory(step)}
+                                    disabled={histBusy}
+                                    title="Remove this status entry"
+                                    className="p-1 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50">
+                                    <HiOutlineTrash className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </div>
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize ${pillCls}`}>
                           {step.label}
@@ -1707,6 +1771,49 @@ const ClaimDetail = () => {
                   return (
                     <button key={s._id}
                       onClick={() => { handleUpdateStatus(s.slug); setStatusDropOpen(false); }}
+                      className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
+                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${cls}`}>{s.label}</span>
+                      {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
+      {/* ── Status Journey entry editor (correction flow) ── */}
+      {histEdit && !histBusy && ReactDOM.createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setHistEdit(null)} />
+          <div style={{ top: histDropPos.top, left: histDropPos.left, minWidth: 224, maxWidth: histDropPos.maxWidth }}
+            className="fixed z-50 bg-white rounded-2xl shadow-2xl shadow-black/10 border border-gray-100 overflow-hidden">
+            <p className="px-4 pt-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
+              Change This Status
+            </p>
+            <div className="px-3 pb-2">
+              <div className="relative">
+                <HiOutlineSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
+                <input
+                  autoFocus
+                  value={histSearch}
+                  onChange={e => setHistSearch(e.target.value)}
+                  placeholder="Search..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+            </div>
+            <div className="max-h-56 overflow-y-auto overscroll-contain border-t border-gray-100">
+              {claimStatuses
+                .filter(s => statusAppliesToType(s, claim.claimType) || s.slug === histEdit.slug)
+                .filter(s => s.label.toLowerCase().includes(histSearch.toLowerCase()))
+                .map(s => {
+                  const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';
+                  const isActive = s.slug === histEdit.slug;
+                  return (
+                    <button key={s._id}
+                      onClick={() => handleEditHistory(histEdit, s.slug)}
                       className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
                       <span className={`px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${cls}`}>{s.label}</span>
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}

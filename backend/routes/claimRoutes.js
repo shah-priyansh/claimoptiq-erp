@@ -4,6 +4,7 @@ const {
   createClaim, getClaims, getClaim, updateClaim,
   uploadDocuments, deleteDocument, streamDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims, importClaims,
   deleteClaim, deleteAllClaims, fixBilledStatus,
+  updateStatusHistory, deleteStatusHistory,
 } = require('../controllers/claimController');
 const { protect, checkPermission } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -29,6 +30,9 @@ router.route('/:id')
   .get(checkPermission('claims', 'view'), getClaim)
   .put(checkPermission('claims', 'edit'), updateClaim)
   .delete(checkPermission('claims', 'delete'), deleteClaim);
+// Correct an accidental status change: edit or remove a Status Journey entry.
+router.put('/:id/status-history/:historyId', checkPermission('claims', 'edit'), updateStatusHistory);
+router.delete('/:id/status-history/:historyId', checkPermission('claims', 'edit'), deleteStatusHistory);
 router.post('/:id/documents', checkPermission('claims', 'view'), upload.array('files', 50), uploadDocuments);
 router.get('/:id/documents/:docId/file', checkPermission('claims', 'view'), streamDocument);
 router.delete('/:id/documents/:docId', checkPermission('claims', 'delete'), deleteDocument);
