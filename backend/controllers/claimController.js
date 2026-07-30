@@ -233,6 +233,9 @@ exports.getClaims = async (req, res) => {
         { policyNo: { contains: search, mode: 'insensitive' } },
         { ccnNo: { contains: search, mode: 'insensitive' } },
         { clientId: { contains: search, mode: 'insensitive' } },
+        { hospital: { is: { name: { contains: search, mode: 'insensitive' } } } },
+        { hospital: { is: { referenceBy: { contains: search, mode: 'insensitive' } } } },
+        { hospital: { is: { reference: { is: { name: { contains: search, mode: 'insensitive' } } } } } },
         ...(Number.isInteger(searchSr) && searchSr > 0 ? [{ srNo: searchSr }] : []),
       ];
     }
@@ -309,10 +312,6 @@ exports.getClaims = async (req, res) => {
         for (const r of priceRows) if (r.hospitalId) allHospitalIds.add(r.hospitalId);
       }
       if (allHospitalIds.size) {
-        // Narrow to slab/percentage services — the only types
-        // `calculateFilePrice` reads. Filters out fixed_monthly / fixed_onetime
-        // rows + their (empty) slabs subquery on the join, shrinking payload
-        // ~50% on hospitals that carry both fee types.
         const [hosps, svcClaimTypes] = await Promise.all([
           prisma.hospital.findMany({
             where: { id: { in: [...allHospitalIds] } },
@@ -1617,6 +1616,12 @@ exports.exportClaims = async (req, res) => {
         { policyNo: { contains: search, mode: 'insensitive' } },
         { ccnNo: { contains: search, mode: 'insensitive' } },
         { clientId: { contains: search, mode: 'insensitive' } },
+        // Hospital name + its reference (denormalised text and linked master name).
+        // Combines with any hospitalId/reference scoping via AND, so a hospital
+        // user's results stay confined to their own hospital.
+        { hospital: { is: { name: { contains: search, mode: 'insensitive' } } } },
+        { hospital: { is: { referenceBy: { contains: search, mode: 'insensitive' } } } },
+        { hospital: { is: { reference: { is: { name: { contains: search, mode: 'insensitive' } } } } } },
         ...(Number.isInteger(searchSr) && searchSr > 0 ? [{ srNo: searchSr }] : []),
       ];
     }
@@ -1662,7 +1667,6 @@ exports.bulkBill = async (req, res) => {
   }
 };
 
-// Claim statuses change rarely — cache for 5 minutes to skip a DB round trip on every dashboard load
 let _statusCache = null;
 let _statusCacheExpiry = 0;
 const STATUS_CACHE_TTL = 5 * 60 * 1000;
@@ -1680,11 +1684,6 @@ async function getCachedStatuses() {
 
 exports.invalidateStatusCache = () => { _statusCache = null; };
 
-// Short-lived in-memory cache keyed by (userHospitalId, current-month) so
-// repeated dashboard loads (React strict-mode double-mount, tab switches,
-// rapid navigation) don't repeatedly rerun the heavy aggregation queries.
-// 30s is short enough that live counters feel real-time while still cutting
-// the amortised query cost by ~95% on active sessions.
 const DASHBOARD_CACHE_TTL = 30 * 1000;
 const _dashboardCache = new Map();
 
@@ -1705,11 +1704,6 @@ exports.getDashboardStats = async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    // Single parallel round trip — all independent queries fire at once.
-    // Settled-month totals use `aggregate` so the DB returns a single row of
-    // sums instead of shipping every claim record over the wire and summing
-    // in JS. Billed-month claims still need per-row data because filePrice
-    // has to be calculated against each hospital's slab config.
     const [
       total,
       statusGroups,
