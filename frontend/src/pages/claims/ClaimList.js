@@ -192,11 +192,21 @@ const ClaimList = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initStatus]);
 
-  // Distinct, sorted referenceBy values from active hospitals (for super-admin filter dropdown)
+  // Distinct reference names for the super-admin filter dropdown. Prefer the
+  // canonical Reference-master name (via the hospital's reference link) over
+  // the denormalised free-text referenceBy, and de-duplicate case-insensitively
+  // so casing drift (e.g. "FENIL PANWALA" vs "Fenil Panwala") collapses to a
+  // single option instead of showing the same person twice.
   const referenceOptions = React.useMemo(() => {
-    const seen = new Set();
-    hospitals.forEach(h => { if (h.referenceBy && h.referenceBy.trim()) seen.add(h.referenceBy.trim()); });
-    return Array.from(seen).sort((a, b) => a.localeCompare(b)).map(r => ({ value: r, label: r }));
+    const byKey = new Map(); // lowercased name -> canonical display name
+    hospitals.forEach(h => {
+      const name = (h.reference?.name || h.referenceBy || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      // A master-linked name wins the canonical casing; otherwise keep first seen.
+      if (!byKey.has(key) || h.reference?.name) byKey.set(key, name);
+    });
+    return Array.from(byKey.values()).sort((a, b) => a.localeCompare(b)).map(r => ({ value: r, label: r }));
   }, [hospitals]);
   const [searchInput, setSearchInput] = useState(() => filters.search || '');
 

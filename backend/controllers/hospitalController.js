@@ -34,6 +34,10 @@ const hospitalListInclude = {
 // had zero doctors.
 const hospitalDropdownSelect = {
   id: true, name: true, isActive: true, referenceBy: true,
+  // Canonical reference name from the master (when the hospital is linked) so
+  // the claims "All References" filter can dedupe on the master's casing
+  // rather than the denormalised referenceBy text, which can drift in case.
+  reference: { select: { name: true } },
   doctors: { select: { id: true, name: true } },
 };
 

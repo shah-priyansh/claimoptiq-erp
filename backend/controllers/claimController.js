@@ -186,10 +186,19 @@ exports.getClaims = async (req, res) => {
       where.hospitalId = hospital;
     }
 
-    // Reference filter — only meaningful for non-hospital users; matches hospital.referenceBy.
-    // Combines with any hospitalId filter; excludes direct-patient claims (no hospital relation).
+    // Reference filter — only meaningful for non-hospital users. Match the
+    // hospital's reference case-insensitively (the denormalised referenceBy text
+    // can drift in casing from the Reference master) and also match hospitals
+    // linked to the master by name, so a linked hospital with a blank/legacy
+    // referenceBy still filters correctly. Combines with any hospitalId filter;
+    // excludes direct-patient claims (no hospital relation).
     if (reference && !userHospitalId) {
-      where.hospital = { referenceBy: reference };
+      where.hospital = {
+        OR: [
+          { referenceBy: { equals: reference, mode: 'insensitive' } },
+          { reference: { is: { name: { equals: reference, mode: 'insensitive' } } } },
+        ],
+      };
       where.isDirectPatient = false;
     }
 
@@ -1570,7 +1579,12 @@ exports.exportClaims = async (req, res) => {
     }
 
     if (reference && !userHospitalId) {
-      where.hospital = { referenceBy: reference };
+      where.hospital = {
+        OR: [
+          { referenceBy: { equals: reference, mode: 'insensitive' } },
+          { reference: { is: { name: { equals: reference, mode: 'insensitive' } } } },
+        ],
+      };
       where.isDirectPatient = false;
     }
 
@@ -1702,7 +1716,7 @@ exports.getDashboardStats = async (req, res) => {
       allStatuses,
       monthlySettledAgg,
       monthlyBilledClaims,
-      hospitalCount,
+      hospitalStats,
     ] = await Promise.all([
       prisma.claim.count({ where: baseWhere }),
       prisma.claim.groupBy({ by: ['status'], where: baseWhere, _count: { id: true } }),
@@ -1723,9 +1737,16 @@ exports.getDashboardStats = async (req, res) => {
         where: { ...baseWhere, isBilled: true, month: { gte: monthStart, lte: monthEnd } },
         select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, hospitalId: true, claimType: true },
       }),
+      // Hospital totals for the super-admin dashboard: total + active/inactive
+      // split (one groupBy round trip instead of two counts). Hospital users
+      // don't see this card, so they get zeroes.
       userHospitalId
-        ? Promise.resolve(0)
-        : prisma.hospital.count({ where: { isActive: true } }),
+        ? Promise.resolve({ total: 0, active: 0, inactive: 0 })
+        : prisma.hospital.groupBy({ by: ['isActive'], _count: { _all: true } }).then((rows) => {
+            const active = rows.find((r) => r.isActive === true)?._count._all || 0;
+            const inactive = rows.find((r) => r.isActive === false)?._count._all || 0;
+            return { total: active + inactive, active, inactive };
+          }),
     ]);
 
     // Fetch billing services only for unique hospitals that still need
@@ -1788,7 +1809,9 @@ exports.getDashboardStats = async (req, res) => {
       fileReceived,
       submitted,
       statusBreakdown,
-      hospitalCount,
+      hospitalCount: hospitalStats.total,
+      hospitalActive: hospitalStats.active,
+      hospitalInactive: hospitalStats.inactive,
       isHospitalUser: !!userHospitalId,
       monthlyStats: {
         totalSettlement,

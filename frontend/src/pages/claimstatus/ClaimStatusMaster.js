@@ -20,6 +20,14 @@ const COLOR_OPTIONS = [
   { key: 'pink',   label: 'Pink',   classes: 'bg-pink-100 text-pink-700' },
   { key: 'indigo', label: 'Indigo', classes: 'bg-indigo-100 text-indigo-700' },
   { key: 'teal',   label: 'Teal',   classes: 'bg-teal-100 text-teal-700' },
+  { key: 'cyan',    label: 'Cyan',    classes: 'bg-cyan-100 text-cyan-700' },
+  { key: 'sky',     label: 'Sky',     classes: 'bg-sky-100 text-sky-700' },
+  { key: 'emerald', label: 'Emerald', classes: 'bg-emerald-100 text-emerald-700' },
+  { key: 'lime',    label: 'Lime',    classes: 'bg-lime-100 text-lime-700' },
+  { key: 'amber',   label: 'Amber',   classes: 'bg-amber-100 text-amber-700' },
+  { key: 'rose',    label: 'Rose',    classes: 'bg-rose-100 text-rose-700' },
+  { key: 'fuchsia', label: 'Fuchsia', classes: 'bg-fuchsia-100 text-fuchsia-700' },
+  { key: 'violet',  label: 'Violet',  classes: 'bg-violet-100 text-violet-700' },
   { key: 'gray',   label: 'Gray',   classes: 'bg-gray-100 text-gray-700' },
 ];
 
