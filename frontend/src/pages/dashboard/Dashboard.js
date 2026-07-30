@@ -158,6 +158,21 @@ const Dashboard = () => {
               value={stats?.hospitalCount || 0}
               icon={HiOutlineOfficeBuilding}
               color="bg-indigo-100 text-indigo-600"
+              subtitle={
+                (stats?.hospitalActive > 0 || stats?.hospitalInactive > 0) ? (
+                  <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    {stats?.hospitalActive > 0 && (
+                      <span className="text-green-600 font-semibold">{stats.hospitalActive} Active</span>
+                    )}
+                    {stats?.hospitalActive > 0 && stats?.hospitalInactive > 0 && (
+                      <span className="text-gray-300">·</span>
+                    )}
+                    {stats?.hospitalInactive > 0 && (
+                      <span className="text-gray-500 font-semibold">{stats.hospitalInactive} Inactive</span>
+                    )}
+                  </span>
+                ) : null
+              }
             />
             <StatCard
               title="Monthly Settlements"
