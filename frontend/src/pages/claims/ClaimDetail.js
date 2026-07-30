@@ -1089,6 +1089,7 @@ const ClaimDetail = () => {
                   ['Patient Name',     claim.patientName],
                   ['Mobile',           claim.patientMobile || '—'],
                   ['Doctor',           claim.doctorName || '—'],
+                  ...(claim.hospital?.referenceBy ? [['Reference', claim.hospital.referenceBy]] : []),
                   ['Claim Type',       <ClaimTypeBadge slug={claim.claimType} label={CLAIM_TYPE_LABELS[claim.claimType]} />],
                   ['Date of Admit',    formatDate(claim.dateOfAdmit)],
                   ['Date of Discharge',formatDate(claim.dateOfDischarge)],
