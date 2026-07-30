@@ -5,7 +5,7 @@ import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exp
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
-import { STATUS_COLOR_MAP, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
+import { statusBadgeStyle, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
@@ -995,7 +995,7 @@ const ClaimList = () => {
 
     const st = claimStatuses.find(s => s.slug === c.status);
     const isUpdating = updatingId === c._id;
-    const colorCls = STATUS_COLOR_MAP[st?.color] || 'bg-gray-100 text-gray-700';
+    const colorStyle = statusBadgeStyle(st?.color);
     const label = st?.label || (c.status || '').replace(/_/g, ' ');
 
     // Only offer statuses valid for this claim's type; always keep the claim's
@@ -1025,7 +1025,7 @@ const ClaimList = () => {
 
     if (!can('claims', 'edit')) {
       return (
-        <span className={`inline-flex whitespace-nowrap capitalize px-2.5 py-1 rounded-full text-xs font-semibold ${colorCls}`}>
+        <span className="inline-flex whitespace-nowrap capitalize px-2.5 py-1 rounded-full text-xs font-semibold" style={colorStyle}>
           {label}
         </span>
       );
@@ -1037,7 +1037,8 @@ const ClaimList = () => {
           ref={btnRef}
           onClick={openDrop}
           disabled={isUpdating}
-          className={`inline-flex items-center whitespace-nowrap capitalize gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-xs font-semibold transition-opacity ${colorCls} ${isUpdating ? 'opacity-60' : ''}`}
+          className={`inline-flex items-center whitespace-nowrap capitalize gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-xs font-semibold transition-opacity ${isUpdating ? 'opacity-60' : ''}`}
+          style={colorStyle}
         >
           {isUpdating ? (
             <><div className="w-3 h-3 border-[1.5px] border-current border-t-transparent rounded-full animate-spin" /><span>Saving…</span></>
@@ -1072,7 +1073,6 @@ const ClaimList = () => {
                 ) : filtered.length === 0 ? (
                   <p className="px-4 py-4 text-xs text-gray-400 text-center">No results</p>
                 ) : filtered.map(s => {
-                  const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';
                   const isActive = s.slug === c.status;
                   return (
                     <button
@@ -1080,7 +1080,7 @@ const ClaimList = () => {
                       onClick={() => { handleStatusChange(c._id, s.slug, c.status); setIsOpen(false); }}
                       className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
                     >
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${cls}`}>{s.label}</span>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize" style={statusBadgeStyle(s.color)}>{s.label}</span>
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>
                   );
@@ -1219,7 +1219,7 @@ const ClaimList = () => {
             />
           )}
           <SearchableSelect
-            options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: `capitalize ${STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700'}` }))}
+            options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: 'capitalize', badgeStyle: statusBadgeStyle(s.color) }))}
             value={filters.status}
             onChange={val => setFilters({ ...filters, status: val, page: 1 })}
             placeholder="All Status"

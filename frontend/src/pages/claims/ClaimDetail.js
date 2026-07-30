@@ -14,7 +14,7 @@ import {
   HiOutlineShieldCheck, HiOutlinePencil, HiOutlineCalendar,
   HiOutlineClipboardList, HiOutlinePrinter,
 } from 'react-icons/hi';
-import { STATUS_COLOR_MAP, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
+import { statusBadgeStyle, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatDateTime as _formatDateTime } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -722,7 +722,7 @@ const ClaimDetail = () => {
   const canUpload = can('claims', 'edit');
 
   const currentStatusObj = claimStatuses.find(s => s.slug === claim.status);
-  const statusBadgeCls = STATUS_COLOR_MAP[currentStatusObj?.color] || 'bg-blue-100 text-blue-700';
+  const statusBadgeStyleObj = statusBadgeStyle(currentStatusObj?.color || '#3b82f6');
   const statusLabel = currentStatusObj?.label || claim.status.replace(/_/g, ' ');
 
   const tabs = [
@@ -847,13 +847,14 @@ const ClaimDetail = () => {
                     setStatusSearch(''); setStatusDropOpen(v => !v);
                   }}
                   disabled={statusUpdating}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold capitalize transition-all ${statusBadgeCls} ${statusUpdating ? 'opacity-60' : 'hover:shadow-sm'}`}>
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold capitalize transition-all ${statusUpdating ? 'opacity-60' : 'hover:shadow-sm'}`}
+                  style={statusBadgeStyleObj}>
                   {statusUpdating ? <><Spinner sm /><span>Saving…</span></> : (
                     <><span>{statusLabel}</span><HiChevronDown className={`w-3.5 h-3.5 opacity-60 transition-transform ${statusDropOpen ? 'rotate-180' : ''}`} /></>
                   )}
                 </button>
               ) : (
-                <span className={`px-3 py-1.5 rounded-full text-xs font-bold capitalize ${statusBadgeCls}`}>{statusLabel}</span>
+                <span className="px-3 py-1.5 rounded-full text-xs font-bold capitalize" style={statusBadgeStyleObj}>{statusLabel}</span>
               )}
               {isSuperAdmin && (
                 <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${claim.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>
@@ -968,7 +969,7 @@ const ClaimDetail = () => {
                 const isLast = idx === journey.length - 1;
                 const isCurrent = isLast;
                 const dt = step.changedAt ? new Date(step.changedAt) : null;
-                const pillCls = STATUS_COLOR_MAP[step.color] || 'bg-gray-100 text-gray-700';
+                const pillStyle = statusBadgeStyle(step.color);
                 const nextDt = !isLast && journey[idx + 1].changedAt
                   ? new Date(journey[idx + 1].changedAt) : null;
                 const elapsed = dt && nextDt ? formatElapsed(nextDt - dt) : null;
@@ -1017,7 +1018,7 @@ const ClaimDetail = () => {
                             )}
                           </div>
                         </div>
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize ${pillCls}`}>
+                        <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize" style={pillStyle}>
                           {step.label}
                         </span>
                         {dt && (
@@ -1788,13 +1789,12 @@ const ClaimDetail = () => {
                 .filter(s => statusAppliesToType(s, claim.claimType) || s.slug === claim.status)
                 .filter(s => s.label.toLowerCase().includes(statusSearch.toLowerCase()))
                 .map(s => {
-                  const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';
                   const isActive = s.slug === claim.status;
                   return (
                     <button key={s._id}
                       onClick={() => { handleUpdateStatus(s.slug); setStatusDropOpen(false); }}
                       className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
-                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${cls}`}>{s.label}</span>
+                      <span className="px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize" style={statusBadgeStyle(s.color)}>{s.label}</span>
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>
                   );
@@ -1831,13 +1831,12 @@ const ClaimDetail = () => {
                 .filter(s => statusAppliesToType(s, claim.claimType) || s.slug === histEdit.slug)
                 .filter(s => s.label.toLowerCase().includes(histSearch.toLowerCase()))
                 .map(s => {
-                  const cls = STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700';
                   const isActive = s.slug === histEdit.slug;
                   return (
                     <button key={s._id}
                       onClick={() => handleEditHistory(histEdit, s.slug)}
                       className={`w-full px-3 py-2 flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
-                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${cls}`}>{s.label}</span>
+                      <span className="px-3 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize" style={statusBadgeStyle(s.color)}>{s.label}</span>
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>
                   );

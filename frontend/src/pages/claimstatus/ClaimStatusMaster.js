@@ -10,30 +10,91 @@ import {
 import Toggle from '../../components/ui/Toggle';
 import { exportRowsXlsx } from '../reports/reportUtils';
 
+// Preset swatches offered as quick-picks in the color picker. Each `key`
+// doubles as the legacy value stored for statuses created before the picker
+// existed, so this name -> hex map keeps those old rows rendering correctly.
+// Hex values are the Tailwind -500 shades the presets used to map to.
 const COLOR_OPTIONS = [
-  { key: 'blue',   label: 'Blue',   classes: 'bg-blue-100 text-blue-700' },
-  { key: 'green',  label: 'Green',  classes: 'bg-green-100 text-green-700' },
-  { key: 'red',    label: 'Red',    classes: 'bg-red-100 text-red-700' },
-  { key: 'yellow', label: 'Yellow', classes: 'bg-yellow-100 text-yellow-700' },
-  { key: 'purple', label: 'Purple', classes: 'bg-purple-100 text-purple-700' },
-  { key: 'orange', label: 'Orange', classes: 'bg-orange-100 text-orange-700' },
-  { key: 'pink',   label: 'Pink',   classes: 'bg-pink-100 text-pink-700' },
-  { key: 'indigo', label: 'Indigo', classes: 'bg-indigo-100 text-indigo-700' },
-  { key: 'teal',   label: 'Teal',   classes: 'bg-teal-100 text-teal-700' },
-  { key: 'cyan',    label: 'Cyan',    classes: 'bg-cyan-100 text-cyan-700' },
-  { key: 'sky',     label: 'Sky',     classes: 'bg-sky-100 text-sky-700' },
-  { key: 'emerald', label: 'Emerald', classes: 'bg-emerald-100 text-emerald-700' },
-  { key: 'lime',    label: 'Lime',    classes: 'bg-lime-100 text-lime-700' },
-  { key: 'amber',   label: 'Amber',   classes: 'bg-amber-100 text-amber-700' },
-  { key: 'rose',    label: 'Rose',    classes: 'bg-rose-100 text-rose-700' },
-  { key: 'fuchsia', label: 'Fuchsia', classes: 'bg-fuchsia-100 text-fuchsia-700' },
-  { key: 'violet',  label: 'Violet',  classes: 'bg-violet-100 text-violet-700' },
-  { key: 'gray',   label: 'Gray',   classes: 'bg-gray-100 text-gray-700' },
+  { key: 'blue',    hex: '#3b82f6' },
+  { key: 'green',   hex: '#22c55e' },
+  { key: 'red',     hex: '#ef4444' },
+  { key: 'yellow',  hex: '#eab308' },
+  { key: 'purple',  hex: '#a855f7' },
+  { key: 'orange',  hex: '#f97316' },
+  { key: 'pink',    hex: '#ec4899' },
+  { key: 'indigo',  hex: '#6366f1' },
+  { key: 'teal',    hex: '#14b8a6' },
+  { key: 'cyan',    hex: '#06b6d4' },
+  { key: 'sky',     hex: '#0ea5e9' },
+  { key: 'emerald', hex: '#10b981' },
+  { key: 'lime',    hex: '#84cc16' },
+  { key: 'amber',   hex: '#f59e0b' },
+  { key: 'rose',    hex: '#f43f5e' },
+  { key: 'fuchsia', hex: '#d946ef' },
+  { key: 'violet',  hex: '#8b5cf6' },
+  { key: 'gray',    hex: '#6b7280' },
 ];
 
-export const STATUS_COLOR_MAP = Object.fromEntries(
-  COLOR_OPTIONS.map(c => [c.key, c.classes])
-);
+const NAMED_COLOR_HEX = Object.fromEntries(COLOR_OPTIONS.map(c => [c.key, c.hex]));
+
+// Resolve a stored status color to a normalized 6-digit hex. Accepts both the
+// new picker values (`#rrggbb` / `#rgb`) and the legacy named keys (blue,
+// green, …) so historical rows keep their colors.
+export const hexFromStatusColor = (color) => {
+  if (typeof color === 'string') {
+    const v = color.trim();
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+    if (m) {
+      let hx = m[1];
+      if (hx.length === 3) hx = hx.split('').map(c => c + c).join('');
+      return ('#' + hx).toLowerCase();
+    }
+    if (NAMED_COLOR_HEX[v]) return NAMED_COLOR_HEX[v];
+  }
+  return NAMED_COLOR_HEX.gray;
+};
+
+const hexToHsl = (color) => {
+  const hex = hexFromStatusColor(color).slice(1);
+  const r = parseInt(hex.slice(0, 2), 16) / 255;
+  const g = parseInt(hex.slice(2, 4), 16) / 255;
+  const b = parseInt(hex.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  let s = 0, h = 0;
+  if (d !== 0) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+};
+
+// Inline style for a status pill: a pastel tint + dark, readable text derived
+// from any hue — mirrors the old Tailwind `bg-*-100 text-*-700` pairing so
+// pills look consistent whether the color is a preset or a custom pick.
+export const statusBadgeStyle = (color) => {
+  const { h, s } = hexToHsl(color);
+  return {
+    backgroundColor: `hsl(${h} ${Math.min(s, 92)}% 93%)`,
+    color: `hsl(${h} ${Math.min(s, 90)}% 32%)`,
+  };
+};
+
+// Inline colors for a dashboard status card (accent bar / background / label /
+// number), mirroring the old `-500 / -50 / -700 / -800` shade ramp.
+export const statusCardStyle = (color) => {
+  const { h, s } = hexToHsl(color);
+  return {
+    bar:  `hsl(${h} ${Math.min(s, 90)}% 55%)`,
+    bg:   `hsl(${h} ${Math.min(s, 85)}% 97%)`,
+    text: `hsl(${h} ${Math.min(s, 90)}% 34%)`,
+    num:  `hsl(${h} ${Math.min(s, 90)}% 27%)`,
+  };
+};
 
 // Claim types a status can be restricted to. Values match Claim.claimType.
 export const CLAIM_TYPE_OPTIONS = [
@@ -81,7 +142,7 @@ const ClaimTypeSelector = ({ value, onChange }) => {
   );
 };
 
-const emptyForm = { label: '', slug: '', color: 'blue', order: '', claimTypes: [] };
+const emptyForm = { label: '', slug: '', color: '#3b82f6', order: '', claimTypes: [] };
 
 const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
   const handleLabelChange = (val) => {
@@ -91,6 +152,8 @@ const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
       slug: f._id ? f.slug : val.toLowerCase().replace(/\s+/g, '_'),
     }));
   };
+
+  const pickedHex = hexFromStatusColor(form.color);
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center">
@@ -127,17 +190,50 @@ const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
-            <div className="flex flex-wrap gap-2">
-              {COLOR_OPTIONS.map(c => (
-                <button
-                  key={c.key}
-                  type="button"
-                  onClick={() => setForm(f => ({ ...f, color: c.key }))}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border-2 transition-all ${c.classes} ${form.color === c.key ? 'border-gray-800 scale-110' : 'border-transparent'}`}
-                >
-                  {c.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-3">
+              {/* Native color picker — click the swatch to pick any color */}
+              <label
+                className="relative w-11 h-11 rounded-lg border border-gray-300 shadow-sm cursor-pointer flex-shrink-0 overflow-hidden"
+                style={{ backgroundColor: pickedHex }}
+                title="Pick a color"
+              >
+                <input
+                  type="color"
+                  value={pickedHex}
+                  onChange={(e) => setForm(f => ({ ...f, color: e.target.value }))}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              </label>
+              {/* Hex value, editable directly */}
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">#</span>
+                <input
+                  value={pickedHex.replace('#', '').toUpperCase()}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+                    setForm(f => ({ ...f, color: '#' + v }));
+                  }}
+                  placeholder="3B82F6"
+                  maxLength={6}
+                  className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm font-mono uppercase focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+              </div>
+            </div>
+            {/* Preset quick-picks */}
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {COLOR_OPTIONS.map(c => {
+                const active = pickedHex === c.hex;
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, color: c.hex }))}
+                    title={c.key}
+                    className={`w-6 h-6 rounded-full transition-transform hover:scale-110 ${active ? 'ring-2 ring-offset-1 ring-gray-800' : 'ring-1 ring-black/10'}`}
+                    style={{ backgroundColor: c.hex }}
+                  />
+                );
+              })}
             </div>
           </div>
 
@@ -165,7 +261,7 @@ const Modal = ({ title, form, setForm, onSave, onClose, saving }) => {
           {form.label && (
             <div className="pt-2">
               <p className="text-xs text-gray-500 mb-2">Preview:</p>
-              <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${STATUS_COLOR_MAP[form.color] || 'bg-gray-100 text-gray-700'}`}>
+              <span className="px-2.5 py-1 rounded-full text-xs font-medium capitalize" style={statusBadgeStyle(form.color)}>
                 {form.label}
               </span>
             </div>
@@ -207,18 +303,19 @@ const ClaimStatusMaster = () => {
   useEffect(() => { fetch(); }, []);
 
   const openCreate = () => { setForm(emptyForm); setModal('create'); };
-  const openEdit = (s) => { setForm({ ...s, order: s.order ?? '', claimTypes: Array.isArray(s.claimTypes) ? s.claimTypes : [] }); setModal('edit'); };
+  const openEdit = (s) => { setForm({ ...s, color: hexFromStatusColor(s.color), order: s.order ?? '', claimTypes: Array.isArray(s.claimTypes) ? s.claimTypes : [] }); setModal('edit'); };
   const closeModal = () => { setModal(null); setForm(emptyForm); };
 
   const handleSave = async () => {
     if (!form.label.trim()) return toast.error('Label is required');
     setSaving(true);
+    const color = hexFromStatusColor(form.color); // normalize half-typed hex before persisting
     try {
       if (modal === 'create') {
-        await createClaimStatusAPI({ label: form.label, slug: form.slug, color: form.color, order: form.order || undefined, claimTypes: form.claimTypes });
+        await createClaimStatusAPI({ label: form.label, slug: form.slug, color, order: form.order || undefined, claimTypes: form.claimTypes });
         toast.success('Status created');
       } else {
-        await updateClaimStatusAPI(form._id, { label: form.label, color: form.color, order: form.order || undefined, claimTypes: form.claimTypes });
+        await updateClaimStatusAPI(form._id, { label: form.label, color, order: form.order || undefined, claimTypes: form.claimTypes });
         toast.success('Status updated');
       }
       closeModal();
@@ -317,7 +414,7 @@ const ClaimStatusMaster = () => {
               <tr key={s._id} className="hover:bg-gray-50">
                 <td className="py-3 px-4 text-sm text-gray-400 font-mono">{s.order}</td>
                 <td className="py-3 px-4">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700'}`}>
+                  <span className="px-2.5 py-1 rounded-full text-xs font-medium capitalize" style={statusBadgeStyle(s.color)}>
                     {s.label}
                   </span>
                 </td>

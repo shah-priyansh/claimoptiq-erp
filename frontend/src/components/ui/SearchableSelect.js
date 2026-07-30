@@ -91,8 +91,8 @@ const SearchableSelect = ({
           </>
         ) : (
           <>
-            {selected?.badgeClass ? (
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold truncate ${selected.badgeClass}`}>{selected.label}</span>
+            {selected?.badgeClass || selected?.badgeStyle ? (
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold truncate ${selected.badgeClass || ''}`} style={selected.badgeStyle}>{selected.label}</span>
             ) : (
               <span className={`flex-1 truncate ${selected ? 'text-gray-800' : 'text-gray-400'}`}>
                 {selected ? selected.label : placeholder}
@@ -175,8 +175,8 @@ const SearchableSelect = ({
                         isActive ? 'bg-primary-50' : 'hover:bg-gray-50'
                       }`}
                     >
-                      {o.badgeClass ? (
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${o.badgeClass}`}>{o.label}</span>
+                      {o.badgeClass || o.badgeStyle ? (
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${o.badgeClass || ''}`} style={o.badgeStyle}>{o.label}</span>
                       ) : (
                         <span className={`whitespace-nowrap ${isActive ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>{o.label}</span>
                       )}
