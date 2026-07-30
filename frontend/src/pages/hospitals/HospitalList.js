@@ -72,13 +72,16 @@ const HospitalList = () => {
   };
 
   const handleDelete = async (id, name) => {
-    if (!await confirm(`Deactivate hospital "${name}"?`, { title: 'Deactivate Hospital', confirmLabel: 'Deactivate', variant: 'danger' })) return;
+    if (!await confirm(
+      `Delete hospital "${name}"? If it isn't linked to any claim, user or invoice it will be permanently deleted — otherwise it will be deactivated instead.`,
+      { title: 'Delete Hospital', confirmLabel: 'Delete', variant: 'danger' }
+    )) return;
     try {
-      await deleteHospitalAPI(id);
-      toast.success('Hospital deactivated');
+      const { data } = await deleteHospitalAPI(id);
+      toast.success(data?.message || (data?.deleted ? 'Hospital deleted' : 'Hospital deactivated'));
       fetchHospitals();
     } catch (error) {
-      toast.error('Failed to deactivate hospital');
+      toast.error(error.response?.data?.message || 'Failed to delete hospital');
     }
   };
 

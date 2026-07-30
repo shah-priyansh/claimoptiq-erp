@@ -380,15 +380,40 @@ exports.setHospitalStatus = async (req, res) => {
   }
 };
 
+// Smart delete: if nothing depends on the hospital, hard-delete it (its own
+// billing services + doctors cascade away with it). If it's referenced by any
+// claim, user, invoice, document submission or cash/bank entry, we can't remove
+// it without orphaning or breaking those records, so we deactivate instead.
 exports.deleteHospital = async (req, res) => {
   try {
-    const hospital = await prisma.hospital.update({
-      where: { id: req.params.id },
-      data: { isActive: false },
+    const id = req.params.id;
+    const hospital = await prisma.hospital.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        _count: {
+          select: { claims: true, users: true, invoices: true, submissions: true, cashBankEntries: true },
+        },
+      },
     });
     if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
+
+    const c = hospital._count;
+    const linkedCount = c.claims + c.users + c.invoices + c.submissions + c.cashBankEntries;
+
+    if (linkedCount === 0) {
+      await prisma.hospital.delete({ where: { id } });
+      bustDropdownCache();
+      return res.json({ message: `Hospital "${hospital.name}" deleted`, deleted: true });
+    }
+
+    await prisma.hospital.update({ where: { id }, data: { isActive: false } });
     bustDropdownCache();
-    res.json({ message: 'Hospital deactivated' });
+    return res.json({
+      message: `Hospital "${hospital.name}" is linked to existing records — deactivated instead of deleting`,
+      deleted: false,
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
