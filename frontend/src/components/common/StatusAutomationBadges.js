@@ -1,5 +1,5 @@
 import React from 'react';
-import { STATUS_COLOR_MAP, CLAIM_TYPE_LABEL, CLAIM_TYPE_OPTIONS } from '../../pages/claimstatus/ClaimStatusMaster';
+import { statusBadgeStyle, CLAIM_TYPE_LABEL, CLAIM_TYPE_OPTIONS } from '../../pages/claimstatus/ClaimStatusMaster';
 
 // Compact, read-only view of a master's (insurer / TPA) status-automation rules.
 // Renders under the company name so you can see, at a glance, which claim status
@@ -27,7 +27,6 @@ const StatusAutomationBadges = ({ rules, claimStatuses = [] }) => {
     <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
       {[...byStatus.entries()].map(([slug, typeSet]) => {
         const m = meta(slug);
-        const cls = STATUS_COLOR_MAP[m?.color] || 'bg-gray-100 text-gray-600';
         const coversAll = allTypes.every((t) => typeSet.has(t));
         const prefix = coversAll
           ? null
@@ -40,7 +39,7 @@ const StatusAutomationBadges = ({ rules, claimStatuses = [] }) => {
                 <span className="text-gray-300">→</span>
               </>
             )}
-            <span className={`px-1.5 py-0.5 rounded-full font-semibold capitalize ${cls}`}>
+            <span className="px-1.5 py-0.5 rounded-full font-semibold capitalize" style={statusBadgeStyle(m?.color)}>
               {m?.label || slug.replace(/_/g, ' ')}
             </span>
           </span>

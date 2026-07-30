@@ -12,6 +12,7 @@ import {
   HiOutlineUpload,
   HiChevronRight,
 } from 'react-icons/hi';
+import { statusCardStyle } from '../claimstatus/ClaimStatusMaster';
 
 const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
@@ -33,19 +34,6 @@ const SectionLabel = ({ children }) => (
 );
 
 const SHOW_REVENUE_SLUGS = ['super_admin', 'hospital_admin'];
-
-const STATUS_CARD_COLOR = {
-  blue:   { bar: 'bg-blue-500',   bg: 'bg-blue-50',   text: 'text-blue-700',   num: 'text-blue-800'   },
-  green:  { bar: 'bg-green-500',  bg: 'bg-green-50',  text: 'text-green-700',  num: 'text-green-800'  },
-  red:    { bar: 'bg-red-500',    bg: 'bg-red-50',    text: 'text-red-700',    num: 'text-red-800'    },
-  yellow: { bar: 'bg-yellow-400', bg: 'bg-yellow-50', text: 'text-yellow-700', num: 'text-yellow-800' },
-  purple: { bar: 'bg-purple-500', bg: 'bg-purple-50', text: 'text-purple-700', num: 'text-purple-800' },
-  orange: { bar: 'bg-orange-500', bg: 'bg-orange-50', text: 'text-orange-700', num: 'text-orange-800' },
-  pink:   { bar: 'bg-pink-500',   bg: 'bg-pink-50',   text: 'text-pink-700',   num: 'text-pink-800'   },
-  indigo: { bar: 'bg-indigo-500', bg: 'bg-indigo-50', text: 'text-indigo-700', num: 'text-indigo-800' },
-  teal:   { bar: 'bg-teal-500',   bg: 'bg-teal-50',   text: 'text-teal-700',   num: 'text-teal-800'   },
-  gray:   { bar: 'bg-gray-400',   bg: 'bg-gray-50',   text: 'text-gray-600',   num: 'text-gray-700'   },
-};
 
 const CACHE_KEY = 'dashboard_stats';
 const CACHE_TTL = 60 * 1000; // 1 minute
@@ -199,16 +187,17 @@ const Dashboard = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {stats.statusBreakdown.filter((item) => item.count > 0).map((item) => {
-                const c = STATUS_CARD_COLOR[item.color] || STATUS_CARD_COLOR.gray;
+                const c = statusCardStyle(item.color);
                 return (
                   <button
                     key={item.slug}
                     onClick={() => navigate(`/claims?status=${item.slug}`)}
-                    className={`relative overflow-hidden rounded-xl border border-transparent ${c.bg} hover:shadow-sm hover:scale-[1.02] active:scale-100 transition-all duration-150 text-left p-4`}
+                    className="relative overflow-hidden rounded-xl border border-transparent hover:shadow-sm hover:scale-[1.02] active:scale-100 transition-all duration-150 text-left p-4"
+                    style={{ backgroundColor: c.bg }}
                   >
-                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${c.bar}`} />
-                    <p className={`text-2xl font-bold tabular-nums mb-1 pl-3 ${c.num}`}>{item.count}</p>
-                    <p className={`text-xs font-semibold leading-tight pl-3 capitalize ${c.text}`}>{item.label}</p>
+                    <div className="absolute left-0 top-0 bottom-0 w-1.5" style={{ backgroundColor: c.bar }} />
+                    <p className="text-2xl font-bold tabular-nums mb-1 pl-3" style={{ color: c.num }}>{item.count}</p>
+                    <p className="text-xs font-semibold leading-tight pl-3 capitalize" style={{ color: c.text }}>{item.label}</p>
                   </button>
                 );
               })}

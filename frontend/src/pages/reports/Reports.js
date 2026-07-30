@@ -9,7 +9,7 @@ import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMo
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
 import ClaimSummaryColumnsModal from '../invoices/ClaimSummaryColumnsModal';
-import { STATUS_COLOR_MAP } from '../claimstatus/ClaimStatusMaster';
+import { statusBadgeStyle } from '../claimstatus/ClaimStatusMaster';
 import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -117,9 +117,8 @@ const TABLE_COL_DEFS = {
   status:                    { label: 'Status',               cellClass: 'py-2 px-3 whitespace-nowrap', render: (c, ctx) => {
     const st = (ctx.claimStatuses || []).find((s) => s.slug === c.status);
     const label = st?.label || (c.status || '').replace(/_/g, ' ') || '-';
-    const cls = STATUS_COLOR_MAP[st?.color] || 'bg-gray-100 text-gray-700';
     return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${cls}`}>{label}</span>
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize" style={statusBadgeStyle(st?.color)}>{label}</span>
     );
   } },
 };
@@ -1034,7 +1033,7 @@ const Reports = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           <SearchableSelect
             options={[
-              ...claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: `capitalize ${STATUS_COLOR_MAP[s.color] || 'bg-gray-100 text-gray-700'}` })),
+              ...claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: 'capitalize', badgeStyle: statusBadgeStyle(s.color) })),
               { value: '__unbilled', label: 'Unbilled', badgeClass: 'bg-gray-100 text-gray-600' },
             ]}
             value={filters.status}
