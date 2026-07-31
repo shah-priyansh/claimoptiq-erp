@@ -185,6 +185,9 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                         onChange={(e) => updateLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
                         placeholder="Description"
                         className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                      {row.sourceHospitalName && (
+                        <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium">Branch: {row.sourceHospitalName}</span>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(row.lineType)}`}>
@@ -239,6 +242,9 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                           onChange={(e) => updateLines((arr) => arr.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
                           placeholder="Description"
                           className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                        {row.sourceHospitalName && (
+                          <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium">Branch: {row.sourceHospitalName}</span>
+                        )}
                       </td>
                       <td className="py-2 px-4" />
                       <td className="py-2 px-4">

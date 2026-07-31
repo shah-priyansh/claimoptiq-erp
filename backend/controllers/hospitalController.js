@@ -23,6 +23,8 @@ const hospitalListInclude = {
   billingServices: { select: { id: true } },
   doctors: { select: { id: true } },
   reference: { select: { id: true, name: true } },
+  parent: { select: { id: true, name: true } },
+  _count: { select: { branches: true } },
 };
 
 // Tiny include for dropdown callsites — only the fields a SearchableSelect
@@ -34,6 +36,9 @@ const hospitalListInclude = {
 // had zero doctors.
 const hospitalDropdownSelect = {
   id: true, name: true, isActive: true, referenceBy: true,
+  // Parent link so the frontend can badge branches, scope the invoice claim
+  // pool, and guard the parent picker (a branch can't be someone's parent).
+  parentHospitalId: true,
   // Canonical reference name from the master (when the hospital is linked) so
   // the claims "All References" filter can dedupe on the master's casing
   // rather than the denormalised referenceBy text, which can drift in case.
@@ -94,7 +99,36 @@ const buildHospitalData = async (body) => {
   if (body.referenceBy !== undefined) data.referenceBy = body.referenceBy || '';
   else if (referenceByFromRef !== undefined) data.referenceBy = referenceByFromRef;
   else data.referenceBy = '';
+  // Optional parent (branch) link. '' / null clear it; undefined leaves it
+  // untouched. Validity (one level, no cycle, active parent) is checked by
+  // validateParentAssignment before the write.
+  if (body.parentHospitalId !== undefined) {
+    data.parentHospitalId =
+      body.parentHospitalId === '' || body.parentHospitalId === null ? null : body.parentHospitalId;
+  }
   return data;
+};
+
+// Guards the one-level branch hierarchy. Returns an error message string if the
+// requested parent assignment is invalid, else null. `selfId` is undefined on
+// create (a brand-new hospital has no id and no branches yet).
+const validateParentAssignment = async (parentHospitalId, selfId) => {
+  if (parentHospitalId === undefined || parentHospitalId === null || parentHospitalId === '') return null;
+  if (selfId && parentHospitalId === selfId) return 'A hospital cannot be its own parent';
+  const parent = await prisma.hospital.findUnique({
+    where: { id: parentHospitalId },
+    select: { id: true, isActive: true, parentHospitalId: true },
+  });
+  if (!parent) return 'Parent hospital not found';
+  if (!parent.isActive) return 'Parent hospital is inactive';
+  // The chosen parent must be a top-level hospital. This also blocks a 2-node
+  // cycle (A→B while B→A): B would already carry parentHospitalId = A.
+  if (parent.parentHospitalId) return 'Chosen parent is itself a branch — only one level of hierarchy is allowed';
+  if (selfId) {
+    const branchCount = await prisma.hospital.count({ where: { parentHospitalId: selfId } });
+    if (branchCount > 0) return 'This hospital has its own branches, so it cannot become a branch of another hospital';
+  }
+  return null;
 };
 
 const buildBillingServices = (services) =>
@@ -230,6 +264,8 @@ exports.createHospital = async (req, res) => {
   try {
     const err = validateHospitalFields(req.body);
     if (err) return res.status(400).json({ message: err });
+    const parentErr = await validateParentAssignment(req.body.parentHospitalId, undefined);
+    if (parentErr) return res.status(400).json({ message: parentErr });
 
     const hospital = await prisma.hospital.create({
       data: {
@@ -334,6 +370,14 @@ exports.updateHospital = async (req, res) => {
 
     const existing = await prisma.hospital.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: 'Hospital not found' });
+    // Only validate the parent link when it actually changes — an unrelated
+    // save (e.g. staff editing contact details) shouldn't re-run the guard
+    // against a link that was already valid.
+    const nextParent = req.body.parentHospitalId;
+    if (nextParent !== undefined && (nextParent || null) !== (existing.parentHospitalId || null)) {
+      const parentErr = await validateParentAssignment(nextParent, req.params.id);
+      if (parentErr) return res.status(400).json({ message: parentErr });
+    }
 
     await prisma.hospitalBillingService.deleteMany({ where: { hospitalId: req.params.id } });
     await prisma.hospitalDoctor.deleteMany({ where: { hospitalId: req.params.id } });
