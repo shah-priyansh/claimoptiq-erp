@@ -54,6 +54,13 @@ model Hospital {
   tdsRateMaster   TdsRate?                 @relation("HospitalDefaultTdsRate", fields: [tdsRateId], references: [id])
   invoicePrefix   String                   @default("FCC") @map("invoice_prefix")
   isActive        Boolean                  @default(true) @map("is_active")
+  // Optional one-level branch hierarchy. A hospital with parentHospitalId set is
+  // a *branch*; a hospital referenced as a parent (non-empty `branches`) is a
+  // *parent*. Enforced one-level (a branch cannot be a parent) in the
+  // controller. Used to consolidate branch claims onto a parent's invoice.
+  parentHospitalId String?                 @map("parent_hospital_id")
+  parent           Hospital?               @relation("HospitalBranches", fields: [parentHospitalId], references: [id])
+  branches         Hospital[]              @relation("HospitalBranches")
   createdAt       DateTime                 @default(now()) @map("created_at")
   updatedAt       DateTime                 @updatedAt @map("updated_at")
   billingServices HospitalBillingService[]
@@ -64,6 +71,7 @@ model Hospital {
   invoices        Invoice[]
   cashBankEntries CashBankEntry[]
 
+  @@index([parentHospitalId])
   @@map("hospitals")
 }
 

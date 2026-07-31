@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getInsuranceAPI, getBillingServiceNamesAPI, getReferencesAPI, getTPAAPI } from '../../services/api';
+import { createHospitalAPI, updateHospitalAPI, getHospitalAPI, getHospitalsAPI, getInsuranceAPI, getBillingServiceNamesAPI, getReferencesAPI, getTPAAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserCircle } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, isValidPincode, onPhoneInput, inputCls } from '../../utils/validators';
@@ -64,10 +64,13 @@ const HospitalForm = () => {
   const [form, setForm] = useState({
     name: '', contact: '', email: '', phone: '', address: '',
     city: '', state: '', pincode: '', referenceBy: '', referenceId: '',
+    parentHospitalId: '',
     isActive: true,
     doctors: [],
     billingServices: [],
   });
+  // All hospitals (active), used to populate + guard the parent-hospital picker.
+  const [hospitals, setHospitals] = useState([]);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(isEdit);
@@ -87,16 +90,19 @@ const HospitalForm = () => {
       getBillingServiceNamesAPI(),
       getReferencesAPI({ active: 'true' }),
       getTPAAPI(),
-    ]).then(([ins, svc, refs, tpaRes]) => {
+      getHospitalsAPI({ all: 'true', active: 'true' }),
+    ]).then(([ins, svc, refs, tpaRes, hosps]) => {
       setInsurers((ins.data || []).filter(i => i.isActive !== false));
       setServiceNames(svc.data || []);
       setReferences(refs.data || []);
       setTpas((tpaRes.data || []).filter(t => t.isActive !== false));
+      setHospitals(Array.isArray(hosps.data) ? hosps.data : (hosps.data?.hospitals || []));
     }).catch(() => {}).finally(() => setDropdownDataLoading(false));
     if (isEdit) {
       getHospitalAPI(id).then(({ data }) => setForm({
         ...data,
         referenceId: data.referenceId || data.reference?._id || '',
+        parentHospitalId: data.parentHospitalId || '',
         isActive: data.isActive !== false,
       })).catch(() => {
         toast.error('Hospital not found');
@@ -344,6 +350,36 @@ const HospitalForm = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               )}
             </div>
+            {isSuperAdmin && (() => {
+              // A hospital with its own branches can't itself become a branch.
+              // Candidate parents = active hospitals other than self that aren't
+              // already branches (one-level hierarchy).
+              const currentHasBranches = isEdit && hospitals.some((h) => h.parentHospitalId === id);
+              const options = hospitals
+                .filter((h) => h._id !== id && !h.parentHospitalId)
+                .map((h) => ({ value: h._id, label: h.name }));
+              return (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Parent Hospital</label>
+                  {currentHasBranches ? (
+                    <p className="text-xs text-gray-500 py-2">This hospital has its own branches, so it can't be made a branch of another hospital.</p>
+                  ) : (
+                    <>
+                      <SearchableSelect
+                        value={form.parentHospitalId || ''}
+                        onChange={(pid) => setForm((f) => ({ ...f, parentHospitalId: pid || '' }))}
+                        placeholder="Select parent hospital"
+                        searchPlaceholder="Search hospitals..."
+                        noneLabel="— None (standalone hospital) —"
+                        allowClear
+                        options={options}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Optional. Makes this a branch — its claims can be billed on the parent's consolidated invoice.</p>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
               <input name="address" value={form.address} onChange={handleChange}

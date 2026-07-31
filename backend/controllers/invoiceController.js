@@ -72,13 +72,26 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 // (the N=23 case that dominated the 2.5-3s wall-clock on WAN links).
 const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false, preloadedTpl = null, bulkContext = null } = {}) => {
   const hasClaimIds = Array.isArray(claimIds) && claimIds.length > 0;
+  // Parent/branch scope: when `hospitalId` is a parent hospital, its branches'
+  // claims are billable on this (the parent's) invoice too. Branch hospitals
+  // are loaded WITH their billingServices so each claim can be priced from its
+  // OWN hospital's rates. Direct-patient claims have no hospital relation so the
+  // scope doesn't apply. Standalone hospitals return [] here (indexed lookup)
+  // and behave exactly as before.
+  const branchHospitals = isDirectPatient
+    ? []
+    : await prisma.hospital.findMany({
+        where: { parentHospitalId: hospitalId },
+        include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
+      });
+  const scopeIds = [hospitalId, ...branchHospitals.map((b) => b.id)];
   // For direct-patient invoices the claims have no hospital relation of
   // their own — `hospitalId` is the chosen *target* hospital (used for
   // billing services + template lookups). The claim query must skip the
   // hospitalId filter in that case; the caller is expected to pre-validate
   // the claim IDs all belong together (isDirectPatient=true, same month).
   const claimWhere = {
-    ...(isDirectPatient ? {} : { hospitalId }),
+    ...(isDirectPatient ? {} : { hospitalId: { in: scopeIds } }),
     // Only scope by month/discharge when the caller is asking for "all
     // billable claims in this month" (no explicit claimIds). If claimIds are
     // supplied the operator's selection wins — include the claim even if it
@@ -122,7 +135,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
           where: claimWhere,
           select: {
             id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
-            filePrice: true, filePriceOverridden: true, claimType: true,
+            filePrice: true, filePriceOverridden: true, claimType: true, hospitalId: true,
           },
         }),
     // Previous balance only counts dues from the SAME stream — regular
@@ -156,37 +169,50 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     throw err;
   }
 
-  // Regular invoices use the hospital's own billingServices. Direct-patient
-  // invoices ignore the picked reference hospital entirely and use the
-  // global DirectPatientBillingService config — same shape (fixed_monthly,
-  // fixed_onetime, per_claim_slab, percentage) so the slab / fixed / gate
-  // logic below is unchanged.
+  // Regular invoices price each claim from its OWN hospital's billingServices,
+  // so a branch claim billed on the parent's invoice costs the same as it would
+  // on its own branch invoice. Direct-patient invoices ignore the reference
+  // hospital and use the global DirectPatientBillingService config for every
+  // claim. `services` here is the BILLING-TARGET's own active services and
+  // still drives the fixed_monthly / fixed_onetime section + prior balance.
+  const activeOf = (list) => (list || []).filter((s) => s.isActive);
   const services = isDirectPatient
     ? directPatientServices.filter((s) => s.isActive)
-    : (hospital.billingServices || []).filter((s) => s.isActive);
+    : activeOf(hospital.billingServices);
 
-  // 1. TPA Desk per claim (slab/percentage). Map each line to the billing service used (if identifiable).
-  const slabServices = services.filter((s) => s.billingType === 'per_claim_slab' || s.billingType === 'percentage');
-  // When there are no active billing services configured (regular hospital
-  // with an empty list, or direct-patient stream with no global config yet),
-  // still emit a per-claim TPA desk placeholder line so the invoice isn't
-  // empty. Match each claim's claimType against the BillingServiceName
-  // master's `claimTypes` array — that's the client convention: TPA DESK
-  // SERVICE - CASHLESS applies to cashless claims, TPA DESK SERVICE -
-  // REIMBURSEMENT to reimbursement, etc. Amount respects an existing
-  // filePrice override, otherwise 0 — the operator edits before generating.
-  const useDefaultCashlessTpa = services.length === 0;
-  // Build a name → BillingServiceName id map (one query). When falling back
-  // to the claim-type mapping we also need the whole active master so we can
-  // pick a row by claimType.
+  // Active services + display name keyed by hospital id, across the billing
+  // target and every branch that can contribute a claim.
+  const servicesByHospital = new Map();
+  const hospitalNameById = new Map();
+  if (!isDirectPatient) {
+    servicesByHospital.set(hospitalId, services);
+    hospitalNameById.set(hospitalId, hospital.name);
+    for (const b of branchHospitals) {
+      servicesByHospital.set(b.id, activeOf(b.billingServices));
+      hospitalNameById.set(b.id, b.name);
+    }
+  }
+  // The service list that prices a given claim: its own hospital for regular
+  // invoices; the single global list for direct-patient.
+  const servicesForClaim = (c) =>
+    isDirectPatient ? services : (servicesByHospital.get(c.hospitalId) || services);
+
+  // 1. TPA Desk per claim (slab/percentage). A claim's amount + metadata are
+  // resolved from its own hospital's service list, so name/fallback lookups
+  // gather across ALL service lists in scope. When a claim's hospital has no
+  // active services we fall back to the claim-type-mapped "TPA DESK SERVICE -
+  // …" master line (client convention: CASHLESS → cashless claims, etc.).
+  const allServiceLists = isDirectPatient ? [services] : [...servicesByHospital.values()];
+  const allSlabServices = allServiceLists.flat().filter((s) => s.billingType === 'per_claim_slab' || s.billingType === 'percentage');
+  const anyUseDefault = allServiceLists.some((list) => list.length === 0);
   const [serviceNameRows, fallbackRows] = await Promise.all([
-    slabServices.length
+    allSlabServices.length
       ? prisma.billingServiceName.findMany({
-          where: { name: { in: [...new Set(slabServices.map((s) => s.serviceName))] } },
+          where: { name: { in: [...new Set(allSlabServices.map((s) => s.serviceName))] } },
           select: { id: true, name: true },
         })
       : Promise.resolve([]),
-    useDefaultCashlessTpa
+    anyUseDefault
       ? prisma.billingServiceName.findMany({
           where: { isActive: true },
           select: { id: true, name: true, claimTypes: true },
@@ -194,13 +220,11 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       : Promise.resolve([]),
   ]);
   const nameToGlobalId = new Map(serviceNameRows.map((r) => [r.name, r.id]));
-  // Pick the first master row whose claimTypes array contains the claim's
-  // claim type. Falls back to "TPA DESK SERVICE - CASHLESS" (by name) if no
-  // row matches — that name is the client's documented default. If even that
-  // is missing (fresh install, master not seeded), we return null so the
-  // caller uses the literal "TPA DESK SERVICE - CASHLESS" string.
+  // Pick the first master row whose claimTypes contains the claim's type, else
+  // the documented "TPA DESK SERVICE - CASHLESS" default (null if even that is
+  // unseeded, so the caller uses the literal string). Only called when the
+  // claim's own hospital has no active services.
   const pickFallbackForClaim = (claimType) => {
-    if (!useDefaultCashlessTpa) return null;
     if (claimType) {
       const match = fallbackRows.find((r) => Array.isArray(r.claimTypes) && r.claimTypes.includes(claimType));
       if (match) return match;
@@ -209,20 +233,25 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   };
 
   let order = 0;
-  // Unified per-claim TPA desk emission: regular and direct-patient
-  // invoices now share the same shape. Direct-patient's `services` comes
-  // from the global DirectPatientBillingService config, so slab/percentage
-  // amounts flow through calculateFilePrice just like a regular hospital.
+  // Unified per-claim TPA desk emission: regular and direct-patient invoices
+  // share the same shape. Each claim is priced from its own hospital's list
+  // (`cSvc`) via calculateFilePrice, respecting an existing filePrice override.
   const tpaDeskLines = claims.map((c) => {
+      const cSvc = servicesForClaim(c);
+      const cUseDefault = cSvc.length === 0;
       const amount = c.filePriceOverridden
         ? c.filePrice
-        : calculateFilePrice(services, c.hospitalFinalBill, c.finalApprovalAmount);
-      // Pick the first matching slab service for line metadata (most setups have one)
-      const svc = slabServices[0];
-      const fallback = pickFallbackForClaim(c.claimType);
-      const prefix = useDefaultCashlessTpa
+        : calculateFilePrice(cSvc, c.hospitalFinalBill, c.finalApprovalAmount);
+      // First slab/percentage service of the claim's own hospital drives the
+      // line's billing-service metadata (most setups have one).
+      const svc = cSvc.find((s) => s.billingType === 'per_claim_slab' || s.billingType === 'percentage');
+      const fallback = cUseDefault ? pickFallbackForClaim(c.claimType) : null;
+      const prefix = cUseDefault
         ? (fallback?.name || 'TPA DESK SERVICE - CASHLESS')
         : 'TPA Desk';
+      // Tag lines whose claim came from a *branch* (not the billing target) so
+      // the operator sees each claim's origin on a consolidated parent invoice.
+      const fromBranch = !isDirectPatient && c.hospitalId && c.hospitalId !== hospitalId;
       return {
         lineType: 'claim_tpa_desk',
         description: `${prefix} — ${c.patientName}${c.ccnNo ? ` (CCN ${c.ccnNo})` : ''}`,
@@ -240,9 +269,11 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
           hospitalFinalBill: c.hospitalFinalBill,
           finalApprovalAmount: c.finalApprovalAmount,
           overridden: c.filePriceOverridden,
-          defaultCashlessTpa: useDefaultCashlessTpa || undefined,
-          claimType: useDefaultCashlessTpa ? (c.claimType || null) : undefined,
+          defaultCashlessTpa: cUseDefault || undefined,
+          claimType: cUseDefault ? (c.claimType || null) : undefined,
           directPatient: isDirectPatient || undefined,
+          sourceHospitalId: fromBranch ? c.hospitalId : undefined,
+          sourceHospitalName: fromBranch ? (hospitalNameById.get(c.hospitalId) || null) : undefined,
         },
       };
     });
@@ -472,13 +503,29 @@ exports.previewBulk = async (req, res) => {
       const d = new Date(c.dateOfDischarge || c.dateOfAdmit);
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
     };
+    // A branch claim consolidates onto its PARENT's invoice: the billing
+    // hospital for a claim is its parent (if any), else its own hospital. One
+    // small lookup over the distinct claim hospitals gives that mapping;
+    // hospitals without a parent map to themselves, so standalone hospitals
+    // group exactly as before.
+    const claimHospitalIds = [...new Set(hospitalClaims.map((c) => c.hospitalId))];
+    const parentRows = claimHospitalIds.length
+      ? await prisma.hospital.findMany({
+          where: { id: { in: claimHospitalIds } },
+          select: { id: true, parentHospitalId: true },
+        })
+      : [];
+    const parentOf = new Map(parentRows.map((r) => [r.id, r.parentHospitalId]));
+    const billingHospitalOf = (c) => parentOf.get(c.hospitalId) || c.hospitalId;
+
     const groups = new Map();
     for (const c of hospitalClaims) {
       const m = monthOfClaim(c);
-      if (!groups.has(c.hospitalId)) {
-        groups.set(c.hospitalId, { hospitalId: c.hospitalId, month: m, claimIds: [] });
+      const key = billingHospitalOf(c);
+      if (!groups.has(key)) {
+        groups.set(key, { hospitalId: key, month: m, claimIds: [] });
       }
-      const g = groups.get(c.hospitalId);
+      const g = groups.get(key);
       g.claimIds.push(c.id);
       if (m > g.month) g.month = m; // keep the latest month as default
     }
@@ -590,7 +637,7 @@ exports.previewBulk = async (req, res) => {
         id: c.id, patientName: c.patientName, ccnNo: c.ccnNo,
         hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount,
         filePrice: c.filePrice, filePriceOverridden: c.filePriceOverridden,
-        claimType: c.claimType,
+        claimType: c.claimType, hospitalId: c.hospitalId,
       }]),
     );
 

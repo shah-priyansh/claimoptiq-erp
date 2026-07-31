@@ -120,6 +120,9 @@ const InvoiceWizard = () => {
         description: l.description || '',
         amount: l.amount,
         lineType: l.lineType,
+        // Source branch name for claims pulled from a branch onto this (parent)
+        // invoice — shown as a tag so the operator sees each claim's origin.
+        sourceHospitalName: l.meta?.sourceHospitalName || null,
         _isManual: false,
       })));
       if (!data.hasContent) toast.info('No claims or fixed services found — add manual items below.');
@@ -259,6 +262,9 @@ const InvoiceWizard = () => {
               searchPlaceholder="Search hospitals..."
               options={hospitals.map((h) => ({ value: h._id, label: h.name }))}
             />
+            {hospitalId && hospitals.some((h) => h.parentHospitalId === hospitalId) && (
+              <p className="text-[11px] text-indigo-600 mt-1">Parent hospital — its branches' claims are included below. Remove any you don't want to bill.</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Month *</label>
@@ -417,6 +423,9 @@ const InvoiceWizard = () => {
                               onChange={(e) => setEditLines((arr) => arr.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
                               placeholder="Description"
                               className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                            {row.sourceHospitalName && (
+                              <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium">Branch: {row.sourceHospitalName}</span>
+                            )}
                           </td>
                           <td className="py-2 px-4" />
                           <td className="py-2 px-4">

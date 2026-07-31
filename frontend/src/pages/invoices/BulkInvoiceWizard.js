@@ -31,6 +31,7 @@ const draftFromPreview = (p) => ({
     description: l.description || '',
     amount: l.amount,
     lineType: l.lineType,
+    sourceHospitalName: l.meta?.sourceHospitalName || null,
     _isManual: false,
   })),
   settings: {
@@ -239,6 +240,7 @@ const BulkInvoiceWizard = () => {
           description: l.description || '',
           amount: l.amount,
           lineType: l.lineType,
+          sourceHospitalName: l.meta?.sourceHospitalName || null,
           _isManual: false,
         })),
         settings: { ...draft.settings, gstRate: String(data.totals?.gstRate ?? 0) },
