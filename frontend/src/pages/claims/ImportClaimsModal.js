@@ -241,14 +241,17 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
     if (!open) return;
     setRefLoading(true);
     Promise.all([
-      isHospitalUser ? Promise.resolve({ data: [] }) : getHospitalsAPI({ all: 'true', active: 'true' }).catch(() => ({ data: [] })),
-      getInsuranceAPI().catch(() => ({ data: [] })),
-      getTPAAPI().catch(() => ({ data: [] })),
+      isHospitalUser ? Promise.resolve({ data: [] }) : getHospitalsAPI({ all: 'true' }).catch(() => ({ data: [] })),
+      // `active: 'all'` — include inactive insurers/TPAs for the same reason as
+      // hospitals above: the backend import reactivates a soft-deleted one it a
+      // row references, so the preview must match it instead of flagging "not found".
+      getInsuranceAPI({ active: 'all' }).catch(() => ({ data: [] })),
+      getTPAAPI({ active: 'all' }).catch(() => ({ data: [] })),
       getClaimStatusesAPI().catch(() => ({ data: [] })),
     ]).then(([h, i, t, s]) => {
       setHospitals(h.data || []);
-      setInsurers((i.data || []).filter(x => x.isActive));
-      setTpas((t.data || []).filter(x => x.isActive));
+      setInsurers(i.data || []);
+      setTpas(t.data || []);
       setStatuses((s.data || []).filter(x => x.isActive));
     }).finally(() => setRefLoading(false));
   }, [open, isHospitalUser]);
@@ -313,20 +316,29 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
         else {
           const h = hLookup.find(hName);
           if (!h) { issues.push({ type: 'hospital', label: `Hospital not found: "${hName}"` }); bump('hospital'); }
-          else if (norm(h.name) !== norm(hName)) fuzzy.push({ type: 'hospital', label: `Hospital auto-matched: "${hName}" → "${h.name}"` });
+          else {
+            if (norm(h.name) !== norm(hName)) fuzzy.push({ type: 'hospital', label: `Hospital auto-matched: "${hName}" → "${h.name}"` });
+            if (h.isActive === false) fuzzy.push({ type: 'hospital', label: `Hospital will be reactivated: "${h.name}"` });
+          }
         }
       }
       const insName = cleanCell(r.insuranceCompany);
       if (insName) {
         const ins = iLookup.find(insName);
         if (!ins) { issues.push({ type: 'insurance', label: `Insurance not found: "${insName}"` }); bump('insurance'); }
-        else if (norm(ins.name) !== norm(insName)) fuzzy.push({ type: 'insurance', label: `Insurance auto-matched: "${insName}" → "${ins.name}"` });
+        else {
+          if (norm(ins.name) !== norm(insName)) fuzzy.push({ type: 'insurance', label: `Insurance auto-matched: "${insName}" → "${ins.name}"` });
+          if (ins.isActive === false) fuzzy.push({ type: 'insurance', label: `Insurance will be reactivated: "${ins.name}"` });
+        }
       }
       const tName = cleanCell(r.tpa);
       if (tName) {
         const tp = tLookup.find(tName);
         if (!tp) { issues.push({ type: 'tpa', label: `TPA not found: "${tName}"` }); bump('tpa'); }
-        else if (norm(tp.name) !== norm(tName)) fuzzy.push({ type: 'tpa', label: `TPA auto-matched: "${tName}" → "${tp.name}"` });
+        else {
+          if (norm(tp.name) !== norm(tName)) fuzzy.push({ type: 'tpa', label: `TPA auto-matched: "${tName}" → "${tp.name}"` });
+          if (tp.isActive === false) fuzzy.push({ type: 'tpa', label: `TPA will be reactivated: "${tp.name}"` });
+        }
       }
       const sRaw = cleanCell(r.status);
       if (sRaw && !resolveStatus(sRaw)) { issues.push({ type: 'status', label: `Status invalid: "${r.status}"` }); bump('status'); }

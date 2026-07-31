@@ -56,7 +56,7 @@ export const importHospitalsAPI = (rows, mode = 'skip') => API.post('/hospitals/
 export const addHospitalDoctorAPI = (hospitalId, data) => API.post(`/hospitals/${hospitalId}/doctors`, data);
 
 // Insurance
-export const getInsuranceAPI = () => API.get('/insurance');
+export const getInsuranceAPI = (params) => API.get('/insurance', { params });
 export const createInsuranceAPI = (data) => API.post('/insurance', data);
 export const updateInsuranceAPI = (id, data) => API.put(`/insurance/${id}`, data);
 export const deleteInsuranceAPI = (id) => API.delete(`/insurance/${id}`);
@@ -64,7 +64,7 @@ export const importInsuranceAPI = (rows, mode = 'skip') => API.post('/insurance/
 export const bulkInsuranceStatusAutomationAPI = (ids, statusAutomation) => API.put('/insurance/bulk-status-automation', { ids, statusAutomation });
 
 // TPA
-export const getTPAAPI = () => API.get('/tpa');
+export const getTPAAPI = (params) => API.get('/tpa', { params });
 export const createTPAAPI = (data) => API.post('/tpa', data);
 export const updateTPAAPI = (id, data) => API.put(`/tpa/${id}`, data);
 export const deleteTPAAPI = (id) => API.delete(`/tpa/${id}`);

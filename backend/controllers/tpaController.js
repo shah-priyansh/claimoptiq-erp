@@ -29,8 +29,15 @@ exports.create = async (req, res) => {
 
 exports.getAll = async (req, res) => {
   try {
+    // Default: active only (dropdowns/master list). `?active=all` returns inactive
+    // too so the claim-import preview can match soft-deleted TPAs it will
+    // reactivate on import; `?active=true|false` filters explicitly.
+    const { active } = req.query;
+    const where = active === 'all'
+      ? {}
+      : { isActive: active === undefined ? true : active === 'true' };
     const items = await prisma.tPA.findMany({
-      where: { isActive: true },
+      where,
       orderBy: { name: 'asc' },
     });
     res.json(toResponse(items));
