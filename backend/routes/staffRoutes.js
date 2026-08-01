@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { protect, checkPermission } = require('../middleware/auth');
+const { protect, checkPermission, authorize } = require('../middleware/auth');
 const {
   getEmployees, getEmployee, getMyEmployee, createEmployee, updateEmployee,
 } = require('../controllers/employeeController');
 const {
   clockIn, clockOut, getMyAttendance, getTodayRecord,
   getAllAttendance, addAttendance, addMyAttendance, deleteAttendance,
+  getPendingAttendance, setAttendanceStatus,
 } = require('../controllers/attendanceController');
 const {
   computeSalary, getSalaryRecords, getMySalary, updateSalaryRecord,
@@ -38,6 +39,11 @@ router.get('/attendance/my', getMyAttendance);
 router.get('/attendance', checkPermission('staff', 'view'), getAllAttendance);
 router.post('/attendance', checkPermission('staff', 'edit'), addAttendance);
 router.delete('/attendance/:id', checkPermission('staff', 'delete'), deleteAttendance);
+
+// Back-date approval — super_admin only
+router.get('/attendance/pending', authorize('super_admin'), getPendingAttendance);
+router.patch('/attendance/:id/approve', authorize('super_admin'), setAttendanceStatus('approved'));
+router.patch('/attendance/:id/reject', authorize('super_admin'), setAttendanceStatus('rejected'));
 
 // Salary
 router.post('/salary/compute', checkPermission('staff', 'edit'), computeSalary);

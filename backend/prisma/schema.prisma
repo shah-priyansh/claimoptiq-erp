@@ -716,6 +716,8 @@ model Employee {
   shiftStart    String              @map("shift_start")
   shiftEnd      String              @map("shift_end")
   standardHours Float               @map("standard_hours")
+  joiningDate   DateTime?           @map("joining_date")
+  lastDate      DateTime?           @map("last_date")
   userId        String?             @unique @map("user_id")
   isActive      Boolean             @default(true) @map("is_active")
   dailyOtEnabled Boolean            @default(true) @map("daily_ot_enabled")
@@ -759,6 +761,9 @@ model AttendanceRecord {
   totalMinutes Int?      @map("total_minutes")
   extraMinutes Int?      @map("extra_minutes")
   otType       String    @default("none") @map("ot_type")
+  // approved | pending | rejected. Back-dated entries by anyone other than a
+  // super_admin start as 'pending' and only count in salary once approved.
+  status       String    @default("approved")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
