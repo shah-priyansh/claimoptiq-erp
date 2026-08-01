@@ -13,6 +13,7 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3002',
+    'https://claimoptiq.com',
     'https://claimoptiq-erp.vercel.app',
     /\.vercel\.app$/
   ],
