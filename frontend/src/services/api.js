@@ -316,6 +316,9 @@ export const getAllAttendanceAPI = (params) => API.get('/staff/attendance', { pa
 export const addAttendanceAPI = (data) => API.post('/staff/attendance', data);
 export const addMyAttendanceAPI = (data) => API.post('/staff/attendance/my', data);
 export const deleteAttendanceRecordAPI = (id) => API.delete(`/staff/attendance/${id}`);
+export const getPendingAttendanceAPI = () => API.get('/staff/attendance/pending');
+export const approveAttendanceAPI = (id) => API.patch(`/staff/attendance/${id}/approve`);
+export const rejectAttendanceAPI = (id) => API.patch(`/staff/attendance/${id}/reject`);
 
 // Staff — Salary
 export const computeSalaryAPI = (data) => API.post('/staff/salary/compute', data);

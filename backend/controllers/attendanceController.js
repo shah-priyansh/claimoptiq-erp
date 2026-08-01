@@ -22,6 +22,15 @@ const todayDate = () => {
   return new Date(`${y}-${m}-${d}T00:00:00.000Z`);
 };
 
+// A manual attendance entry for a PAST day made by anyone other than a
+// super_admin must be approved before it counts. Today's entries and any
+// entry a super_admin makes are approved immediately.
+const resolveStatus = (dateObj, req) => {
+  const isBackDate = dateObj.getTime() < todayDate().getTime();
+  const isSuperAdmin = req.user?.role?.slug === 'super_admin';
+  return (isBackDate && !isSuperAdmin) ? 'pending' : 'approved';
+};
+
 exports.clockIn = async (req, res) => {
   try {
     const employee = await prisma.employee.findUnique({ where: { userId: req.user.id } });
@@ -153,10 +162,11 @@ exports.addAttendance = async (req, res) => {
       extraMinutes = (otType === 'sunday' || otType === 'holiday') ? totalMinutes : rawExtra;
     }
 
+    const status = resolveStatus(dateObj, req);
     const record = await prisma.attendanceRecord.upsert({
       where: { employeeId_date: { employeeId, date: dateObj } },
-      update: { inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType },
-      create: { employeeId, date: dateObj, inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType },
+      update: { inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType, status },
+      create: { employeeId, date: dateObj, inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType, status },
     });
     res.json(record);
   } catch (error) {
@@ -183,13 +193,43 @@ exports.addMyAttendance = async (req, res) => {
       extraMinutes = (otType === 'sunday' || otType === 'holiday') ? totalMinutes : rawExtra;
     }
 
+    const status = resolveStatus(dateObj, req);
     const record = await prisma.attendanceRecord.upsert({
       where: { employeeId_date: { employeeId: employee.id, date: dateObj } },
-      update: { inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType },
-      create: { employeeId: employee.id, date: dateObj, inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType },
+      update: { inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType, status },
+      create: { employeeId: employee.id, date: dateObj, inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType, status },
     });
     res.json(record);
   } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ── Back-date approval (super_admin only) ─────────────────────────────
+
+exports.getPendingAttendance = async (req, res) => {
+  try {
+    const records = await prisma.attendanceRecord.findMany({
+      where: { status: 'pending' },
+      include: { employee: { select: { id: true, empNumber: true, name: true } } },
+      orderBy: [{ date: 'desc' }, { employee: { empNumber: 'asc' } }],
+    });
+    res.json(records);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.setAttendanceStatus = (status) => async (req, res) => {
+  try {
+    const record = await prisma.attendanceRecord.update({
+      where: { id: req.params.id },
+      data: { status },
+      include: { employee: { select: { id: true, empNumber: true, name: true } } },
+    });
+    res.json(record);
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ message: 'Record not found' });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

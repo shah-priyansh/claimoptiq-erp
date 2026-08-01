@@ -3,10 +3,11 @@ import {
   clockInAPI, clockOutAPI, getTodayAttendanceAPI,
   getMyAttendanceAPI, getAllAttendanceAPI, addAttendanceAPI, addMyAttendanceAPI, deleteAttendanceRecordAPI,
   getEmployeesAPI, getHolidaysAPI,
+  getPendingAttendanceAPI, approveAttendanceAPI, rejectAttendanceAPI,
 } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
-import { HiOutlineClock, HiOutlineCheck, HiOutlineExclamation, HiChevronDown } from 'react-icons/hi';
+import { HiOutlineClock, HiOutlineCheck, HiOutlineExclamation, HiChevronDown, HiOutlineX } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const NativeSelect = ({ value, onChange, children, className = '' }) => (
@@ -135,6 +136,7 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
         extraMinutes:  derivedExtra,
         otType:        derivedOtType,
         recordId:      rec?.id || null,
+        status:        rec?.status || null,
         isSunday,
         isHoliday,
         holidayName,
@@ -189,6 +191,7 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
           next[idx] = {
             ...r,
             recordId: null,
+            status: null,
             totalMinutes: null,
             extraMinutes: null,
             otType: r.isSunday ? 'sunday' : r.isHoliday ? 'holiday' : 'none',
@@ -218,9 +221,12 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
       const { data } = await doSave(payload);
       setRows(prev => {
         const next = [...prev];
-        next[idx] = { ...next[idx], recordId: data.id, isDirty: false };
+        next[idx] = { ...next[idx], recordId: data.id, status: data.status, isDirty: false };
         return next;
       });
+      if (data.status === 'pending') {
+        toast.info('Back-dated entry saved — pending super-admin approval');
+      }
       setSavedIdx(s => ({ ...s, [idx]: true }));
       clearTimeout(timerRef.current[idx]);
       timerRef.current[idx] = setTimeout(() => {
@@ -286,6 +292,8 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
                     {row.date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                     {isToday && <span className="ml-1.5 text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-semibold">TODAY</span>}
                     {row.isHoliday && <div className="text-[10px] text-orange-600 font-medium mt-0.5">{row.holidayName}</div>}
+                    {row.status === 'pending' && <div className="text-[10px] text-amber-600 font-semibold mt-0.5">⏳ Pending approval</div>}
+                    {row.status === 'rejected' && <div className="text-[10px] text-red-500 font-semibold mt-0.5">✕ Rejected</div>}
                   </td>
                   <td className={`py-1.5 px-4 text-xs font-semibold ${row.isSunday ? 'text-purple-600' : 'text-gray-500'}`}>
                     {row.dayName}
@@ -362,9 +370,76 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
   );
 };
 
+// ── Back-date approvals (super_admin only) ────────────────────────────────────
+
+const PendingApprovals = ({ onChange }) => {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState({});
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getPendingAttendanceAPI()
+      .then(r => setItems(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const act = async (id, kind) => {
+    setActing(a => ({ ...a, [id]: true }));
+    try {
+      if (kind === 'approve') { await approveAttendanceAPI(id); toast.success('Attendance approved'); }
+      else { await rejectAttendanceAPI(id); toast.success('Attendance rejected'); }
+      setItems(prev => prev.filter(x => x.id !== id));
+      onChange?.();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Action failed');
+    } finally {
+      setActing(a => { const n = { ...a }; delete n[id]; return n; });
+    }
+  };
+
+  if (loading || items.length === 0) return null;
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <HiOutlineClock className="w-5 h-5 text-amber-600" />
+        <h3 className="font-semibold text-amber-900 text-sm">Back-date Attendance — Pending Approval</h3>
+        <span className="text-[11px] font-bold text-white bg-amber-500 rounded-full px-2 py-0.5">{items.length}</span>
+      </div>
+      <div className="space-y-2">
+        {items.map(r => {
+          const d = new Date(r.date);
+          return (
+            <div key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-white border border-amber-100 rounded-lg px-3 py-2 text-sm">
+              <span className="font-semibold text-gray-800 min-w-[150px]">{r.employee.empNumber} — {r.employee.name}</span>
+              <span className="text-gray-600 whitespace-nowrap">{d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              <span className="text-gray-500 text-xs whitespace-nowrap">{fmtTime(r.inTime)} → {r.outTime ? fmtTime(r.outTime) : '—'}</span>
+              <span className="text-gray-500 text-xs whitespace-nowrap">{r.totalMinutes ? fmtMinutes(r.totalMinutes) : '—'}</span>
+              <div className="ml-auto flex items-center gap-2">
+                <button onClick={() => act(r.id, 'approve')} disabled={acting[r.id]}
+                  className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded-md font-semibold disabled:opacity-50">
+                  <HiOutlineCheck className="w-3.5 h-3.5" /> Approve
+                </button>
+                <button onClick={() => act(r.id, 'reject')} disabled={acting[r.id]}
+                  className="flex items-center gap-1 text-xs bg-white border border-red-300 text-red-600 hover:bg-red-50 px-2.5 py-1 rounded-md font-semibold disabled:opacity-50">
+                  <HiOutlineX className="w-3.5 h-3.5" /> Reject
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 // ── Admin view ────────────────────────────────────────────────────────────────
 
-const AdminAttendanceView = () => {
+const AdminAttendanceView = ({ isSuperAdmin }) => {
   const now = new Date();
   const [employees, setEmployees] = useState([]);
   const [holidays, setHolidays] = useState([]);
@@ -372,6 +447,7 @@ const AdminAttendanceView = () => {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [employeesLoading, setEmployeesLoading] = useState(true);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     setEmployeesLoading(true);
@@ -390,6 +466,7 @@ const AdminAttendanceView = () => {
 
   return (
     <div className="space-y-4">
+      {isSuperAdmin && <PendingApprovals onChange={() => setRefreshTick(t => t + 1)} />}
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-64">
           <SearchableSelect
@@ -426,7 +503,7 @@ const AdminAttendanceView = () => {
         </div>
       ) : (
         <MonthGrid
-          key={`${selectedId}-${month}-${year}`}
+          key={`${selectedId}-${month}-${year}-${refreshTick}`}
           employee={selectedEmployee}
           month={month}
           year={year}
@@ -668,8 +745,8 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-const AttendanceTab = ({ isAdmin }) => {
-  return isAdmin ? <AdminAttendanceView /> : <MyAttendanceView />;
+const AttendanceTab = ({ isAdmin, isSuperAdmin }) => {
+  return isAdmin ? <AdminAttendanceView isSuperAdmin={isSuperAdmin} /> : <MyAttendanceView />;
 };
 
 export default AttendanceTab;

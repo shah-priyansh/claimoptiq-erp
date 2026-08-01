@@ -11,7 +11,10 @@ import { formatCurrency } from '../../utils/format';
 const emptyForm = {
   name: '', basicSalary: '', shiftStart: '09:00', shiftEnd: '18:00',
   standardHours: '9', userId: '', allowances: [], dailyOtEnabled: true,
+  joiningDate: '', lastDate: '',
 };
+
+const fmtDate = (v) => v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
 
 const EmployeeForm = ({ emp, users, loadingUsers, onSave, onClose }) => {
   const [form, setForm] = useState(
@@ -21,6 +24,8 @@ const EmployeeForm = ({ emp, users, loadingUsers, onSave, onClose }) => {
           shiftEnd: emp.shiftEnd, standardHours: emp.standardHours,
           userId: emp.userId || '', allowances: emp.allowances || [],
           dailyOtEnabled: emp.dailyOtEnabled !== false,
+          joiningDate: emp.joiningDate ? emp.joiningDate.slice(0, 10) : '',
+          lastDate: emp.lastDate ? emp.lastDate.slice(0, 10) : '',
         }
       : { ...emptyForm }
   );
@@ -89,6 +94,19 @@ const EmployeeForm = ({ emp, users, loadingUsers, onSave, onClose }) => {
               <label className="block text-xs font-semibold text-gray-600 mb-1">Shift End *</label>
               <input required type="time" value={form.shiftEnd} onChange={e => set('shiftEnd', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Joining Date</label>
+              <input type="date" value={form.joiningDate} onChange={e => set('joiningDate', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Last Working Date</label>
+              <input type="date" value={form.lastDate} min={form.joiningDate || undefined} onChange={e => set('lastDate', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <p className="text-[11px] text-gray-400 mt-0.5">Leave blank if still working. Salary stops after this date.</p>
             </div>
           </div>
           <div>
@@ -213,16 +231,16 @@ const EmployeeList = ({ canEdit }) => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['EMP No', 'Name', 'Basic Salary', 'Shift', 'Std Hours', 'Fixed Allowances', 'User', 'Status', ''].map(h => (
+                {['EMP No', 'Name', 'Basic Salary', 'Shift', 'Std Hours', 'Employment', 'Fixed Allowances', 'User', 'Status', ''].map(h => (
                   <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={9} className="py-10 text-center text-gray-400 text-sm">Loading...</td></tr>
+                <tr><td colSpan={10} className="py-10 text-center text-gray-400 text-sm">Loading...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={9} className="py-10 text-center text-gray-400 text-sm">No employees found</td></tr>
+                <tr><td colSpan={10} className="py-10 text-center text-gray-400 text-sm">No employees found</td></tr>
               ) : filtered.map(emp => (
                 <tr key={emp.id} className="hover:bg-gray-50 text-sm">
                   <td className="py-3 px-4 font-semibold text-primary-600">{emp.empNumber}</td>
@@ -230,6 +248,14 @@ const EmployeeList = ({ canEdit }) => {
                   <td className="py-3 px-4 text-gray-700">{formatCurrency(emp.basicSalary)}</td>
                   <td className="py-3 px-4 text-gray-500 whitespace-nowrap">{emp.shiftStart} – {emp.shiftEnd}</td>
                   <td className="py-3 px-4 text-gray-500">{emp.standardHours} hrs</td>
+                  <td className="py-3 px-4 text-gray-500 whitespace-nowrap">
+                    {emp.joiningDate || emp.lastDate ? (
+                      <div className="text-xs leading-tight">
+                        {emp.joiningDate && <div>Joined: <span className="text-gray-700 font-medium">{fmtDate(emp.joiningDate)}</span></div>}
+                        {emp.lastDate && <div className="text-red-600">Left: <span className="font-medium">{fmtDate(emp.lastDate)}</span></div>}
+                      </div>
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
                   <td className="py-3 px-4 text-gray-500">
                     {emp.allowances?.length > 0
                       ? emp.allowances.map(a => `${a.name}: ${formatCurrency(a.amount)}`).join(', ')

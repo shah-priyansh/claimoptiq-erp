@@ -16,11 +16,24 @@ const computeSalary = (
   otMults = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayMultiplier: 2.0 },
   holidaySet = new Set(),
 ) => {
+  // Ignore any attendance that falls outside the employment window
+  // (before joining / after last working day) so a partial month is only
+  // paid for days the person was actually employed.
+  const joinMs = employee.joiningDate ? new Date(employee.joiningDate).getTime() : null;
+  const lastMs = employee.lastDate ? new Date(employee.lastDate).getTime() : null;
+  const inWindow = (d) => {
+    const t = new Date(d).getTime();
+    if (joinMs !== null && t < joinMs) return false;
+    if (lastMs !== null && t > lastMs) return false;
+    return true;
+  };
+
   // Re-classify each attendance row using the current holiday list so that
   // adding a holiday AFTER attendance is saved still rolls up correctly.
+  // Only 'approved' rows are paid — pending back-dated entries await sign-off.
   const stdMin = Math.round(employee.standardHours * 60);
   const dailyOtEnabled = employee.dailyOtEnabled !== false;
-  const classified = attendance.filter(a => a.outTime).map(a => {
+  const classified = attendance.filter(a => a.outTime && a.status === 'approved' && inWindow(a.date)).map(a => {
     const isSun = new Date(a.date).getUTCDay() === 0;
     const isHol = holidaySet.has(isoDateUTC(a.date));
     const total = a.totalMinutes || 0;
@@ -81,7 +94,27 @@ exports.computeSalary = async (req, res) => {
 
     const empWhere = { isActive: true };
     if (employeeId) empWhere.id = employeeId;
-    const employees = await prisma.employee.findMany({ where: empWhere, include: { allowances: true } });
+    const allEmployees = await prisma.employee.findMany({ where: empWhere, include: { allowances: true } });
+
+    // Only pay employees whose employment window overlaps this month.
+    // Joined after the month ends, or left before it starts → no salary.
+    const employedInMonth = (emp) => {
+      if (emp.joiningDate && new Date(emp.joiningDate).getTime() > monthEnd.getTime()) return false;
+      if (emp.lastDate && new Date(emp.lastDate).getTime() < monthStart.getTime()) return false;
+      return true;
+    };
+    const employees = allEmployees.filter(employedInMonth);
+    const skippedIds = allEmployees.filter(e => !employedInMonth(e)).map(e => e.id);
+
+    // Clear any leftover draft records for people not employed this month
+    // (e.g. a last-working-date was set after an earlier compute). Finalized
+    // records are preserved as historical payroll.
+    if (skippedIds.length) {
+      await prisma.salaryRecord.deleteMany({
+        where: { employeeId: { in: skippedIds }, month: monthStart, isFinalized: false },
+      });
+    }
+
     const empIds = employees.map(e => e.id);
 
     // Single batch fetch for all employees instead of N+1
@@ -167,7 +200,7 @@ exports.getSalaryRecords = async (req, res) => {
       const mEnd = new Date(`${y0}-${String(mo0).padStart(2, '0')}-${String(last).padStart(2, '0')}T23:59:59.999Z`);
       const [attendance, holidays] = await Promise.all([
         prisma.attendanceRecord.findMany({
-          where: { employeeId: r.employeeId, date: { gte: mStart, lte: mEnd }, outTime: { not: null } },
+          where: { employeeId: r.employeeId, date: { gte: mStart, lte: mEnd }, outTime: { not: null }, status: 'approved' },
         }),
         prisma.holidayMaster.findMany({
           where: { date: { gte: mStart, lte: mEnd }, isActive: true },
@@ -207,7 +240,7 @@ exports.getMySalary = async (req, res) => {
       const mEnd = new Date(`${y0}-${String(mo0).padStart(2, '0')}-${String(last).padStart(2, '0')}T23:59:59.999Z`);
       const [attendance, holidays] = await Promise.all([
         prisma.attendanceRecord.findMany({
-          where: { employeeId: r.employeeId, date: { gte: mStart, lte: mEnd }, outTime: { not: null } },
+          where: { employeeId: r.employeeId, date: { gte: mStart, lte: mEnd }, outTime: { not: null }, status: 'approved' },
         }),
         prisma.holidayMaster.findMany({
           where: { date: { gte: mStart, lte: mEnd }, isActive: true },

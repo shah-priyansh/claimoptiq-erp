@@ -16,6 +16,7 @@ const TABS = [
 const StaffModule = () => {
   const { can, roleSlug } = useAuth();
   const isAdmin = roleSlug === 'super_admin' || roleSlug === 'admin';
+  const isSuperAdmin = roleSlug === 'super_admin';
   const canView = can('staff', 'view');
   const canEdit = can('staff', 'edit');
   const canCreate = can('staff', 'create');
@@ -62,7 +63,7 @@ const StaffModule = () => {
         <EmployeeList canEdit={canEdit || canCreate} />
       )}
       {activeTab === 'attendance' && (
-        <AttendanceTab isAdmin={isAdmin} canEdit={canEdit} />
+        <AttendanceTab isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} canEdit={canEdit} />
       )}
       {activeTab === 'salary' && (
         <SalaryTab isAdmin={isAdmin} canEdit={canEdit} />

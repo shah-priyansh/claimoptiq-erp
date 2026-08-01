@@ -55,9 +55,16 @@ exports.getMyEmployee = async (req, res) => {
   }
 };
 
+// Normalise a 'YYYY-MM-DD' (or ISO) date input to a Date, or null when blank.
+const parseDate = (v) => {
+  if (v === undefined || v === null || v === '') return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+};
+
 exports.createEmployee = async (req, res) => {
   try {
-    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, allowances = [], dailyOtEnabled } = req.body;
+    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, allowances = [], dailyOtEnabled, joiningDate, lastDate } = req.body;
     const empNumber = await generateEmpNumber();
     const employee = await prisma.employee.create({
       data: {
@@ -67,6 +74,8 @@ exports.createEmployee = async (req, res) => {
         shiftStart,
         shiftEnd,
         standardHours: parseFloat(standardHours),
+        joiningDate: parseDate(joiningDate),
+        lastDate: parseDate(lastDate),
         userId: userId || null,
         dailyOtEnabled: dailyOtEnabled !== undefined ? !!dailyOtEnabled : true,
         allowances: {
@@ -84,13 +93,15 @@ exports.createEmployee = async (req, res) => {
 
 exports.updateEmployee = async (req, res) => {
   try {
-    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, isActive, allowances, dailyOtEnabled } = req.body;
+    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, isActive, allowances, dailyOtEnabled, joiningDate, lastDate } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (basicSalary !== undefined) data.basicSalary = parseFloat(basicSalary);
     if (shiftStart !== undefined) data.shiftStart = shiftStart;
     if (shiftEnd !== undefined) data.shiftEnd = shiftEnd;
     if (standardHours !== undefined) data.standardHours = parseFloat(standardHours);
+    if (joiningDate !== undefined) data.joiningDate = parseDate(joiningDate);
+    if (lastDate !== undefined) data.lastDate = parseDate(lastDate);
     if (userId !== undefined) data.userId = userId || null;
     if (isActive !== undefined) data.isActive = isActive;
     if (dailyOtEnabled !== undefined) data.dailyOtEnabled = !!dailyOtEnabled;
