@@ -458,6 +458,8 @@ model User {
   hospitalId          String?              @map("hospital_id")
   phone               String
   isActive            Boolean              @default(true) @map("is_active")
+  resetTokenHash      String?              @map("reset_token_hash")
+  resetTokenExpiresAt DateTime?            @map("reset_token_expires_at")
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt @map("updated_at")
   role                Role                 @relation(fields: [roleId], references: [id])

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { loginAPI, getPublicStatsAPI } from '../../services/api';
 import { toast } from 'react-toastify';
@@ -63,6 +63,7 @@ const Login = () => {
   const navigate = useNavigate();
   const [form, setForm] = useState({ identifier: '', password: '' });
   const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [stats, setStats] = useState({});
@@ -86,6 +87,7 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setFormError('');
     const e_ = validate();
     if (Object.keys(e_).length) { setErrors(e_); return; }
     setLoading(true);
@@ -95,7 +97,16 @@ const Login = () => {
       toast.success('Login successful!');
       navigate('/dashboard');
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Login failed');
+      const data = error.response?.data || {};
+      const msg = data.message || 'Login failed. Please try again.';
+      // Map the backend's coded error to the right field / form-level message.
+      if (data.code === 'INCORRECT_PASSWORD') {
+        setErrors({ password: msg });
+      } else if (data.code === 'USER_NOT_FOUND') {
+        setErrors({ identifier: msg });
+      } else {
+        setFormError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -104,6 +115,7 @@ const Login = () => {
   const set = (field, val) => {
     setForm(f => ({ ...f, [field]: val }));
     setErrors(e => ({ ...e, [field]: '' }));
+    setFormError('');
   };
 
   return (
@@ -164,7 +176,12 @@ const Login = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-gray-700">Password</label>
+                  <Link to="/forgot-password" className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline">
+                    Forgot password?
+                  </Link>
+                </div>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
@@ -186,6 +203,12 @@ const Login = () => {
                 </div>
                 {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
               </div>
+
+              {formError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2.5">
+                  <p className="text-xs text-red-600">{formError}</p>
+                </div>
+              )}
 
               <button
                 type="submit"

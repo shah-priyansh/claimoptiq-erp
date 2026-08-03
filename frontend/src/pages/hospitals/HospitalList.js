@@ -41,7 +41,7 @@ const HospitalList = () => {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = usePersistedFilters('hospitals:page', 1);
-  const [pageSize, setPageSize] = usePersistedFilters('hospitals:pageSize', 25);
+  const [pageSize, setPageSize] = usePersistedFilters('hospitals:pageSize', 100);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
