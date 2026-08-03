@@ -180,7 +180,7 @@ const ClaimList = () => {
   const [filters, setFilters] = usePersistedFilters('claims:filters', {
     search: '', hospital: '', status: initStatus, claimType: '', month: '',
     dateFrom: '', dateTo: '', directPatient: '', reference: '', sortBy: 'createdAt_desc',
-    page: 1, limit: 25,
+    page: 1, limit: 100,
   });
   // A `?status=` query param wins over what we restored from session — it
   // means the user clicked a "show me X" link and shouldn't be hijacked by a
@@ -362,7 +362,7 @@ const ClaimList = () => {
           setPages(data.pages);
           lastCountedKeyRef.current = filterKey;
         } else {
-          setPages(prev => Math.max(1, Math.ceil(total / (filters.limit || 25)) || prev));
+          setPages(prev => Math.max(1, Math.ceil(total / (filters.limit || 100)) || prev));
         }
       })
       .catch(() => toast.error('Failed to fetch claims'))

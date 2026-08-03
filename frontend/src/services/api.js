@@ -12,10 +12,17 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
+// Endpoints where a 401/403 is an expected part of the flow (bad login, expired
+// reset link) and must NOT trigger the "session expired -> redirect" behavior —
+// otherwise the page reloads and wipes the inline error before the user sees it.
+const AUTH_PUBLIC_PATHS = ['/auth/login', '/auth/forgot-password', '/auth/reset-password'];
+
 API.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const url = error.config?.url || '';
+    const isAuthPublic = AUTH_PUBLIC_PATHS.some((p) => url.includes(p));
+    if (error.response?.status === 401 && !isAuthPublic) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -34,6 +41,8 @@ export const getClaimDocFileURL = (claimId, docId, download = false) => {
 
 // Auth
 export const loginAPI = (data) => API.post('/auth/login', data);
+export const forgotPasswordAPI = (data) => API.post('/auth/forgot-password', data);
+export const resetPasswordAPI = (data) => API.post('/auth/reset-password', data);
 export const getMeAPI = () => API.get('/auth/me');
 export const updateMeAPI = (data) => API.put('/auth/me', data);
 export const changePasswordAPI = (data) => API.put('/auth/me/password', data);
