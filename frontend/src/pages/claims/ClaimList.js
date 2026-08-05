@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI, deleteClaimAPI, deleteAllClaimsAPI } from '../../services/api';
+import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI, deleteClaimAPI, deleteAllClaimsAPI, getSettledBackupURL } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
@@ -1146,6 +1146,24 @@ const ClaimList = () => {
                 </div>
               )}
             </div>
+          )}
+          {can('claims', 'export') && (
+            <button
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = getSettledBackupURL();
+                a.rel = 'noopener';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                toast.info('Preparing settled-claims backup… your download will begin shortly.');
+              }}
+              title="Download all settled & billed claims' documents as a ZIP, organised into the First Care Consultancy folder tree"
+              className="flex items-center gap-2 bg-white border border-amber-600 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlineDownload className="w-5 h-5" />
+              Backup
+            </button>
           )}
           {can('claims', 'delete') && total > 0 && (
             <button

@@ -4,7 +4,7 @@ const {
   createClaim, getClaims, getClaim, updateClaim,
   uploadDocuments, deleteDocument, streamDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims, importClaims,
   deleteClaim, deleteAllClaims, fixBilledStatus,
-  updateStatusHistory, deleteStatusHistory,
+  updateStatusHistory, deleteStatusHistory, downloadSettledBackup,
 } = require('../controllers/claimController');
 const { protect, checkPermission } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -13,6 +13,9 @@ router.use(protect);
 
 router.get('/dashboard', checkPermission('dashboard', 'view'), getDashboardStats);
 router.get('/export', checkPermission('claims', 'export'), exportClaims);
+// ZIP of all settled/billed claims' documents, arranged into the FCC filing tree.
+// Hit via a browser download link, so `protect` accepts the JWT via ?token=.
+router.get('/settled-backup', checkPermission('claims', 'export'), downloadSettledBackup);
 router.post('/import', checkPermission('claims', 'create'), importClaims);
 
 router.route('/')

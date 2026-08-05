@@ -39,6 +39,15 @@ export const getClaimDocFileURL = (claimId, docId, download = false) => {
   return `${base}/claims/${claimId}/documents/${docId}/file?download=${download ? 1 : 0}&token=${encodeURIComponent(token)}`;
 };
 
+// Browser-download URL for the settled-claims backup ZIP (arranged into the FCC
+// filing tree). Streamed server-side, so navigating the browser here downloads
+// straight to disk; auth rides along via ?token= like the doc-file link above.
+export const getSettledBackupURL = () => {
+  const base = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+  const token = localStorage.getItem('token') || '';
+  return `${base}/claims/settled-backup?token=${encodeURIComponent(token)}`;
+};
+
 // Auth
 export const loginAPI = (data) => API.post('/auth/login', data);
 export const forgotPasswordAPI = (data) => API.post('/auth/forgot-password', data);

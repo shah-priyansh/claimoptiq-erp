@@ -1,12 +1,14 @@
 const prisma = require('../config/prisma');
 const path = require('path');
 const fs = require('fs');
+const archiver = require('archiver');
 const { toResponse } = require('../utils/toResponse');
 const calculateFilePrice = require('../utils/calculateFilePrice');
 const { loadServiceClaimTypesMap, attachClaimTypes } = require('../utils/billingServiceClaimTypes');
-const { streamFileToResponse } = require('../services/fileRetrieval');
+const { streamFileToResponse, resolveFileStream } = require('../services/fileRetrieval');
 const backupService = require('../services/backupService');
 const { loadConfig: loadBackupConfig } = require('../utils/backupConfig');
+const fccPath = require('../utils/fccBackupPath');
 
 const getUserHospitalId = (user) => {
   return user.hospitalId || user.hospital?.id || null;
@@ -1555,6 +1557,157 @@ exports.importClaims = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Dedupe a filename within a single ZIP folder — "report.pdf" collides become
+// "report (2).pdf", "report (3).pdf". `seen` is a Map(dir -> Set(names)).
+const dedupeZipName = (dir, name, seen) => {
+  const set = seen.get(dir) || new Set();
+  let candidate = name;
+  if (set.has(candidate)) {
+    const dot = name.lastIndexOf('.');
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    let i = 2;
+    do { candidate = `${stem} (${i})${ext}`; i += 1; } while (set.has(candidate));
+  }
+  set.add(candidate);
+  seen.set(dir, set);
+  return candidate;
+};
+
+// Download a ZIP of every SETTLED (and BILLED) claim's documents, arranged into
+// the First Care Consultancy filing tree (see utils/fccBackupPath). The tree is
+// composed on the fly from current claim data — storage layout is never touched.
+// Files may sit on local disk or on an SFTP backup server; resolveFileStream
+// transparently handles both. Hospital users are scoped to their own claims.
+exports.downloadSettledBackup = async (req, res) => {
+  try {
+    const userHospitalId = getUserHospitalId(req.user);
+    const where = { status: { in: ['settled', 'billed'] } };
+    if (userHospitalId) {
+      where.hospitalId = userHospitalId;
+      where.isDirectPatient = false;
+    }
+
+    const claims = await prisma.claim.findMany({
+      where,
+      orderBy: [{ srNo: 'asc' }],
+      include: {
+        hospital: { select: { id: true, name: true } },
+        tpa: { select: { name: true } },
+        insuranceCompany: { select: { name: true } },
+        documents: true,
+      },
+    });
+
+    // Build the flat list of ZIP entries first (path -> record). This opens no
+    // files, so it's cheap and lets us return a clean 404 when there's nothing
+    // to back up — before we commit to streaming a ZIP response.
+    const entries = [];
+    const usedFolder = new Map(); // "group/hospital/patient - payer" -> claimId (folder collision guard)
+    const usedNames = new Map();  // dir -> Set(filenames) (filename collision guard)
+
+    for (const claim of claims) {
+      if (!claim.documents || claim.documents.length === 0) continue;
+
+      const group = fccPath.groupForClaimType(claim.claimType);
+      const hosp = fccPath.hospitalSegment(claim);
+      let folderName = fccPath.patientPayerSegment(claim);
+      let folderKey = `${group}/${hosp}/${folderName}`;
+      // Two different claims that map to the same "[Patient] - [Payer]" folder
+      // would otherwise merge; tag the later one with its Sr. No. so no file
+      // from one claim overwrites another's.
+      if (usedFolder.has(folderKey) && usedFolder.get(folderKey) !== claim.id) {
+        const tag = claim.srNo != null ? `Sr ${claim.srNo}` : claim.id.slice(0, 6);
+        folderName = `${folderName} (${tag})`;
+        folderKey = `${group}/${hosp}/${folderName}`;
+      }
+      usedFolder.set(folderKey, claim.id);
+      const claimBase = `${fccPath.ROOT.join('/')}/${group}/${hosp}/${folderName}`;
+
+      for (const doc of claim.documents) {
+        const sub = fccPath.subfolderForCategory(claim.claimType, doc.category);
+        const dir = sub ? `${claimBase}/${sub}` : claimBase;
+        const rawName = fccPath.sanitizeSegment(doc.originalName || doc.fileName, 'file');
+        const name = dedupeZipName(dir, rawName, usedNames);
+        entries.push({ zipPath: `${dir}/${name}`, record: doc });
+      }
+    }
+
+    if (entries.length === 0) {
+      return res.status(404).json({ message: 'No settled claim documents to back up.' });
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="FCC-Settled-Backup-${stamp}.zip"`);
+
+    const archive = archiver('zip', { store: true }); // pdf/jpg are already compressed
+    const missing = [];
+    let aborted = false;
+
+    archive.on('warning', (err) => { console.warn('settled-backup zip warning:', err.message); });
+    archive.on('error', (err) => {
+      aborted = true;
+      console.error('settled-backup zip error:', err.message);
+      try { res.destroy(err); } catch { /* ignore */ }
+    });
+    // Client cancelled the download — stop pulling files from SFTP.
+    res.on('close', () => { if (!res.writableEnded && !aborted) { aborted = true; try { archive.abort(); } catch { /* ignore */ } } });
+
+    archive.pipe(res);
+
+    // Append one file at a time, waiting for archiver to consume each before
+    // opening the next stream — so only a single (possibly remote) file handle
+    // is open at once. A file that can't be read is skipped and listed in
+    // _MISSING_FILES.txt rather than failing the whole backup.
+    for (const entry of entries) {
+      if (aborted) break;
+      let resolved;
+      try {
+        resolved = await resolveFileStream(entry.record, backupService.CLAIM_DOC);
+      } catch (err) {
+        missing.push(`${entry.zipPath} — ${err.message}`);
+        continue;
+      }
+      try {
+        const consumed = new Promise((resolveP, rejectP) => {
+          const onEntry = () => { cleanup(); resolveP(); };
+          const onError = (err) => { cleanup(); rejectP(err); };
+          const cleanup = () => {
+            archive.removeListener('entry', onEntry);
+            archive.removeListener('error', onError);
+          };
+          archive.once('entry', onEntry);
+          archive.once('error', onError);
+        });
+        archive.append(resolved.stream, { name: entry.zipPath });
+        await consumed;
+      } catch (err) {
+        aborted = true;
+        missing.push(`${entry.zipPath} — ${err.message}`);
+      } finally {
+        try { resolved.close(); } catch { /* ignore */ }
+      }
+    }
+
+    if (!aborted) {
+      if (missing.length) {
+        archive.append(
+          Buffer.from(`These files could not be read from storage and were skipped:\n\n${missing.join('\n')}\n`),
+          { name: '_MISSING_FILES.txt' },
+        );
+      }
+      await archive.finalize();
+    }
+  } catch (error) {
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Server error', error: error.message });
+    } else {
+      try { res.destroy(error); } catch { /* ignore */ }
+    }
   }
 };
 
