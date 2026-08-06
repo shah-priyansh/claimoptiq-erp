@@ -20,6 +20,7 @@ const STATIC_TITLES = {
   '/roles/new':              'New Role',
   '/reports':                'Reports',
   '/reports/claims':         'Claims Report',
+  '/reports/claim-settlement': 'Claim Settlement Report',
   '/reports/sales':          'Sales Report',
   '/reports/expenses':       'Expenses Report',
   '/reports/profit':         'Profit Report',

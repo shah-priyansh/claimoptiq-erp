@@ -54,6 +54,8 @@ model Hospital {
   tdsRateMaster   TdsRate?                 @relation("HospitalDefaultTdsRate", fields: [tdsRateId], references: [id])
   invoicePrefix   String                   @default("FCC") @map("invoice_prefix")
   isActive        Boolean                  @default(true) @map("is_active")
+  // Flags a hospital as "direct" — shown as a Direct label wherever it appears.
+  isDirect        Boolean                  @default(false) @map("is_direct")
   // Optional one-level branch hierarchy. A hospital with parentHospitalId set is
   // a *branch*; a hospital referenced as a parent (non-empty `branches`) is a
   // *parent*. Enforced one-level (a branch cannot be a parent) in the
@@ -140,6 +142,9 @@ model Invoice {
   status            String   @default("draft")
   issuedAt          DateTime? @map("issued_at")
   dueDate           DateTime? @map("due_date")
+  // Operator-chosen date printed on the invoice document. Falls back to
+  // issuedAt/createdAt when not set (e.g. older invoices).
+  invoiceDate       DateTime? @map("invoice_date")
 
   subtotalTpaDesk   Float    @default(0) @map("subtotal_tpa_desk")
   subtotalServices  Float    @default(0) @map("subtotal_services")

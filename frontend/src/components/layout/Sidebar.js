@@ -75,6 +75,16 @@ const subLinkClass = ({ isActive }) =>
 const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick }) => {
   const location = useLocation();
   const visible = items.filter((it) => viewCheck(it.module));
+  // The Claims Report opened from the Invoice listing (…/reports/claims?select=1)
+  // is part of the invoicing flow, so highlight "Invoices" instead of "Reports".
+  const invoiceSelectFlow =
+    location.pathname === '/reports/claims' &&
+    new URLSearchParams(location.search).get('select') === '1';
+  const itemActive = (it, routerActive) => {
+    if (invoiceSelectFlow && it.to === '/invoices') return true;
+    if (invoiceSelectFlow && it.to === '/reports') return false;
+    return routerActive;
+  };
   const isActive = items.some((it) => location.pathname === it.to || location.pathname.startsWith(it.to + '/'));
   const [open, setOpen] = useState(isActive);
 
@@ -101,7 +111,9 @@ const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick }) => 
       {open && (
         <div className="mt-0.5 ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5">
           {visible.map((it) => (
-            <NavLink key={it.to} to={it.to} className={subLinkClass} onClick={onChildClick}>
+            <NavLink key={it.to} to={it.to}
+              className={({ isActive: routerActive }) => subLinkClass({ isActive: itemActive(it, routerActive) })}
+              onClick={onChildClick}>
               <it.icon className="w-4 h-4 flex-shrink-0" />
               {it.label}
             </NavLink>

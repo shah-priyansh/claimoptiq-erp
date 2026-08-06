@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI, getPublicStatsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -90,7 +90,7 @@ const TABLE_COL_DEFS = {
   treatmentType:             { label: 'Treatment',            cellClass: 'py-2 px-3',                                              get: (c) => c.treatmentType || '-' },
   diagnosis:                 { label: 'Diagnosis',            cellClass: 'py-2 px-3',                                              get: (c) => c.diagnosis || '-' },
   surgeryName:               { label: 'Surgery',              cellClass: 'py-2 px-3',                                              get: (c) => c.surgeryName || '-' },
-  month:                     { label: 'Month',                cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => formatMonthLabel(c.month) },
+  month:                     { label: 'Month',                cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c, ctx) => formatMonthLabel(ctx?.dateBasis === 'settlement' ? c.settlementDate : c.month) },
   dateOfAdmit:               { label: 'D.O.A.',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.dateOfAdmit) || '-' },
   dateOfDischarge:           { label: 'D.O.D.',               cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.dateOfDischarge) || '-' },
   finalApprovalDate:         { label: 'Approval Date',        cellClass: 'py-2 px-3 whitespace-nowrap',                            get: (c) => fmtDateCell(c.finalApprovalDate) || '-' },
@@ -136,16 +136,22 @@ const TABLE_DEFAULT_COLS = [
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
-const Reports = () => {
+const Reports = ({ settlement = false }) => {
   const { user, roleSlug } = useAuth();
   const confirm = useConfirm();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Set when arriving from the Invoice listing's "Claims Report" button
+  // (…/reports/claims?select=1) — opens the report in selection (bill) mode and
+  // hides Export so the operator can pick claims to invoice. A query param (not
+  // router state) so it survives refresh and the sidebar can read it too.
+  const fromInvoices = new URLSearchParams(location.search).get('select') === '1';
   const isHospitalUser = !!user?.hospital;
   const isSuperAdmin = roleSlug === 'super_admin';
 
   const [hospitals, setHospitals] = useState([]);
   const [referenceMaster, setReferenceMaster] = useState([]);
-  const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '', directPatient: '', reference: '' });
+  const [filters, setFilters] = useState({ hospital: '', dateFrom: '', dateTo: '', status: '', directPatient: '', reference: '', dateBasis: 'admit' });
 
   useEffect(() => {
     getReferencesAPI({ active: 'true' })
@@ -244,13 +250,17 @@ const Reports = () => {
     if (didInitialLoadRef.current) return;
     if (!user) return;
     didInitialLoadRef.current = true;
-    const initialStatus = isSuperAdmin ? '__unbilled' : '';
+    // The Claim Settlement variant opens on all statuses (no Unbilled default).
+    const initialStatus = (isSuperAdmin && !settlement) ? '__unbilled' : '';
     const initialFilters = { ...filters, status: initialStatus };
+    // Coming from the Invoice listing: open directly in claim-selection mode.
+    const wantBillMode = fromInvoices && isSuperAdmin && !settlement;
+    if (wantBillMode) setBillMode(true);
     if (initialStatus) {
       skipNextFilterRefetchRef.current = true;
       setFilters(initialFilters);
     }
-    generateReport({ filtersOverride: initialFilters });
+    generateReport({ filtersOverride: initialFilters, billModeOverride: wantBillMode || undefined });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isSuperAdmin]);
 
@@ -269,17 +279,24 @@ const Reports = () => {
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.hospital, filters.reference, filters.directPatient, filters.dateFrom, filters.dateTo, filters.status]);
+  }, [filters.hospital, filters.reference, filters.directPatient, filters.dateFrom, filters.dateTo, filters.status, filters.dateBasis]);
 
   const getFilePrice = useCallback(
     (c) => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType),
     []
   );
 
+  // Which date a claim is "filed under" for month division — admit month
+  // (default) or its settlement date, per the report's chosen date basis.
+  const claimMonthDate = (c) => (filters.dateBasis === 'settlement' ? c.settlementDate : c.month);
+  // Human label for the chosen basis — shown beside the hospital name in exports.
+  const dateBasisLabel = filters.dateBasis === 'settlement' ? 'Settlement Date' : 'Admit Date';
+
   // Build field defs available for this user
   const allFieldDefs = BASE_FIELD_DEFS
     .filter(f => (!f.superAdminOnly || isSuperAdmin) && (!f.nonHospitalOnly || !isHospitalUser))
-    .map(f => f.key === 'filePrice' ? { ...f, getValue: c => getFilePrice(c) } : f);
+    .map(f => f.key === 'filePrice' ? { ...f, getValue: c => getFilePrice(c) }
+      : f.key === 'month' ? { ...f, getValue: c => formatMonthLabel(claimMonthDate(c), '') } : f);
 
   const activeFieldDefs = allFieldDefs.filter(f => selectedFields.includes(f.key));
 
@@ -295,6 +312,7 @@ const Reports = () => {
     if (src.hospital) params.hospital = src.hospital;
     if (src.dateFrom) params.dateFrom = src.dateFrom;
     if (src.dateTo) params.dateTo = src.dateTo;
+    if (src.dateBasis === 'settlement') params.dateBasis = 'settlement';
     if (src.status === '__unbilled') params.isBilled = 'false';
     else if (src.status) params.status = src.status;
     if (src.directPatient) params.directPatient = src.directPatient;
@@ -501,8 +519,9 @@ const Reports = () => {
     data.forEach(c => {
       const hosp = c.isDirectPatient ? 'Direct Patients' : (c.hospital?.name || 'Unknown');
       if (!byHosp[hosp]) byHosp[hosp] = {};
-      const mk = c.month ? new Date(c.month).toISOString().slice(0, 7) : '0000-00';
-      if (!byHosp[hosp][mk]) byHosp[hosp][mk] = { month: c.month, items: [] };
+      const md = claimMonthDate(c);
+      const mk = md ? new Date(md).toISOString().slice(0, 7) : '0000-00';
+      if (!byHosp[hosp][mk]) byHosp[hosp][mk] = { month: md, items: [] };
       byHosp[hosp][mk].items.push(c);
     });
     return Object.entries(byHosp)
@@ -545,13 +564,13 @@ const Reports = () => {
       const hospTotals = {};
       amountIndices.forEach(i => { hospTotals[i] = 0; });
 
-      monthGroups.forEach(({ month, items }) => {
-        // Hospital header row
-        const rHosp = wsData.length;
-        wsData.push([hospital.toUpperCase(), ...Array(N - 1).fill('')]);
-        merges.push({ s: { r: rHosp, c: 0 }, e: { r: rHosp, c: N - 1 } });
-        rowMeta.push({ row: rHosp, type: 'hospital' });
+      // Hospital header row — once per hospital, not repeated for each month.
+      const rHosp = wsData.length;
+      wsData.push([`${hospital.toUpperCase()}  (${dateBasisLabel})`, ...Array(N - 1).fill('')]);
+      merges.push({ s: { r: rHosp, c: 0 }, e: { r: rHosp, c: N - 1 } });
+      rowMeta.push({ row: rHosp, type: 'hospital' });
 
+      monthGroups.forEach(({ month, items }) => {
         // Subtitle row
         const rSub = wsData.length;
         wsData.push([monthLabel(month), ...Array(N - 1).fill('')]);
@@ -730,17 +749,19 @@ const Reports = () => {
       const hospTotals = {};
       amountIndices.forEach(i => { hospTotals[i] = 0; });
 
-      monthGroups.forEach(({ month, items }) => {
-        autoTable(doc, {
-          startY,
-          body: [[hospital.toUpperCase()]],
-          theme: 'plain',
-          styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 2.5, halign: 'center' },
-          tableWidth: TABLE_WIDTH,
-          margin: { left: MARGIN_X, right: MARGIN_X },
-        });
-        startY = doc.lastAutoTable.finalY;
+      // Hospital header — printed once per hospital, not repeated for each month.
+      if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
+      autoTable(doc, {
+        startY,
+        body: [[`${hospital.toUpperCase()}  (${dateBasisLabel})`]],
+        theme: 'plain',
+        styles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, cellPadding: 2.5, halign: 'center' },
+        tableWidth: TABLE_WIDTH,
+        margin: { left: MARGIN_X, right: MARGIN_X },
+      });
+      startY = doc.lastAutoTable.finalY;
 
+      monthGroups.forEach(({ month, items }) => {
         autoTable(doc, {
           startY,
           body: [[monthLabel(month)]],
@@ -915,7 +936,7 @@ const Reports = () => {
   }
 
   const tableColCount = 1 /* SR */ + visibleCols.length + (isSuperAdmin ? 1 : 0) /* Bill Status */ + (billMode ? 1 : 0);
-  const cellCtx = { getFilePrice: getFileP, claimStatuses };
+  const cellCtx = { getFilePrice: getFileP, claimStatuses, dateBasis: filters.dateBasis };
 
   // ── Field modal helpers ───────────────────────────────────────────────────
 
@@ -947,9 +968,17 @@ const Reports = () => {
       {/* Title row */}
       <div className="flex items-center justify-end mb-1">
         {isSuperAdmin && (
-          billMode ? (
+          (!settlement && billMode) ? (
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-500">{selectedClaimIds.length} selected</span>
+              <button
+                onClick={() => setInvoiceColsModalOpen(true)}
+                className="flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                title="Choose which fields appear in the summary table appended to the invoice PDF"
+              >
+                <HiOutlineCog className="w-4 h-4 text-primary-600" />
+                <span className="hidden sm:inline">Invoice Columns</span>
+              </button>
               <button onClick={handleCancelBillMode} className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">Cancel</button>
               <button onClick={handleMarkSelectedBilled} disabled={!someSelected || billingLoading}
                 className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
@@ -966,10 +995,12 @@ const Reports = () => {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <button onClick={handleGenerateBill} disabled={loading}
-                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
-                {loading ? 'Loading...' : 'Generate Bill'}
-              </button>
+              {!settlement && (
+                <button onClick={handleGenerateBill} disabled={loading}
+                  className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                  {loading ? 'Loading...' : 'Generate Bill'}
+                </button>
+              )}
               <button
                 onClick={() => setReportColsModalOpen(true)}
                 className="flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -978,14 +1009,16 @@ const Reports = () => {
                 <HiOutlineCog className="w-4 h-4 text-primary-600" />
                 <span className="hidden sm:inline">Report Columns</span>
               </button>
-              <button
-                onClick={() => setInvoiceColsModalOpen(true)}
-                className="flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                title="Choose which fields appear in the summary table appended to the invoice PDF"
-              >
-                <HiOutlineCog className="w-4 h-4 text-primary-600" />
-                <span className="hidden sm:inline">Invoice Columns</span>
-              </button>
+              {!settlement && (
+                <button
+                  onClick={() => setInvoiceColsModalOpen(true)}
+                  className="flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                  title="Choose which fields appear in the summary table appended to the invoice PDF"
+                >
+                  <HiOutlineCog className="w-4 h-4 text-primary-600" />
+                  <span className="hidden sm:inline">Invoice Columns</span>
+                </button>
+              )}
             </div>
           )
         )}
@@ -993,7 +1026,7 @@ const Reports = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 mt-6">
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-4' : isSuperAdmin ? 'lg:grid-cols-7' : 'lg:grid-cols-6'}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isHospitalUser ? 'lg:grid-cols-5' : isSuperAdmin ? (billMode ? 'lg:grid-cols-7' : 'lg:grid-cols-8') : 'lg:grid-cols-7'}`}>
           {!isHospitalUser && (
             <SearchableSelect
               options={hospitals.map(h => ({ value: h._id, label: h.name }))}
@@ -1027,6 +1060,16 @@ const Reports = () => {
               allowClear
             />
           )}
+          <SearchableSelect
+            options={[
+              { value: 'admit', label: 'Admit Date' },
+              { value: 'settlement', label: 'Settlement Date' },
+            ]}
+            value={filters.dateBasis}
+            onChange={val => setFilters({ ...filters, dateBasis: val || 'admit' })}
+            placeholder="Date Basis"
+            searchPlaceholder="Search..."
+          />
           <input type="date" value={filters.dateFrom} onChange={e => setFilters({ ...filters, dateFrom: e.target.value })}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           <input type="date" value={filters.dateTo} onChange={e => setFilters({ ...filters, dateTo: e.target.value })}
@@ -1043,6 +1086,7 @@ const Reports = () => {
             isLoading={statusesLoading}
             allowClear
           />
+          {!billMode && (
           <div className="relative" ref={exportMenuRef}>
             <button
               onClick={() => setExportMenuOpen(o => !o)}
@@ -1060,6 +1104,19 @@ const Reports = () => {
                         <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
                       </button>
                       <button onClick={() => openFieldModal('per-pdf')} disabled={!claims.length}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
+                        <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
+                      </button>
+                    </>
+                  ) : filters.hospital ? (
+                    /* One hospital is filtered — the "all vs per hospital" split is
+                       meaningless, so offer a single clean single-file export. */
+                    <>
+                      <button onClick={() => openFieldModal('all-excel')} disabled={loading}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
+                        <HiOutlineDownload className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
+                      </button>
+                      <button onClick={() => openFieldModal('all-pdf')} disabled={loading}
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
                         <HiOutlineDownload className="w-4 h-4 text-rose-600" /> PDF
                       </button>
@@ -1090,6 +1147,7 @@ const Reports = () => {
                 </div>
               )}
           </div>
+          )}
         </div>
       </div>
 

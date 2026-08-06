@@ -93,6 +93,7 @@ function App() {
             <Route path="/account-entries" element={<ProtectedRoute module="account_entries"><AccountEntryList /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute module="reports"><ReportsHub /></ProtectedRoute>} />
             <Route path="/reports/claims" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
+            <Route path="/reports/claim-settlement" element={<ProtectedRoute module="reports"><Reports settlement /></ProtectedRoute>} />
             <Route path="/reports/sales" element={<ProtectedRoute module="reports"><SalesReport /></ProtectedRoute>} />
             <Route path="/reports/expenses" element={<ProtectedRoute module="reports"><ExpensesReport /></ProtectedRoute>} />
             <Route path="/reports/profit" element={<ProtectedRoute module="reports"><ProfitReport /></ProtectedRoute>} />

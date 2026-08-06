@@ -443,6 +443,7 @@ const InvoiceDetail = () => {
             </h2>
             <p className="text-sm text-gray-500 mt-1">
               {invoice.hospital?.name} • {formatMonth(invoice.month)}
+              {invoice.invoiceDate && <> • Invoice Date {formatDate(invoice.invoiceDate)}</>}
             </p>
             {invoice.issuedAt && <p className="text-xs text-gray-400 mt-1">Issued {formatDate(invoice.issuedAt)} • Due {formatDate(invoice.dueDate)}</p>}
           </div>

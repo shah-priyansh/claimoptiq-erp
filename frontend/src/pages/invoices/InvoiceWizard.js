@@ -28,9 +28,9 @@ const TYPE_PILL = (t) =>
   t === 'manual' ? 'bg-emerald-50 text-emerald-700' :
   'bg-gray-100 text-gray-600';
 
-const todayMonth = () => {
+const todayIso = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 // 'TPA Desk — RAJESH PATEL (CCN-0001)' → 'TPA Desk'
@@ -50,7 +50,9 @@ const InvoiceWizard = () => {
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
   const [hospitalId, setHospitalId] = useState('');
   const [tdsRateId, setTdsRateId] = useState('');
-  const [month, setMonth] = useState(todayMonth());
+  const [invoiceDate, setInvoiceDate] = useState(todayIso());
+  // The billing month is derived from the invoice date — one date drives both.
+  const month = (invoiceDate || '').slice(0, 7);
   const [notes, setNotes] = useState('');
   const [roundOff, setRoundOff] = useState(0);
   const [discount, setDiscount] = useState(0);
@@ -101,7 +103,7 @@ const InvoiceWizard = () => {
 
   const runPreview = async () => {
     if (!hospitalId || !month) {
-      toast.error('Pick a hospital and a month first');
+      toast.error('Pick a hospital and invoice date first');
       return;
     }
     setLoading(true);
@@ -182,6 +184,7 @@ const InvoiceWizard = () => {
         month: month + '-01',
         notes,
         tdsRateId: tdsRateId || undefined,
+        ...(invoiceDate ? { invoiceDate } : {}),
         ...(gstRate !== '' ? { gstRate: Number(gstRate) || 0 } : {}),
         ...(manualItemsForCreate.length ? { manualItems: manualItemsForCreate } : {}),
       });
@@ -267,12 +270,16 @@ const InvoiceWizard = () => {
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Month *</label>
-            <input type="month" value={month}
-              onChange={(e) => { setMonth(e.target.value); setPreview(null); setEditLines([]); }}
+            <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Date *</label>
+            <input type="date" value={invoiceDate}
+              onChange={(e) => { setInvoiceDate(e.target.value); setPreview(null); setEditLines([]); }}
               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-700" />
+            <p className="text-[11px] text-gray-400 mt-1">Billing month is taken from this date.</p>
           </div>
-          <div className="flex items-end">
+          <div>
+            {/* Empty label keeps the button aligned with the inputs above,
+                independent of the helper text under Invoice Date. */}
+            <label className="block text-sm font-medium text-gray-700 mb-1" aria-hidden="true">&nbsp;</label>
             <button onClick={runPreview} disabled={loading || !hospitalId || !month}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-primary-600 text-primary-700 hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium rounded-lg transition-colors">
               <HiOutlineSearch className="w-4 h-4" />

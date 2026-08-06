@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import {
   HiOutlineCurrencyRupee, HiOutlineCash, HiOutlineUserGroup,
   HiOutlineDocumentText, HiOutlineTrendingUp, HiOutlineTrendingDown, HiOutlineArrowRight,
-  HiOutlineScale, HiOutlineReceiptTax,
+  HiOutlineScale, HiOutlineReceiptTax, HiOutlineClipboardCheck,
 } from 'react-icons/hi';
 import { getReportDashboardAPI } from '../../services/api';
 import { formatINR } from './reportUtils';
 
 const CARDS = [
+  { to: '/reports/claim-settlement', title: 'Claim Settlement', desc: 'Claim-wise bills, approvals & settlements', icon: HiOutlineClipboardCheck, color: 'bg-teal-50 text-teal-700' },
   { to: '/reports/sales', title: 'Sales', desc: 'Revenue by month, hospital, service', icon: HiOutlineCurrencyRupee, color: 'bg-primary-50 text-primary-700' },
   { to: '/reports/expenses', title: 'Expenses', desc: 'Category-wise + monthly trend', icon: HiOutlineDocumentText, color: 'bg-amber-50 text-amber-700' },
   { to: '/reports/profit', title: 'Profit', desc: 'Sales − Expenses, monthly', icon: HiOutlineTrendingUp, color: 'bg-green-50 text-green-700' },
