@@ -7,16 +7,6 @@ import { norm, cleanNum, parseDateLoose } from './importHelpers';
 const MODES = ['cash', 'bank', 'upi'];
 const INVOICE_STATUSES = ['draft', 'issued', 'partially_paid', 'paid'];
 
-// Month cell → truthy if parseable as YYYY-MM / MM/YYYY / full date.
-const parseMonthLoose = (val) => {
-  if (val === undefined || val === null || String(val).trim() === '') return null;
-  const s = String(val).trim();
-  let m = s.match(/^(\d{4})[-/](\d{1,2})$/);
-  if (m) { const mo = +m[2]; return mo >= 1 && mo <= 12 ? new Date(Date.UTC(+m[1], mo - 1, 1)) : null; }
-  m = s.match(/^(\d{1,2})[/-](\d{4})$/);
-  if (m) { const mo = +m[1]; return mo >= 1 && mo <= 12 ? new Date(Date.UTC(+m[2], mo - 1, 1)) : null; }
-  return parseDateLoose(s);
-};
 const DIRECTION_SYNONYMS = {
   in: 'in', received: 'in', receipt: 'in', credit: 'in', deposit: 'in',
   out: 'out', paid: 'out', payment: 'out', debit: 'out', withdrawal: 'out',
@@ -203,19 +193,19 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
     entityLabel: 'invoice',
     sheetName: 'Invoices',
     templateName: 'invoice-import-template.xlsx',
-    dateKeys: ['month'],
+    dateKeys: ['invoiceDate'],
     columns: [
       { key: 'invoiceNumber', label: 'Invoice No', width: 16, note: 'Optional — must be unique. Blank leaves it unnumbered.' },
       { key: 'hospital', label: 'Hospital *', width: 26, required: true, note: 'Must match a hospital (see Hospitals sheet)' },
-      { key: 'month', label: 'Month *', width: 12, required: true, note: 'YYYY-MM (e.g. 2025-03)' },
+      { key: 'invoiceDate', label: 'Invoice Date *', width: 14, required: true, note: 'YYYY-MM-DD. The invoice date; the billing month is taken from this.' },
       { key: 'status', label: 'Status', width: 14, note: 'issued / paid / partially_paid / draft. Blank = auto from Amount Paid.' },
       { key: 'grandTotal', label: 'Grand Total *', width: 14, required: true, note: 'Numbers only, no ₹ or commas' },
       { key: 'amountPaid', label: 'Amount Paid', width: 14, note: 'Optional — default 0. Cannot exceed Grand Total.' },
       { key: 'notes', label: 'Notes', width: 28, note: 'Optional — becomes the line-item description' },
     ],
     sampleRows: [
-      { invoiceNumber: 'INV-1001', hospital: exHosp, month: '2025-03', status: 'partially_paid', grandTotal: 145000, amountPaid: 100000, notes: 'Opening balance (imported)' },
-      { invoiceNumber: 'INV-1002', hospital: exHosp2, month: '2025-04', status: 'paid', grandTotal: 62000, amountPaid: 62000, notes: '' },
+      { invoiceNumber: 'INV-1001', hospital: exHosp, invoiceDate: '2025-03-31', status: 'partially_paid', grandTotal: 145000, amountPaid: 100000, notes: 'Opening balance (imported)' },
+      { invoiceNumber: 'INV-1002', hospital: exHosp2, invoiceDate: '2025-04-30', status: 'paid', grandTotal: 62000, amountPaid: 62000, notes: '' },
     ],
     refSheets: [
       { name: 'Hospitals', header: 'Hospital Name (use this in the Hospital column)', values: hospitals.map((h) => h.name) },
@@ -223,7 +213,7 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
     previewColumns: [
       { key: 'invoiceNumber', label: 'Invoice No' },
       { key: 'hospital', label: 'Hospital' },
-      { key: 'month', label: 'Month' },
+      { key: 'invoiceDate', label: 'Invoice Date' },
       { key: 'grandTotal', label: 'Grand Total', align: 'right' },
       { key: 'amountPaid', label: 'Amount Paid', align: 'right' },
       { key: 'status', label: 'Status' },
@@ -234,7 +224,6 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       const hospRaw = String(r.hospital ?? '').trim();
       if (!hospRaw) issues.push({ type: 'hospital', label: 'Hospital missing' });
       else if (!hospSet.has(norm(hospRaw))) issues.push({ type: 'hospital', label: `Hospital not found: "${hospRaw}"` });
-      if (!parseMonthLoose(r.month)) issues.push({ type: 'month', label: `Month ${r.month ? `invalid: "${r.month}"` : 'missing'}` });
       const gt = cleanNum(r.grandTotal);
       if (gt === null) issues.push({ type: 'amount', label: 'Grand Total missing' });
       else if (Number.isNaN(gt) || gt < 0) issues.push({ type: 'amount', label: `Grand Total invalid: "${r.grandTotal}"` });
@@ -245,6 +234,9 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       }
       const status = norm(r.status);
       if (status && !INVOICE_STATUSES.includes(status)) issues.push({ type: 'status', label: `Status invalid: "${r.status}"` });
+      const invD = String(r.invoiceDate ?? '').trim();
+      if (!invD) issues.push({ type: 'date', label: 'Invoice Date missing' });
+      else if (!parseDateLoose(invD)) issues.push({ type: 'date', label: `Invoice Date invalid: "${r.invoiceDate}"` });
       return issues;
     },
   };

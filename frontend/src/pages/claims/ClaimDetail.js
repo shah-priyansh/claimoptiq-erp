@@ -1986,7 +1986,7 @@ const ClaimDetail = () => {
                           <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
                         )}
                         {sender.phone && (
-                          <p className="mt-0.5 text-xs text-gray-600">M: {sender.phone}</p>
+                          <p className="mt-0.5 text-xs text-gray-600"><span className="font-semibold">Mobile:</span> {sender.phone}</p>
                         )}
                       </div>
                       <div>

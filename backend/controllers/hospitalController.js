@@ -35,7 +35,7 @@ const hospitalListInclude = {
 // dropdown — stripping them here made the claim form think every hospital
 // had zero doctors.
 const hospitalDropdownSelect = {
-  id: true, name: true, isActive: true, referenceBy: true,
+  id: true, name: true, isActive: true, isDirect: true, referenceBy: true,
   // Parent link so the frontend can badge branches, scope the invoice claim
   // pool, and guard the parent picker (a branch can't be someone's parent).
   parentHospitalId: true,
@@ -90,6 +90,7 @@ const buildHospitalData = async (body) => {
     state: body.state || '',
     pincode: body.pincode || '',
     isActive: body.isActive !== undefined ? body.isActive : true,
+    isDirect: body.isDirect !== undefined ? !!body.isDirect : false,
   };
   // Per-hospital GST / TDS / invoicePrefix were retired 2026-06-16 — all
   // three are now single platform-wide settings in Site Settings → Invoice

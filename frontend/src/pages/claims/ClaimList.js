@@ -1316,6 +1316,7 @@ const ClaimList = () => {
                     {!isHospitalUser && (
                       <>
                         <span className="font-medium text-gray-600">{c.hospital?.name || '-'}</span>
+                        {c.hospital?.isDirect && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase tracking-wide">Direct</span>}
                         {c.isDirectPatient && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">Direct</span>}
                         <span>·</span>
                       </>
@@ -1380,6 +1381,9 @@ const ClaimList = () => {
                     <td className="py-3 px-3 text-sm text-gray-600 align-top max-w-[220px]">
                       <div className="flex items-start gap-1.5 flex-wrap">
                         <span className="break-words">{c.hospital?.name || '-'}</span>
+                        {c.hospital?.isDirect && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase tracking-wide flex-shrink-0">Direct</span>
+                        )}
                         {c.isDirectPatient && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 flex-shrink-0">Direct</span>
                         )}

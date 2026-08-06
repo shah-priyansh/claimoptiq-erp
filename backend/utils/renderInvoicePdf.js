@@ -139,7 +139,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
 
       const invoiceMeta = [
         ['Invoice No.', invoice.invoiceNumber || `Draft-${(invoice.id || '').slice(0, 8)}`],
-        ['Date', formatDate(invoice.issuedAt || invoice.createdAt)],
+        ['Date', formatDate(invoice.invoiceDate || invoice.issuedAt || invoice.createdAt)],
         ['Due', invoice.dueDate ? formatDate(invoice.dueDate) : null],
       ].filter(([, v]) => v);
       let metaY = logoBoxY + 36;

@@ -39,7 +39,7 @@ const auditorSelect = { select: { id: true, name: true } };
 const claimInclude = {
   hospital: {
     select: {
-      id: true, name: true, referenceBy: true,
+      id: true, name: true, referenceBy: true, isDirect: true,
       address: true, phone: true,
       billingServices: {
         where: { isActive: true },
@@ -60,7 +60,7 @@ const claimInclude = {
 // `filePrice` server-side using one batched hospital fetch in `getClaims`.
 const claimListInclude = {
   hospital: {
-    select: { id: true, name: true, referenceBy: true, address: true, phone: true },
+    select: { id: true, name: true, referenceBy: true, isDirect: true, address: true, phone: true },
   },
   insuranceCompany: { select: { id: true, name: true, address: true, mobile: true, statusAutomation: true } },
   tpa: { select: { id: true, name: true, address: true, mobile: true, statusAutomation: true } },
@@ -170,7 +170,7 @@ const resolveClaimSort = (sortBy) => CLAIM_SORT_MAP[sortBy] || CLAIM_SORT_MAP.cr
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference, isBilled, page = 1, limit = 25, skipCount, includeTotals, idsOnly, sortBy } = req.query;
+    const { hospital, status, claimType, month, dateFrom, dateTo, dateBasis, search, directPatient, reference, isBilled, page = 1, limit = 25, skipCount, includeTotals, idsOnly, sortBy } = req.query;
     const where = {};
     const orderBy = resolveClaimSort(sortBy);
 
@@ -216,16 +216,19 @@ exports.getClaims = async (req, res) => {
       };
     }
     if (!month && (dateFrom || dateTo)) {
-      where.month = {};
+      // The date range filters by admit month (default) or by settlement date,
+      // depending on the report's chosen date basis.
+      const dateField = dateBasis === 'settlement' ? 'settlementDate' : 'month';
+      where[dateField] = {};
       if (dateFrom) {
         const d = new Date(dateFrom);
         d.setHours(0, 0, 0, 0);
-        where.month.gte = d;
+        where[dateField].gte = d;
       }
       if (dateTo) {
         const d = new Date(dateTo);
         d.setHours(23, 59, 59, 999);
-        where.month.lte = d;
+        where[dateField].lte = d;
       }
     }
     if (search) {

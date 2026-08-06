@@ -65,7 +65,7 @@ const parseInvoiceMonth = (val) => {
 };
 
 const invoiceInclude = {
-  hospital: { select: { id: true, name: true, address: true, city: true, state: true, pincode: true, phone: true } },
+  hospital: { select: { id: true, name: true, isDirect: true, address: true, city: true, state: true, pincode: true, phone: true } },
   createdBy: { select: { id: true, name: true, email: true } },
   issuedBy: { select: { id: true, name: true, email: true } },
   tdsRateMaster: { select: { id: true, taxName: true, rate: true, section: true } },
@@ -79,7 +79,7 @@ const invoiceInclude = {
 // line's description so the list can render the patient name on direct-
 // patient invoices (and the download-filename helper can pull the same).
 const invoiceListInclude = {
-  hospital: { select: { id: true, name: true } },
+  hospital: { select: { id: true, name: true, isDirect: true } },
   lineItems: {
     where: { lineType: 'claim_tpa_desk' },
     select: { lineType: true, description: true },
@@ -807,7 +807,7 @@ exports.previewDirectPatient = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems, isDirectPatient } = req.body;
+    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems, isDirectPatient, invoiceDate } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
@@ -901,6 +901,7 @@ exports.create = async (req, res) => {
       grandTotal: finalTotals.grandTotal,
       amountPending: finalTotals.amountPending,
       isDirectPatient: isDirectPatientInvoice,
+      invoiceDate: parseImportDate(invoiceDate),
     };
 
     const invoice = await prisma.$transaction(async (tx) => {
@@ -1001,8 +1002,13 @@ exports.bulkImport = async (req, res) => {
       if (!hospRaw) rowErrors.push('Hospital is required');
       else { hospital = hospMap.get(norm(hospRaw)); if (!hospital) rowErrors.push(`Hospital not found: "${hospRaw}"`); }
 
-      const month = parseInvoiceMonth(row.month);
-      if (!month) rowErrors.push(row.month ? `Month invalid: "${row.month}"` : 'Month is required');
+      // One date drives both: the billing month is derived from the invoice date.
+      // Falls back to a legacy Month column if an old file provides one instead.
+      const rowInvDate = parseImportDate(row.invoiceDate);
+      const month = (rowInvDate
+        ? new Date(Date.UTC(rowInvDate.getUTCFullYear(), rowInvDate.getUTCMonth(), 1))
+        : null) || parseInvoiceMonth(row.month);
+      if (!month) rowErrors.push(row.invoiceDate ? `Invoice Date invalid: "${row.invoiceDate}"` : 'Invoice Date is required');
 
       const gtRaw = String(row.grandTotal ?? '').replace(/,/g, '').trim();
       const grandTotal = Number(gtRaw);
@@ -1037,6 +1043,8 @@ exports.bulkImport = async (req, res) => {
       const gt = Math.round(grandTotal);
       const paid = Math.round(amountPaid);
       const notes = String(row.notes ?? '').slice(0, 1000);
+      // Optional invoice date; falls back to the billing month when omitted.
+      const invDate = rowInvDate || month;
 
       try {
         const inv = await prisma.invoice.create({
@@ -1047,6 +1055,7 @@ exports.bulkImport = async (req, res) => {
             month,
             status,
             issuedAt: status === 'draft' ? null : month,
+            invoiceDate: invDate,
             subtotalServices: gt,
             gross: gt,
             netTotal: gt,

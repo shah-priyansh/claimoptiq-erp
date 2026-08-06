@@ -151,7 +151,16 @@ const CashBankList = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="p-4 border-b border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Filters</span>
+            <button
+              onClick={() => { setFilters((f) => ({ ...f, direction: '', mode: '', from: '', to: '', q: '' })); setPage(1); }}
+              className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline">
+              Reset filters
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Direction</label>
             <select value={filters.direction}
@@ -192,6 +201,7 @@ const CashBankList = () => {
               placeholder="UTR / cheque / notes"
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
           </div>
+        </div>
         </div>
 
         {loading ? (

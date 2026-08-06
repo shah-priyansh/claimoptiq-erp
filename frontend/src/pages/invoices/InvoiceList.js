@@ -385,9 +385,9 @@ const InvoiceList = () => {
           </button>
         )}
         <button
-          onClick={() => navigate('/reports/claims')}
+          onClick={() => navigate('/reports/claims?select=1')}
           className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
-          title="Open the original claim-level report"
+          title="Open the claim-level report to select claims for invoicing"
         >
           <HiOutlineChartBar className="w-4 h-4 text-primary-600" /> Claims Report
         </button>
@@ -567,7 +567,10 @@ const InvoiceList = () => {
                           )}
                         </>
                       ) : (
-                        <p className="break-words">{inv.hospital?.name || '-'}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="break-words">{inv.hospital?.name || '-'}</span>
+                          {inv.hospital?.isDirect && <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase tracking-wide flex-shrink-0">Direct</span>}
+                        </div>
                       )}
                     </td>
                     <td className="py-3 px-4 text-gray-600 align-top whitespace-nowrap">{formatMonth(inv.month)}</td>

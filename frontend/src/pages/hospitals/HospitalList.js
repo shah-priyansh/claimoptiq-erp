@@ -189,6 +189,7 @@ const HospitalList = () => {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-gray-800 truncate">{h.name}</p>
+                          {h.isDirect && <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-semibold uppercase tracking-wide flex-shrink-0">Direct</span>}
                           {h.parent && <span className="px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-medium flex-shrink-0">Branch of {h.parent.name}</span>}
                           {!h.parent && h._count?.branches > 0 && <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-medium flex-shrink-0">{h._count.branches} {h._count.branches === 1 ? 'branch' : 'branches'}</span>}
                           {can('hospitals', 'edit') ? (
@@ -291,6 +292,7 @@ const HospitalList = () => {
                     <td className="py-3 px-4 text-sm font-medium text-gray-800">
                       <div className="flex items-center gap-2">
                         <span>{h.name}</span>
+                        {h.isDirect && <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-semibold uppercase tracking-wide">Direct</span>}
                         {h.parent && <span className="px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-medium">Branch of {h.parent.name}</span>}
                         {!h.parent && h._count?.branches > 0 && <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-medium">{h._count.branches} {h._count.branches === 1 ? 'branch' : 'branches'}</span>}
                       </div>
