@@ -23,6 +23,47 @@ const parseMonth = (input) => {
 
 const monthEnd = (month) => new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1));
 
+const norm = (s) => String(s || '').trim().toLowerCase();
+
+// Loose date parser for bulk import — YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, serial.
+const parseImportDate = (val) => {
+  if (val === undefined || val === null || val === '') return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  const s = String(val).trim();
+  if (!s) return null;
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const d = new Date(Math.round((Number(s) - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) { const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); return (isNaN(d.getTime()) || d.getUTCMonth() !== +m[2] - 1) ? null : d; }
+  m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (m) {
+    let [, a, b, yy] = m;
+    if (yy.length === 2) yy = '20' + yy;
+    let day = +a, month = +b;
+    if (month > 12 && day <= 12) { const t = day; day = month; month = t; }
+    if (!day || !month || day > 31 || month > 12) return null;
+    const d = new Date(Date.UTC(+yy, month - 1, day));
+    return (isNaN(d.getTime()) || d.getUTCMonth() !== month - 1) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+// Month cell → first-of-month UTC. Accepts YYYY-MM, YYYY/MM, MM/YYYY, full dates,
+// and Excel date cells (frontend coerces those to ISO already).
+const parseInvoiceMonth = (val) => {
+  if (val === undefined || val === null || val === '') return null;
+  const s = String(val).trim();
+  let m = s.match(/^(\d{4})[-/](\d{1,2})$/);
+  if (m) { const mo = +m[2]; return mo >= 1 && mo <= 12 ? new Date(Date.UTC(+m[1], mo - 1, 1)) : null; }
+  m = s.match(/^(\d{1,2})[/-](\d{4})$/);
+  if (m) { const mo = +m[1]; return mo >= 1 && mo <= 12 ? new Date(Date.UTC(+m[2], mo - 1, 1)) : null; }
+  const d = parseImportDate(s);
+  return d ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)) : null;
+};
+
 const invoiceInclude = {
   hospital: { select: { id: true, name: true, address: true, city: true, state: true, pincode: true, phone: true } },
   createdBy: { select: { id: true, name: true, email: true } },
@@ -918,6 +959,136 @@ exports.create = async (req, res) => {
 // "Open Invoice Hospitals" quick-filter dropdown on the listing page.
 // Aggregates count + sum of pending so the UI can show both per hospital
 // without a second roundtrip.
+// Legacy / opening-balance bulk import — creates one invoice per row directly
+// (bypassing claim aggregation), each with a single manual line item for the
+// grand total. For migrating historical invoices from a prior system. Status is
+// taken from the row or derived from amountPaid; hospital is matched by name.
+// Uniqueness on invoice number and on (hospital, month) is checked up-front and
+// again caught at the DB (partial unique index) so a dup never blocks the batch.
+exports.bulkImport = async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || !rows.length) {
+      return res.status(400).json({ message: 'rows (non-empty array) is required' });
+    }
+    if (rows.length > 2000) return res.status(400).json({ message: 'Maximum 2000 rows per import' });
+
+    const hospitals = await prisma.hospital.findMany({ select: { id: true, name: true } });
+    const hospMap = new Map();
+    for (const h of hospitals) { const k = norm(h.name); if (k && !hospMap.has(k)) hospMap.set(k, h); }
+
+    const existing = await prisma.invoice.findMany({
+      where: { status: { not: 'void' } },
+      select: { invoiceNumber: true, hospitalId: true, month: true, isDirectPatient: true },
+    });
+    const monthKey = (hid, month) => `${hid}|${new Date(month).toISOString().slice(0, 10)}`;
+    const existingNumbers = new Set(existing.map((i) => i.invoiceNumber).filter(Boolean).map(norm));
+    const existingSlots = new Set(existing.filter((i) => !i.isDirectPatient).map((i) => monthKey(i.hospitalId, i.month)));
+
+    const VALID_STATUSES = ['draft', 'issued', 'partially_paid', 'paid'];
+    const batchNumbers = new Set();
+    const batchSlots = new Set();
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      const rowNum = i + 2;
+      const rowErrors = [];
+
+      const hospRaw = String(row.hospital ?? '').trim();
+      let hospital = null;
+      if (!hospRaw) rowErrors.push('Hospital is required');
+      else { hospital = hospMap.get(norm(hospRaw)); if (!hospital) rowErrors.push(`Hospital not found: "${hospRaw}"`); }
+
+      const month = parseInvoiceMonth(row.month);
+      if (!month) rowErrors.push(row.month ? `Month invalid: "${row.month}"` : 'Month is required');
+
+      const gtRaw = String(row.grandTotal ?? '').replace(/,/g, '').trim();
+      const grandTotal = Number(gtRaw);
+      if (gtRaw === '') rowErrors.push('Grand Total is required');
+      else if (!Number.isFinite(grandTotal) || grandTotal < 0) rowErrors.push(`Grand Total must be a non-negative number: "${row.grandTotal}"`);
+
+      let amountPaid = 0;
+      const paidRaw = String(row.amountPaid ?? '').replace(/,/g, '').trim();
+      if (paidRaw !== '') {
+        amountPaid = Number(paidRaw);
+        if (!Number.isFinite(amountPaid) || amountPaid < 0) rowErrors.push(`Amount Paid must be a non-negative number: "${row.amountPaid}"`);
+      }
+      if (Number.isFinite(grandTotal) && Number.isFinite(amountPaid) && amountPaid > grandTotal) {
+        rowErrors.push('Amount Paid cannot exceed Grand Total');
+      }
+
+      let status = norm(row.status);
+      if (status && !VALID_STATUSES.includes(status)) rowErrors.push(`Status must be one of: ${VALID_STATUSES.join(', ')}`);
+
+      const invNumRaw = String(row.invoiceNumber ?? '').trim();
+      if (invNumRaw && (existingNumbers.has(norm(invNumRaw)) || batchNumbers.has(norm(invNumRaw)))) {
+        rowErrors.push(`Invoice number already exists: "${invNumRaw}"`);
+      }
+      if (hospital && month) {
+        const slot = monthKey(hospital.id, month);
+        if (existingSlots.has(slot) || batchSlots.has(slot)) rowErrors.push('An invoice already exists for this hospital and month');
+      }
+
+      if (rowErrors.length) { errors.push({ row: rowNum, name: invNumRaw || hospRaw, errors: rowErrors }); continue; }
+
+      if (!status) status = amountPaid <= 0 ? 'issued' : (amountPaid >= grandTotal ? 'paid' : 'partially_paid');
+      const gt = Math.round(grandTotal);
+      const paid = Math.round(amountPaid);
+      const notes = String(row.notes ?? '').slice(0, 1000);
+
+      try {
+        const inv = await prisma.invoice.create({
+          data: {
+            invoiceNumber: invNumRaw || null,
+            hospitalId: hospital.id,
+            isDirectPatient: false,
+            month,
+            status,
+            issuedAt: status === 'draft' ? null : month,
+            subtotalServices: gt,
+            gross: gt,
+            netTotal: gt,
+            grandTotal: gt,
+            previousBalance: 0,
+            amountPaid: paid,
+            amountPending: gt - paid,
+            notes,
+            createdById: req.user?.id || null,
+            lineItems: { create: [{ lineType: 'manual', description: (notes || 'Imported opening balance').slice(0, 300), amount: gt, order: 0, meta: { imported: true } }] },
+          },
+          select: { id: true, invoiceNumber: true },
+        });
+        if (invNumRaw) { batchNumbers.add(norm(invNumRaw)); existingNumbers.add(norm(invNumRaw)); }
+        batchSlots.add(monthKey(hospital.id, month));
+        created.push({ row: rowNum, id: inv.id, name: inv.invoiceNumber || hospRaw });
+      } catch (e) {
+        const msg = e.code === 'P2002'
+          ? 'Invoice number or hospital+month already exists'
+          : (e.message || 'Failed to save');
+        errors.push({ row: rowNum, name: invNumRaw || hospRaw, errors: [msg] });
+      }
+    }
+
+    const successCount = created.length;
+    res.json({
+      message: `Imported ${successCount} of ${rows.length} invoice(s)`,
+      created,
+      errors,
+      totalRows: rows.length,
+      successCount,
+      createdCount: successCount,
+      updatedCount: 0,
+      skippedCount: 0,
+      errorCount: errors.length,
+      mode: 'append',
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.openHospitals = async (req, res) => {
   try {
     const grouped = await prisma.invoice.groupBy({

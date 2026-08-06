@@ -108,6 +108,7 @@ export const previewDirectPatientInvoiceAPI = (data) => API.post('/invoices/prev
 // preview + print, and re-save it for download.
 export const previewInvoicePdfAPI = (data) => API.post('/invoices/preview-pdf', data, { responseType: 'blob' });
 export const createInvoiceAPI  = (data) => API.post('/invoices', data);
+export const importInvoicesAPI = (rows) => API.post('/invoices/import', { rows });
 export const getInvoicesAPI    = (params) => API.get('/invoices', { params });
 export const getOpenInvoiceHospitalsAPI = () => API.get('/invoices/open-hospitals');
 export const getInvoiceAPI     = (id) => API.get(`/invoices/${id}`);
@@ -192,6 +193,7 @@ export const getExpensesAPI       = (params) => API.get('/expenses', { params })
 export const getExpenseSummaryAPI = (params) => API.get('/expenses/summary', { params });
 export const getExpenseAPI        = (id) => API.get(`/expenses/${id}`);
 export const createExpenseAPI     = (data) => API.post('/expenses', data);
+export const importExpensesAPI    = (rows) => API.post('/expenses/import', { rows });
 export const updateExpenseAPI     = (id, data) => API.patch(`/expenses/${id}`, data);
 export const deleteExpenseAPI     = (id) => API.delete(`/expenses/${id}`);
 
@@ -201,6 +203,7 @@ export const getCashBankBalancesAPI = () => API.get('/cash-bank/balances');
 export const getCashBankSummaryAPI  = (params) => API.get('/cash-bank/summary', { params });
 export const getCashBankEntryAPI    = (id) => API.get(`/cash-bank/${id}`);
 export const createCashBankAPI      = (data) => API.post('/cash-bank', data);
+export const importCashBankAPI      = (rows) => API.post('/cash-bank/import', { rows });
 export const updateCashBankAPI      = (id, data) => API.patch(`/cash-bank/${id}`, data);
 export const deleteCashBankAPI      = (id) => API.delete(`/cash-bank/${id}`);
 export const recordInvoicePaymentAPI = (invoiceId, data) => API.post(`/invoices/${invoiceId}/payments`, data);
@@ -248,6 +251,7 @@ export const getAccountEntriesAPI       = (params) => API.get('/account-entries'
 export const getAccountEntrySummaryAPI  = (params) => API.get('/account-entries/summary', { params });
 export const getAccountEntryAPI         = (id) => API.get(`/account-entries/${id}`);
 export const createAccountEntryAPI      = (data) => API.post('/account-entries', data);
+export const importAccountEntriesAPI    = (rows) => API.post('/account-entries/import', { rows });
 export const updateAccountEntryAPI      = (id, data) => API.patch(`/account-entries/${id}`, data);
 export const deleteAccountEntryAPI      = (id) => API.delete(`/account-entries/${id}`);
 

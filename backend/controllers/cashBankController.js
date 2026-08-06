@@ -19,6 +19,44 @@ const parseDate = (input) => {
   return isNaN(d.getTime()) ? null : d;
 };
 
+const norm = (s) => String(s || '').trim().toLowerCase();
+
+// Loose date parser for bulk import — accepts YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY,
+// and Excel serials. Returns a UTC-midnight Date or null.
+const parseImportDate = (val) => {
+  if (val === undefined || val === null || val === '') return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  const s = String(val).trim();
+  if (!s) return null;
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const d = new Date(Math.round((Number(s) - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return (isNaN(d.getTime()) || d.getUTCMonth() !== +m[2] - 1) ? null : d;
+  }
+  m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (m) {
+    let [, a, b, yy] = m;
+    if (yy.length === 2) yy = '20' + yy;
+    let day = +a, month = +b;
+    if (month > 12 && day <= 12) { const t = day; day = month; month = t; }
+    if (!day || !month || day > 31 || month > 12) return null;
+    const d = new Date(Date.UTC(+yy, month - 1, day));
+    return (isNaN(d.getTime()) || d.getUTCMonth() !== month - 1) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+// Common synonyms operators type instead of the canonical in/out.
+const DIRECTION_SYNONYMS = {
+  in: 'in', received: 'in', receipt: 'in', credit: 'in', deposit: 'in',
+  out: 'out', paid: 'out', payment: 'out', debit: 'out', withdrawal: 'out',
+};
+
 // Build the persisted shape from a request body. Throws { status, message } for client errors.
 const buildEntryData = async (body) => {
   const date = parseDate(body.date);
@@ -224,6 +262,88 @@ exports.create = async (req, res) => {
     res.status(201).json(toResponse(item));
   } catch (error) {
     if (error.status) return res.status(error.status).json({ message: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Bulk import — each valid row creates a standalone cash/bank movement
+// (append-only). Invoice/expense reconciliation links are intentionally out of
+// scope for import; do those in-app. Bank account is resolved by name / account
+// number; validation is delegated to buildEntryData() for parity with single-add.
+exports.bulkImport = async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || !rows.length) {
+      return res.status(400).json({ message: 'rows (non-empty array) is required' });
+    }
+    if (rows.length > 2000) return res.status(400).json({ message: 'Maximum 2000 rows per import' });
+
+    const banks = await prisma.bankAccount.findMany({ select: { id: true, bankName: true, accountNumber: true } });
+    const bankMap = new Map();
+    const addBank = (k, b) => { const n = norm(k); if (n && !bankMap.has(n)) bankMap.set(n, b); };
+    for (const b of banks) {
+      addBank(b.bankName, b);
+      if (b.accountNumber) {
+        addBank(b.accountNumber, b);
+        addBank(`${b.bankName} - ${b.accountNumber}`, b);
+        addBank(`${b.bankName} ${b.accountNumber}`, b);
+      }
+    }
+
+    const created = [];
+    const errors = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      const rowNum = i + 2;
+      const label = `${norm(row.direction) || '?'}/${norm(row.mode) || '?'}`;
+      try {
+        const dateVal = parseImportDate(row.date);
+        if (!dateVal) throw { message: row.date ? `Date invalid: "${row.date}"` : 'Date is required' };
+        const direction = DIRECTION_SYNONYMS[norm(row.direction)] || norm(row.direction);
+        const mode = norm(row.mode);
+
+        let bankAccountId = null;
+        const bankRaw = String(row.bankAccount ?? '').trim();
+        if (bankRaw) {
+          const b = bankMap.get(norm(bankRaw));
+          if (!b) throw { message: `Bank account not found: "${bankRaw}"` };
+          bankAccountId = b.id;
+        }
+
+        const data = await buildEntryData({
+          date: dateVal,
+          direction,
+          mode,
+          amount: String(row.amount ?? '').replace(/,/g, '').trim(),
+          bankAccountId,
+          notes: row.notes,
+          utrNumber: row.utrNumber,
+          chequeNumber: row.chequeNumber,
+        });
+        const entry = await prisma.cashBankEntry.create({
+          data: { ...data, createdById: req.user?.id || null },
+          select: { id: true },
+        });
+        created.push({ row: rowNum, id: entry.id, name: label });
+      } catch (e) {
+        errors.push({ row: rowNum, name: label, errors: [e.message || 'Failed to save'] });
+      }
+    }
+
+    const successCount = created.length;
+    res.json({
+      message: `Imported ${successCount} of ${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}`,
+      created,
+      errors,
+      totalRows: rows.length,
+      successCount,
+      createdCount: successCount,
+      updatedCount: 0,
+      skippedCount: 0,
+      errorCount: errors.length,
+      mode: 'append',
+    });
+  } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

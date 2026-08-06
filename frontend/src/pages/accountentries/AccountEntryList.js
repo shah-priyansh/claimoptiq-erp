@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSwitchHorizontal } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSwitchHorizontal, HiOutlineUpload } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
@@ -9,6 +9,8 @@ import {
   createAccountEntryAPI, updateAccountEntryAPI, deleteAccountEntryAPI,
 } from '../../services/api';
 import AccountEntryFormModal from './AccountEntryFormModal';
+import TransactionImportModal from '../../components/import/TransactionImportModal';
+import { accountEntryImportConfig } from '../../components/import/transactionImportConfigs';
 import { formatDate as _formatDate } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 
@@ -31,12 +33,15 @@ const AccountEntryList = () => {
   const [summary, setSummary] = useState({ generalDebit: 0, generalCredit: 0, contraCount: 0 });
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
+  const [importOpen, setImportOpen] = useState(false);
   const [page, setPage] = usePersistedFilters('accountEntries:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('accountEntries:pageSize', 25);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = usePersistedFilters('accountEntries:filters', { entryType: '', from: monthStart(), to: todayIso(), q: '' });
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
+
+  const importConfig = useMemo(() => accountEntryImportConfig(), []);
 
   const params = useMemo(() => ({
     page, limit: pageSize,
@@ -101,6 +106,10 @@ const AccountEntryList = () => {
     <div>
       {canCreate && (
         <div className="flex justify-end mb-4 gap-2">
+          <button onClick={() => setImportOpen(true)}
+            className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+            <HiOutlineUpload className="w-4 h-4" /> Import
+          </button>
           <button onClick={() => setModal({ open: true, item: null })}
             className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
             <HiOutlinePlus className="w-4 h-4" /> Add Entry
@@ -234,6 +243,13 @@ const AccountEntryList = () => {
         initial={modal.item}
         onClose={() => setModal({ open: false, item: null })}
         onSave={handleSave}
+      />
+
+      <TransactionImportModal
+        open={importOpen}
+        config={importConfig}
+        onClose={() => setImportOpen(false)}
+        onImported={fetchAll}
       />
     </div>
   );
