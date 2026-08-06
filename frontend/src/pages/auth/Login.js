@@ -5,6 +5,7 @@ import { loginAPI, getPublicStatsAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { isValidIdentifier, inputCls } from '../../utils/validators';
 import { HiOutlineEye, HiOutlineEyeOff } from 'react-icons/hi';
+import logo from '../../assets/logo.png';
 
 const StatLoader = () => (
   <span className="inline-flex items-center gap-1 align-middle">
@@ -121,28 +122,31 @@ const Login = () => {
   return (
     <div className="min-h-screen flex">
       {/* Left - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary-700 via-primary-600 to-primary-800 items-center justify-center p-12">
-        <div className="text-center text-white">
-          <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <span className="text-4xl font-bold text-white">C</span>
-          </div>
-          <h1 className="text-4xl font-bold mb-4">{stats.login_title || 'ClaimOptiq'}</h1>
-          <p className="text-xl text-primary-100 mb-2">{stats.login_subtitle || 'AI ERP Suite'}</p>
-          <p className="text-primary-200 text-sm max-w-md">
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#0a0f1c] via-[#0b1220] to-black items-center justify-center p-12">
+        {/* ambient glow accents */}
+        <div className="pointer-events-none absolute -top-24 -right-24 w-96 h-96 rounded-full bg-blue-600/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 -left-24 w-[28rem] h-[28rem] rounded-full bg-primary-600/10 blur-3xl" />
+        <div className="relative text-center">
+          <img
+            src={logo}
+            alt="ClaimOptiq"
+            className="w-[22rem] max-w-full mx-auto drop-shadow-[0_0_45px_rgba(37,99,235,0.25)]"
+          />
+          <p className="text-slate-400 text-sm max-w-md mx-auto -mt-2">
             {stats.login_tagline || 'AI-Powered Healthcare Business Operating System by First Care Consultancy'}
           </p>
-          <div className="mt-10 grid grid-cols-2 gap-4 text-sm text-primary-100">
-            <div className="bg-white/10 rounded-lg p-4">
+          <div className="mt-10 grid grid-cols-2 gap-4 text-sm">
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 backdrop-blur">
               <p className="text-2xl font-bold text-white tabular-nums">
                 <CountUp value={stats.login_stat_claims} />
               </p>
-              <p>Claims Managed</p>
+              <p className="text-slate-400">Claims Managed</p>
             </div>
-            <div className="bg-white/10 rounded-lg p-4">
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 backdrop-blur">
               <p className="text-2xl font-bold text-white tabular-nums">
                 <CountUp value={stats.login_stat_hospitals} />
               </p>
-              <p>Hospitals</p>
+              <p className="text-slate-400">Hospitals</p>
             </div>
           </div>
         </div>
@@ -152,10 +156,9 @@ const Login = () => {
       <div className="flex-1 relative flex items-center justify-center p-6 bg-gray-50">
         <div className="w-full max-w-md">
           <div className="lg:hidden text-center mb-8">
-            <div className="w-16 h-16 bg-primary-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl font-bold text-white">C</span>
+            <div className="inline-flex items-center justify-center mx-auto rounded-2xl bg-gradient-to-br from-slate-900 to-black p-4 shadow-lg">
+              <img src={logo} alt="ClaimOptiq" className="w-40 max-w-full object-contain" />
             </div>
-            <h1 className="text-2xl font-bold text-primary-800">ClaimOptiq</h1>
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">

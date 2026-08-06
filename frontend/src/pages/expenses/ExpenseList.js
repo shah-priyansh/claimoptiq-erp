@@ -5,6 +5,7 @@ import {
   HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineDuplicate,
   HiOutlineSearch, HiChevronRight, HiChevronDown, HiOutlineDotsVertical,
   HiOutlineDownload, HiOutlineEye, HiOutlinePrinter, HiOutlineCash, HiOutlineX,
+  HiOutlineUpload,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -15,6 +16,8 @@ import {
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import ExpenseFormModal from './ExpenseFormModal';
+import TransactionImportModal from '../../components/import/TransactionImportModal';
+import { expenseImportConfig } from '../../components/import/transactionImportConfigs';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
@@ -86,6 +89,7 @@ const ExpenseList = () => {
   const [summary, setSummary] = useState({ rows: [], grandTotal: 0 });
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null, mode: 'create' });
+  const [importOpen, setImportOpen] = useState(false);
   const [categorySearch, setCategorySearch] = useState('');
   const [actionMenu, setActionMenu] = useState(null); // { id, top?, bottom?, left, item }
   const actionMenuRef = useRef(null);
@@ -193,6 +197,8 @@ const ExpenseList = () => {
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
+  const importConfig = useMemo(() => expenseImportConfig({ categories, references }), [categories, references]);
+
   // Reference Commission is auto-generated per invoice, which dumps dozens of
   // rows for the same reference each month. Auto-roll those into one row per
   // (reference, month) so the operator sees a clean monthly total instead.
@@ -280,6 +286,10 @@ const ExpenseList = () => {
     <div>
       {canCreate && (
         <div className="flex justify-end mb-4 gap-2">
+          <button onClick={() => setImportOpen(true)}
+            className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+            <HiOutlineUpload className="w-4 h-4" /> Import
+          </button>
           <button onClick={() => setModal({ open: true, item: null, mode: 'create' })}
             className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
             <HiOutlinePlus className="w-4 h-4" /> Add Expense
@@ -574,6 +584,13 @@ const ExpenseList = () => {
         loadingRefs={loadingRefs}
         onClose={() => setModal({ open: false, item: null, mode: 'create' })}
         onSave={handleSave}
+      />
+
+      <TransactionImportModal
+        open={importOpen}
+        config={importConfig}
+        onClose={() => setImportOpen(false)}
+        onImported={fetchAll}
       />
 
       {actionMenu && ReactDOM.createPortal(

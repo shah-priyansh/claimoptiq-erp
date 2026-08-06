@@ -6,6 +6,7 @@ const { protect, checkPermission } = require('../middleware/auth');
 router.use(protect);
 
 router.get('/summary', checkPermission('expenses', 'view'), ctrl.summary);
+router.post('/import', checkPermission('expenses', 'create'), ctrl.bulkImport);
 
 router.route('/')
   .get(checkPermission('expenses', 'view'), ctrl.list)

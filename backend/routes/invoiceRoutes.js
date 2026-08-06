@@ -11,6 +11,8 @@ router.post('/preview-bulk', checkPermission('invoices', 'view'), ctrl.previewBu
 router.post('/preview-direct-patient', checkPermission('invoices', 'view'), ctrl.previewDirectPatient);
 router.post('/preview-pdf', checkPermission('invoices', 'view'), ctrl.previewPdf);
 
+router.post('/import', checkPermission('invoices', 'create'), ctrl.bulkImport);
+
 router.route('/')
   .get(checkPermission('invoices', 'view'), ctrl.list)
   .post(checkPermission('invoices', 'create'), ctrl.create)

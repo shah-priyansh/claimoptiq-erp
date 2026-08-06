@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
   HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
-  HiOutlineChartBar, HiOutlinePencil, HiOutlineCash, HiOutlineBan,
+  HiOutlineChartBar, HiOutlinePencil, HiOutlineCash, HiOutlineBan, HiOutlineUpload,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -16,6 +16,8 @@ import {
   getOpenInvoiceHospitalsAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import TransactionImportModal from '../../components/import/TransactionImportModal';
+import { invoiceImportConfig } from '../../components/import/transactionImportConfigs';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import BulkReceivePaymentModal from './BulkReceivePaymentModal';
 import { invoiceFilename } from './bulkInvoiceUtils';
@@ -91,6 +93,8 @@ const InvoiceList = () => {
   // Bulk-receive selection — only payable invoices from a single hospital.
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const importConfig = useMemo(() => invoiceImportConfig({ hospitals }), [hospitals]);
   const actionMenuRef = useRef(null);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
@@ -393,6 +397,13 @@ const InvoiceList = () => {
             className="flex items-center gap-2 bg-white border border-red-600 text-red-700 hover:bg-red-50 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
           >
             <HiOutlineTrash className="w-4 h-4" /> Delete All
+          </button>
+        )}
+        {canCreate && (
+          <button onClick={() => setImportOpen(true)}
+            className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+            title="Bulk import legacy / opening-balance invoices">
+            <HiOutlineUpload className="w-4 h-4" /> Import
           </button>
         )}
         {canCreate && (
@@ -750,6 +761,13 @@ const InvoiceList = () => {
           fetchInvoices();
           refreshOpenInvoiceHospitals();
         }}
+      />
+
+      <TransactionImportModal
+        open={importOpen}
+        config={importConfig}
+        onClose={() => setImportOpen(false)}
+        onImported={() => { fetchInvoices(); refreshOpenInvoiceHospitals(); }}
       />
     </div>
   );

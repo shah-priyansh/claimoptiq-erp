@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCash, HiOutlineCreditCard, HiOutlineQrcode } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCash, HiOutlineCreditCard, HiOutlineQrcode, HiOutlineUpload } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
@@ -9,6 +9,8 @@ import {
   getInvoicesAPI, getExpensesAPI, getBankAccountsAPI,
 } from '../../services/api';
 import CashBankFormModal from './CashBankFormModal';
+import TransactionImportModal from '../../components/import/TransactionImportModal';
+import { cashBankImportConfig } from '../../components/import/transactionImportConfigs';
 import { formatDate as _formatDate } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 
@@ -39,12 +41,15 @@ const CashBankList = () => {
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
+  const [importOpen, setImportOpen] = useState(false);
   const [page, setPage] = usePersistedFilters('cashbank:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('cashbank:pageSize', 25);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = usePersistedFilters('cashbank:filters', { direction: '', mode: '', from: monthStart(), to: todayIso(), q: '' });
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
+
+  const importConfig = useMemo(() => cashBankImportConfig({ bankAccounts }), [bankAccounts]);
 
   const params = useMemo(() => ({
     page, limit: pageSize,
@@ -111,6 +116,10 @@ const CashBankList = () => {
     <div>
       {canCreate && (
         <div className="flex justify-end mb-4 gap-2">
+          <button onClick={() => setImportOpen(true)}
+            className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+            <HiOutlineUpload className="w-4 h-4" /> Import
+          </button>
           <button onClick={() => setModal({ open: true, item: null })}
             className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
             <HiOutlinePlus className="w-4 h-4" /> Add Entry
@@ -275,6 +284,13 @@ const CashBankList = () => {
         loadingBankAccounts={loadingBankAccounts}
         onClose={() => setModal({ open: false, item: null })}
         onSave={handleSave}
+      />
+
+      <TransactionImportModal
+        open={importOpen}
+        config={importConfig}
+        onClose={() => setImportOpen(false)}
+        onImported={fetchAll}
       />
     </div>
   );

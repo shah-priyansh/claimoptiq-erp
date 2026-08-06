@@ -14,6 +14,40 @@ const parseDate = (input) => {
   return isNaN(d.getTime()) ? null : d;
 };
 
+const norm = (s) => String(s || '').trim().toLowerCase();
+
+// Loose date parser for bulk import — accepts YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY,
+// and Excel serial numbers. Returns a UTC-midnight Date or null. The frontend
+// already coerces spreadsheet date cells to YYYY-MM-DD, but CSV text and manual
+// entries can arrive in day-first formats, so mirror that tolerance here.
+const parseImportDate = (val) => {
+  if (val === undefined || val === null || val === '') return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  const s = String(val).trim();
+  if (!s) return null;
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const d = new Date(Math.round((Number(s) - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return (isNaN(d.getTime()) || d.getUTCMonth() !== +m[2] - 1) ? null : d;
+  }
+  m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (m) {
+    let [, a, b, yy] = m;
+    if (yy.length === 2) yy = '20' + yy;
+    let day = +a, month = +b;
+    if (month > 12 && day <= 12) { const t = day; day = month; month = t; }
+    if (!day || !month || day > 31 || month > 12) return null;
+    const d = new Date(Date.UTC(+yy, month - 1, day));
+    return (isNaN(d.getTime()) || d.getUTCMonth() !== month - 1) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
 const pickFields = (body) => {
   const data = {};
   if (body.date !== undefined) {
@@ -202,6 +236,111 @@ exports.create = async (req, res) => {
     res.status(201).json(toResponse(item));
   } catch (error) {
     if (error.status) return res.status(error.status).json({ message: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Bulk import — each valid row creates a new Expense (append-only; no dedupe,
+// since expenses are transactional, not unique masters). Category is resolved by
+// label or slug, Reference by name; both case-insensitive. Invalid rows are
+// reported per-row and skipped so a single bad row never blocks the rest.
+exports.bulkImport = async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || !rows.length) {
+      return res.status(400).json({ message: 'rows (non-empty array) is required' });
+    }
+    if (rows.length > 2000) return res.status(400).json({ message: 'Maximum 2000 rows per import' });
+
+    const [categories, references] = await Promise.all([
+      prisma.expenseCategory.findMany({ select: { id: true, slug: true, label: true, isActive: true } }),
+      prisma.reference.findMany({ select: { id: true, name: true } }),
+    ]);
+    const catMap = new Map();
+    for (const c of categories) {
+      catMap.set(norm(c.label), c);
+      if (!catMap.has(norm(c.slug))) catMap.set(norm(c.slug), c);
+    }
+    const refMap = new Map();
+    for (const r of references) {
+      const k = norm(r.name);
+      if (k && !refMap.has(k)) refMap.set(k, r);
+    }
+
+    const created = [];
+    const errors = [];
+    const toCreate = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      const rowNum = i + 2; // header is row 1 in the source file
+      const rowErrors = [];
+
+      const catRaw = String(row.category ?? '').trim();
+      let category = null;
+      if (!catRaw) rowErrors.push('Category is required');
+      else {
+        category = catMap.get(norm(catRaw));
+        if (!category) rowErrors.push(`Category not found: "${catRaw}"`);
+        else if (!category.isActive) rowErrors.push(`Category is inactive: "${category.label}"`);
+      }
+
+      const dateVal = parseImportDate(row.date);
+      if (!dateVal) rowErrors.push(row.date ? `Date invalid: "${row.date}"` : 'Date is required');
+
+      const amtRaw = row.amount;
+      const amt = Number(String(amtRaw ?? '').replace(/,/g, '').trim());
+      if (amtRaw === undefined || amtRaw === null || String(amtRaw).trim() === '') rowErrors.push('Amount is required');
+      else if (!Number.isFinite(amt)) rowErrors.push(`Amount must be a number: "${amtRaw}"`);
+
+      let referenceId = null;
+      const refRaw = String(row.reference ?? row.referenceBy ?? '').trim();
+      if (refRaw) {
+        const ref = refMap.get(norm(refRaw));
+        if (!ref) rowErrors.push(`Reference not found: "${refRaw}"`);
+        else referenceId = ref.id;
+      }
+
+      const label = catRaw || String(row.partyName ?? '').trim() || (dateVal ? dateVal.toISOString().slice(0, 10) : '');
+      if (rowErrors.length) { errors.push({ row: rowNum, name: label, errors: rowErrors }); continue; }
+
+      toCreate.push({
+        rowNum,
+        label,
+        data: {
+          date: dateVal,
+          categoryId: category.id,
+          amount: Math.round(amt),
+          notes: String(row.notes ?? '').slice(0, 1000),
+          partyName: String(row.partyName ?? '').slice(0, 200),
+          referenceId,
+          createdById: req.user?.id || null,
+        },
+      });
+    }
+
+    for (const item of toCreate) {
+      try {
+        const exp = await prisma.expense.create({ data: item.data, select: { id: true } });
+        created.push({ row: item.rowNum, id: exp.id, name: item.label });
+      } catch (e) {
+        errors.push({ row: item.rowNum, name: item.label, errors: [e.message || 'Failed to save'] });
+      }
+    }
+
+    const successCount = created.length;
+    res.json({
+      message: `Imported ${successCount} of ${rows.length} expense(s)`,
+      created,
+      errors,
+      totalRows: rows.length,
+      successCount,
+      createdCount: successCount,
+      updatedCount: 0,
+      skippedCount: 0,
+      errorCount: errors.length,
+      mode: 'append',
+    });
+  } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
