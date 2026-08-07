@@ -178,7 +178,12 @@ const SearchableSelect = ({
                       {o.badgeClass || o.badgeStyle ? (
                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${o.badgeClass || ''}`} style={o.badgeStyle}>{o.label}</span>
                       ) : (
-                        <span className={`whitespace-nowrap ${isActive ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>{o.label}</span>
+                        <span className={`flex-1 min-w-0 flex items-center gap-2 ${isActive ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>
+                          <span className="truncate">{o.label}</span>
+                          {o.tag && (
+                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap flex-shrink-0 ${o.tag.className || ''}`}>{o.tag.label}</span>
+                          )}
+                        </span>
                       )}
                       {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
                     </button>

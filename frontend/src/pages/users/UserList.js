@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineX } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, onPhoneInput, inputCls } from '../../utils/validators';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const emptyForm = { name: '', email: '', password: '', role: '', hospital: '', phone: '' };
 
@@ -36,6 +37,32 @@ const UserList = () => {
 
   const selectedRole = roles.find(r => r._id === form.role);
   const isHospitalRole = ['hospital_admin', 'hospital_staff'].includes(selectedRole?.slug);
+  const isHospitalAdmin = selectedRole?.slug === 'hospital_admin';
+  // Branches of the picked hospital. A hospital admin auto-inherits visibility
+  // of these — surfaced as a read-only note so the operator sees what's included.
+  const selectedHospitalBranches = form.hospital
+    ? hospitals.filter(h => h.parentHospitalId === form.hospital)
+    : [];
+
+  // Hospital dropdown options annotated with the branch hierarchy — a parent
+  // shows a green "N branches" badge, a branch shows an indigo "Branch of <parent>"
+  // tag — mirroring the Hospitals list so the picker conveys the relationship.
+  const branchCountByParent = hospitals.reduce((acc, h) => {
+    if (h.parentHospitalId) acc[h.parentHospitalId] = (acc[h.parentHospitalId] || 0) + 1;
+    return acc;
+  }, {});
+  const hospitalById = Object.fromEntries(hospitals.map(h => [h._id, h]));
+  const hospitalOptions = hospitals.map(h => {
+    const branchCount = branchCountByParent[h._id] || 0;
+    let tag = null;
+    if (h.parentHospitalId) {
+      const parent = hospitalById[h.parentHospitalId];
+      tag = { label: parent ? `Branch of ${parent.name}` : 'Branch', className: 'bg-indigo-50 text-indigo-700' };
+    } else if (branchCount > 0) {
+      tag = { label: `${branchCount} ${branchCount === 1 ? 'branch' : 'branches'}`, className: 'bg-emerald-50 text-emerald-700' };
+    }
+    return { value: h._id, label: h.name, tag };
+  });
 
   const validateUser = () => {
     const e = {};
@@ -244,24 +271,36 @@ const UserList = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
-                <select value={form.role} onChange={(e) => setField('role', e.target.value)}
+                <SearchableSelect
+                  options={roles.map((r) => ({ value: r._id, label: r.name }))}
+                  value={form.role}
+                  onChange={(v) => setField('role', v)}
+                  placeholder={loading ? 'Loading...' : 'Select Role'}
+                  searchPlaceholder="Search roles..."
                   disabled={loading}
-                  className={inputCls(!!errors.role)}>
-                  <option value="">{loading ? 'Loading...' : 'Select Role'}</option>
-                  {roles.map((r) => <option key={r._id} value={r._id}>{r.name}</option>)}
-                </select>
+                  isLoading={loading}
+                />
                 {errors.role && <p className="text-xs text-red-500 mt-1">{errors.role}</p>}
               </div>
               {isHospitalRole && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Hospital *</label>
-                  <select value={form.hospital} onChange={(e) => setField('hospital', e.target.value)}
+                  <SearchableSelect
+                    options={hospitalOptions}
+                    value={form.hospital}
+                    onChange={(v) => setField('hospital', v)}
+                    placeholder={loading ? 'Loading...' : 'Select Hospital'}
+                    searchPlaceholder="Search hospitals..."
                     disabled={loading}
-                    className={inputCls(!!errors.hospital)}>
-                    <option value="">{loading ? 'Loading...' : 'Select Hospital'}</option>
-                    {hospitals.map((h) => <option key={h._id} value={h._id}>{h.name}</option>)}
-                  </select>
+                    isLoading={loading}
+                    allowClear
+                  />
                   {errors.hospital && <p className="text-xs text-red-500 mt-1">{errors.hospital}</p>}
+                  {isHospitalAdmin && selectedHospitalBranches.length > 0 && (
+                    <p className="mt-1.5 text-xs text-teal-700 bg-teal-50 border border-teal-100 rounded-md px-2.5 py-1.5">
+                      This hospital has {selectedHospitalBranches.length} sub-branch{selectedHospitalBranches.length === 1 ? '' : 'es'}. This admin will also see their claims: {selectedHospitalBranches.map(b => b.name).join(', ')}.
+                    </p>
+                  )}
                 </div>
               )}
               <div>
