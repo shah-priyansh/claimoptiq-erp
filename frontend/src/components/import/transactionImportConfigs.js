@@ -193,19 +193,25 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
     entityLabel: 'invoice',
     sheetName: 'Invoices',
     templateName: 'invoice-import-template.xlsx',
+    rowInstruction: 'One line item per row — rows that share an Invoice No are merged into a single invoice.',
     dateKeys: ['invoiceDate'],
     columns: [
-      { key: 'invoiceNumber', label: 'Invoice No', width: 16, note: 'Optional — must be unique. Blank leaves it unnumbered.' },
-      { key: 'hospital', label: 'Hospital *', width: 26, required: true, note: 'Must match a hospital (see Hospitals sheet)' },
-      { key: 'invoiceDate', label: 'Invoice Date *', width: 14, required: true, note: 'YYYY-MM-DD. The invoice date; the billing month is taken from this.' },
+      { key: 'invoiceNumber', label: 'Invoice No', width: 16, aliases: ['Invoice No./Txn No.', 'Invoice No.', 'Txn No.', 'Bill No'], note: 'Optional. Rows sharing an invoice number are MERGED into one invoice (each row becomes a line item).' },
+      { key: 'hospital', label: 'Hospital *', width: 26, required: true, aliases: ['Party Name', 'Customer'], note: 'Must match a hospital (see Hospitals sheet)' },
+      { key: 'invoiceDate', label: 'Invoice Date *', width: 14, required: true, aliases: ['Date'], note: 'YYYY-MM-DD. The invoice date (also the creation date).' },
+      { key: 'month', label: 'Month', width: 10, aliases: ['MONTH'], note: 'Optional — billing month (e.g. JULY); the year comes from the Invoice Date. Blank = the Invoice Date’s month.' },
       { key: 'status', label: 'Status', width: 14, note: 'issued / paid / partially_paid / draft. Blank = auto from Amount Paid.' },
-      { key: 'grandTotal', label: 'Grand Total *', width: 14, required: true, note: 'Numbers only, no ₹ or commas' },
+      { key: 'grandTotal', label: 'Grand Total *', width: 14, required: true, aliases: ['Amount'], note: 'Per-row amount (numbers only). A merged invoice’s total is the sum of its rows.' },
       { key: 'amountPaid', label: 'Amount Paid', width: 14, note: 'Optional — default 0. Cannot exceed Grand Total.' },
-      { key: 'notes', label: 'Notes', width: 28, note: 'Optional — becomes the line-item description' },
+      { key: 'notes', label: 'Notes', width: 28, aliases: ['Item Name', 'Description', 'Particulars'], note: 'Optional — becomes the line-item description' },
     ],
     sampleRows: [
-      { invoiceNumber: 'INV-1001', hospital: exHosp, invoiceDate: '2025-03-31', status: 'partially_paid', grandTotal: 145000, amountPaid: 100000, notes: 'Opening balance (imported)' },
-      { invoiceNumber: 'INV-1002', hospital: exHosp2, invoiceDate: '2025-04-30', status: 'paid', grandTotal: 62000, amountPaid: 62000, notes: '' },
+      // INV-1001: two rows sharing an invoice number → MERGED into one invoice
+      // with two line items (dated in April, billed for March).
+      { invoiceNumber: 'INV-1001', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 90000, amountPaid: 0, notes: 'TPA Desk — cashless files' },
+      { invoiceNumber: 'INV-1001', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 55000, amountPaid: 0, notes: 'TPA Desk — reimbursement files' },
+      // INV-1002: a single-line invoice, fully paid.
+      { invoiceNumber: 'INV-1002', hospital: exHosp2, invoiceDate: '2025-04-30', month: 'April', status: 'paid', grandTotal: 62000, amountPaid: 62000, notes: 'Opening balance' },
     ],
     refSheets: [
       { name: 'Hospitals', header: 'Hospital Name (use this in the Hospital column)', values: hospitals.map((h) => h.name) },
@@ -214,6 +220,7 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       { key: 'invoiceNumber', label: 'Invoice No' },
       { key: 'hospital', label: 'Hospital' },
       { key: 'invoiceDate', label: 'Invoice Date' },
+      { key: 'month', label: 'Month' },
       { key: 'grandTotal', label: 'Grand Total', align: 'right' },
       { key: 'amountPaid', label: 'Amount Paid', align: 'right' },
       { key: 'status', label: 'Status' },
