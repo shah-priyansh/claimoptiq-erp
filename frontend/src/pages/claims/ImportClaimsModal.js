@@ -113,19 +113,21 @@ const canonical = (s) => {
 };
 const MONTHS_MAP = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
 const parseDateLoose = (val) => {
+  // Pre-1970 dates are blank-cell artifacts (Excel serial 0 → 1899-12-30); mirror
+  // the backend and treat them as null so the preview matches what gets saved.
+  const sane = (d) => (d && !isNaN(d.getTime()) && d.getFullYear() >= 1970) ? d : null;
   if (val === undefined || val === null || val === '') return null;
-  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (val instanceof Date) return sane(val);
   if (typeof val === 'number' && val > 25569) {
-    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
-    return isNaN(d.getTime()) ? null : d;
+    return sane(new Date(Math.round((val - 25569) * 86400 * 1000)));
   }
   const s = cleanCell(val);
   if (!s) return null;
   if (/^\d{5,}(\.\d+)?$/.test(s)) {
     const n = Number(s);
     if (n > 25569) {
-      const d = new Date(Math.round((n - 25569) * 86400 * 1000));
-      if (!isNaN(d.getTime())) return d;
+      const d = sane(new Date(Math.round((n - 25569) * 86400 * 1000)));
+      if (d) return d;
     }
   }
   const mon = s.match(/^([A-Za-z]{3,9})[\/\-.\s](\d{2,4})$/);
@@ -133,7 +135,7 @@ const parseDateLoose = (val) => {
     const idx = MONTHS_MAP[mon[1].slice(0, 3).toLowerCase()];
     if (idx !== undefined) {
       const yr = mon[2].length === 2 ? 2000 + Number(mon[2]) : Number(mon[2]);
-      return new Date(yr, idx, 1);
+      return sane(new Date(yr, idx, 1));
     }
   }
   const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
@@ -144,10 +146,9 @@ const parseDateLoose = (val) => {
     if (month > 12 && day <= 12) { [day, month] = [month, day]; }
     if (!day || !month || day > 31 || month > 12) return null;
     const d = new Date(Number(yy), month - 1, day);
-    return isNaN(d.getTime()) || d.getMonth() !== month - 1 ? null : d;
+    return isNaN(d.getTime()) || d.getMonth() !== month - 1 ? null : sane(d);
   }
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? null : d;
+  return sane(new Date(s));
 };
 // Excel date-formatted cells arrive as JS Date objects (see XLSX.read cellDates:true).
 // Rendering a Date directly in JSX throws React error #31, so coerce for display.
@@ -605,9 +606,16 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
             if (v instanceof Date && !isNaN(v.getTime())) {
               const midnight = new Date(Math.round(v.getTime() / 86400000) * 86400000);
               const y = midnight.getUTCFullYear();
-              const m = String(midnight.getUTCMonth() + 1).padStart(2, '0');
-              const d = String(midnight.getUTCDate()).padStart(2, '0');
-              obj[key] = `${y}-${m}-${d}`;
+              // A blank Excel date cell can arrive as serial 0 → 1899-12-30.
+              // Treat any pre-1970 date as blank instead of forwarding a bogus
+              // 1899/1900 date.
+              if (y < 1970) {
+                obj[key] = '';
+              } else {
+                const m = String(midnight.getUTCMonth() + 1).padStart(2, '0');
+                const d = String(midnight.getUTCDate()).padStart(2, '0');
+                obj[key] = `${y}-${m}-${d}`;
+              }
             } else {
               obj[key] = v;
             }

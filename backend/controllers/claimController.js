@@ -845,14 +845,22 @@ const cleanCell = (val) => {
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
 
+// Reject dates before this year. A blank Excel date cell can reach us as serial
+// 0, which XLSX renders as 1899-12-30 (and 1/2 as 1900-01-…). No real claim date
+// is that old, so any pre-1970 value is treated as blank rather than saving a
+// bogus 1899/1900 date. Keeps blank imports blank.
+const MIN_DATE_YEAR = 1970;
 const parseDate = (val) => {
+  // Every successful parse funnels through here so a bogus epoch date can never
+  // slip past, regardless of which format branch produced it.
+  const sane = (d) => (d && !isNaN(d.getTime()) && d.getFullYear() >= MIN_DATE_YEAR) ? d : null;
+
   if (val === undefined || val === null || val === '') return null;
-  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (val instanceof Date) return sane(val);
 
   // Excel serial date number
   if (typeof val === 'number' && val > 25569) {
-    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
-    return isNaN(d.getTime()) ? null : d;
+    return sane(new Date(Math.round((val - 25569) * 86400 * 1000)));
   }
 
   const s = cleanCell(val);
@@ -862,8 +870,8 @@ const parseDate = (val) => {
   if (/^\d{5,}(\.\d+)?$/.test(s)) {
     const n = Number(s);
     if (n > 25569) {
-      const d = new Date(Math.round((n - 25569) * 86400 * 1000));
-      if (!isNaN(d.getTime())) return d;
+      const d = sane(new Date(Math.round((n - 25569) * 86400 * 1000)));
+      if (d) return d;
     }
   }
 
@@ -874,7 +882,7 @@ const parseDate = (val) => {
     const mIdx = MONTHS[monStr.slice(0, 3).toLowerCase()];
     if (mIdx !== undefined) {
       const year = yyyy.length === 2 ? 2000 + Number(yyyy) : Number(yyyy);
-      return new Date(year, mIdx, 1);
+      return sane(new Date(year, mIdx, 1));
     }
   }
 
@@ -894,11 +902,10 @@ const parseDate = (val) => {
     if (!day || !month || day > 31 || month > 12) return null;
     const d = new Date(Number(yyyy), month - 1, day);
     if (isNaN(d.getTime()) || d.getMonth() !== month - 1) return null;
-    return d;
+    return sane(d);
   }
 
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? null : d;
+  return sane(new Date(s));
 };
 
 const parseNum = (val) => {
