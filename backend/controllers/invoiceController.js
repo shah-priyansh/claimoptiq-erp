@@ -811,26 +811,19 @@ exports.create = async (req, res) => {
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
-    // Regular invoices aggregate every claim for a (hospital, month) into a
-    // single invoice — uniqueness is enforced via a partial unique index
-    // (status <> 'void'), so findFirst with the same predicate stands in for
-    // findUnique here.
-    //
-    // Direct-patient invoices are per-patient: the hospital on them is a pure
-    // reference (billing template + display), not a billing target. Each
-    // patient's claim gets its own invoice, so we skip the (hospital, month)
-    // uniqueness gate for them. Double-billing is still prevented at the
-    // claim level via buildInvoiceLines' `isBilled: false` filter.
+    // Multiple invoices per (hospital, month) are allowed — an operator may bill
+    // a hospital more than once in a month (e.g. an early batch, then later
+    // claims). So an existing issued/paid invoice never blocks a new one. We only
+    // look up a reusable DRAFT here so a re-submit / recovery save repopulates it
+    // instead of spawning duplicate empty drafts. Double-billing a single claim
+    // is still prevented by buildInvoiceLines' `isBilled: false` filter.
     const isDirectPatientInvoice = !!isDirectPatient;
     const existing = isDirectPatientInvoice
       ? null
       : await prisma.invoice.findFirst({
-          where: { hospitalId, month, isDirectPatient: false, status: { not: 'void' } },
+          where: { hospitalId, month, isDirectPatient: false, status: 'draft' },
           include: invoiceInclude,
         });
-    if (existing && existing.status !== 'draft') {
-      return res.status(409).json({ message: `Invoice already ${existing.status} for this hospital and month`, invoice: toResponse(existing) });
-    }
 
     // Normalise manualItems passed alongside create — these let an operator
     // bill a month that has no claims/fixed services (e.g. a one-off charge).
@@ -944,11 +937,10 @@ exports.create = async (req, res) => {
 
     res.status(201).json(toResponse(invoice));
   } catch (error) {
-    // Safety net for the partial-unique index on (hospital_id, month,
-    // is_direct_patient) racing the pre-check above. Return a friendly 409
-    // instead of leaking the raw Prisma invocation error to the UI.
+    // Safety net for any remaining unique collision (e.g. a duplicate invoice
+    // number). Return a friendly 409 instead of leaking the raw Prisma error.
     if (error.code === 'P2002') {
-      return res.status(409).json({ message: 'An invoice already exists for this hospital and month.' });
+      return res.status(409).json({ message: 'A duplicate invoice value already exists.' });
     }
     const status = error.status || 500;
     res.status(status).json({ message: error.message || 'Server error' });
