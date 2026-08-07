@@ -352,6 +352,12 @@ const ClaimList = () => {
 
     const params = {};
     Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
+    // "FCC Billed" / "Unbilled" are synthetic status picks that map to the
+    // isBilled flag — billing is tracked by isBilled, not a claim status — so
+    // the filter matches the BILL STATUS column rather than the legacy `billed`
+    // workflow status.
+    if (params.status === '__billed') { delete params.status; params.isBilled = 'true'; }
+    else if (params.status === '__unbilled') { delete params.status; params.isBilled = 'false'; }
     if (!needsCount) params.skipCount = 'true';
 
     getClaimsAPI(params)
@@ -1237,7 +1243,17 @@ const ClaimList = () => {
             />
           )}
           <SearchableSelect
-            options={claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: 'capitalize', badgeStyle: statusBadgeStyle(s.color) }))}
+            options={[
+              // Drop the legacy `billed` workflow status — billing is tracked by
+              // the isBilled flag, surfaced (super admins only) via the synthetic
+              // __billed / __unbilled options so "FCC Billed" matches the BILL
+              // STATUS column instead of an unused claim status.
+              ...claimStatuses.filter(s => s.slug !== 'billed').map(s => ({ value: s.slug, label: s.label, badgeClass: 'capitalize', badgeStyle: statusBadgeStyle(s.color) })),
+              ...(isSuperAdmin ? [
+                { value: '__billed', label: 'FCC Billed', badgeClass: 'bg-teal-100 text-teal-800' },
+                { value: '__unbilled', label: 'Unbilled', badgeClass: 'bg-gray-100 text-gray-600' },
+              ] : []),
+            ]}
             value={filters.status}
             onChange={val => setFilters({ ...filters, status: val, page: 1 })}
             placeholder="All Status"

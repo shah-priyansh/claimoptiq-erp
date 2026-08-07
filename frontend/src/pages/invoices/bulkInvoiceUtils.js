@@ -120,6 +120,7 @@ export const commitDraft = async (draft, { autoIssue = false } = {}) => {
     ...(draft.settings.gstRate !== '' ? { gstRate: Number(draft.settings.gstRate) || 0 } : {}),
     ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
     claimIds: draft.claimIds,
+    ...(draft.settings.invoiceDate ? { invoiceDate: draft.settings.invoiceDate } : {}),
     ...(manualItemsForCreate.length ? { manualItems: manualItemsForCreate } : {}),
     ...(draft.isDirectPatient ? { isDirectPatient: true } : {}),
   });

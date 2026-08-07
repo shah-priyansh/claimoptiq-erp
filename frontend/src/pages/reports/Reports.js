@@ -304,9 +304,11 @@ const Reports = ({ settlement = false }) => {
 
   // Build the filter param object once so paged + full fetches stay in sync.
   // `status: '__unbilled' | '__billed'` are synthetic values from the dropdown
-  // — they map to the backend's `isBilled` flag, not a real claim-status slug.
-  // Bill mode also forces `isBilled=false` so already-billed claims never
-  // appear in the selection set (and overrides any explicit __billed pick).
+  // — they map to the backend's `isBilled` flag, not a real claim-status slug,
+  // so "FCC Billed" matches the BILL STATUS column (isBilled=true) rather than
+  // the legacy `billed` workflow status. Bill mode otherwise forces
+  // `isBilled=false` so the selection set stays invoiceable — but an explicit
+  // `__billed` pick overrides that so billed claims can still be reviewed here.
   const buildFilterParams = (src = filters, { billModeOverride } = {}) => {
     const params = {};
     if (src.hospital) params.hospital = src.hospital;
@@ -314,11 +316,12 @@ const Reports = ({ settlement = false }) => {
     if (src.dateTo) params.dateTo = src.dateTo;
     if (src.dateBasis === 'settlement') params.dateBasis = 'settlement';
     if (src.status === '__unbilled') params.isBilled = 'false';
+    else if (src.status === '__billed') params.isBilled = 'true';
     else if (src.status) params.status = src.status;
     if (src.directPatient) params.directPatient = src.directPatient;
     if (src.reference && isSuperAdmin) params.reference = src.reference;
     const bm = billModeOverride !== undefined ? billModeOverride : billMode;
-    if (bm) params.isBilled = 'false';
+    if (bm && src.status !== '__billed') params.isBilled = 'false';
     return params;
   };
 
@@ -450,6 +453,32 @@ const Reports = ({ settlement = false }) => {
       setBillMode(false);
     } catch {
       toast.error('Failed to mark claims as billed');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  // Bulk-reverts every selected claim back to Unbilled (Pending). The reverse
+  // of handleMarkSelectedBilled — useful when reviewing already-billed claims
+  // (e.g. via the "FCC Billed" filter) that need to be re-opened for billing.
+  const handleMarkSelectedUnbilled = async () => {
+    if (!selectedClaimIds.length) return;
+    const count = selectedClaimIds.length;
+    const ok = await confirm(
+      `Move ${count} selected claim${count !== 1 ? 's' : ''} back to Pending (Unbilled)?`,
+      { title: 'Mark as Unbilled', confirmLabel: 'Mark as Unbilled', variant: 'danger' }
+    );
+    if (!ok) return;
+    setBillingLoading(true);
+    try {
+      await bulkBillAPI(selectedClaimIds, false);
+      const selectedSet = new Set(selectedClaimIds);
+      setClaims(prev => prev.map(c => selectedSet.has(c._id) ? { ...c, isBilled: false } : c));
+      toast.success(`${count} claim${count !== 1 ? 's' : ''} marked as Unbilled`);
+      setSelectedClaimIds([]);
+      setBillMode(false);
+    } catch {
+      toast.error('Failed to mark claims as unbilled');
     } finally {
       setBillingLoading(false);
     }
@@ -984,6 +1013,10 @@ const Reports = ({ settlement = false }) => {
                 className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
                 {billingLoading ? 'Marking...' : 'Mark as Billed'}
               </button>
+              <button onClick={handleMarkSelectedUnbilled} disabled={!someSelected || billingLoading}
+                className="flex items-center gap-2 bg-white border border-amber-400 text-amber-700 hover:bg-amber-50 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                {billingLoading ? 'Marking...' : 'Mark as Unbilled'}
+              </button>
               <button
                 onClick={handleGenerateInvoices}
                 disabled={billingLoading || (serverTotal === 0 && !someSelected)}
@@ -1076,7 +1109,11 @@ const Reports = ({ settlement = false }) => {
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           <SearchableSelect
             options={[
-              ...claimStatuses.map(s => ({ value: s.slug, label: s.label, badgeClass: 'capitalize', badgeStyle: statusBadgeStyle(s.color) })),
+              // Drop the legacy `billed` workflow status — billing is tracked by
+              // the isBilled flag, surfaced via the synthetic __billed/__unbilled
+              // options below so "FCC Billed" matches the BILL STATUS column.
+              ...claimStatuses.filter(s => s.slug !== 'billed').map(s => ({ value: s.slug, label: s.label, badgeClass: 'capitalize', badgeStyle: statusBadgeStyle(s.color) })),
+              { value: '__billed', label: 'FCC Billed', badgeClass: 'bg-teal-100 text-teal-800' },
               { value: '__unbilled', label: 'Unbilled', badgeClass: 'bg-gray-100 text-gray-600' },
             ]}
             value={filters.status}
