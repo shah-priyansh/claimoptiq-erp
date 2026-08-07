@@ -135,6 +135,17 @@ const Sidebar = ({ isOpen, onClose }) => {
   const { canViewModule, canManageModule, user, roleSlug } = useAuth();
   const isSuperAdmin = roleSlug === 'super_admin';
 
+  // Only show a section heading when at least one item under it is visible —
+  // otherwise a permission-limited user (e.g. a hospital admin/staff) sees an
+  // orphaned "WORKSPACE" / "SYSTEM" label with nothing beneath it. Each check
+  // mirrors the viewCheck the section's CollapsibleSection uses.
+  const hasWorkspace =
+    billingItems.some((it) => canViewModule(it.module)) || canViewModule('staff');
+  const hasSystem =
+    masterItems.some((it) => canManageModule(it.module)) ||
+    accessItems.some((it) => canManageModule(it.module)) ||
+    configItems.some((it) => canManageModule(it.module));
+
   return (
     <>
       {isOpen && (
@@ -194,7 +205,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             </NavLink>
           )}
 
-          <SectionLabel>Workspace</SectionLabel>
+          {hasWorkspace && <SectionLabel>Workspace</SectionLabel>}
 
           <CollapsibleSection
             label="Billing & Accounts"
@@ -211,7 +222,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             </NavLink>
           )}
 
-          <SectionLabel>System</SectionLabel>
+          {hasSystem && <SectionLabel>System</SectionLabel>}
 
           <CollapsibleSection
             label="Masters"

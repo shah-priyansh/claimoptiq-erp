@@ -14,6 +14,25 @@ const getUserHospitalId = (user) => {
   return user.hospitalId || user.hospital?.id || null;
 };
 
+// A hospital user is normally scoped to their own hospital's claims. A Hospital
+// *Admin* whose hospital is a *parent* additionally sees every branch's claims,
+// so their effective view scope is [ownId, ...branchIds]. Everyone else
+// (hospital staff, or an admin of a hospital with no branches) stays limited to
+// their own hospital. Returns an array of hospital IDs, or null for non-hospital
+// users (super admin / office) who aren't hospital-scoped at all. Used for READ
+// paths only — create/import/delete-all and per-claim write guards keep the
+// exact single-hospital rule.
+const getUserHospitalScope = async (user) => {
+  const hospitalId = getUserHospitalId(user);
+  if (!hospitalId) return null;
+  if (user.role?.slug !== 'hospital_admin') return [hospitalId];
+  const branches = await prisma.hospital.findMany({
+    where: { parentHospitalId: hospitalId },
+    select: { id: true },
+  });
+  return branches.length ? [hospitalId, ...branches.map((b) => b.id)] : [hospitalId];
+};
+
 // Fire-and-forget: when claim(s) are settled, offload their files. The
 // on-settled toggle, global enable, and disk-pressure gate are all enforced
 // inside backupService.runBackup, so this just checks the toggle then runs.
@@ -174,9 +193,10 @@ exports.getClaims = async (req, res) => {
     const where = {};
     const orderBy = resolveClaimSort(sortBy);
 
-    const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId) {
-      where.hospitalId = userHospitalId;
+    // A parent-hospital admin sees their own + all branch claims (read scope).
+    const hospitalScope = await getUserHospitalScope(req.user);
+    if (hospitalScope) {
+      where.hospitalId = hospitalScope.length === 1 ? hospitalScope[0] : { in: hospitalScope };
       where.isDirectPatient = false;
     } else if (directPatient === 'true') {
       where.isDirectPatient = true;
@@ -194,7 +214,7 @@ exports.getClaims = async (req, res) => {
     // linked to the master by name, so a linked hospital with a blank/legacy
     // referenceBy still filters correctly. Combines with any hospitalId filter;
     // excludes direct-patient claims (no hospital relation).
-    if (reference && !userHospitalId) {
+    if (reference && !hospitalScope) {
       where.hospital = {
         OR: [
           { referenceBy: { equals: reference, mode: 'insensitive' } },
@@ -396,8 +416,8 @@ exports.getClaim = async (req, res) => {
     });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+    const hospitalScope = await getUserHospitalScope(req.user);
+    if (hospitalScope && (!hospitalScope.includes(claim.hospitalId) || claim.isDirectPatient)) {
       return res.status(403).json({ message: "You can only view your own hospital's claims" });
     }
 
@@ -1719,9 +1739,11 @@ exports.exportClaims = async (req, res) => {
     const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference } = req.query;
     const where = {};
 
-    const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId) {
-      where.hospitalId = userHospitalId;
+    // Export mirrors the claims list: a parent-hospital admin exports their own
+    // + all branch claims.
+    const hospitalScope = await getUserHospitalScope(req.user);
+    if (hospitalScope) {
+      where.hospitalId = hospitalScope.length === 1 ? hospitalScope[0] : { in: hospitalScope };
       where.isDirectPatient = false;
     } else if (directPatient === 'true') {
       where.isDirectPatient = true;
@@ -1733,7 +1755,7 @@ exports.exportClaims = async (req, res) => {
       where.hospitalId = hospital;
     }
 
-    if (reference && !userHospitalId) {
+    if (reference && !hospitalScope) {
       where.hospital = {
         OR: [
           { referenceBy: { equals: reference, mode: 'insensitive' } },
