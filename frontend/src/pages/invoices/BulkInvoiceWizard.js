@@ -18,6 +18,12 @@ import {
 } from './bulkInvoiceUtils';
 import BulkInvoiceDraftEditor from './BulkInvoiceDraftEditor';
 
+// Local date (not UTC) → "YYYY-MM-DD" for the Invoice Creation Date default.
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 // Build initial draft state from a single preview group.
 const draftFromPreview = (p) => ({
   hospitalId: p.hospitalId,
@@ -40,6 +46,7 @@ const draftFromPreview = (p) => ({
     notes: '',
     roundOff: 0,
     discount: 0,
+    invoiceDate: todayIso(),
   },
   isDirectPatient: !!p.isDirectPatient,
   requiresHospitalPick: !!p.requiresHospitalPick,
@@ -127,7 +134,7 @@ const BulkInvoiceWizard = () => {
       'Discard this invoice batch? All draft edits, approvals, and TDS overrides on this page will be lost. No invoices have been saved.',
       { title: 'Discard Invoice Batch', confirmLabel: 'Discard', variant: 'danger' },
     );
-    if (ok) navigate('/reports/claims');
+    if (ok) navigate('/reports/claims?select=1');
   };
 
   // Load reference data once.
@@ -149,7 +156,7 @@ const BulkInvoiceWizard = () => {
   useEffect(() => {
     if (!claimIds.length) {
       toast.error('No claims selected. Pick claims on the Claims Report first.');
-      navigate('/reports/claims');
+      navigate('/reports/claims?select=1');
       return;
     }
     (async () => {
@@ -159,7 +166,7 @@ const BulkInvoiceWizard = () => {
         setSkipped(data.skipped || []);
         if (!previews.length) {
           toast.info('No billable invoices to build from the selected claims.');
-          navigate('/reports/claims');
+          navigate('/reports/claims?select=1');
           return;
         }
         setDrafts(previews.map(draftFromPreview));
@@ -168,7 +175,7 @@ const BulkInvoiceWizard = () => {
         const skippedCount = (data?.skipped || []).length;
         const baseMsg = data?.message || 'Failed to load previews';
         toast.error(skippedCount ? `${baseMsg} — all ${skippedCount} claim${skippedCount === 1 ? '' : 's'} were skipped (cancelled/already billed/no hospital)` : baseMsg);
-        navigate('/reports/claims');
+        navigate('/reports/claims?select=1');
       } finally {
         setLoading(false);
       }

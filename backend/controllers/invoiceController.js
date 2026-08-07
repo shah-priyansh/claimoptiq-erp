@@ -497,7 +497,7 @@ exports.previewBulk = async (req, res) => {
       select: {
         id: true, srNo: true, patientName: true, status: true,
         isBilled: true, hospitalId: true, dateOfDischarge: true,
-        dateOfAdmit: true, isDirectPatient: true, claimType: true,
+        dateOfAdmit: true, month: true, isDirectPatient: true, claimType: true,
         ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
         filePrice: true, filePriceOverridden: true,
       },
@@ -533,15 +533,14 @@ exports.previewBulk = async (req, res) => {
       });
     }
 
-    // Group by hospitalId only — a single invoice per hospital combining
-    // every selected claim regardless of which month it was discharged in.
-    // This matches how the operator wants to bill: carry-forward admits from
-    // earlier months + fresh discharges in the current month land on the
-    // same invoice. The invoice's `month` field defaults to the LATEST
-    // discharge month among the claims (billed "as of" that month) — the
-    // operator can edit it in the drawer before generating.
+    // Group by (billing hospital, claim month) — one invoice per hospital PER
+    // MONTH. When the operator selects claims spanning two different months,
+    // each month becomes its own invoice draft, stamped with that claim's
+    // `month` (the same field the claims list renders in its MONTH column).
+    // The operator can still edit the Invoice Month in the drawer before
+    // generating. Falls back to discharge/admit only if `month` is missing.
     const monthOfClaim = (c) => {
-      const d = new Date(c.dateOfDischarge || c.dateOfAdmit);
+      const d = new Date(c.month || c.dateOfDischarge || c.dateOfAdmit);
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
     };
     // A branch claim consolidates onto its PARENT's invoice: the billing
@@ -562,13 +561,14 @@ exports.previewBulk = async (req, res) => {
     const groups = new Map();
     for (const c of hospitalClaims) {
       const m = monthOfClaim(c);
-      const key = billingHospitalOf(c);
+      const hospId = billingHospitalOf(c);
+      // Composite key so each (hospital, month) becomes its own invoice draft —
+      // claims from different months no longer collapse onto one invoice.
+      const key = `${hospId}|${m.toISOString()}`;
       if (!groups.has(key)) {
-        groups.set(key, { hospitalId: key, month: m, claimIds: [] });
+        groups.set(key, { hospitalId: hospId, month: m, claimIds: [] });
       }
-      const g = groups.get(key);
-      g.claimIds.push(c.id);
-      if (m > g.month) g.month = m; // keep the latest month as default
+      groups.get(key).claimIds.push(c.id);
     }
 
     // Direct-patient claims: one draft per patient (per claim). The hospital
@@ -602,7 +602,7 @@ exports.previewBulk = async (req, res) => {
     //      hospitals but we pull them anyway; direct-patient callers ignore).
     //   3. Prior-open invoices per (hospitalId, isDirectPatient) stream.
     //   4. Existing invoice check per (hospitalId, month) tuple.
-    const regularHospitalIds = [...groups.keys()];
+    const regularHospitalIds = [...new Set([...groups.values()].map((g) => g.hospitalId))];
     const directHospitalIds = [...directGroups.values()]
       .map((g) => (g.hospitalIdHints.size === 1 ? [...g.hospitalIdHints][0] : null))
       .filter(Boolean);
