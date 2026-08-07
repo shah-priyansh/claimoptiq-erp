@@ -44,7 +44,10 @@ const TransactionImportModal = ({ open, onClose, onImported, config }) => {
 
   const labelToKey = (label) => {
     const cleaned = String(label || '').replace(/\*/g, '').trim().toLowerCase();
-    const col = config.columns.find((c) => c.label.replace(/\*/g, '').trim().toLowerCase() === cleaned);
+    if (!cleaned) return null;
+    const col = config.columns.find((c) =>
+      c.label.replace(/\*/g, '').trim().toLowerCase() === cleaned ||
+      (c.aliases || []).some((a) => String(a).trim().toLowerCase() === cleaned));
     return col?.key || null;
   };
 
@@ -120,14 +123,23 @@ const TransactionImportModal = ({ open, onClose, onImported, config }) => {
         if (!ws) { toast.error('No data found in file'); return; }
         const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: true });
         if (aoa.length < 2) { toast.error('File is empty or missing header row'); return; }
-        const headers = aoa[0].map((h) => labelToKey(h));
+        // Locate the header row. Most files put it first, but some exports
+        // (e.g. a Sale Report) prepend a title/summary row — scan the first few
+        // rows and pick the one that matches the most known columns.
+        let headerIdx = 0;
+        let bestMatches = -1;
+        for (let i = 0; i < Math.min(aoa.length - 1, 8); i++) {
+          const matches = (aoa[i] || []).map((h) => labelToKey(h)).filter(Boolean).length;
+          if (matches > bestMatches) { bestMatches = matches; headerIdx = i; }
+        }
+        const headers = aoa[headerIdx].map((h) => labelToKey(h));
         if (headers.filter(Boolean).length < 2) {
           toast.error('Could not match columns — make sure you used the downloaded template');
           return;
         }
-        let dataStart = 1;
-        const noteRow = aoa[1] || [];
-        if (noteRow.some((cell) => /YYYY-MM-DD|see .* sheet|Numbers only|cash \/ bank|general \/ contra/i.test(String(cell)))) dataStart = 2;
+        let dataStart = headerIdx + 1;
+        const noteRow = aoa[dataStart] || [];
+        if (noteRow.some((cell) => /YYYY-MM-DD|see .* sheet|Numbers only|cash \/ bank|general \/ contra/i.test(String(cell)))) dataStart += 1;
 
         const dateKeys = config.dateKeys || [];
         const allKeys = config.columns.map((c) => c.key);
@@ -240,7 +252,7 @@ const TransactionImportModal = ({ open, onClose, onImported, config }) => {
                   <p className="font-medium">How it works</p>
                   <ol className="list-decimal pl-4 space-y-0.5 text-xs text-blue-800">
                     <li>Download the sample <code className="px-1 py-0.5 bg-blue-100 rounded">.xlsx</code> template{config.refSheets?.length ? ' (includes reference sheets)' : ''}.</li>
-                    <li>Fill in one {config.entityLabel} per row. Required columns are highlighted in red.</li>
+                    <li>{config.rowInstruction || `Fill in one ${config.entityLabel} per row.`} Required columns are highlighted in red.</li>
                     <li>Upload the file. Valid rows are added; invalid rows are listed and skipped.</li>
                   </ol>
                 </div>

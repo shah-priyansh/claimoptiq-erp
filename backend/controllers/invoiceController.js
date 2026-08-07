@@ -960,12 +960,23 @@ exports.create = async (req, res) => {
 // "Open Invoice Hospitals" quick-filter dropdown on the listing page.
 // Aggregates count + sum of pending so the UI can show both per hospital
 // without a second roundtrip.
-// Legacy / opening-balance bulk import — creates one invoice per row directly
-// (bypassing claim aggregation), each with a single manual line item for the
-// grand total. For migrating historical invoices from a prior system. Status is
-// taken from the row or derived from amountPaid; hospital is matched by name.
-// Uniqueness on invoice number and on (hospital, month) is checked up-front and
-// again caught at the DB (partial unique index) so a dup never blocks the batch.
+// Bare month-name → 0-based index, for imports that carry a "Month" column
+// (e.g. "JULY") separate from the invoice date. The year is sourced from the
+// invoice date at the call site.
+const MONTH_NAMES = {
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11,
+};
+
+// Legacy / opening-balance bulk import (bypasses claim aggregation). Rows that
+// share an invoice number are MERGED into a single invoice — each row becomes a
+// manual line item (description = Notes, amount = that row's Grand Total) and the
+// invoice total is the sum. Rows with a blank invoice number each become their
+// own single-line invoice. For migrating historical invoices from a prior system.
+// Status is taken from a row or derived from the summed amountPaid; hospital is
+// matched by name. Uniqueness on invoice number and on (hospital, month) is
+// checked up-front and again caught at the DB (partial unique index).
 exports.bulkImport = async (req, res) => {
   try {
     const { rows } = req.body;
@@ -992,69 +1003,138 @@ exports.bulkImport = async (req, res) => {
     const created = [];
     const errors = [];
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i] || {};
+    // ── Phase 1: validate & normalise every row independently ────────────────
+    const parsed = rows.map((raw, i) => {
+      const row = raw || {};
       const rowNum = i + 2;
-      const rowErrors = [];
+      const errs = [];
 
       const hospRaw = String(row.hospital ?? '').trim();
       let hospital = null;
-      if (!hospRaw) rowErrors.push('Hospital is required');
-      else { hospital = hospMap.get(norm(hospRaw)); if (!hospital) rowErrors.push(`Hospital not found: "${hospRaw}"`); }
+      if (!hospRaw) errs.push('Hospital is required');
+      else { hospital = hospMap.get(norm(hospRaw)); if (!hospital) errs.push(`Hospital not found: "${hospRaw}"`); }
 
-      // One date drives both: the billing month is derived from the invoice date.
-      // Falls back to a legacy Month column if an old file provides one instead.
       const rowInvDate = parseImportDate(row.invoiceDate);
-      const month = (rowInvDate
+      const dateMonth = rowInvDate
         ? new Date(Date.UTC(rowInvDate.getUTCFullYear(), rowInvDate.getUTCMonth(), 1))
-        : null) || parseInvoiceMonth(row.month);
-      if (!month) rowErrors.push(row.invoiceDate ? `Invoice Date invalid: "${row.invoiceDate}"` : 'Invoice Date is required');
+        : null;
+      // Billing month: prefer the Month column. A bare month name ("JULY") takes
+      // its year from the invoice Date — a name later in the year than the Date's
+      // month rolls back a year (e.g. invoiced 03-Jan for "December" → prior Dec).
+      // A full value (YYYY-MM) is parsed directly. Otherwise fall back to the
+      // invoice Date's own month.
+      const monthRaw = String(row.month ?? '').trim();
+      const namedMonth = MONTH_NAMES[monthRaw.toLowerCase()];
+      let month = null;
+      if (namedMonth !== undefined) {
+        if (rowInvDate) {
+          const dY = rowInvDate.getUTCFullYear();
+          const year = namedMonth > rowInvDate.getUTCMonth() ? dY - 1 : dY;
+          month = new Date(Date.UTC(year, namedMonth, 1));
+        }
+      } else if (monthRaw) {
+        month = parseInvoiceMonth(monthRaw) || dateMonth;
+      } else {
+        month = dateMonth;
+      }
+      if (!month) errs.push(row.invoiceDate ? `Invoice Date invalid: "${row.invoiceDate}"` : 'Invoice Date is required');
 
-      const gtRaw = String(row.grandTotal ?? '').replace(/,/g, '').trim();
-      const grandTotal = Number(gtRaw);
-      if (gtRaw === '') rowErrors.push('Grand Total is required');
-      else if (!Number.isFinite(grandTotal) || grandTotal < 0) rowErrors.push(`Grand Total must be a non-negative number: "${row.grandTotal}"`);
+      // Per-row Grand Total = this line item's amount; the invoice total is the
+      // sum of all rows that share an invoice number.
+      const amtRaw = String(row.grandTotal ?? '').replace(/,/g, '').trim();
+      const amount = Number(amtRaw);
+      if (amtRaw === '') errs.push('Grand Total is required');
+      else if (!Number.isFinite(amount) || amount < 0) errs.push(`Grand Total must be a non-negative number: "${row.grandTotal}"`);
 
       let amountPaid = 0;
       const paidRaw = String(row.amountPaid ?? '').replace(/,/g, '').trim();
       if (paidRaw !== '') {
         amountPaid = Number(paidRaw);
-        if (!Number.isFinite(amountPaid) || amountPaid < 0) rowErrors.push(`Amount Paid must be a non-negative number: "${row.amountPaid}"`);
-      }
-      if (Number.isFinite(grandTotal) && Number.isFinite(amountPaid) && amountPaid > grandTotal) {
-        rowErrors.push('Amount Paid cannot exceed Grand Total');
+        if (!Number.isFinite(amountPaid) || amountPaid < 0) errs.push(`Amount Paid must be a non-negative number: "${row.amountPaid}"`);
       }
 
-      let status = norm(row.status);
-      if (status && !VALID_STATUSES.includes(status)) rowErrors.push(`Status must be one of: ${VALID_STATUSES.join(', ')}`);
+      const status = norm(row.status);
+      if (status && !VALID_STATUSES.includes(status)) errs.push(`Status must be one of: ${VALID_STATUSES.join(', ')}`);
 
-      const invNumRaw = String(row.invoiceNumber ?? '').trim();
+      const invNum = String(row.invoiceNumber ?? '').trim();
+      const description = String(row.notes ?? '').trim();
+
+      return { rowNum, errs, hospital, hospRaw, month, rowInvDate, amount, amountPaid, status, invNum, description };
+    });
+
+    // ── Phase 2: group rows by invoice number. Rows sharing a (non-blank)
+    // invoice number merge into ONE invoice, each row becoming a line item.
+    // Blank invoice numbers get their own singleton group (one invoice each).
+    const groups = new Map();
+    parsed.forEach((p, idx) => {
+      const key = p.invNum ? `num:${norm(p.invNum)}` : `row:${idx}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(p);
+    });
+
+    // ── Phase 3: create one invoice per group ────────────────────────────────
+    for (const members of groups.values()) {
+      const first = members[0];
+      const label = first.invNum || first.hospRaw;
+
+      // Any invalid row fails the whole group so a merged invoice is never
+      // built from partial/ambiguous data.
+      const badRows = members.filter((m) => m.errs.length);
+      if (badRows.length) {
+        errors.push({ row: first.rowNum, name: label, errors: badRows.flatMap((b) => b.errs.map((e) => `Row ${b.rowNum}: ${e}`)) });
+        continue;
+      }
+
+      // A single invoice can't span hospitals or billing months.
+      const hospitalId = first.hospital.id;
+      if (members.some((m) => m.hospital.id !== hospitalId)) {
+        errors.push({ row: first.rowNum, name: label, errors: [`Rows for invoice "${label}" reference different hospitals`] });
+        continue;
+      }
+      const monthIso = new Date(first.month).toISOString().slice(0, 10);
+      if (members.some((m) => new Date(m.month).toISOString().slice(0, 10) !== monthIso)) {
+        errors.push({ row: first.rowNum, name: label, errors: [`Rows for invoice "${label}" have different invoice dates/months`] });
+        continue;
+      }
+
+      const invNumRaw = first.invNum;
       if (invNumRaw && (existingNumbers.has(norm(invNumRaw)) || batchNumbers.has(norm(invNumRaw)))) {
-        rowErrors.push(`Invoice number already exists: "${invNumRaw}"`);
+        errors.push({ row: first.rowNum, name: label, errors: [`Invoice number already exists: "${invNumRaw}"`] });
+        continue;
       }
-      if (hospital && month) {
-        const slot = monthKey(hospital.id, month);
-        if (existingSlots.has(slot) || batchSlots.has(slot)) rowErrors.push('An invoice already exists for this hospital and month');
+      const slot = monthKey(hospitalId, first.month);
+      if (existingSlots.has(slot) || batchSlots.has(slot)) {
+        errors.push({ row: first.rowNum, name: label, errors: ['An invoice already exists for this hospital and month'] });
+        continue;
       }
 
-      if (rowErrors.length) { errors.push({ row: rowNum, name: invNumRaw || hospRaw, errors: rowErrors }); continue; }
-
-      if (!status) status = amountPaid <= 0 ? 'issued' : (amountPaid >= grandTotal ? 'paid' : 'partially_paid');
-      const gt = Math.round(grandTotal);
-      const paid = Math.round(amountPaid);
-      const notes = String(row.notes ?? '').slice(0, 1000);
-      // Optional invoice date; falls back to the billing month when omitted.
-      const invDate = rowInvDate || month;
+      const gt = Math.round(members.reduce((a, m) => a + m.amount, 0));
+      const paid = Math.round(members.reduce((a, m) => a + m.amountPaid, 0));
+      if (paid > gt) {
+        errors.push({ row: first.rowNum, name: label, errors: ['Amount Paid cannot exceed Grand Total'] });
+        continue;
+      }
+      // Prefer an explicit status if any row set one; else derive from paid total.
+      const status = members.find((m) => m.status)?.status
+        || (paid <= 0 ? 'issued' : (paid >= gt ? 'paid' : 'partially_paid'));
+      const invDate = first.rowInvDate || first.month;
 
       try {
+        const lineItems = members.map((m, order) => ({
+          lineType: 'manual',
+          description: (m.description || 'Imported opening balance').slice(0, 300),
+          amount: Math.round(m.amount),
+          order,
+          meta: { imported: true },
+        }));
         const inv = await prisma.invoice.create({
           data: {
             invoiceNumber: invNumRaw || null,
-            hospitalId: hospital.id,
+            hospitalId,
             isDirectPatient: false,
-            month,
+            month: first.month,
             status,
-            issuedAt: status === 'draft' ? null : month,
+            issuedAt: status === 'draft' ? null : first.month,
             invoiceDate: invDate,
             subtotalServices: gt,
             gross: gt,
@@ -1063,26 +1143,26 @@ exports.bulkImport = async (req, res) => {
             previousBalance: 0,
             amountPaid: paid,
             amountPending: gt - paid,
-            notes,
+            notes: '',
             createdById: req.user?.id || null,
-            lineItems: { create: [{ lineType: 'manual', description: (notes || 'Imported opening balance').slice(0, 300), amount: gt, order: 0, meta: { imported: true } }] },
+            lineItems: { create: lineItems },
           },
           select: { id: true, invoiceNumber: true },
         });
         if (invNumRaw) { batchNumbers.add(norm(invNumRaw)); existingNumbers.add(norm(invNumRaw)); }
-        batchSlots.add(monthKey(hospital.id, month));
-        created.push({ row: rowNum, id: inv.id, name: inv.invoiceNumber || hospRaw });
+        batchSlots.add(slot);
+        created.push({ row: first.rowNum, id: inv.id, name: inv.invoiceNumber || first.hospRaw, lineCount: members.length });
       } catch (e) {
         const msg = e.code === 'P2002'
           ? 'Invoice number or hospital+month already exists'
           : (e.message || 'Failed to save');
-        errors.push({ row: rowNum, name: invNumRaw || hospRaw, errors: [msg] });
+        errors.push({ row: first.rowNum, name: label, errors: [msg] });
       }
     }
 
     const successCount = created.length;
     res.json({
-      message: `Imported ${successCount} of ${rows.length} invoice(s)`,
+      message: `Imported ${successCount} invoice(s) from ${rows.length} row(s)`,
       created,
       errors,
       totalRows: rows.length,
