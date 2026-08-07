@@ -180,14 +180,12 @@ model Invoice {
   lineItems InvoiceLineItem[]
   payments  CashBankEntry[]
 
-  // Uniqueness on (hospitalId, month, isDirectPatient) is enforced via a
-  // *partial* unique index in PostgreSQL (status <> 'void') — see migrations
-  // 20260623120000_invoice_unique_excludes_void and
-  // 20260709120000_invoice_unique_includes_direct_patient. Prisma can't
-  // model partial indexes, so this is a plain @@index here. Direct-patient
-  // and regular invoices for the same hospital+month coexist as separate
-  // slots; a new invoice in either slot may be created once any prior
-  // invoice in that slot has been voided.
+  // Multiple invoices per (hospitalId, month) are allowed — a hospital can be
+  // billed more than once in a month. The former partial unique index on
+  // (hospital_id, month) was dropped in migration
+  // 20260807120000_invoice_allow_multiple_per_month; this is now a plain lookup
+  // index. Double-billing a single claim is still prevented at the claim level
+  // (buildInvoiceLines' `isBilled: false` filter).
   @@index([hospitalId, month])
   @@index([status])
   @@index([month])
