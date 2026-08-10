@@ -281,7 +281,12 @@ const InvoiceList = () => {
   };
 
   useEffect(() => {
-    getHospitalsAPI({ all: 'true', active: 'true' }).then(({ data }) => {
+    // Include INACTIVE hospitals too: the import preview validates each row's
+    // hospital against this list, and the backend bulkImport matches inactive
+    // hospitals by name — so an active-only list wrongly flags rows for a
+    // deactivated hospital as "Hospital not found". This also lets the filter
+    // dropdown find invoices belonging to now-inactive hospitals.
+    getHospitalsAPI({ all: 'true' }).then(({ data }) => {
       const list = Array.isArray(data) ? data : data.hospitals;
       setHospitals(list || []);
     }).catch(() => {}).finally(() => setLoadingHospitals(false));
@@ -561,7 +566,9 @@ const InvoiceList = () => {
                         <>
                           <div className="flex items-start gap-1.5 flex-wrap">
                             <span className="font-semibold text-gray-800 break-words">{patientNameForInvoice(inv)}</span>
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 flex-shrink-0">Direct</span>
+                            {/* Imported bills with a free-text party name are PARTY bills;
+                                only claim-based direct-patient invoices (no partyName) are "Direct". */}
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${inv.partyName ? 'bg-indigo-50 text-indigo-700' : 'bg-purple-50 text-purple-700'}`}>{inv.partyName ? 'Party' : 'Direct'}</span>
                           </div>
                           {inv.hospital?.name && (
                             <p className="text-xs text-gray-400 mt-0.5 break-words leading-snug">
