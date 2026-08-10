@@ -983,16 +983,16 @@ exports.bulkImport = async (req, res) => {
 
     const existing = await prisma.invoice.findMany({
       where: { status: { not: 'void' } },
-      select: { invoiceNumber: true, hospitalId: true, month: true, isDirectPatient: true },
+      select: { id: true, invoiceNumber: true },
     });
-    const monthKey = (hid, month) => `${hid}|${new Date(month).toISOString().slice(0, 10)}`;
-    const existingNumbers = new Set(existing.map((i) => i.invoiceNumber).filter(Boolean).map(norm));
-    const existingSlots = new Set(existing.filter((i) => !i.isDirectPatient).map((i) => monthKey(i.hospitalId, i.month)));
+    // Map normalised invoice number → existing invoice id, so a re-imported
+    // invoice number UPDATES that invoice in place instead of failing.
+    const existingByNumber = new Map();
+    for (const inv of existing) { if (inv.invoiceNumber) existingByNumber.set(norm(inv.invoiceNumber), inv.id); }
 
     const VALID_STATUSES = ['draft', 'issued', 'partially_paid', 'paid'];
-    const batchNumbers = new Set();
-    const batchSlots = new Set();
     const created = [];
+    const updated = [];
     const errors = [];
 
     // ── Phase 1: validate & normalise every row independently ────────────────
@@ -1001,10 +1001,15 @@ exports.bulkImport = async (req, res) => {
       const rowNum = i + 2;
       const errs = [];
 
+      // Type column: blank / "hospital" = hospital bill; "party" / "direct" = a
+      // direct-patient / party bill whose Hospital column holds the party name
+      // (not matched against the hospital master).
+      const typeRaw = norm(row.type);
+      const isParty = ['party', 'direct', 'dp', 'direct_patient', 'directpatient'].includes(typeRaw);
       const hospRaw = String(row.hospital ?? '').trim();
       let hospital = null;
-      if (!hospRaw) errs.push('Hospital is required');
-      else { hospital = hospMap.get(norm(hospRaw)); if (!hospital) errs.push(`Hospital not found: "${hospRaw}"`); }
+      if (!hospRaw) errs.push(isParty ? 'Party name is required' : 'Hospital is required');
+      else if (!isParty) { hospital = hospMap.get(norm(hospRaw)); if (!hospital) errs.push(`Hospital not found: "${hospRaw}"`); }
 
       const rowInvDate = parseImportDate(row.invoiceDate);
       const dateMonth = rowInvDate
@@ -1051,7 +1056,7 @@ exports.bulkImport = async (req, res) => {
       const invNum = String(row.invoiceNumber ?? '').trim();
       const description = String(row.notes ?? '').trim();
 
-      return { rowNum, errs, hospital, hospRaw, month, rowInvDate, amount, amountPaid, status, invNum, description };
+      return { rowNum, errs, isParty, hospital, hospRaw, month, rowInvDate, amount, amountPaid, status, invNum, description };
     });
 
     // ── Phase 2: group rows by invoice number. Rows sharing a (non-blank)
@@ -1077,28 +1082,33 @@ exports.bulkImport = async (req, res) => {
         continue;
       }
 
-      // A single invoice can't span hospitals or billing months.
-      const hospitalId = first.hospital.id;
-      if (members.some((m) => m.hospital.id !== hospitalId)) {
-        errors.push({ row: first.rowNum, name: label, errors: [`Rows for invoice "${label}" reference different hospitals`] });
+      // A group can't mix hospital and party rows.
+      const isParty = first.isParty;
+      if (members.some((m) => m.isParty !== isParty)) {
+        errors.push({ row: first.rowNum, name: label, errors: [`Rows for invoice "${label}" mix hospital and party types`] });
         continue;
       }
-      const monthIso = new Date(first.month).toISOString().slice(0, 10);
-      if (members.some((m) => new Date(m.month).toISOString().slice(0, 10) !== monthIso)) {
-        errors.push({ row: first.rowNum, name: label, errors: [`Rows for invoice "${label}" have different invoice dates/months`] });
-        continue;
+      // A single invoice can't span hospitals / parties (rows sharing an invoice
+      // number that differ in month are allowed — the first row's month is used).
+      let hospitalId = null;
+      let partyName = null;
+      if (isParty) {
+        partyName = first.hospRaw;
+        if (members.some((m) => norm(m.hospRaw) !== norm(partyName))) {
+          errors.push({ row: first.rowNum, name: label, errors: [`Rows for invoice "${label}" reference different parties`] });
+          continue;
+        }
+      } else {
+        hospitalId = first.hospital.id;
+        if (members.some((m) => m.hospital.id !== hospitalId)) {
+          errors.push({ row: first.rowNum, name: label, errors: [`Rows for invoice "${label}" reference different hospitals`] });
+          continue;
+        }
       }
 
       const invNumRaw = first.invNum;
-      if (invNumRaw && (existingNumbers.has(norm(invNumRaw)) || batchNumbers.has(norm(invNumRaw)))) {
-        errors.push({ row: first.rowNum, name: label, errors: [`Invoice number already exists: "${invNumRaw}"`] });
-        continue;
-      }
-      const slot = monthKey(hospitalId, first.month);
-      if (existingSlots.has(slot) || batchSlots.has(slot)) {
-        errors.push({ row: first.rowNum, name: label, errors: ['An invoice already exists for this hospital and month'] });
-        continue;
-      }
+      // A matching invoice number updates that invoice in place; otherwise create.
+      const existingId = invNumRaw ? existingByNumber.get(norm(invNumRaw)) : null;
 
       const gt = Math.round(members.reduce((a, m) => a + m.amount, 0));
       const paid = Math.round(members.reduce((a, m) => a + m.amountPaid, 0));
@@ -1111,59 +1121,76 @@ exports.bulkImport = async (req, res) => {
         || (paid <= 0 ? 'issued' : (paid >= gt ? 'paid' : 'partially_paid'));
       const invDate = first.rowInvDate || first.month;
 
+      const lineItems = members.map((m, order) => ({
+        lineType: 'manual',
+        description: (m.description || 'Imported opening balance').slice(0, 300),
+        amount: Math.round(m.amount),
+        order,
+        meta: { imported: true },
+      }));
+      // Fields (re)set on both create and update so the invoice cleanly reflects
+      // the imported rows — a simple opening-balance style bill (no GST/TDS).
+      const financials = {
+        invoiceNumber: invNumRaw || null,
+        hospitalId,
+        isDirectPatient: isParty,
+        partyName,
+        month: first.month,
+        status,
+        issuedAt: status === 'draft' ? null : first.month,
+        invoiceDate: invDate,
+        subtotalTpaDesk: 0,
+        subtotalServices: gt,
+        subtotalAdjust: 0,
+        gross: gt,
+        netTotal: gt,
+        grandTotal: gt,
+        previousBalance: 0,
+        amountPaid: paid,
+        amountPending: gt - paid,
+      };
+
       try {
-        const lineItems = members.map((m, order) => ({
-          lineType: 'manual',
-          description: (m.description || 'Imported opening balance').slice(0, 300),
-          amount: Math.round(m.amount),
-          order,
-          meta: { imported: true },
-        }));
-        const inv = await prisma.invoice.create({
-          data: {
-            invoiceNumber: invNumRaw || null,
-            hospitalId,
-            isDirectPatient: false,
-            month: first.month,
-            status,
-            issuedAt: status === 'draft' ? null : first.month,
-            invoiceDate: invDate,
-            subtotalServices: gt,
-            gross: gt,
-            netTotal: gt,
-            grandTotal: gt,
-            previousBalance: 0,
-            amountPaid: paid,
-            amountPending: gt - paid,
-            notes: '',
-            createdById: req.user?.id || null,
-            lineItems: { create: lineItems },
-          },
-          select: { id: true, invoiceNumber: true },
-        });
-        if (invNumRaw) { batchNumbers.add(norm(invNumRaw)); existingNumbers.add(norm(invNumRaw)); }
-        batchSlots.add(slot);
-        created.push({ row: first.rowNum, id: inv.id, name: inv.invoiceNumber || first.hospRaw, lineCount: members.length });
+        if (existingId) {
+          // Replace the existing invoice's line items and refresh its financials.
+          await prisma.$transaction([
+            prisma.invoiceLineItem.deleteMany({ where: { invoiceId: existingId } }),
+            prisma.invoice.update({
+              where: { id: existingId },
+              data: { ...financials, lineItems: { create: lineItems } },
+            }),
+          ]);
+          updated.push({ row: first.rowNum, id: existingId, name: invNumRaw || label, lineCount: members.length });
+        } else {
+          const inv = await prisma.invoice.create({
+            data: { ...financials, notes: '', createdById: req.user?.id || null, lineItems: { create: lineItems } },
+            select: { id: true, invoiceNumber: true },
+          });
+          if (invNumRaw) existingByNumber.set(norm(invNumRaw), inv.id);
+          created.push({ row: first.rowNum, id: inv.id, name: inv.invoiceNumber || label, lineCount: members.length });
+        }
       } catch (e) {
         const msg = e.code === 'P2002'
-          ? 'Invoice number or hospital+month already exists'
+          ? 'Invoice number already exists'
           : (e.message || 'Failed to save');
         errors.push({ row: first.rowNum, name: label, errors: [msg] });
       }
     }
 
-    const successCount = created.length;
+    const createdCount = created.length;
+    const updatedCount = updated.length;
+    const successCount = createdCount + updatedCount;
     res.json({
-      message: `Imported ${successCount} invoice(s) from ${rows.length} row(s)`,
-      created,
+      message: `Imported ${successCount} invoice(s) from ${rows.length} row(s) — ${createdCount} new, ${updatedCount} updated`,
+      created: [...created, ...updated],
       errors,
       totalRows: rows.length,
       successCount,
-      createdCount: successCount,
-      updatedCount: 0,
+      createdCount,
+      updatedCount,
       skippedCount: 0,
       errorCount: errors.length,
-      mode: 'append',
+      mode: 'upsert',
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -1923,7 +1950,7 @@ const buildInvoiceDownloadName = (invoice) => {
   const monthLabel = invoice.month
     ? new Date(invoice.month).toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
     : '';
-  let base = invoice.hospital?.name || 'invoice';
+  let base = invoice.hospital?.name || invoice.partyName || 'invoice';
   if (invoice.isDirectPatient) {
     const firstTpa = (invoice.lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
     const desc = firstTpa?.description || '';

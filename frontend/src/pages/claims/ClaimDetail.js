@@ -425,10 +425,16 @@ const ClaimDetail = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [previewIdx, claim?.documents?.length]);
 
-  const doStatusUpdate = async (slug, extra = {}) => {
+  const doStatusUpdate = async (slug, extra = {}, autoAdvance = null) => {
     setStatusUpdating(true);
     try {
       await updateClaimAPI(id, { status: slug, ...extra });
+      // Optionally follow up with an automated status (e.g. advance a Discharge
+      // Approved claim to the insurer/TPA's configured status) so both steps are
+      // recorded in the Status Journey.
+      if (autoAdvance && autoAdvance !== slug) {
+        await updateClaimAPI(id, { status: autoAdvance });
+      }
       toast.success('Status updated');
       await fetchClaim(true);
     } catch (error) {
@@ -482,7 +488,16 @@ const ClaimDetail = () => {
     if (claim.status === 'claim_rejected') {
       setSettlementForm(sf => ({ ...sf, rejectedReason: '' }));
     }
-    doStatusUpdate(slug, extra);
+    // When the claim is marked Discharge Approved, apply the insurer/TPA status-
+    // automation rule as a follow-up step (e.g. auto-advance cashless claims to
+    // "Claim Online Submission Pending"). Skip when the rule resolves to a
+    // discharge status the claim has already passed.
+    const autoStatus = slug === 'discharge_approved' ? resolveAutomationStatus(claim) : null;
+    const autoAdvance =
+      autoStatus && autoStatus !== 'discharge_approved' && autoStatus !== 'discharged_submitted'
+        ? autoStatus
+        : null;
+    doStatusUpdate(slug, extra, autoAdvance);
   };
 
   const handleConfirmRejection = async () => {
@@ -589,16 +604,11 @@ const ClaimDetail = () => {
   const handleSaveDischarge = async () => {
     setSaving(true);
     try {
-      // On Discharge Submit always record "Discharged Submitted" first, then — if
-      // the claim's TPA/insurer has a status-automation rule for this claim type —
-      // advance to that automated status. This keeps both steps in the Status
-      // Journey instead of jumping straight to the automated one (which skipped
-      // the discharge step entirely).
+      // On Discharge Submit just record "Discharged Submitted". The insurer/TPA
+      // status-automation rule (e.g. auto-advance to "Claim Online Submission
+      // Pending") is applied later, when the claim is marked Discharge Approved —
+      // see handleUpdateStatus.
       await updateClaimAPI(id, { ...dischargeForm, status: 'discharged_submitted' });
-      const autoStatus = resolveAutomationStatus(claim);
-      if (autoStatus && autoStatus !== 'discharged_submitted') {
-        await updateClaimAPI(id, { status: autoStatus });
-      }
       await uploadPendingFiles('discharge', pendingFiles.discharge);
       toast.success('Discharge details saved');
       await fetchClaim(true);

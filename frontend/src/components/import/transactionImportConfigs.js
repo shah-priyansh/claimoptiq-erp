@@ -196,8 +196,9 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
     rowInstruction: 'One line item per row — rows that share an Invoice No are merged into a single invoice.',
     dateKeys: ['invoiceDate'],
     columns: [
-      { key: 'invoiceNumber', label: 'Invoice No', width: 16, aliases: ['Invoice No./Txn No.', 'Invoice No.', 'Txn No.', 'Bill No'], note: 'Optional. Rows sharing an invoice number are MERGED into one invoice (each row becomes a line item).' },
-      { key: 'hospital', label: 'Hospital *', width: 26, required: true, aliases: ['Party Name', 'Customer'], note: 'Must match a hospital (see Hospitals sheet)' },
+      { key: 'invoiceNumber', label: 'Invoice No', width: 16, aliases: ['Invoice No./Txn No.', 'Invoice No.', 'Txn No.', 'Bill No'], note: 'Optional. Rows sharing an invoice number are MERGED into one invoice. If the number already exists, that invoice is UPDATED.' },
+      { key: 'type', label: 'Type', width: 10, aliases: ['Bill Type'], note: 'Optional — "party" (or "direct") for a direct-patient / party bill; blank or "hospital" for a hospital bill.' },
+      { key: 'hospital', label: 'Hospital / Party *', width: 26, required: true, aliases: ['Party Name', 'Customer'], note: 'Hospital name (must match the Hospitals sheet) — or, when Type is party/direct, the party / patient name (any text).' },
       { key: 'invoiceDate', label: 'Invoice Date *', width: 14, required: true, aliases: ['Date'], note: 'YYYY-MM-DD. The invoice date (also the creation date).' },
       { key: 'month', label: 'Month', width: 10, aliases: ['MONTH'], note: 'Optional — billing month (e.g. JULY); the year comes from the Invoice Date. Blank = the Invoice Date’s month.' },
       { key: 'status', label: 'Status', width: 14, note: 'issued / paid / partially_paid / draft. Blank = auto from Amount Paid.' },
@@ -208,17 +209,21 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
     sampleRows: [
       // INV-1001: two rows sharing an invoice number → MERGED into one invoice
       // with two line items (dated in April, billed for March).
-      { invoiceNumber: 'INV-1001', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 90000, amountPaid: 0, notes: 'TPA Desk — cashless files' },
-      { invoiceNumber: 'INV-1001', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 55000, amountPaid: 0, notes: 'TPA Desk — reimbursement files' },
+      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 90000, amountPaid: 0, notes: 'TPA Desk — cashless files' },
+      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 55000, amountPaid: 0, notes: 'TPA Desk — reimbursement files' },
       // INV-1002: a single-line invoice, fully paid.
-      { invoiceNumber: 'INV-1002', hospital: exHosp2, invoiceDate: '2025-04-30', month: 'April', status: 'paid', grandTotal: 62000, amountPaid: 62000, notes: 'Opening balance' },
+      { invoiceNumber: 'INV-1002', type: '', hospital: exHosp2, invoiceDate: '2025-04-30', month: 'April', status: 'paid', grandTotal: 62000, amountPaid: 62000, notes: 'Opening balance' },
+      // INV-1003: a direct-patient / party bill — Type = party, so the Hospital
+      // column holds the party name (NOT matched against the hospital master).
+      { invoiceNumber: 'INV-1003', type: 'party', hospital: 'Ramesh Patel', invoiceDate: '2025-04-15', month: 'April', status: '', grandTotal: 12000, amountPaid: 0, notes: 'TPA Desk — reimbursement file' },
     ],
     refSheets: [
       { name: 'Hospitals', header: 'Hospital Name (use this in the Hospital column)', values: hospitals.map((h) => h.name) },
     ],
     previewColumns: [
       { key: 'invoiceNumber', label: 'Invoice No' },
-      { key: 'hospital', label: 'Hospital' },
+      { key: 'type', label: 'Type' },
+      { key: 'hospital', label: 'Hospital / Party' },
       { key: 'invoiceDate', label: 'Invoice Date' },
       { key: 'month', label: 'Month' },
       { key: 'grandTotal', label: 'Grand Total', align: 'right' },
@@ -228,9 +233,11 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
     uploadAPI: (rows) => importInvoicesAPI(rows),
     validateRow: (r) => {
       const issues = [];
+      const typeRaw = norm(r.type);
+      const isParty = ['party', 'direct', 'dp', 'direct_patient', 'directpatient'].includes(typeRaw);
       const hospRaw = String(r.hospital ?? '').trim();
-      if (!hospRaw) issues.push({ type: 'hospital', label: 'Hospital missing' });
-      else if (!hospSet.has(norm(hospRaw))) issues.push({ type: 'hospital', label: `Hospital not found: "${hospRaw}"` });
+      if (!hospRaw) issues.push({ type: 'hospital', label: isParty ? 'Party name missing' : 'Hospital missing' });
+      else if (!isParty && !hospSet.has(norm(hospRaw))) issues.push({ type: 'hospital', label: `Hospital not found: "${hospRaw}"` });
       const gt = cleanNum(r.grandTotal);
       if (gt === null) issues.push({ type: 'amount', label: 'Grand Total missing' });
       else if (Number.isNaN(gt) || gt < 0) issues.push({ type: 'amount', label: `Grand Total invalid: "${r.grandTotal}"` });

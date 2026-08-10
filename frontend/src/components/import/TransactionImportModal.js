@@ -369,7 +369,7 @@ const TransactionImportModal = ({ open, onClose, onImported, config }) => {
 
           {step === 'result' && result && (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
+              <div className={`grid ${result.updatedCount > 0 ? 'grid-cols-4' : 'grid-cols-3'} gap-3`}>
                 <div className="bg-gray-50 rounded-lg p-3 text-center">
                   <p className="text-xs text-gray-500">Total Rows</p>
                   <p className="text-2xl font-bold text-gray-800 mt-1">{result.totalRows}</p>
@@ -378,6 +378,12 @@ const TransactionImportModal = ({ open, onClose, onImported, config }) => {
                   <p className="text-xs text-emerald-700">Added</p>
                   <p className="text-2xl font-bold text-emerald-700 mt-1">{result.createdCount ?? result.successCount ?? 0}</p>
                 </div>
+                {result.updatedCount > 0 && (
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-blue-700">Updated</p>
+                    <p className="text-2xl font-bold text-blue-700 mt-1">{result.updatedCount}</p>
+                  </div>
+                )}
                 <div className="bg-red-50 rounded-lg p-3 text-center">
                   <p className="text-xs text-red-700">Failed</p>
                   <p className="text-2xl font-bold text-red-700 mt-1">{result.errorCount ?? 0}</p>
@@ -405,7 +411,10 @@ const TransactionImportModal = ({ open, onClose, onImported, config }) => {
               {result.successCount > 0 && (
                 <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex gap-2 text-xs text-emerald-800">
                   <HiOutlineCheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>{result.successCount} {config.entityLabel}(s) added successfully.</span>
+                  <span>
+                    {result.createdCount ?? result.successCount ?? 0} {config.entityLabel}(s) added
+                    {result.updatedCount > 0 ? `, ${result.updatedCount} updated` : ''} successfully.
+                  </span>
                 </div>
               )}
             </div>

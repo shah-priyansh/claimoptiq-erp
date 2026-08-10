@@ -13,7 +13,7 @@ const CLAIM_TYPE_OPTIONS = [
 ];
 
 // Editor for the per-insurer/TPA rules that auto-set a claim's status on
-// Discharge Submit, matched by claim type. Exported so the bulk-apply modal
+// Discharge Approved, matched by claim type. Exported so the bulk-apply modal
 // can reuse the exact same editor.
 export const StatusAutomationEditor = ({ value, onChange, claimStatuses }) => {
   const rules = Array.isArray(value) ? value : [];
@@ -38,11 +38,11 @@ export const StatusAutomationEditor = ({ value, onChange, claimStatuses }) => {
         </button>
       </div>
       <p className="text-xs text-gray-400 mb-2">
-        Auto-set the claim status on <span className="font-medium">Discharge Submit</span>, matched by claim type. TPA rules override insurance-company rules.
+        Auto-set the claim status on <span className="font-medium">Discharge Approved</span>, matched by claim type. TPA rules override insurance-company rules.
       </p>
 
       {rules.length === 0 && (
-        <p className="text-xs text-gray-400 italic">No rules — Discharge Submit uses the default status.</p>
+        <p className="text-xs text-gray-400 italic">No rules — Discharge Approved keeps the default status.</p>
       )}
 
       <div className="space-y-2">

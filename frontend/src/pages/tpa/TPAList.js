@@ -20,9 +20,9 @@ const TPA_IMPORT_CONFIG = {
     { key: 'mobile',        label: 'Mobile',          width: 14 },
     { key: 'email',         label: 'Email',           width: 26 },
     { key: 'address',       label: 'Address',         width: 30 },
-    { key: 'statusAutomation', label: 'Status Automation', width: 44, note: 'Optional. Auto-set status on Discharge Submit. Format: cashless:discharge_approved | reimbursement,grievance:discharged_submitted' },
+    { key: 'statusAutomation', label: 'Status Automation', width: 44, note: 'Optional. Auto-set status on Discharge Approved. Format: cashless:claim_online_submitted | reimbursement,grievance:file_pending' },
   ],
-  sampleRow1: { name: 'Health India TPA Services Pvt Ltd', contactPerson: 'Amit Shah', mobile: '9876543210', email: 'support@healthindia.in', address: 'Mumbai', statusAutomation: 'cashless:discharge_approved | reimbursement:discharged_submitted' },
+  sampleRow1: { name: 'Health India TPA Services Pvt Ltd', contactPerson: 'Amit Shah', mobile: '9876543210', email: 'support@healthindia.in', address: 'Mumbai', statusAutomation: 'cashless:claim_online_submitted | reimbursement:file_pending' },
   sampleRow2: { name: 'MD India Healthcare TPA Services Pvt Ltd', contactPerson: '', mobile: '', email: '', address: '', statusAutomation: '' },
   uploadAPI:  importTPAAPI,
 };
