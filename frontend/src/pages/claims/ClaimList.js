@@ -1953,30 +1953,33 @@ const ClaimList = () => {
                         const { recipient, sender, claims } = g;
                         return (
                           <div key={gi} className="sticker-card bg-white border-2 border-gray-900 rounded-lg shadow-sm overflow-hidden">
-                            <div className="p-4 space-y-3">
+                            {/* Uniform sticker text: every line the same font, size (text-base)
+                                and weight (bold). No size/colour hierarchy, no mono font — the
+                                whole sticker reads as one consistent bold block. */}
+                            <div className="p-4 space-y-3 text-base font-bold text-gray-900">
                               <div>
-                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">TO · {recipient.label}</p>
-                                <p className="text-lg font-extrabold leading-tight text-gray-900">{recipient.name || '—'}</p>
+                                <p className="tracking-wide mb-1">TO · {recipient.label}</p>
+                                <p className="leading-snug">{recipient.name || '—'}</p>
                                 {recipient.address && (
-                                  <p className="mt-1 text-sm leading-snug whitespace-pre-line text-gray-700">{recipient.address}</p>
+                                  <p className="mt-1 leading-snug whitespace-pre-line">{recipient.address}</p>
                                 )}
                                 {recipient.mobile && (
-                                  <p className="mt-1 text-sm text-gray-700"><span className="font-semibold">Mobile:</span> {recipient.mobile}</p>
+                                  <p className="mt-1">Mobile: {recipient.mobile}</p>
                                 )}
                               </div>
 
                               <div className="border-t-2 border-dashed border-gray-400" />
 
                               <div>
-                                <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
+                                <p className="tracking-wide mb-1">
                                   FROM{sender.label !== 'Hospital' ? ` · ${sender.label}` : ''}
                                 </p>
-                                <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
+                                <p className="leading-snug">{sender.name || '—'}</p>
                                 {sender.address && (
-                                  <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
+                                  <p className="mt-1 leading-snug whitespace-pre-line">{sender.address}</p>
                                 )}
                                 {sender.phone && (
-                                  <p className="mt-0.5 text-xs text-gray-600"><span className="font-semibold">Mobile:</span> {sender.phone}</p>
+                                  <p className="mt-1">Mobile: {sender.phone}</p>
                                 )}
                               </div>
 
@@ -1985,7 +1988,7 @@ const ClaimList = () => {
                                   <div className="border-t-2 border-dashed border-gray-400" />
 
                                   <div>
-                                    <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">
+                                    <p className="tracking-wide mb-1">
                                       CLAIM{claims.length > 1 ? `S · ${claims.length}` : ''}
                                     </p>
                                     <div className="divide-y divide-gray-200">
@@ -1993,8 +1996,8 @@ const ClaimList = () => {
                                         const claimNo = c.ccnNo || (c.monthClaimNo ? `M${c.monthClaimNo}` : (c._id?.slice(-8).toUpperCase() || ''));
                                         return (
                                           <div key={c._id} className={`grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 ${ci === 0 ? 'pt-0' : 'pt-1.5'} ${ci === claims.length - 1 ? 'pb-0' : 'pb-1.5'}`}>
-                                            <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {c.patientName || '—'}</p>
-                                            <p className="text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
+                                            <p>Patient: {c.patientName || '—'}</p>
+                                            <p>Claim No: {claimNo || '—'}</p>
                                           </div>
                                         );
                                       })}

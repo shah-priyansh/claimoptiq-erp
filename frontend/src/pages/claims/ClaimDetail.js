@@ -1974,15 +1974,17 @@ const ClaimDetail = () => {
 
               <div id="courier-sticker-print" className="p-6 overflow-y-auto flex-1 font-sans text-gray-900 bg-gray-100">
                 <div className="sticker-card bg-white border-2 border-gray-900 rounded-lg shadow-sm overflow-hidden">
-                  <div className="p-4 space-y-3">
+                  {/* Uniform sticker text: same font, size (text-base) and weight (bold)
+                      on every line — matches the Claims list sticker preview. */}
+                  <div className="p-4 space-y-3 text-base font-bold text-gray-900">
                     <div>
-                      <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">TO · {recipient.label}</p>
-                      <p className="text-lg font-extrabold leading-tight text-gray-900">{recipient.name || '—'}</p>
+                      <p className="tracking-wide mb-1">TO · {recipient.label}</p>
+                      <p className="leading-snug">{recipient.name || '—'}</p>
                       {recipient.address && (
-                        <p className="mt-1 text-sm leading-snug whitespace-pre-line text-gray-700">{recipient.address}</p>
+                        <p className="mt-1 leading-snug whitespace-pre-line">{recipient.address}</p>
                       )}
                       {recipient.mobile && (
-                        <p className="mt-1 text-sm text-gray-700"><span className="font-semibold">Mobile:</span> {recipient.mobile}</p>
+                        <p className="mt-1">Mobile: {recipient.mobile}</p>
                       )}
                     </div>
 
@@ -1990,19 +1992,19 @@ const ClaimDetail = () => {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">FROM</p>
-                        <p className="text-sm font-bold leading-tight text-gray-900">{sender.name || '—'}</p>
+                        <p className="tracking-wide mb-1">FROM</p>
+                        <p className="leading-snug">{sender.name || '—'}</p>
                         {sender.address && (
-                          <p className="mt-0.5 text-xs leading-snug whitespace-pre-line text-gray-600">{sender.address}</p>
+                          <p className="mt-1 leading-snug whitespace-pre-line">{sender.address}</p>
                         )}
                         {sender.phone && (
-                          <p className="mt-0.5 text-xs text-gray-600"><span className="font-semibold">Mobile:</span> {sender.phone}</p>
+                          <p className="mt-1">Mobile: {sender.phone}</p>
                         )}
                       </div>
                       <div>
-                        <p className="text-[10px] font-bold tracking-widest text-gray-500 mb-1">CLAIM</p>
-                        <p className="text-sm text-gray-900"><span className="font-semibold">Patient:</span> {claim.patientName || '—'}</p>
-                        <p className="mt-0.5 text-sm text-gray-900"><span className="font-semibold">Claim No:</span> <span className="font-mono">{claimNo || '—'}</span></p>
+                        <p className="tracking-wide mb-1">CLAIM</p>
+                        <p>Patient: {claim.patientName || '—'}</p>
+                        <p className="mt-0.5">Claim No: {claimNo || '—'}</p>
                       </div>
                     </div>
                   </div>

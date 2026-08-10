@@ -37,6 +37,12 @@ const formatMonth = (d) => {
   const dt = new Date(d);
   return dt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 };
+// Full invoice date (day-month-year) shown under the invoice number in the list.
+const formatDate = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
 // Direct-patient invoices are billed to the patient, so the list should lead
 // with the patient's name (extracted from the first TPA-desk line item).
@@ -556,10 +562,13 @@ const InvoiceList = () => {
                         className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                       />
                     </td>
-                    <td className="py-3 px-4 font-medium text-gray-800">
+                    <td className="py-3 px-4 font-medium text-gray-800 align-top whitespace-nowrap">
                       <Link to={`/invoices/${inv._id}`} className="text-primary-600 hover:underline">
                         {inv.invoiceNumber || `Draft-${(inv._id || '').slice(0, 8)}`}
                       </Link>
+                      {inv.invoiceDate && (
+                        <div className="text-xs text-gray-400 mt-0.5 font-normal">{formatDate(inv.invoiceDate)}</div>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-gray-600 align-top max-w-[240px]">
                       {inv.isDirectPatient ? (
