@@ -132,12 +132,19 @@ model ReferenceApplicableService {
 model Invoice {
   id                String   @id @default(uuid())
   invoiceNumber     String?  @unique @map("invoice_number")
-  hospitalId        String   @map("hospital_id")
+  // Nullable so an imported party / direct-patient bill can exist without any
+  // hospital (see `partyName`). Regular and claim-based direct-patient invoices
+  // still carry a hospital_id (the billing / reference hospital).
+  hospitalId        String?  @map("hospital_id")
   // True when this invoice bills direct-patient claims. The hospital_id
   // is the chosen target hospital for billing/listing purposes; the
   // claims themselves had no hospital relation. See migration
   // 20260624120000_invoice_direct_patient.
   isDirectPatient   Boolean  @default(false) @map("is_direct_patient")
+  // Free-text party/patient name for imported direct-patient bills that have no
+  // hospital. Null for hospital invoices and claim-based direct-patient invoices
+  // (whose name is derived from their claim_tpa_desk line items instead).
+  partyName         String?  @map("party_name")
   month             DateTime
   status            String   @default("draft")
   issuedAt          DateTime? @map("issued_at")
@@ -173,7 +180,7 @@ model Invoice {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  hospital  Hospital @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+  hospital  Hospital? @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
   createdBy User?    @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
   issuedBy  User?    @relation("InvoiceIssuedBy", fields: [issuedById], references: [id])
   tdsRateMaster TdsRate? @relation(fields: [tdsRateId], references: [id])

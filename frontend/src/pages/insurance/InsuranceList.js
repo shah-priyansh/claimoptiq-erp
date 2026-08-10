@@ -20,9 +20,9 @@ const INSURANCE_IMPORT_CONFIG = {
     { key: 'mobile',        label: 'Mobile',          width: 14 },
     { key: 'email',         label: 'Email',           width: 26 },
     { key: 'address',       label: 'Address',         width: 30 },
-    { key: 'statusAutomation', label: 'Status Automation', width: 44, note: 'Optional. Auto-set status on Discharge Submit. Format: cashless:discharge_approved | reimbursement,grievance:discharged_submitted' },
+    { key: 'statusAutomation', label: 'Status Automation', width: 44, note: 'Optional. Auto-set status on Discharge Approved. Format: cashless:claim_online_submitted | reimbursement,grievance:file_pending' },
   ],
-  sampleRow1: { name: 'Care Health Insurance Co. Ltd', contactPerson: 'Ravi Patel', mobile: '9876543210', email: 'support@carehealth.in', address: 'Mumbai', statusAutomation: 'cashless:discharge_approved | reimbursement:discharged_submitted' },
+  sampleRow1: { name: 'Care Health Insurance Co. Ltd', contactPerson: 'Ravi Patel', mobile: '9876543210', email: 'support@carehealth.in', address: 'Mumbai', statusAutomation: 'cashless:claim_online_submitted | reimbursement:file_pending' },
   sampleRow2: { name: 'HDFC ERGO General Insurance Co. Ltd', contactPerson: '', mobile: '', email: '', address: '', statusAutomation: '' },
   uploadAPI:  importInsuranceAPI,
 };

@@ -17,9 +17,11 @@ export const monthLabel = (m) => {
 // from the first TPA-desk line — its description is emitted by the backend as
 // "TPA Desk — <PATIENT NAME> (CCN <CCN>)". Multi-patient direct-patient
 // invoices (rare) fall back to the reference hospital name.
-export const invoiceFilename = ({ isDirectPatient, hospitalName, month, lineItems }) => {
-  let base = hospitalName || 'invoice';
+export const invoiceFilename = ({ isDirectPatient, hospitalName, partyName, month, lineItems }) => {
+  let base = hospitalName || partyName || 'invoice';
   if (isDirectPatient) {
+    // Imported party / direct-patient bills carry the name directly.
+    if (partyName) base = partyName;
     const firstTpa = (lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
     const desc = firstTpa?.description || '';
     // Em-dash is the canonical service/patient separator. Some service names

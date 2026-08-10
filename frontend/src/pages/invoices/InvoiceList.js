@@ -47,6 +47,8 @@ const formatMonth = (d) => {
 // hyphen as the separator.
 const patientNameForInvoice = (inv) => {
   if (!inv?.isDirectPatient) return null;
+  // Imported party / direct-patient bills carry the name directly.
+  if (inv.partyName) return inv.partyName;
   const firstTpa = (inv.lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
   const desc = firstTpa?.description || '';
   let afterSep = '';
@@ -138,6 +140,7 @@ const InvoiceList = () => {
       await openInvoicePdf(inv._id, invoiceFilename({
         isDirectPatient: inv.isDirectPatient,
         hospitalName: inv.hospital?.name,
+        partyName: inv.partyName,
         month: inv.month,
         lineItems: inv.lineItems,
       }));
@@ -309,7 +312,7 @@ const InvoiceList = () => {
       return;
     }
     let label = item.status === 'draft'
-      ? `Delete draft for ${item.hospital?.name} ${formatMonth(item.month)}?`
+      ? `Delete draft for ${item.hospital?.name || item.partyName || 'this invoice'} ${formatMonth(item.month)}?`
       : `Permanently delete cancelled invoice ${item.invoiceNumber || ''}?`;
     if ((item.amountPaid || 0) > 0) {
       label += ` This invoice has recorded payments (${formatINR(item.amountPaid)}) — those cash/bank entries will be kept but unlinked from the invoice.`;

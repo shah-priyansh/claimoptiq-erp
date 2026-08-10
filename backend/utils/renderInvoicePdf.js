@@ -159,11 +159,13 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       // hospital, not the billing recipient — bill the patient. If the invoice
       // groups multiple direct-patient claims under one reference hospital,
       // collapse to "Multiple patients (Ref: <Hospital>)".
-      let billName = hospital.name || '-';
+      // `hospital` is null for imported party / direct-patient bills that have no
+      // hospital — bill the party name stored on the invoice.
+      let billName = hospital?.name || invoice.partyName || '-';
       let billAddrPieces = [
-        hospital.address,
-        [hospital.city, hospital.state, hospital.pincode].filter(Boolean).join(', '),
-        hospital.phone ? `Phone: ${hospital.phone}` : '',
+        hospital?.address,
+        [hospital?.city, hospital?.state, hospital?.pincode].filter(Boolean).join(', '),
+        hospital?.phone ? `Phone: ${hospital.phone}` : '',
       ].filter(Boolean);
       if (invoice.isDirectPatient) {
         // Prefer claims referenced by line items (issued invoices carry
@@ -184,12 +186,12 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           billAddrPieces = [
             p.patientAddress,
             p.patientMobile ? `Phone: ${p.patientMobile}` : '',
-            hospital.name ? `Referred by: ${hospital.name}` : '',
+            hospital?.name ? `Referred by: ${hospital.name}` : '',
           ].filter(Boolean);
         } else if (uniqPatients.length > 1) {
           billName = `Direct Patients (${uniqPatients.length})`;
           billAddrPieces = [
-            hospital.name ? `Referred by: ${hospital.name}` : '',
+            hospital?.name ? `Referred by: ${hospital.name}` : '',
           ].filter(Boolean);
         }
       }

@@ -1,7 +1,7 @@
 // Helpers for the per-insurer / per-TPA "status automation" rules.
 //
 // A rule set is an array of { claimTypes: string[], status: slug }. On Discharge
-// Submit the app picks the first rule whose claimTypes include the claim's type
+// Approved the app picks the first rule whose claimTypes include the claim's type
 // and applies its status (TPA rules take precedence over insurance rules).
 
 const VALID_CLAIM_TYPES = ['cashless', 'cashless_anywhere', 'reimbursement', 'grievance'];
@@ -30,7 +30,7 @@ const sanitizeStatusAutomation = (value, validSlugs = null) => {
 };
 
 // Parse the Excel cell format into a rule set, e.g.
-//   "cashless:discharge_approved | reimbursement,grievance:discharged_submitted"
+//   "cashless:claim_online_submitted | reimbursement,grievance:file_pending"
 // Entries are separated by "|" or newlines; within an entry the claim type(s)
 // come before ":" (multiple separated by "," / "+" / "&") and the status after.
 const parseStatusAutomationCell = (cell, validSlugs = null) => {

@@ -3,7 +3,7 @@ import { statusBadgeStyle, CLAIM_TYPE_LABEL, CLAIM_TYPE_OPTIONS } from '../../pa
 
 // Compact, read-only view of a master's (insurer / TPA) status-automation rules.
 // Renders under the company name so you can see, at a glance, which claim status
-// each company auto-sets on Discharge Submit. Rules that map every claim type to
+// each company auto-sets on Discharge Approved. Rules that map every claim type to
 // the same status collapse into a single pill; per-type rules show the types.
 const StatusAutomationBadges = ({ rules, claimStatuses = [] }) => {
   const valid = (Array.isArray(rules) ? rules : []).filter(

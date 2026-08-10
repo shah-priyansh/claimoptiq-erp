@@ -6,6 +6,51 @@ const expenseInclude = {
   reference: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
   updatedBy: { select: { id: true, name: true } },
+  // The cash/bank OUT movement(s) that pay this expense. Kept in sync by
+  // create/update/remove so Total On Hand reflects money actually spent.
+  payments: { select: { id: true, mode: true, bankAccountId: true, direction: true, amount: true } },
+};
+
+const VALID_MODES = ['cash', 'bank', 'upi'];
+
+// Resolve how an expense was paid so the outflow can be mirrored into the
+// cashbook as a cash/bank/upi OUT entry (that's what Total On Hand sums).
+// Returns { mode, bankAccountId } — or null when the caller opts out of
+// payment tracking (paymentMode === 'none'). Defaults to cash so a plain
+// expense still reduces on-hand. Throws { status, message } for bad bank refs.
+const resolvePayment = async (body) => {
+  const raw = String(body.paymentMode ?? body.mode ?? 'cash').trim().toLowerCase();
+  if (raw === 'none') return null;
+  const mode = VALID_MODES.includes(raw) ? raw : 'cash';
+  let bankAccountId = body.bankAccountId || null;
+  if (mode === 'bank' || mode === 'upi') {
+    if (!bankAccountId) {
+      const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
+      bankAccountId = def?.id || null;
+    }
+    if (!bankAccountId) throw { status: 400, message: 'Bank / UPI expense needs a bank account. Add one in Site Settings → Bank Accounts.' };
+    const acct = await prisma.bankAccount.findUnique({ where: { id: bankAccountId }, select: { id: true, isActive: true } });
+    if (!acct) throw { status: 400, message: 'Bank account not found' };
+    if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
+  } else {
+    bankAccountId = null; // cash never carries a bank account
+  }
+  return { mode, bankAccountId };
+};
+
+// Shape the linked cashBankEntry for an expense. cashBankEntry.amount must be
+// positive, so a negative expense (a reversal) becomes an IN of the absolute
+// amount instead of an OUT.
+const paymentEntryFields = (expense, payment, category) => {
+  const amt = Math.round(Number(expense.amount) || 0);
+  return {
+    date: expense.date,
+    direction: amt < 0 ? 'in' : 'out',
+    mode: payment.mode,
+    amount: Math.abs(amt),
+    bankAccountId: payment.bankAccountId,
+    notes: `[Expense] ${expense.partyName || category?.label || ''}`.trim().slice(0, 1000),
+  };
 };
 
 const parseDate = (input) => {
@@ -229,9 +274,18 @@ exports.create = async (req, res) => {
     if (!category) return res.status(400).json({ message: 'Category not found' });
     if (!category.isActive) return res.status(400).json({ message: 'Category is inactive' });
 
-    const item = await prisma.expense.create({
-      data: { ...data, createdById: req.user?.id || null },
-      include: expenseInclude,
+    const payment = await resolvePayment(req.body);
+
+    const item = await prisma.$transaction(async (tx) => {
+      const created = await tx.expense.create({ data: { ...data, createdById: req.user?.id || null } });
+      // Mirror the outflow into the cashbook so Total On Hand drops. Skip a
+      // zero-amount expense (nothing to move) and honour paymentMode 'none'.
+      if (payment && Math.round(created.amount) !== 0) {
+        await tx.cashBankEntry.create({
+          data: { ...paymentEntryFields(created, payment, category), expenseId: created.id, createdById: req.user?.id || null },
+        });
+      }
+      return tx.expense.findUnique({ where: { id: created.id }, include: expenseInclude });
     });
     res.status(201).json(toResponse(item));
   } catch (error) {
