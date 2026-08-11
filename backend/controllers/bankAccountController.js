@@ -42,6 +42,28 @@ exports.list = async (req, res) => {
   }
 };
 
+// Per-account running balance = Σ(money-in) − Σ(money-out) across that account's
+// cash/bank entries (bank + UPI modes; cash entries carry no bankAccountId).
+// Returns a plain map { [bankAccountId]: balanceInRupees }.
+exports.balances = async (req, res) => {
+  try {
+    const rows = await prisma.cashBankEntry.groupBy({
+      by: ['bankAccountId', 'direction'],
+      where: { bankAccountId: { not: null } },
+      _sum: { amount: true },
+    });
+    const map = {};
+    for (const r of rows) {
+      const sign = r.direction === 'in' ? 1 : -1;
+      map[r.bankAccountId] = (map[r.bankAccountId] || 0) + sign * (r._sum.amount || 0);
+    }
+    for (const k of Object.keys(map)) map[k] = Math.round(map[k]);
+    res.json(map);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.getOne = async (req, res) => {
   try {
     const item = await prisma.bankAccount.findUnique({ where: { id: req.params.id } });

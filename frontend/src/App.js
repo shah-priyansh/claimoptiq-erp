@@ -24,6 +24,7 @@ import TdsRateList from './pages/tds/TdsRateList';
 import ExpenseList from './pages/expenses/ExpenseList';
 import ExpenseCategoryList from './pages/expenses/ExpenseCategoryList';
 import CashBankList from './pages/cashbank/CashBankList';
+import BankAccountsPage from './pages/bankaccounts/BankAccountsPage';
 import AccountEntryList from './pages/accountentries/AccountEntryList';
 import UserList from './pages/users/UserList';
 import ClaimList from './pages/claims/ClaimList';
@@ -90,6 +91,7 @@ function App() {
             <Route path="/expenses" element={<ProtectedRoute module="expenses"><ExpenseList /></ProtectedRoute>} />
             <Route path="/expense-categories" element={<ProtectedRoute module="expense_categories" requireManage><ExpenseCategoryList /></ProtectedRoute>} />
             <Route path="/cash-bank" element={<ProtectedRoute module="cash_bank"><CashBankList /></ProtectedRoute>} />
+            <Route path="/bank-accounts" element={<ProtectedRoute module="cash_bank"><BankAccountsPage /></ProtectedRoute>} />
             <Route path="/account-entries" element={<ProtectedRoute module="account_entries"><AccountEntryList /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute module="reports"><ReportsHub /></ProtectedRoute>} />
             <Route path="/reports/claims" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
