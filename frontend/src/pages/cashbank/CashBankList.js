@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCash, HiOutlineCreditCard, HiOutlineQrcode, HiOutlineUpload } from 'react-icons/hi';
+import {
+  HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCash, HiOutlineCreditCard,
+  HiOutlineQrcode, HiOutlineUpload, HiOutlineSearch, HiOutlineCollection,
+} from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
@@ -11,11 +14,10 @@ import {
 import CashBankFormModal from './CashBankFormModal';
 import TransactionImportModal from '../../components/import/TransactionImportModal';
 import { cashBankImportConfig } from '../../components/import/transactionImportConfigs';
-import { formatDate as _formatDate } from '../../utils/format';
+import { formatDateTime } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
-const formatDate = (d) => _formatDate(d);
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const monthStart = () => {
   const d = new Date();
@@ -23,6 +25,22 @@ const monthStart = () => {
 };
 
 const MODE_ICONS = { cash: HiOutlineCash, bank: HiOutlineCreditCard, upi: HiOutlineQrcode };
+
+// Left-column money buckets. `mode` drives the transactions filter ('' = All);
+// `balanceKey` selects the figure from the /balances response.
+const BUCKETS = [
+  { key: 'all',  label: 'All',  mode: '',     balanceKey: 'total', icon: HiOutlineCollection },
+  { key: 'cash', label: 'Cash', mode: 'cash', balanceKey: 'cash',  icon: HiOutlineCash },
+  { key: 'bank', label: 'Bank', mode: 'bank', balanceKey: 'bank',  icon: HiOutlineCreditCard },
+  { key: 'upi',  label: 'UPI',  mode: 'upi',  balanceKey: 'upi',   icon: HiOutlineQrcode },
+];
+
+// Human counterparty/label for a transaction row.
+const txnName = (e) => {
+  if (e.invoice) return e.invoice.hospital?.name || e.invoice.invoiceNumber || 'Invoice';
+  if (e.expense) return e.expense.category?.label || 'Expense';
+  return e.hospital?.name || e.notes || '—';
+};
 
 const CashBankList = () => {
   const confirm = useConfirm();
@@ -48,6 +66,7 @@ const CashBankList = () => {
   const [filters, setFilters] = usePersistedFilters('cashbank:filters', { direction: '', mode: '', from: monthStart(), to: todayIso(), q: '' });
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
+  const activeBucket = BUCKETS.find((b) => b.mode === filters.mode) || BUCKETS[0];
 
   const importConfig = useMemo(() => cashBankImportConfig({ bankAccounts }), [bankAccounts]);
 
@@ -87,6 +106,8 @@ const CashBankList = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchAll(); }, [params]);
 
+  const selectBucket = (mode) => { setFilters((f) => ({ ...f, mode })); setPage(1); };
+
   const handleSave = async (form) => {
     try {
       if (modal.item) {
@@ -117,173 +138,172 @@ const CashBankList = () => {
 
   return (
     <div>
-      {canCreate && (
-        <div className="flex justify-end mb-4 gap-2">
-          <button onClick={() => setImportOpen(true)}
-            className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
-            <HiOutlineUpload className="w-4 h-4" /> Import
-          </button>
-          <button onClick={() => setModal({ open: true, item: null })}
-            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
-            <HiOutlinePlus className="w-4 h-4" /> Add Entry
-          </button>
-        </div>
-      )}
-
-      {/* Balances strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        {[
-          { key: 'cash', label: 'Cash', icon: HiOutlineCash },
-          { key: 'bank', label: 'Bank', icon: HiOutlineCreditCard },
-          { key: 'upi',  label: 'UPI',  icon: HiOutlineQrcode },
-        ].map((b) => (
-          <div key={b.key} className="bg-white p-3 rounded-xl border border-gray-200">
-            <div className="flex items-center gap-2">
-              <b.icon className="w-4 h-4 text-primary-600" />
-              <p className="text-xs uppercase tracking-wide text-gray-500">{b.label}</p>
-            </div>
-            <p className={`text-lg font-semibold mt-1 ${balances[b.key] < 0 ? 'text-red-600' : 'text-gray-800'}`}>
-              {formatINR(balances[b.key])}
-            </p>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold text-gray-800">Cash / Bank</h1>
+        {canCreate && (
+          <div className="flex gap-2">
+            <button onClick={() => setImportOpen(true)}
+              className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+              <HiOutlineUpload className="w-4 h-4" /> Import
+            </button>
+            <button onClick={() => setModal({ open: true, item: null })}
+              className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+              <HiOutlinePlus className="w-4 h-4" /> Add Entry
+            </button>
           </div>
-        ))}
-        <div className="p-3 rounded-xl bg-primary-600 text-white">
-          <p className="text-xs uppercase tracking-wide text-primary-100">Total on hand</p>
-          <p className="text-lg font-semibold mt-1">{formatINR(balances.total)}</p>
-        </div>
+        )}
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Filters</span>
+      <div className="grid grid-cols-12 gap-4">
+        {/* Left: money buckets */}
+        <div className="col-span-12 md:col-span-4 lg:col-span-3 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col">
+          <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Account</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Balance</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {BUCKETS.map((b) => {
+              const bal = balances[b.balanceKey] ?? 0;
+              const Icon = b.icon;
+              return (
+                <button key={b.key} onClick={() => selectBucket(b.mode)}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-3 text-left transition-colors ${
+                    activeBucket.key === b.key ? 'bg-primary-50 border-l-4 border-primary-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
+                  }`}>
+                  <span className="flex items-center gap-2 min-w-0">
+                    <Icon className={`w-4 h-4 flex-shrink-0 ${activeBucket.key === b.key ? 'text-primary-600' : 'text-gray-400'}`} />
+                    <span className="text-sm font-medium text-gray-800 truncate">{b.label}</span>
+                  </span>
+                  <span className={`text-sm font-semibold whitespace-nowrap ${bal < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                    {formatINR(bal)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right: selected bucket detail + transactions */}
+        <div className="col-span-12 md:col-span-8 lg:col-span-9 bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {/* Bucket header */}
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-400">{activeBucket.key === 'all' ? 'Total on hand' : `${activeBucket.label} balance`}</p>
+              <p className={`text-lg font-semibold ${(balances[activeBucket.balanceKey] ?? 0) < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                {formatINR(balances[activeBucket.balanceKey] ?? 0)}
+              </p>
+            </div>
+            <div className="relative w-56 max-w-full">
+              <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input value={filters.q}
+                onChange={(e) => { setFilters((f) => ({ ...f, q: e.target.value })); setPage(1); }}
+                placeholder="Search notes / UTR / cheque"
+                className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Direction</label>
+              <select value={filters.direction}
+                onChange={(e) => { setFilters((f) => ({ ...f, direction: e.target.value })); setPage(1); }}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                <option value="">All</option>
+                <option value="in">IN</option>
+                <option value="out">OUT</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">From</label>
+              <input type="date" value={filters.from}
+                onChange={(e) => { setFilters((f) => ({ ...f, from: e.target.value })); setPage(1); }}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">To</label>
+              <input type="date" value={filters.to}
+                onChange={(e) => { setFilters((f) => ({ ...f, to: e.target.value })); setPage(1); }}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            </div>
             <button
-              onClick={() => { setFilters((f) => ({ ...f, direction: '', mode: '', from: '', to: '', q: '' })); setPage(1); }}
-              className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline">
+              onClick={() => { setFilters((f) => ({ ...f, direction: '', from: '', to: '', q: '' })); setPage(1); }}
+              className="ml-auto text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline pb-2">
               Reset filters
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Direction</label>
-            <select value={filters.direction}
-              onChange={(e) => { setFilters((f) => ({ ...f, direction: e.target.value })); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-              <option value="">All</option>
-              <option value="in">IN</option>
-              <option value="out">OUT</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Mode</label>
-            <select value={filters.mode}
-              onChange={(e) => { setFilters((f) => ({ ...f, mode: e.target.value })); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-              <option value="">All</option>
-              <option value="cash">Cash</option>
-              <option value="bank">Bank</option>
-              <option value="upi">UPI</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">From</label>
-            <input type="date" value={filters.from}
-              onChange={(e) => { setFilters((f) => ({ ...f, from: e.target.value })); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">To</label>
-            <input type="date" value={filters.to}
-              onChange={(e) => { setFilters((f) => ({ ...f, to: e.target.value })); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <input value={filters.q}
-              onChange={(e) => { setFilters((f) => ({ ...f, q: e.target.value })); setPage(1); }}
-              placeholder="UTR / cheque / notes"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          </div>
-        </div>
-        </div>
 
-        {loading ? (
-          <div className="py-8 text-center text-gray-400">Loading...</div>
-        ) : items.length === 0 ? (
-          <div className="py-8 text-center text-gray-400">No entries in this range</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Direction</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Mode</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Link</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">UTR / Cheque</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Notes</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {items.map((e) => {
-                  const Icon = MODE_ICONS[e.mode] || HiOutlineCash;
-                  return (
-                    <tr key={e._id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDate(e.date)}</td>
-                      <td className="py-3 px-4">
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded ${e.direction === 'in' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                          {e.direction.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-700">
-                          <Icon className="w-3.5 h-3.5" /> {e.mode.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-gray-600">
-                        {e.invoice && <span>{e.invoice.invoiceNumber || 'Invoice'} · {e.invoice.hospital?.name}</span>}
-                        {e.expense && <span>Expense · {e.expense.category?.label}</span>}
-                        {!e.invoice && !e.expense && <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="py-3 px-4 text-gray-500 text-xs font-mono">
-                        {e.utrNumber || e.chequeNumber || <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="py-3 px-4 text-gray-600 max-w-xs truncate">{e.notes || <span className="text-gray-300">—</span>}</td>
-                      <td className={`py-3 px-4 text-right font-medium ${e.direction === 'in' ? 'text-green-700' : 'text-red-700'}`}>
-                        {e.direction === 'in' ? '+' : '−'}{formatINR(e.amount)}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex justify-end gap-1">
-                          {canEdit && (
-                            <button onClick={() => setModal({ open: true, item: e })}
-                              className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
-                              <HiOutlinePencil className="w-4 h-4" />
-                            </button>
-                          )}
-                          {canDelete && (
-                            <button onClick={() => handleDelete(e)}
-                              className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                              <HiOutlineTrash className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+          {loading ? (
+            <div className="py-8 text-center text-gray-400">Loading...</div>
+          ) : items.length === 0 ? (
+            <div className="py-8 text-center text-gray-400">No entries in this range</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Type</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Name</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {items.map((e) => {
+                    const Icon = MODE_ICONS[e.mode] || HiOutlineCash;
+                    const sub = e.utrNumber || e.chequeNumber || null;
+                    return (
+                      <tr key={e._id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${e.direction === 'in' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                              {e.direction === 'in' ? 'Payment-In' : 'Payment-Out'}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[11px] text-gray-400" title={e.mode.toUpperCase()}>
+                              <Icon className="w-3.5 h-3.5" />{e.mode.toUpperCase()}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 max-w-xs">
+                          <div className="text-gray-700 truncate">{txnName(e)}</div>
+                          {sub && <div className="text-[11px] text-gray-400 font-mono truncate">{sub}</div>}
+                        </td>
+                        <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDateTime(e.date)}</td>
+                        <td className={`py-3 px-4 text-right font-medium ${e.direction === 'in' ? 'text-green-700' : 'text-red-700'}`}>
+                          {e.direction === 'in' ? '+' : '−'}{formatINR(e.amount)}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex justify-end gap-1">
+                            {canEdit && (
+                              <button onClick={() => setModal({ open: true, item: e })}
+                                className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
+                                <HiOutlinePencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button onClick={() => handleDelete(e)}
+                                className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
+                                <HiOutlineTrash className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-        {!loading && total > 0 && (
-          <PaginationBar
-            page={page} pages={pages} total={total}
-            pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize}
-          />
-        )}
+          {!loading && total > 0 && (
+            <PaginationBar
+              page={page} pages={pages} total={total}
+              pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize}
+            />
+          )}
+        </div>
       </div>
 
       <CashBankFormModal
