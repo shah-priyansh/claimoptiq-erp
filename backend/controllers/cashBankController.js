@@ -7,7 +7,7 @@ const VALID_MODES = ['cash', 'bank', 'upi'];
 
 const cashBankInclude = {
   invoice: { select: { id: true, invoiceNumber: true, hospital: { select: { id: true, name: true } } } },
-  expense: { select: { id: true, amount: true, notes: true, category: { select: { id: true, label: true, slug: true } } } },
+  expense: { select: { id: true, amount: true, notes: true, date: true, category: { select: { id: true, label: true, slug: true } } } },
   hospital: { select: { id: true, name: true } },
   bankAccount: { select: { id: true, bankName: true, accountNumber: true, ifsc: true } },
   createdBy: { select: { id: true, name: true } },

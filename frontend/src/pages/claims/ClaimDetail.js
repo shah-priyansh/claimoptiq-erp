@@ -349,6 +349,7 @@ const ClaimDetail = () => {
         isDirectPatient: !!data.isDirectPatient,
         patientName: data.patientName || '',
         patientMobile: data.patientMobile || '',
+        patientAddress: data.patientAddress || '',
         doctorName: data.doctorName || '',
         claimType: data.claimType || 'cashless',
         insuranceCompany: data.insuranceCompany?._id || data.insuranceCompany || '',
@@ -604,11 +605,20 @@ const ClaimDetail = () => {
   const handleSaveDischarge = async () => {
     setSaving(true);
     try {
-      // On Discharge Submit just record "Discharged Submitted". The insurer/TPA
+      // Advance to "Discharged Submitted" only on the first discharge submission.
+      // If the claim has already reached or moved past that step (e.g. Discharge
+      // Approved), just save the data — don't revert the status. The insurer/TPA
       // status-automation rule (e.g. auto-advance to "Claim Online Submission
       // Pending") is applied later, when the claim is marked Discharge Approved —
       // see handleUpdateStatus.
-      await updateClaimAPI(id, { ...dischargeForm, status: 'discharged_submitted' });
+      const submittedOrder = claimStatuses.find(s => s.slug === 'discharged_submitted')?.order;
+      const currentOrder = claimStatuses.find(s => s.slug === claim.status)?.order;
+      const alreadySubmitted =
+        submittedOrder != null && currentOrder != null && currentOrder >= submittedOrder;
+      const payload = alreadySubmitted
+        ? { ...dischargeForm }
+        : { ...dischargeForm, status: 'discharged_submitted' };
+      await updateClaimAPI(id, payload);
       await uploadPendingFiles('discharge', pendingFiles.discharge);
       toast.success('Discharge details saved');
       await fetchClaim(true);
@@ -1217,6 +1227,19 @@ const ClaimDetail = () => {
                   {mobileError && <p className="mt-1 text-xs text-red-500">{mobileError}</p>}
                 </div>
 
+                <div className="md:col-span-2 lg:col-span-3">
+                  <label className={labelCls}>
+                    Patient Address
+                    {admissionForm.claimType === 'reimbursement' && (
+                      <span className="text-gray-400 font-normal"> (printed on courier sticker)</span>
+                    )}
+                  </label>
+                  <textarea value={admissionForm.patientAddress || ''}
+                    onChange={e => setAdmissionForm(f => ({ ...f, patientAddress: e.target.value }))}
+                    rows={2} placeholder="House, street, area, city, pincode"
+                    className={`${inputCls} resize-y`} />
+                </div>
+
                 <div>
                   <label className={labelCls}>Doctor</label>
                   <SearchableSelect
@@ -1327,6 +1350,7 @@ const ClaimDetail = () => {
                   ['Hospital',           claim.hospital?.name || '—'],
                   ['Patient Name',       claim.patientName],
                   ['Patient Mobile',     claim.patientMobile || '—'],
+                  ['Patient Address',    claim.patientAddress || '—'],
                   ['Doctor',             claim.doctorName || '—'],
                   ['Date of Admit',      formatDate(claim.dateOfAdmit)],
                   ['Month',              formatMonth(claim.month)],

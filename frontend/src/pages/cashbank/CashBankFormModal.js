@@ -94,6 +94,16 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [
     ? [{ v: 'none', l: 'No link' }, { v: 'invoice', l: 'Invoice (receipt)' }]
     : [{ v: 'none', l: 'No link' }, { v: 'expense', l: 'Expense (payout)' }];
 
+  // The expense picker only lists expenses not yet paid by a cash/bank entry.
+  // When editing an entry that's already linked to an expense, that expense is
+  // absent from the list — merge it back in so the current selection stays
+  // visible and selectable.
+  const expenseLabel = (e) => `${e.category?.label || ''} • ₹${e.amount} • ${(e.date || '').slice(0, 10)}`;
+  const expenseOptions = expenses.map((e) => ({ value: e._id, label: expenseLabel(e) }));
+  if (initial?.expense && !expenseOptions.some((o) => o.value === initial.expense._id)) {
+    expenseOptions.unshift({ value: initial.expense._id, label: expenseLabel(initial.expense) });
+  }
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-xl rounded-2xl shadow-xl">
@@ -215,10 +225,7 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [
                     placeholder="Select expense"
                     searchPlaceholder="Search expenses..."
                     allowClear
-                    options={expenses.map((e) => ({
-                      value: e._id,
-                      label: `${e.category?.label || ''} • ₹${e.amount} • ${(e.date || '').slice(0,10)}`,
-                    }))}
+                    options={expenseOptions}
                   />
                 </>
               )}
