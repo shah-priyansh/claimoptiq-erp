@@ -11,6 +11,23 @@ const expenseInclude = {
   payments: { select: { id: true, mode: true, bankAccountId: true, direction: true, amount: true } },
 };
 
+// Payment rollup for one expense, derived from its linked cash/bank entries
+// (money-out pays the expense; a money-in reversal offsets it). Mirrors the
+// invoice paid/pending/status model, but computed on the fly since Expense has
+// no stored paid columns. Status: paid (fully settled) / partial / pending.
+const rollupPayment = (amount, payments = []) => {
+  const total = Math.round(Number(amount) || 0);
+  const amountPaid = Math.round(
+    payments.reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0)
+  );
+  const amountPending = total - amountPaid;
+  let paymentStatus;
+  if (amountPaid === 0) paymentStatus = total === 0 ? 'paid' : 'pending';
+  else if (amountPending <= 0) paymentStatus = 'paid';
+  else paymentStatus = 'partial';
+  return { amountPaid, amountPending, paymentStatus };
+};
+
 const VALID_MODES = ['cash', 'bank', 'upi'];
 
 // Resolve how an expense was paid so the outflow can be mirrored into the
@@ -205,16 +222,29 @@ exports.list = async (req, res) => {
     }
 
     const skip = page ? (Number(page) - 1) * take : 0;
-    const [items, total, agg] = await Promise.all([
+    const [items, total, agg, payAgg] = await Promise.all([
       prisma.expense.findMany({ where, include: expenseInclude, orderBy: [{ date: 'desc' }, { createdAt: 'desc' }], skip, take }),
       prisma.expense.count({ where }),
       prisma.expense.aggregate({ where, _sum: { amount: true } }),
+      // Paid total across the WHOLE filtered set — sum of the linked cash/bank
+      // entries (out − in) so header/footer totals stay page-independent.
+      // `expenseId: { not: null }` restricts to expense-linked entries (an empty
+      // `expense: {}` relation filter would match every entry); `expense: where`
+      // applies the same category/date/reference scope as the expense list.
+      prisma.cashBankEntry.groupBy({ by: ['direction'], where: { expenseId: { not: null }, expense: where }, _sum: { amount: true } }),
     ]);
+    const expenses = toResponse(items).map((e) => ({ ...e, ...rollupPayment(e.amount, e.payments) }));
+    const sumAmount = Math.round(agg._sum.amount || 0);
+    const sumPaid = Math.round(
+      payAgg.reduce((s, r) => s + (r.direction === 'in' ? -1 : 1) * (r._sum.amount || 0), 0)
+    );
     res.json({
-      expenses: toResponse(items),
+      expenses,
       total,
       pages: Math.ceil(total / take),
-      sumAmount: Math.round(agg._sum.amount || 0),
+      sumAmount,
+      sumPaid,
+      sumPending: sumAmount - sumPaid,
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
