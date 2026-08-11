@@ -898,6 +898,17 @@ exports.create = async (req, res) => {
     };
 
     const invoice = await prisma.$transaction(async (tx) => {
+      // Attribute the invoice to its hospital's party for the party ledger,
+      // creating the party on first use for hospitals added after the backfill.
+      let partyId = null;
+      if (hospitalId) {
+        let linkedParty = await tx.party.findUnique({ where: { hospitalId }, select: { id: true } });
+        if (!linkedParty) {
+          const h = await tx.hospital.findUnique({ where: { id: hospitalId }, select: { name: true, phone: true, email: true, address: true, state: true, isActive: true } });
+          if (h) linkedParty = await tx.party.create({ data: { name: h.name, phone: h.phone || '', email: h.email || '', billingAddress: h.address || '', state: h.state || '', hospitalId, isActive: h.isActive } });
+        }
+        partyId = linkedParty?.id || null;
+      }
       // Recovery path: populate the existing empty draft. Keep its existing
       // invoiceNumber (if any) — don't burn a new sequence slot.
       if (existing) {
@@ -905,6 +916,7 @@ exports.create = async (req, res) => {
           where: { id: existing.id },
           data: {
             ...persistedData,
+            partyId,
             notes: notes || existing.notes || '',
             lineItems: { create: allLines },
           },
@@ -923,6 +935,7 @@ exports.create = async (req, res) => {
       return tx.invoice.create({
         data: {
           hospitalId,
+          partyId,
           month,
           status: 'draft',
           invoiceNumber,

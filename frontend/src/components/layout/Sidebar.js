@@ -31,11 +31,13 @@ const billingItems = [
   { to: '/cash-bank',        label: 'Cash / Bank',     icon: HiOutlineCash,           module: 'cash_bank' },
   { to: '/bank-accounts',    label: 'Bank Accounts',   icon: HiOutlineCreditCard,     module: 'cash_bank' },
   { to: '/account-entries',  label: 'Account Entries', icon: HiOutlineLibrary,        module: 'account_entries' },
+  { to: '/chart-of-accounts', label: 'Chart of Accounts', icon: HiOutlineCollection,  module: 'chart_of_accounts' },
   { to: '/reports',          label: 'Reports',         icon: HiOutlineDocumentReport, module: 'reports' },
 ];
 
 // Sub-nav items grouped under "Masters" (entities the operator manages day to day).
 const masterItems = [
+  { to: '/parties',    label: 'Parties',    icon: HiOutlineUserGroup,      module: 'parties' },
   { to: '/hospitals',  label: 'Hospitals',  icon: HiOutlineOfficeBuilding, module: 'hospitals' },
   { to: '/insurance',  label: 'Insurance',  icon: HiOutlineShieldCheck,    module: 'insurance' },
   { to: '/tpa',        label: 'TPA',        icon: HiOutlineClipboardList,  module: 'tpa' },

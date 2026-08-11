@@ -96,6 +96,21 @@ export const createReferenceAPI = (data) => API.post('/references', data);
 export const updateReferenceAPI = (id, data) => API.put(`/references/${id}`, data);
 export const deleteReferenceAPI = (id) => API.delete(`/references/${id}`);
 
+// Parties (counterparty ledger)
+export const getPartiesAPI     = (params) => API.get('/parties', { params });
+export const getPartyLedgerAPI = (id) => API.get(`/parties/${id}/ledger`);
+export const createPartyAPI    = (data) => API.post('/parties', data);
+export const updatePartyAPI    = (id, data) => API.patch(`/parties/${id}`, data);
+export const deletePartyAPI    = (id) => API.delete(`/parties/${id}`);
+export const mergePartyAPI     = (id, data) => API.post(`/parties/${id}/merge`, data);
+
+// Chart of Accounts
+export const getChartOfAccountsAPI = () => API.get('/accounts/chart');
+export const getAccountsAPI    = (params) => API.get('/accounts', { params });
+export const createAccountAPI  = (data) => API.post('/accounts', data);
+export const updateAccountAPI  = (id, data) => API.patch(`/accounts/${id}`, data);
+export const deleteAccountAPI  = (id) => API.delete(`/accounts/${id}`);
+
 // Invoices
 export const previewInvoiceAPI = (data) => API.post('/invoices/preview', data);
 export const previewBulkInvoiceAPI = (data) => API.post('/invoices/preview-bulk', data);

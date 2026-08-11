@@ -4,9 +4,9 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', partyName: '', referenceId: '' };
+const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', partyName: '', referenceId: '', partyId: '' };
 
-const ExpenseFormModal = ({ open, initial, mode = 'create', categories, references, loadingRefs = false, onClose, onSave }) => {
+const ExpenseFormModal = ({ open, initial, mode = 'create', categories, references, parties = [], loadingRefs = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
   const isEdit = mode === 'edit';
@@ -22,6 +22,7 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
         notes: initial.notes || '',
         partyName: initial.partyName || '',
         referenceId: initial.reference?._id || initial.referenceId || '',
+        partyId: initial.party?._id || initial.partyId || '',
       });
     } else {
       setForm({ ...blank, categoryId: categories[0]?._id || '' });
@@ -42,6 +43,7 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
         notes: form.notes,
         partyName: form.partyName,
         referenceId: form.referenceId || null,
+        partyId: form.partyId || null,
       });
     } finally {
       setSaving(false);
@@ -107,11 +109,25 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Party Name</label>
-            <input type="text" value={form.partyName} maxLength={200}
-              onChange={(e) => setForm((f) => ({ ...f, partyName: e.target.value }))}
-              placeholder="Vendor / payee"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Party</label>
+            <SearchableSelect
+              value={form.partyId}
+              onChange={(v) => {
+                const p = parties.find((x) => x._id === v);
+                setForm((f) => ({ ...f, partyId: v, partyName: p ? p.name : f.partyName }));
+              }}
+              placeholder="Link an existing party"
+              searchPlaceholder="Search parties..."
+              noneLabel="— None —"
+              allowClear
+              options={parties.map((p) => ({ value: p._id, label: p.name }))}
+            />
+            {!form.partyId && (
+              <input type="text" value={form.partyName} maxLength={200}
+                onChange={(e) => setForm((f) => ({ ...f, partyName: e.target.value }))}
+                placeholder="…or type a new party / vendor name"
+                className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
