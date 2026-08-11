@@ -29,6 +29,7 @@ const billingItems = [
   { to: '/invoices',         label: 'Invoices',        icon: HiOutlineCurrencyRupee,  module: 'invoices' },
   { to: '/expenses',         label: 'Expenses',        icon: HiOutlineReceiptTax,     module: 'expenses' },
   { to: '/cash-bank',        label: 'Cash / Bank',     icon: HiOutlineCash,           module: 'cash_bank' },
+  { to: '/bank-accounts',    label: 'Bank Accounts',   icon: HiOutlineCreditCard,     module: 'cash_bank' },
   { to: '/account-entries',  label: 'Account Entries', icon: HiOutlineLibrary,        module: 'account_entries' },
   { to: '/reports',          label: 'Reports',         icon: HiOutlineDocumentReport, module: 'reports' },
 ];

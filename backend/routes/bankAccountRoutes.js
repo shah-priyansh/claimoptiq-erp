@@ -11,6 +11,9 @@ router.route('/')
   .get(ctrl.list)
   .post(checkPermission('settings', 'edit'), ctrl.create);
 
+// Per-account running balances — declared before '/:id' so it isn't captured as an id.
+router.get('/balances', ctrl.balances);
+
 router.route('/:id')
   .get(ctrl.getOne)
   .patch(checkPermission('settings', 'edit'), ctrl.update)

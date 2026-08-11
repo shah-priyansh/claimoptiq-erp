@@ -22,7 +22,9 @@ const blank = {
 // that only makes sense one way: Invoices/mark-paid → 'in' (money received),
 // Expenses/record-payment → 'out' (money paid). Left null on the Cash/Bank
 // ledger page, where the operator freely picks IN or OUT.
-const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, lockDirection = null, onClose, onSave }) => {
+// `defaults` pre-fills a NEW entry (ignored when editing) — used by the Bank
+// Accounts page's Deposit/Withdraw to preset mode/direction/bankAccountId.
+const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, lockDirection = null, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
@@ -44,9 +46,9 @@ const CashBankFormModal = ({ open, initial, invoices, expenses, bankAccounts = [
         chequeNumber: initial.chequeNumber || '',
       });
     } else {
-      setForm({ ...blank, direction: lockDirection || blank.direction });
+      setForm({ ...blank, direction: lockDirection || blank.direction, ...(defaults || {}) });
     }
-  }, [open, initial, lockDirection]);
+  }, [open, initial, lockDirection, defaults]);
 
   // When mode flips to bank/upi and no account is picked yet, auto-select the
   // operator's default account so the operator can just click Save.

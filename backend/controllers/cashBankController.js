@@ -128,13 +128,14 @@ const buildEntryData = async (body) => {
 
 exports.list = async (req, res) => {
   try {
-    const { from, to, direction, mode, hospitalId, invoiceId, expenseId, q, page, limit = 25 } = req.query;
+    const { from, to, direction, mode, hospitalId, invoiceId, expenseId, bankAccountId, q, page, limit = 25 } = req.query;
     const where = {};
     if (direction) where.direction = direction;
     if (mode) where.mode = mode;
     if (hospitalId) where.hospitalId = hospitalId;
     if (invoiceId) where.invoiceId = invoiceId;
     if (expenseId) where.expenseId = expenseId;
+    if (bankAccountId) where.bankAccountId = bankAccountId;
     const fromD = parseDate(from);
     const toD = parseDate(to);
     if (fromD || toD) {

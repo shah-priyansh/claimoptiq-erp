@@ -211,6 +211,7 @@ export const bulkReceivePaymentAPI = (data) => API.post('/cash-bank/bulk-receipt
 
 // Bank accounts — operator-managed list, one flagged default for invoice PDF.
 export const getBankAccountsAPI    = (params) => API.get('/bank-accounts', { params });
+export const getBankAccountBalancesAPI = () => API.get('/bank-accounts/balances');
 export const createBankAccountAPI  = (data) => API.post('/bank-accounts', data);
 export const updateBankAccountAPI  = (id, data) => API.patch(`/bank-accounts/${id}`, data);
 export const deleteBankAccountAPI  = (id) => API.delete(`/bank-accounts/${id}`);
