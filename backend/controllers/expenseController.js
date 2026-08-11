@@ -122,10 +122,16 @@ const pickFields = (body) => {
 
 exports.list = async (req, res) => {
   try {
-    const { categoryId, referenceId, from, to, q, page, limit = 25, merge } = req.query;
+    const { categoryId, referenceId, from, to, q, page, limit = 25, merge, unlinkedOnly } = req.query;
     const where = {};
     if (categoryId) where.categoryId = categoryId;
     if (referenceId) where.referenceId = referenceId;
+    // Cash/Bank payout picker — only offer expenses not already paid by a
+    // cash/bank entry, so the same expense can't be linked twice. (Expense
+    // creation usually auto-creates a payment entry, so "unlinked" means an
+    // expense recorded without a payment.) The entry being edited re-adds its
+    // own currently-linked expense on the client so it stays selectable.
+    if (unlinkedOnly === 'true') where.payments = { none: {} };
     const fromD = parseDate(from);
     const toD = parseDate(to);
     if (fromD || toD) {

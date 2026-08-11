@@ -77,7 +77,10 @@ const CashBankList = () => {
   useEffect(() => {
     // Load invoice/expense pickers (best-effort)
     getInvoicesAPI({ limit: 200 }).then(({ data }) => setInvoices((data.invoices || []).filter((i) => i.status === 'issued' || i.status === 'partially_paid'))).catch(() => {}).finally(() => setLoadingInvoices(false));
-    getExpensesAPI({ limit: 200 }).then(({ data }) => setExpenses(data.expenses || [])).catch(() => {}).finally(() => setLoadingExpenses(false));
+    // Only offer expenses not already paid by a cash/bank entry (avoids linking
+    // the same expense twice). The entry being edited re-adds its own linked
+    // expense on the client (see CashBankFormModal) so it stays selectable.
+    getExpensesAPI({ limit: 200, unlinkedOnly: 'true' }).then(({ data }) => setExpenses(data.expenses || [])).catch(() => {}).finally(() => setLoadingExpenses(false));
     getBankAccountsAPI({ active: 'true' }).then(({ data }) => setBankAccounts(data || [])).catch(() => setBankAccounts([])).finally(() => setLoadingBankAccounts(false));
   }, []);
 
