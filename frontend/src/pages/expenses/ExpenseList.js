@@ -69,6 +69,13 @@ const printExpense = (e) => {
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const formatDate = (d) => _formatDate(d);
 
+// Payment status badge styles (derived from each expense's linked payments).
+const PAY_STATUS = {
+  paid:    { label: 'Paid',         cls: 'bg-green-50 text-green-700' },
+  partial: { label: 'Part Payment', cls: 'bg-amber-50 text-amber-700' },
+  pending: { label: 'Pending',      cls: 'bg-gray-100 text-gray-600' },
+};
+
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const monthStart = () => {
   const d = new Date();
@@ -139,6 +146,7 @@ const ExpenseList = () => {
       });
       toast.success('Payment recorded');
       setPaymentExpense(null);
+      fetchAll();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to record payment');
     } finally {
@@ -187,6 +195,8 @@ const ExpenseList = () => {
   const [pageSize, setPageSize] = usePersistedFilters('expenses:pageSize', 25);
   const [total, setTotal] = useState(0);
   const [sumAmount, setSumAmount] = useState(0);
+  const [sumPaid, setSumPaid] = useState(0);
+  const [sumPending, setSumPending] = useState(0);
   const [filters, setFilters] = usePersistedFilters('expenses:filters', {
     categoryId: '',
     referenceId: '',
@@ -228,6 +238,8 @@ const ExpenseList = () => {
       setItems(list.data.expenses);
       setTotal(list.data.total);
       setSumAmount(list.data.sumAmount);
+      setSumPaid(list.data.sumPaid || 0);
+      setSumPending(list.data.sumPending || 0);
       setSummary(sum.data);
     } catch {
       toast.error('Failed to load expenses');
@@ -427,6 +439,11 @@ const ExpenseList = () => {
                 <div className="text-right">
                   <p className="text-xs text-gray-400">{total} {total === 1 ? 'entry' : 'entries'}</p>
                   <p className={`text-base font-semibold ${sumAmount < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(sumAmount)}</p>
+                  {!isMergedView && (
+                    <p className="text-[11px] text-gray-400">
+                      Paid {formatINR(sumPaid)} · Balance <span className={sumPending > 0 ? 'text-amber-600 font-medium' : ''}>{formatINR(sumPending)}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -447,6 +464,9 @@ const ExpenseList = () => {
                         <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Party</th>
                         <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Notes</th>
                         <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                        <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Paid</th>
+                        <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Balance</th>
+                        <th className="text-center py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
                         <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
                       </tr>
                     </thead>
@@ -496,6 +516,21 @@ const ExpenseList = () => {
                               <td className={`py-3 px-4 text-right font-medium ${e.amount < 0 ? 'text-red-600' : 'text-gray-800'}`}>
                                 {formatINR(e.amount)}
                               </td>
+                              <td className="py-3 px-4 text-right text-gray-600">
+                                {merged ? <span className="text-gray-300">—</span> : formatINR(e.amountPaid || 0)}
+                              </td>
+                              <td className="py-3 px-4 text-right text-gray-600">
+                                {merged ? <span className="text-gray-300">—</span> : formatINR(e.amountPending || 0)}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                {merged ? (
+                                  <span className="text-gray-300">—</span>
+                                ) : (
+                                  <span className={`text-xs px-2 py-0.5 rounded ${(PAY_STATUS[e.paymentStatus] || PAY_STATUS.pending).cls}`}>
+                                    {(PAY_STATUS[e.paymentStatus] || PAY_STATUS.pending).label}
+                                  </span>
+                                )}
+                              </td>
                               <td className="py-3 px-4 text-right">
                                 <div className="flex justify-end">
                                   {merged ? (
@@ -513,7 +548,7 @@ const ExpenseList = () => {
                             </tr>
                             {merged && isOpen && (
                               <tr className="bg-gray-50/70">
-                                <td colSpan={filters.categoryId ? 6 : 7} className="px-4 py-3">
+                                <td colSpan={filters.categoryId ? 9 : 10} className="px-4 py-3">
                                   {expState?.loading ? (
                                     <div className="flex items-center gap-2 text-xs text-gray-500">
                                       <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-primary-600 rounded-full animate-spin" />
@@ -567,6 +602,9 @@ const ExpenseList = () => {
                       <tr>
                         <td colSpan={filters.categoryId ? 4 : 5} className="py-3 px-4 text-right text-xs uppercase text-gray-500 font-semibold">Filtered total</td>
                         <td className="py-3 px-4 text-right font-semibold text-gray-800">{formatINR(sumAmount)}</td>
+                        <td className="py-3 px-4 text-right font-semibold text-gray-800">{isMergedView ? '' : formatINR(sumPaid)}</td>
+                        <td className="py-3 px-4 text-right font-semibold text-gray-800">{isMergedView ? '' : formatINR(sumPending)}</td>
+                        <td />
                         <td />
                       </tr>
                     </tfoot>
