@@ -179,8 +179,9 @@ exports.profit = async (req, res) => {
         where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to } },
         select: { issuedAt: true, netTotal: true },
       }),
+      // P&L profit excludes capital / fixed-asset spend (not real expenses).
       prisma.expense.findMany({
-        where: { date: { gte: from, lte: to } },
+        where: { date: { gte: from, lte: to }, category: { nature: 'expense' } },
         select: { date: true, amount: true },
       }),
     ]);
@@ -485,9 +486,11 @@ exports.balanceSheet = async (req, res) => {
     const periodInvoiceWhere = from
       ? { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to } }
       : { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { lte: to } };
+    // Only true P&L expenses hit Retained Earnings — capital / fixed-asset spend
+    // is handled on the asset/equity side (Phase 3b), not as a loss.
     const periodExpenseWhere = from
-      ? { date: { gte: from, lte: to } }
-      : { date: { lte: to } };
+      ? { date: { gte: from, lte: to }, category: { nature: 'expense' } }
+      : { date: { lte: to }, category: { nature: 'expense' } };
 
     const [
       bankAccounts,
@@ -499,6 +502,8 @@ exports.balanceSheet = async (req, res) => {
       expenseAgg,
       periodIncomeAgg,
       periodExpenseAgg,
+      fixedAssetExpenseAgg,
+      coaAccounts,
     ] = await Promise.all([
       prisma.bankAccount.findMany({
         where: { isActive: true },
@@ -537,7 +542,7 @@ exports.balanceSheet = async (req, res) => {
         _sum: { netTotal: true, gstAmount: true, tdsAmount: true },
       }),
       prisma.expense.aggregate({
-        where: { date: { lte: to } },
+        where: { date: { lte: to }, category: { nature: 'expense' } },
         _sum: { amount: true },
       }),
       // Period totals — drive Retained Earnings when `from` is set.
@@ -549,6 +554,13 @@ exports.balanceSheet = async (req, res) => {
         where: periodExpenseWhere,
         _sum: { amount: true },
       }),
+      // Fixed-asset spend (up to `to`) → capitalised as a Fixed Assets asset.
+      prisma.expense.aggregate({
+        where: { date: { lte: to }, category: { nature: 'fixed_asset' } },
+        _sum: { amount: true },
+      }),
+      // Chart-of-Accounts rows (fixed asset / capital / loan / other) with opening balances.
+      prisma.account.findMany({ where: { isActive: true }, select: { id: true, name: true, group: true, openingBalance: true } }),
     ]);
 
     // --- Cash balance per mode + per bank account ---
@@ -627,10 +639,30 @@ exports.balanceSheet = async (req, res) => {
     const periodExpense = periodExpenseAgg._sum.amount || 0;
     const retainedEarnings = Math.round(periodIncome - periodExpense);
 
-    const totalAssets = bankTotal + cashTotal + upiTotal + debtorsTotal + tdsReceivable;
-    const knownLiabilities = gstPayable + retainedEarnings;
+    // --- Chart-of-Accounts lines (Phase 3b) ---
+    // Fixed Assets = capitalised fixed-asset spend + fixed-asset account openings.
+    // Loans / explicit Capital come from Account rows grouped by their side.
+    const fixedAssetPurchases = Math.round(fixedAssetExpenseAgg._sum.amount || 0);
+    const acctByGroup = { assets: 0, liabilities: 0, equity: 0 };
+    const acctItems = { assets: [], liabilities: [], equity: [] };
+    for (const a of coaAccounts) {
+      const v = Math.round(a.openingBalance || 0);
+      const grp = ['assets', 'liabilities', 'equity'].includes(a.group) ? a.group : 'assets';
+      acctByGroup[grp] += v;
+      if (v !== 0) acctItems[grp].push({ key: a.id, label: a.name, value: v });
+    }
+    const fixedAssetsTotal = fixedAssetPurchases + acctByGroup.assets;
+    const loansTotal = acctByGroup.liabilities;
+    const explicitCapital = acctByGroup.equity;
+    const fixedAssetItems = [
+      ...acctItems.assets,
+      ...(fixedAssetPurchases !== 0 ? [{ key: 'fa_purchases', label: 'Fixed asset purchases', value: fixedAssetPurchases }] : []),
+    ];
+
+    const totalAssets = bankTotal + cashTotal + upiTotal + debtorsTotal + tdsReceivable + fixedAssetsTotal;
+    const knownLiabilities = gstPayable + retainedEarnings + loansTotal + explicitCapital;
     const ownersCapital = totalAssets - knownLiabilities;
-    const totalLiabilities = ownersCapital + retainedEarnings + gstPayable;
+    const totalLiabilities = ownersCapital + retainedEarnings + explicitCapital + gstPayable + loansTotal;
 
     res.json({
       filters: {
@@ -644,18 +676,22 @@ exports.balanceSheet = async (req, res) => {
         cashAccount:   { label: 'Cash in Hand',   total: cashTotal,    items: cashTotal !== 0 ? [{ key: 'cash', label: 'Cash', value: cashTotal }] : [] },
         upiAccount:    { label: 'UPI',            total: upiTotal,     items: upiTotal !== 0 ? [{ key: 'upi', label: 'UPI', value: upiTotal }] : [] },
         tdsReceivable: { label: 'TDS Receivable', total: tdsReceivable, items: tdsReceivable !== 0 ? [{ key: 'tds', label: 'TDS deducted on invoices', value: tdsReceivable }] : [] },
+        fixedAssets:   { label: 'Fixed Assets', total: fixedAssetsTotal, items: fixedAssetItems },
       },
       liabilities: {
         capitalAccount: {
           label: 'Capital Account',
           ownersCapital,
           retainedEarnings,
+          explicitCapital,
+          capitalItems: acctItems.equity,
           periodIncome: Math.round(periodIncome),
           periodExpense: Math.round(periodExpense),
           lifetimeIncome: Math.round(issuedAgg._sum.netTotal || 0),
           lifetimeExpense: Math.round(expenseAgg._sum.amount || 0),
-          total: ownersCapital + retainedEarnings,
+          total: ownersCapital + retainedEarnings + explicitCapital,
         },
+        loans: { label: 'Loans', total: loansTotal, items: acctItems.liabilities },
         outwardDutiesTaxes: {
           label: 'Outward Duties & Taxes',
           total: gstPayable,
@@ -696,8 +732,9 @@ exports.dashboard = async (req, res) => {
         where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: mStart, lte: mEndInclusive } },
         select: { netTotal: true, hospitalId: true, hospital: { select: { id: true, name: true } } },
       }),
+      // Dashboard month profit excludes capital / fixed-asset spend.
       prisma.expense.findMany({
-        where: { date: { gte: mStart, lte: mEndInclusive } },
+        where: { date: { gte: mStart, lte: mEndInclusive }, category: { nature: 'expense' } },
         select: { amount: true, categoryId: true, category: { select: { label: true, slug: true } } },
       }),
       prisma.cashBankEntry.groupBy({ by: ['mode', 'direction'], _sum: { amount: true } }),

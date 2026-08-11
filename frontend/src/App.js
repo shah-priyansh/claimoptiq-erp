@@ -25,6 +25,8 @@ import ExpenseList from './pages/expenses/ExpenseList';
 import ExpenseCategoryList from './pages/expenses/ExpenseCategoryList';
 import CashBankList from './pages/cashbank/CashBankList';
 import BankAccountsPage from './pages/bankaccounts/BankAccountsPage';
+import PartiesPage from './pages/parties/PartiesPage';
+import ChartOfAccounts from './pages/accounts/ChartOfAccounts';
 import AccountEntryList from './pages/accountentries/AccountEntryList';
 import UserList from './pages/users/UserList';
 import ClaimList from './pages/claims/ClaimList';
@@ -75,6 +77,7 @@ function App() {
             <Route path="/insurance" element={<ProtectedRoute module="insurance" requireManage><InsuranceList /></ProtectedRoute>} />
             <Route path="/tpa" element={<ProtectedRoute module="tpa" requireManage><TPAList /></ProtectedRoute>} />
             <Route path="/references" element={<ProtectedRoute module="references" requireManage><ReferenceList /></ProtectedRoute>} />
+            <Route path="/parties" element={<ProtectedRoute module="parties"><PartiesPage /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute module="users" requireManage><UserList /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute module="claims"><ClaimList /></ProtectedRoute>} />
             <Route path="/claims/new" element={<ProtectedRoute module="claims"><ClaimForm /></ProtectedRoute>} />
@@ -93,6 +96,7 @@ function App() {
             <Route path="/cash-bank" element={<ProtectedRoute module="cash_bank"><CashBankList /></ProtectedRoute>} />
             <Route path="/bank-accounts" element={<ProtectedRoute module="cash_bank"><BankAccountsPage /></ProtectedRoute>} />
             <Route path="/account-entries" element={<ProtectedRoute module="account_entries"><AccountEntryList /></ProtectedRoute>} />
+            <Route path="/chart-of-accounts" element={<ProtectedRoute module="chart_of_accounts"><ChartOfAccounts /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute module="reports"><ReportsHub /></ProtectedRoute>} />
             <Route path="/reports/claims" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
             <Route path="/reports/claim-settlement" element={<ProtectedRoute module="reports"><Reports settlement /></ProtectedRoute>} />

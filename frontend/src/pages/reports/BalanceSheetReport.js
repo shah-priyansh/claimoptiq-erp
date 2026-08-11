@@ -40,6 +40,7 @@ const BalanceSheetReport = () => {
     if (!data) return [];
     const cap = data.liabilities.capitalAccount;
     const tax = data.liabilities.outwardDutiesTaxes;
+    const loans = data.liabilities.loans;
     return [
       {
         key: 'capital',
@@ -47,8 +48,15 @@ const BalanceSheetReport = () => {
         total: cap.total,
         items: [
           { key: 'owners_capital', label: "Owner's Capital A/c", value: cap.ownersCapital },
+          ...(cap.capitalItems || []),
           { key: 'retained_earnings', label: 'Retained Earnings (Net Income for period)', value: cap.retainedEarnings },
         ].filter((r) => r.value !== 0),
+      },
+      loans && loans.total !== 0 && {
+        key: 'loans',
+        label: loans.label,
+        total: loans.total,
+        items: loans.items,
       },
       tax.total !== 0 && {
         key: 'tax',
@@ -62,8 +70,8 @@ const BalanceSheetReport = () => {
   const assetGroups = useMemo(() => {
     if (!data) return [];
     const a = data.assets;
-    return [a.sundryDebtors, a.bankAccounts, a.cashAccount, a.upiAccount, a.tdsReceivable]
-      .filter((g) => g.total !== 0);
+    return [a.sundryDebtors, a.bankAccounts, a.cashAccount, a.upiAccount, a.tdsReceivable, a.fixedAssets]
+      .filter((g) => g && g.total !== 0);
   }, [data]);
 
   const handleExport = () => {

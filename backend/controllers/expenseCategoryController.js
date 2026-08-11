@@ -1,6 +1,9 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 
+const VALID_NATURES = ['expense', 'capital', 'fixed_asset'];
+const normNature = (v) => (VALID_NATURES.includes(v) ? v : 'expense');
+
 const slugify = (s) =>
   String(s || '')
     .toLowerCase()
@@ -31,6 +34,7 @@ exports.create = async (req, res) => {
         slug,
         label,
         order: Number(req.body.order) || 0,
+        nature: normNature(req.body.nature),
         isActive: req.body.isActive === undefined ? true : !!req.body.isActive,
         isSystem: false,
       },
@@ -51,6 +55,7 @@ exports.update = async (req, res) => {
     if (req.body.label !== undefined) data.label = String(req.body.label).trim();
     if (req.body.order !== undefined) data.order = Number(req.body.order) || 0;
     if (req.body.isActive !== undefined) data.isActive = !!req.body.isActive;
+    if (req.body.nature !== undefined) data.nature = normNature(req.body.nature);
     // slug is locked on system rows so the auto-flow can't lose its anchor
     if (req.body.slug !== undefined && !existing.isSystem) data.slug = slugify(req.body.slug);
 

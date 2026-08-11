@@ -36,58 +36,59 @@ model RoleModulePermission {
 }
 
 model Hospital {
-  id              String                   @id @default(uuid())
-  name            String
-  contact         String                   @default("")
-  email           String                   @default("")
-  phone           String                   @default("")
-  address         String                   @default("")
-  city            String                   @default("")
-  state           String                   @default("")
-  pincode         String                   @default("")
-  referenceBy     String                   @default("") @map("reference_by")
-  referenceId       String?    @map("reference_id")
-  reference         Reference? @relation(fields: [referenceId], references: [id])
-  gstRate         Float                    @default(0) @map("gst_rate")
-  tdsRate         Float                    @default(0) @map("tds_rate")
-  tdsRateId       String?                  @map("tds_rate_id")
-  tdsRateMaster   TdsRate?                 @relation("HospitalDefaultTdsRate", fields: [tdsRateId], references: [id])
-  invoicePrefix   String                   @default("FCC") @map("invoice_prefix")
-  isActive        Boolean                  @default(true) @map("is_active")
+  id               String                   @id @default(uuid())
+  name             String
+  contact          String                   @default("")
+  email            String                   @default("")
+  phone            String                   @default("")
+  address          String                   @default("")
+  city             String                   @default("")
+  state            String                   @default("")
+  pincode          String                   @default("")
+  referenceBy      String                   @default("") @map("reference_by")
+  referenceId      String?                  @map("reference_id")
+  reference        Reference?               @relation(fields: [referenceId], references: [id])
+  gstRate          Float                    @default(0) @map("gst_rate")
+  tdsRate          Float                    @default(0) @map("tds_rate")
+  tdsRateId        String?                  @map("tds_rate_id")
+  tdsRateMaster    TdsRate?                 @relation("HospitalDefaultTdsRate", fields: [tdsRateId], references: [id])
+  invoicePrefix    String                   @default("FCC") @map("invoice_prefix")
+  isActive         Boolean                  @default(true) @map("is_active")
   // Flags a hospital as "direct" — shown as a Direct label wherever it appears.
-  isDirect        Boolean                  @default(false) @map("is_direct")
+  isDirect         Boolean                  @default(false) @map("is_direct")
   // Optional one-level branch hierarchy. A hospital with parentHospitalId set is
   // a *branch*; a hospital referenced as a parent (non-empty `branches`) is a
   // *parent*. Enforced one-level (a branch cannot be a parent) in the
   // controller. Used to consolidate branch claims onto a parent's invoice.
-  parentHospitalId String?                 @map("parent_hospital_id")
-  parent           Hospital?               @relation("HospitalBranches", fields: [parentHospitalId], references: [id])
-  branches         Hospital[]              @relation("HospitalBranches")
-  createdAt       DateTime                 @default(now()) @map("created_at")
-  updatedAt       DateTime                 @updatedAt @map("updated_at")
-  billingServices HospitalBillingService[]
-  doctors         HospitalDoctor[]
-  users           User[]
-  claims          Claim[]
-  submissions     DocumentSubmission[]
-  invoices        Invoice[]
-  cashBankEntries CashBankEntry[]
+  parentHospitalId String?                  @map("parent_hospital_id")
+  parent           Hospital?                @relation("HospitalBranches", fields: [parentHospitalId], references: [id])
+  branches         Hospital[]               @relation("HospitalBranches")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  billingServices  HospitalBillingService[]
+  doctors          HospitalDoctor[]
+  users            User[]
+  claims           Claim[]
+  submissions      DocumentSubmission[]
+  invoices         Invoice[]
+  cashBankEntries  CashBankEntry[]
+  party            Party?
 
   @@index([parentHospitalId])
   @@map("hospitals")
 }
 
 model BillingServiceName {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  isActive  Boolean  @default(true) @map("is_active")
+  id         String   @id @default(uuid())
+  name       String   @unique
+  isActive   Boolean  @default(true) @map("is_active")
   // Claim types this service auto-applies to when a hospital has no
   // configured billing_services. Empty [] = universal fallback. Values are
   // the same enum as Claim.claimType (cashless / cashless_anywhere /
   // reimbursement / grievance).
-  claimTypes Json    @default("[]") @map("claim_types")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  claimTypes Json     @default("[]") @map("claim_types")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   referenceApplicableTo ReferenceApplicableService[]
 
@@ -95,21 +96,79 @@ model BillingServiceName {
 }
 
 model Reference {
-  id              String   @id @default(uuid())
-  name            String
-  mobile          String   @default("")
-  address         String   @default("")
-  commissionRate  Float    @default(0) @map("commission_rate")
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  name           String
+  mobile         String   @default("")
+  address        String   @default("")
+  commissionRate Float    @default(0) @map("commission_rate")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   applicableServices ReferenceApplicableService[]
   hospitals          Hospital[]
   expenses           Expense[]
+  party              Party?
 
   @@index([name])
   @@map("references")
+}
+
+// Generic counterparty (Vyapar-style "Party") — unifies the entities we invoice
+// (hospitals) and pay (references / free-text expense parties) behind a single
+// ledger. Additive: an existing hospital or reference links here 1:1 via
+// hospitalId / referenceId instead of being duplicated.
+model Party {
+  id              String     @id @default(uuid())
+  name            String
+  phone           String     @default("")
+  gstin           String     @default("")
+  email           String     @default("")
+  partyGroup      String     @default("") @map("party_group")
+  gstType         String     @default("unregistered") @map("gst_type")
+  state           String     @default("")
+  billingAddress  String     @default("") @map("billing_address")
+  shippingAddress String     @default("") @map("shipping_address")
+  // Balance carried before ClaimOptiq tracked this party. openingType marks its
+  // direction: 'to_collect' (they owe us) or 'to_pay' (we owe them).
+  openingBalance  Float      @default(0) @map("opening_balance")
+  openingType     String     @default("to_collect") @map("opening_type")
+  isActive        Boolean    @default(true) @map("is_active")
+  hospitalId      String?    @unique @map("hospital_id")
+  referenceId     String?    @unique @map("reference_id")
+  hospital        Hospital?  @relation(fields: [hospitalId], references: [id])
+  reference       Reference? @relation(fields: [referenceId], references: [id])
+  invoices        Invoice[]
+  expenses        Expense[]
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@map("parties")
+}
+
+// Typed Chart-of-Accounts entry for the account types NOT already modelled
+// elsewhere: 'fixed_asset', 'capital', 'loan', 'other'. (Bank = BankAccount,
+// Cash = the cash bucket, Sundry Debtor/Creditor = Party, Expense =
+// ExpenseCategory — the Chart of Accounts view rolls all of these up.)
+model Account {
+  id             String    @id @default(uuid())
+  name           String
+  accountType    String    @map("account_type")
+  group          String    @default("assets")
+  accountCode    String    @default("") @map("account_code")
+  parentId       String?   @map("parent_id")
+  parent         Account?  @relation("AccountSub", fields: [parentId], references: [id])
+  children       Account[] @relation("AccountSub")
+  openingBalance Float     @default(0) @map("opening_balance")
+  openingType    String    @default("debit") @map("opening_type")
+  asOfDate       DateTime? @map("as_of_date")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([accountType])
+  @@map("accounts")
 }
 
 model ReferenceApplicableService {
@@ -122,70 +181,73 @@ model ReferenceApplicableService {
   commissionType       String @default("percentage") @map("commission_type")
   commissionValue      Float  @default(0) @map("commission_value")
 
-  reference            Reference          @relation(fields: [referenceId], references: [id], onDelete: Cascade)
-  billingServiceName   BillingServiceName @relation(fields: [billingServiceNameId], references: [id], onDelete: Cascade)
+  reference          Reference          @relation(fields: [referenceId], references: [id], onDelete: Cascade)
+  billingServiceName BillingServiceName @relation(fields: [billingServiceNameId], references: [id], onDelete: Cascade)
 
   @@unique([referenceId, billingServiceNameId])
   @@map("reference_applicable_services")
 }
 
 model Invoice {
-  id                String   @id @default(uuid())
-  invoiceNumber     String?  @unique @map("invoice_number")
+  id              String    @id @default(uuid())
+  invoiceNumber   String?   @unique @map("invoice_number")
   // Nullable so an imported party / direct-patient bill can exist without any
   // hospital (see `partyName`). Regular and claim-based direct-patient invoices
   // still carry a hospital_id (the billing / reference hospital).
-  hospitalId        String?  @map("hospital_id")
+  hospitalId      String?   @map("hospital_id")
   // True when this invoice bills direct-patient claims. The hospital_id
   // is the chosen target hospital for billing/listing purposes; the
   // claims themselves had no hospital relation. See migration
   // 20260624120000_invoice_direct_patient.
-  isDirectPatient   Boolean  @default(false) @map("is_direct_patient")
+  isDirectPatient Boolean   @default(false) @map("is_direct_patient")
   // Free-text party/patient name for imported direct-patient bills that have no
   // hospital. Null for hospital invoices and claim-based direct-patient invoices
   // (whose name is derived from their claim_tpa_desk line items instead).
-  partyName         String?  @map("party_name")
-  month             DateTime
-  status            String   @default("draft")
-  issuedAt          DateTime? @map("issued_at")
-  dueDate           DateTime? @map("due_date")
+  partyName       String?   @map("party_name")
+  // Party ledger link (Vyapar-style). Set from the invoice's hospital's party.
+  partyId         String?   @map("party_id")
+  month           DateTime
+  status          String    @default("draft")
+  issuedAt        DateTime? @map("issued_at")
+  dueDate         DateTime? @map("due_date")
   // Operator-chosen date printed on the invoice document. Falls back to
   // issuedAt/createdAt when not set (e.g. older invoices).
-  invoiceDate       DateTime? @map("invoice_date")
+  invoiceDate     DateTime? @map("invoice_date")
 
-  subtotalTpaDesk   Float    @default(0) @map("subtotal_tpa_desk")
-  subtotalServices  Float    @default(0) @map("subtotal_services")
-  subtotalAdjust    Float    @default(0) @map("subtotal_adjustments")
-  gross             Float    @default(0)
-  gstRate           Float    @default(0) @map("gst_rate")
-  gstAmount         Float    @default(0) @map("gst_amount")
-  tdsRate           Float    @default(0) @map("tds_rate")
-  tdsAmount         Float    @default(0) @map("tds_amount")
-  tdsRateId         String?  @map("tds_rate_id")
-  tdsName           String   @default("") @map("tds_name")
-  tdsSection        String   @default("") @map("tds_section")
-  netTotal          Float    @default(0) @map("net_total")
-  previousBalance   Float    @default(0) @map("previous_balance")
-  discount          Float    @default(0) @map("discount")
-  roundOff          Float    @default(0) @map("round_off")
-  grandTotal        Float    @default(0) @map("grand_total")
-  amountPaid        Float    @default(0) @map("amount_paid")
-  amountPending     Float    @default(0) @map("amount_pending")
+  subtotalTpaDesk  Float   @default(0) @map("subtotal_tpa_desk")
+  subtotalServices Float   @default(0) @map("subtotal_services")
+  subtotalAdjust   Float   @default(0) @map("subtotal_adjustments")
+  gross            Float   @default(0)
+  gstRate          Float   @default(0) @map("gst_rate")
+  gstAmount        Float   @default(0) @map("gst_amount")
+  tdsRate          Float   @default(0) @map("tds_rate")
+  tdsAmount        Float   @default(0) @map("tds_amount")
+  tdsRateId        String? @map("tds_rate_id")
+  tdsName          String  @default("") @map("tds_name")
+  tdsSection       String  @default("") @map("tds_section")
+  netTotal         Float   @default(0) @map("net_total")
+  previousBalance  Float   @default(0) @map("previous_balance")
+  discount         Float   @default(0) @map("discount")
+  roundOff         Float   @default(0) @map("round_off")
+  grandTotal       Float   @default(0) @map("grand_total")
+  amountPaid       Float   @default(0) @map("amount_paid")
+  amountPending    Float   @default(0) @map("amount_pending")
 
-  notes             String   @default("")
-  createdById       String?  @map("created_by_id")
-  issuedById        String?  @map("issued_by_id")
-  voidedAt          DateTime? @map("voided_at")
-  voidReason        String   @default("") @map("void_reason")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  notes       String    @default("")
+  createdById String?   @map("created_by_id")
+  issuedById  String?   @map("issued_by_id")
+  voidedAt    DateTime? @map("voided_at")
+  voidReason  String    @default("") @map("void_reason")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  hospital  Hospital? @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
-  createdBy User?    @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
-  issuedBy  User?    @relation("InvoiceIssuedBy", fields: [issuedById], references: [id])
-  tdsRateMaster TdsRate? @relation(fields: [tdsRateId], references: [id])
-  lineItems InvoiceLineItem[]
-  payments  CashBankEntry[]
+  hospital      Hospital?         @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+  party         Party?            @relation(fields: [partyId], references: [id])
+  createdBy     User?             @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  issuedBy      User?             @relation("InvoiceIssuedBy", fields: [issuedById], references: [id])
+  tdsRateMaster TdsRate?          @relation(fields: [tdsRateId], references: [id])
+  lineItems     InvoiceLineItem[]
+  payments      CashBankEntry[]
 
   // Multiple invoices per (hospitalId, month) are allowed — a hospital can be
   // billed more than once in a month. The former partial unique index on
@@ -197,6 +259,7 @@ model Invoice {
   @@index([status])
   @@index([month])
   @@index([isDirectPatient])
+  @@index([partyId])
   @@map("invoices")
 }
 
@@ -204,66 +267,74 @@ model ExpenseCategory {
   id        String   @id @default(uuid())
   slug      String   @unique
   label     String
+  // Accounting nature: 'expense' (P&L), 'capital', or 'fixed_asset'. Capital and
+  // fixed-asset categories are excluded from Profit & Loss / expense reports.
+  nature    String   @default("expense")
   isSystem  Boolean  @default(false) @map("is_system")
   isActive  Boolean  @default(true) @map("is_active")
   order     Int      @default(0)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  expenses  Expense[]
+  expenses Expense[]
 
   @@map("expense_categories")
 }
 
 model Expense {
-  id           String   @id @default(uuid())
-  date         DateTime
-  categoryId   String   @map("category_id")
-  amount       Float
-  notes        String   @default("")
-  partyName    String   @default("") @map("party_name")
-  referenceId  String?  @map("reference_id")
+  id          String   @id @default(uuid())
+  date        DateTime
+  categoryId  String   @map("category_id")
+  amount      Float
+  notes       String   @default("")
+  partyName   String   @default("") @map("party_name")
+  referenceId String?  @map("reference_id")
+  // Party ledger link (Vyapar-style). Chosen on the expense form; backfilled
+  // from referenceId / partyName for existing rows.
+  partyId     String?  @map("party_id")
 
-  sourceType   String?  @map("source_type")
-  sourceId     String?  @map("source_id")
-  sourceLineId String?  @map("source_line_id")
+  sourceType   String? @map("source_type")
+  sourceId     String? @map("source_id")
+  sourceLineId String? @map("source_line_id")
 
-  createdById  String?  @map("created_by_id")
-  updatedById  String?  @map("updated_by_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdById String?  @map("created_by_id")
+  updatedById String?  @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  category     ExpenseCategory @relation(fields: [categoryId], references: [id])
-  reference    Reference?      @relation(fields: [referenceId], references: [id])
-  createdBy    User?           @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
-  updatedBy    User?           @relation("ExpenseUpdatedBy", fields: [updatedById], references: [id])
-  payments     CashBankEntry[]
+  category  ExpenseCategory @relation(fields: [categoryId], references: [id])
+  reference Reference?      @relation(fields: [referenceId], references: [id])
+  party     Party?          @relation(fields: [partyId], references: [id])
+  createdBy User?           @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?           @relation("ExpenseUpdatedBy", fields: [updatedById], references: [id])
+  payments  CashBankEntry[]
 
+  @@unique([sourceType, sourceLineId])
   @@index([date(sort: Desc)])
   @@index([categoryId, date(sort: Desc)])
   @@index([referenceId])
-  @@unique([sourceType, sourceLineId])
+  @@index([partyId])
   @@map("expenses")
 }
 
 model AccountEntry {
-  id          String   @id @default(uuid())
-  date        DateTime
-  entryType   String   @map("entry_type")             // 'general' | 'contra'
-  remarks     String   @default("")
+  id        String   @id @default(uuid())
+  date      DateTime
+  entryType String   @map("entry_type") // 'general' | 'contra'
+  remarks   String   @default("")
 
-  debit       Float    @default(0)
-  credit      Float    @default(0)
+  debit  Float @default(0)
+  credit Float @default(0)
 
-  fromMode    String?  @map("from_mode")              // 'cash' | 'bank' | 'upi'
-  toMode      String?  @map("to_mode")                // 'cash' | 'bank' | 'upi'
-  amount      Float    @default(0)
+  fromMode String? @map("from_mode") // 'cash' | 'bank' | 'upi'
+  toMode   String? @map("to_mode") // 'cash' | 'bank' | 'upi'
+  amount   Float   @default(0)
 
   createdById String?  @map("created_by_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  createdBy   User?    @relation("AccountEntryCreatedBy", fields: [createdById], references: [id])
+  createdBy User? @relation("AccountEntryCreatedBy", fields: [createdById], references: [id])
 
   @@index([date(sort: Desc)])
   @@index([entryType, date(sort: Desc)])
@@ -271,32 +342,32 @@ model AccountEntry {
 }
 
 model CashBankEntry {
-  id            String   @id @default(uuid())
-  date          DateTime
-  direction     String                                        // 'in' | 'out'
-  mode          String                                        // 'cash' | 'bank' | 'upi'
-  amount        Float
-  notes         String   @default("")
+  id        String   @id @default(uuid())
+  date      DateTime
+  direction String // 'in' | 'out'
+  mode      String // 'cash' | 'bank' | 'upi'
+  amount    Float
+  notes     String   @default("")
 
-  invoiceId       String?  @map("invoice_id")
-  expenseId       String?  @map("expense_id")
-  hospitalId      String?  @map("hospital_id")
+  invoiceId     String? @map("invoice_id")
+  expenseId     String? @map("expense_id")
+  hospitalId    String? @map("hospital_id")
   // When mode is 'bank' or 'upi', the operator picks which configured bank
   // account this entry passes through. Required for bank/upi, null for cash.
-  bankAccountId   String?  @map("bank_account_id")
+  bankAccountId String? @map("bank_account_id")
 
-  utrNumber     String   @default("") @map("utr_number")
-  chequeNumber  String   @default("") @map("cheque_number")
+  utrNumber    String @default("") @map("utr_number")
+  chequeNumber String @default("") @map("cheque_number")
 
-  createdById   String?  @map("created_by_id")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  invoice       Invoice?     @relation(fields: [invoiceId], references: [id])
-  expense       Expense?     @relation(fields: [expenseId], references: [id])
-  hospital      Hospital?    @relation(fields: [hospitalId], references: [id])
-  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
-  createdBy     User?        @relation("CashBankCreatedBy", fields: [createdById], references: [id])
+  invoice     Invoice?     @relation(fields: [invoiceId], references: [id])
+  expense     Expense?     @relation(fields: [expenseId], references: [id])
+  hospital    Hospital?    @relation(fields: [hospitalId], references: [id])
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
+  createdBy   User?        @relation("CashBankCreatedBy", fields: [createdById], references: [id])
 
   @@index([date(sort: Desc)])
   @@index([direction, mode, date(sort: Desc)])
@@ -339,7 +410,7 @@ model TdsRate {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  invoices  Invoice[]
+  invoices         Invoice[]
   hospitalDefaults Hospital[] @relation("HospitalDefaultTdsRate")
 
   @@index([taxName])
@@ -358,7 +429,7 @@ model InvoiceLineItem {
   billingServiceNameId String? @map("billing_service_name_id")
   meta                 Json    @default("{}")
 
-  invoice              Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId])
   @@map("invoice_line_items")
@@ -409,27 +480,27 @@ model HospitalBillingServiceSlab {
 // direct-patient invoice regardless of the reference hospital picked
 // during invoice creation.
 model DirectPatientBillingService {
-  id                      String                             @id @default(uuid())
-  serviceName             String                             @map("service_name")
-  billingType             String                             @map("billing_type")
-  fixedAmount             Float                              @default(0) @map("fixed_amount")
-  claimLimit              Int                                @default(0) @map("claim_limit")
-  overLimitBehavior       String                             @default("per_claim") @map("over_limit_behavior")
-  overLimitPerClaimAmount Float                              @default(0) @map("over_limit_per_claim_amount")
-  overLimitInsuranceWise  Boolean                            @default(false) @map("over_limit_insurance_wise")
-  overLimitInsurerIds     Json                               @default("[]") @map("over_limit_insurer_ids")
-  overLimitTpaIds         Json                               @default("[]") @map("over_limit_tpa_ids")
-  slabMode                String                             @default("slab_wise") @map("slab_mode")
-  slabRangeStart          Float                              @default(0) @map("slab_range_start")
-  slabRangeEnd            Float                              @default(50000) @map("slab_range_end")
-  slabBasePrice           Float                              @default(2000) @map("slab_base_price")
-  slabIncrementRange      Float                              @default(50000) @map("slab_increment_range")
-  slabIncrementPrice      Float                              @default(500) @map("slab_increment_price")
-  calculationBasis        String                             @default("none") @map("calculation_basis")
-  percentageRate          Float                              @default(0) @map("percentage_rate")
-  isActive                Boolean                            @default(true) @map("is_active")
-  createdAt               DateTime                           @default(now()) @map("created_at")
-  updatedAt               DateTime                           @updatedAt @map("updated_at")
+  id                      String                            @id @default(uuid())
+  serviceName             String                            @map("service_name")
+  billingType             String                            @map("billing_type")
+  fixedAmount             Float                             @default(0) @map("fixed_amount")
+  claimLimit              Int                               @default(0) @map("claim_limit")
+  overLimitBehavior       String                            @default("per_claim") @map("over_limit_behavior")
+  overLimitPerClaimAmount Float                             @default(0) @map("over_limit_per_claim_amount")
+  overLimitInsuranceWise  Boolean                           @default(false) @map("over_limit_insurance_wise")
+  overLimitInsurerIds     Json                              @default("[]") @map("over_limit_insurer_ids")
+  overLimitTpaIds         Json                              @default("[]") @map("over_limit_tpa_ids")
+  slabMode                String                            @default("slab_wise") @map("slab_mode")
+  slabRangeStart          Float                             @default(0) @map("slab_range_start")
+  slabRangeEnd            Float                             @default(50000) @map("slab_range_end")
+  slabBasePrice           Float                             @default(2000) @map("slab_base_price")
+  slabIncrementRange      Float                             @default(50000) @map("slab_increment_range")
+  slabIncrementPrice      Float                             @default(500) @map("slab_increment_price")
+  calculationBasis        String                            @default("none") @map("calculation_basis")
+  percentageRate          Float                             @default(0) @map("percentage_rate")
+  isActive                Boolean                           @default(true) @map("is_active")
+  createdAt               DateTime                          @default(now()) @map("created_at")
+  updatedAt               DateTime                          @updatedAt @map("updated_at")
   slabs                   DirectPatientBillingServiceSlab[]
 
   @@map("direct_patient_billing_services")
@@ -460,92 +531,92 @@ model HospitalDoctor {
 }
 
 model User {
-  id                  String               @id @default(uuid())
-  name                String
-  email               String               @unique
-  password            String
-  roleId              String               @map("role_id")
-  hospitalId          String?              @map("hospital_id")
-  phone               String
-  isActive            Boolean              @default(true) @map("is_active")
-  resetTokenHash      String?              @map("reset_token_hash")
-  resetTokenExpiresAt DateTime?            @map("reset_token_expires_at")
-  createdAt           DateTime             @default(now()) @map("created_at")
-  updatedAt           DateTime             @updatedAt @map("updated_at")
-  role                Role                 @relation(fields: [roleId], references: [id])
-  hospital            Hospital?            @relation(fields: [hospitalId], references: [id])
-  claimsCreated       Claim[]              @relation("ClaimCreatedBy")
-  claimsUpdated       Claim[]              @relation("ClaimUpdatedBy")
-  claimStatusChanges  ClaimStatusHistory[] @relation("ClaimStatusChangedBy")
-  documentSubmissions        DocumentSubmission[] @relation("SubmissionUploadedBy")
-  statusChangedSubmissions   DocumentSubmission[] @relation("SubmissionStatusChangedBy")
-  notifications              Notification[]
-  employee                   Employee?
-  invoicesCreated            Invoice[]            @relation("InvoiceCreatedBy")
-  invoicesIssued             Invoice[]            @relation("InvoiceIssuedBy")
-  expensesCreated            Expense[]            @relation("ExpenseCreatedBy")
-  expensesUpdated            Expense[]            @relation("ExpenseUpdatedBy")
-  cashBankCreated            CashBankEntry[]      @relation("CashBankCreatedBy")
-  accountEntriesCreated      AccountEntry[]       @relation("AccountEntryCreatedBy")
-  backupRunsTriggered        BackupRun[]          @relation("BackupRunTriggeredBy")
+  id                       String               @id @default(uuid())
+  name                     String
+  email                    String               @unique
+  password                 String
+  roleId                   String               @map("role_id")
+  hospitalId               String?              @map("hospital_id")
+  phone                    String
+  isActive                 Boolean              @default(true) @map("is_active")
+  resetTokenHash           String?              @map("reset_token_hash")
+  resetTokenExpiresAt      DateTime?            @map("reset_token_expires_at")
+  createdAt                DateTime             @default(now()) @map("created_at")
+  updatedAt                DateTime             @updatedAt @map("updated_at")
+  role                     Role                 @relation(fields: [roleId], references: [id])
+  hospital                 Hospital?            @relation(fields: [hospitalId], references: [id])
+  claimsCreated            Claim[]              @relation("ClaimCreatedBy")
+  claimsUpdated            Claim[]              @relation("ClaimUpdatedBy")
+  claimStatusChanges       ClaimStatusHistory[] @relation("ClaimStatusChangedBy")
+  documentSubmissions      DocumentSubmission[] @relation("SubmissionUploadedBy")
+  statusChangedSubmissions DocumentSubmission[] @relation("SubmissionStatusChangedBy")
+  notifications            Notification[]
+  employee                 Employee?
+  invoicesCreated          Invoice[]            @relation("InvoiceCreatedBy")
+  invoicesIssued           Invoice[]            @relation("InvoiceIssuedBy")
+  expensesCreated          Expense[]            @relation("ExpenseCreatedBy")
+  expensesUpdated          Expense[]            @relation("ExpenseUpdatedBy")
+  cashBankCreated          CashBankEntry[]      @relation("CashBankCreatedBy")
+  accountEntriesCreated    AccountEntry[]       @relation("AccountEntryCreatedBy")
+  backupRunsTriggered      BackupRun[]          @relation("BackupRunTriggeredBy")
 
   @@index([phone])
   @@map("users")
 }
 
 model InsuranceCompany {
-  id            String   @id @default(uuid())
-  name          String   @unique
-  address       String   @default("")
-  contactPerson String   @default("") @map("contact_person")
-  mobile        String   @default("")
-  email         String   @default("")
-  isActive      Boolean  @default(true) @map("is_active")
+  id               String   @id @default(uuid())
+  name             String   @unique
+  address          String   @default("")
+  contactPerson    String   @default("") @map("contact_person")
+  mobile           String   @default("")
+  email            String   @default("")
+  isActive         Boolean  @default(true) @map("is_active")
   // Rules that auto-set a claim's status on Discharge Submit, matched by claim
   // type. Shape: [{ claimTypes: ["cashless"], status: "discharge_approved" }].
   // Empty [] = no automation (falls back to the default discharge status).
-  statusAutomation Json  @default("[]") @map("status_automation")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  claims        Claim[]
+  statusAutomation Json     @default("[]") @map("status_automation")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  claims           Claim[]
 
   @@map("insurance_companies")
 }
 
 model TPA {
-  id            String   @id @default(uuid())
-  name          String   @unique
-  address       String   @default("")
-  contactPerson String   @default("") @map("contact_person")
-  mobile        String   @default("")
-  email         String   @default("")
-  isActive      Boolean  @default(true) @map("is_active")
+  id               String   @id @default(uuid())
+  name             String   @unique
+  address          String   @default("")
+  contactPerson    String   @default("") @map("contact_person")
+  mobile           String   @default("")
+  email            String   @default("")
+  isActive         Boolean  @default(true) @map("is_active")
   // Rules that auto-set a claim's status on Discharge Submit, matched by claim
   // type. Shape: [{ claimTypes: ["cashless"], status: "discharge_approved" }].
   // TPA rules take precedence over the insurance company's rules.
-  statusAutomation Json  @default("[]") @map("status_automation")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  claims        Claim[]
+  statusAutomation Json     @default("[]") @map("status_automation")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  claims           Claim[]
 
   @@map("tpas")
 }
 
 model ClaimStatus {
-  id        String   @id @default(uuid())
-  slug      String   @unique
-  label     String
-  color     String   @default("gray")
-  order     Int      @default(0)
-  isActive        Boolean  @default(true) @map("is_active")
-  isSystem        Boolean  @default(false) @map("is_system")
-  superAdminOnly  Boolean  @default(false) @map("super_admin_only")
+  id             String   @id @default(uuid())
+  slug           String   @unique
+  label          String
+  color          String   @default("gray")
+  order          Int      @default(0)
+  isActive       Boolean  @default(true) @map("is_active")
+  isSystem       Boolean  @default(false) @map("is_system")
+  superAdminOnly Boolean  @default(false) @map("super_admin_only")
   // Claim types this status is selectable for. Empty [] = no restriction
   // (applies to every claim type). Values match Claim.claimType
   // (cashless / cashless_anywhere / reimbursement / grievance).
-  claimTypes Json    @default("[]") @map("claim_types")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  claimTypes     Json     @default("[]") @map("claim_types")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("claim_statuses")
 }
@@ -566,61 +637,61 @@ model ClaimDocumentType {
 }
 
 model Claim {
-  id                        String            @id @default(uuid())
-  srNo                      Int               @default(autoincrement()) @map("sr_no")
-  monthClaimNo              Int               @default(0) @map("month_claim_no")
-  claimGenerateDate         DateTime          @default(now()) @map("claim_generate_date")
-  status                    String            @default("admitted")
-  hospitalId                String?           @map("hospital_id")
-  isDirectPatient           Boolean           @default(false) @map("is_direct_patient")
+  id                        String               @id @default(uuid())
+  srNo                      Int                  @default(autoincrement()) @map("sr_no")
+  monthClaimNo              Int                  @default(0) @map("month_claim_no")
+  claimGenerateDate         DateTime             @default(now()) @map("claim_generate_date")
+  status                    String               @default("admitted")
+  hospitalId                String?              @map("hospital_id")
+  isDirectPatient           Boolean              @default(false) @map("is_direct_patient")
   month                     DateTime
-  patientName               String            @map("patient_name")
-  patientMobile             String            @default("") @map("patient_mobile")
-  patientAddress            String            @default("") @map("patient_address")
-  doctorName                String            @default("") @map("doctor_name")
-  claimType                 String            @map("claim_type")
-  insuranceCompanyId        String?           @map("insurance_company_id")
-  tpaId                     String?           @map("tpa_id")
-  policyNo                  String            @default("") @map("policy_no")
-  clientId                  String            @default("") @map("client_id")
-  ccnNo                     String            @default("") @map("ccn_no")
-  dateOfAdmit               DateTime          @map("date_of_admit")
-  dateOfDischarge           DateTime?         @map("date_of_discharge")
-  hospitalFinalBill         Float             @default(0) @map("hospital_final_bill")
-  mouDiscount               Float             @default(0) @map("mou_discount")
-  deduction                 Float             @default(0)
-  finalApprovalAmount       Float             @default(0) @map("final_approval_amount")
-  finalApprovalDate         DateTime?         @map("final_approval_date")
-  fileReceivedDate          DateTime?         @map("file_received_date")
-  submitMode                String            @default("") @map("submit_mode")
-  courierSubmitDate         DateTime?         @map("courier_submit_date")
-  onlineSubmitDate          DateTime?         @map("online_submit_date")
-  courierCompanyName        String            @default("") @map("courier_company_name")
-  podNumber                 String            @default("") @map("pod_number")
-  settlementAmount          Float             @default(0) @map("settlement_amount")
-  settlementAmountDeduction Float             @default(0) @map("settlement_amount_deduction")
-  mouDiscountOnSettlement   Float             @default(0) @map("mou_discount_on_settlement")
-  tds                       Float             @default(0)
-  bankTransferAmount        Float             @default(0) @map("bank_transfer_amount")
-  settlementDate            DateTime?         @map("settlement_date")
-  neftNo                    String            @default("") @map("neft_no")
-  filePrice                 Float             @default(0) @map("file_price")
-  filePriceOverridden       Boolean           @default(false) @map("file_price_overridden")
-  isBilled                  Boolean           @default(false) @map("is_billed")
-  treatmentType             String            @default("") @map("treatment_type")
-  diagnosis                 String            @default("")
-  surgeryName               String            @default("") @map("surgery_name")
-  remarks                   String            @default("")
-  rejectedReason            String            @default("") @map("rejected_reason")
-  createdById               String?           @map("created_by_id")
-  updatedById               String?           @map("updated_by_id")
-  createdAt                 DateTime          @default(now()) @map("created_at")
-  updatedAt                 DateTime          @updatedAt @map("updated_at")
-  hospital                  Hospital?         @relation(fields: [hospitalId], references: [id])
-  insuranceCompany          InsuranceCompany? @relation(fields: [insuranceCompanyId], references: [id])
-  tpa                       TPA?              @relation(fields: [tpaId], references: [id])
-  createdBy                 User?             @relation("ClaimCreatedBy", fields: [createdById], references: [id])
-  updatedBy                 User?             @relation("ClaimUpdatedBy", fields: [updatedById], references: [id])
+  patientName               String               @map("patient_name")
+  patientMobile             String               @default("") @map("patient_mobile")
+  patientAddress            String               @default("") @map("patient_address")
+  doctorName                String               @default("") @map("doctor_name")
+  claimType                 String               @map("claim_type")
+  insuranceCompanyId        String?              @map("insurance_company_id")
+  tpaId                     String?              @map("tpa_id")
+  policyNo                  String               @default("") @map("policy_no")
+  clientId                  String               @default("") @map("client_id")
+  ccnNo                     String               @default("") @map("ccn_no")
+  dateOfAdmit               DateTime             @map("date_of_admit")
+  dateOfDischarge           DateTime?            @map("date_of_discharge")
+  hospitalFinalBill         Float                @default(0) @map("hospital_final_bill")
+  mouDiscount               Float                @default(0) @map("mou_discount")
+  deduction                 Float                @default(0)
+  finalApprovalAmount       Float                @default(0) @map("final_approval_amount")
+  finalApprovalDate         DateTime?            @map("final_approval_date")
+  fileReceivedDate          DateTime?            @map("file_received_date")
+  submitMode                String               @default("") @map("submit_mode")
+  courierSubmitDate         DateTime?            @map("courier_submit_date")
+  onlineSubmitDate          DateTime?            @map("online_submit_date")
+  courierCompanyName        String               @default("") @map("courier_company_name")
+  podNumber                 String               @default("") @map("pod_number")
+  settlementAmount          Float                @default(0) @map("settlement_amount")
+  settlementAmountDeduction Float                @default(0) @map("settlement_amount_deduction")
+  mouDiscountOnSettlement   Float                @default(0) @map("mou_discount_on_settlement")
+  tds                       Float                @default(0)
+  bankTransferAmount        Float                @default(0) @map("bank_transfer_amount")
+  settlementDate            DateTime?            @map("settlement_date")
+  neftNo                    String               @default("") @map("neft_no")
+  filePrice                 Float                @default(0) @map("file_price")
+  filePriceOverridden       Boolean              @default(false) @map("file_price_overridden")
+  isBilled                  Boolean              @default(false) @map("is_billed")
+  treatmentType             String               @default("") @map("treatment_type")
+  diagnosis                 String               @default("")
+  surgeryName               String               @default("") @map("surgery_name")
+  remarks                   String               @default("")
+  rejectedReason            String               @default("") @map("rejected_reason")
+  createdById               String?              @map("created_by_id")
+  updatedById               String?              @map("updated_by_id")
+  createdAt                 DateTime             @default(now()) @map("created_at")
+  updatedAt                 DateTime             @updatedAt @map("updated_at")
+  hospital                  Hospital?            @relation(fields: [hospitalId], references: [id])
+  insuranceCompany          InsuranceCompany?    @relation(fields: [insuranceCompanyId], references: [id])
+  tpa                       TPA?                 @relation(fields: [tpaId], references: [id])
+  createdBy                 User?                @relation("ClaimCreatedBy", fields: [createdById], references: [id])
+  updatedBy                 User?                @relation("ClaimUpdatedBy", fields: [updatedById], references: [id])
   documents                 ClaimDocument[]
   submissions               DocumentSubmission[]
   statusHistory             ClaimStatusHistory[]
@@ -637,69 +708,69 @@ model Claim {
 }
 
 model ClaimStatusHistory {
-  id            String   @id @default(uuid())
-  claimId       String   @map("claim_id")
-  status        String
-  changedAt     DateTime @default(now()) @map("changed_at")
-  changedById   String?  @map("changed_by_id")
-  claim         Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  changedBy     User?    @relation("ClaimStatusChangedBy", fields: [changedById], references: [id])
+  id          String   @id @default(uuid())
+  claimId     String   @map("claim_id")
+  status      String
+  changedAt   DateTime @default(now()) @map("changed_at")
+  changedById String?  @map("changed_by_id")
+  claim       Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  changedBy   User?    @relation("ClaimStatusChangedBy", fields: [changedById], references: [id])
 
   @@index([claimId, changedAt])
   @@map("claim_status_history")
 }
 
 model ClaimDocument {
-  id           String   @id @default(uuid())
-  claimId      String   @map("claim_id")
-  fileName     String   @map("file_name")
-  originalName String   @map("original_name")
-  filePath     String   @map("file_path")
-  fileType     String?  @map("file_type")
-  fileSize     Int?     @map("file_size")
-  category     String   @default("other")
-  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  id              String    @id @default(uuid())
+  claimId         String    @map("claim_id")
+  fileName        String    @map("file_name")
+  originalName    String    @map("original_name")
+  filePath        String    @map("file_path")
+  fileType        String?   @map("file_type")
+  fileSize        Int?      @map("file_size")
+  category        String    @default("other")
+  uploadedAt      DateTime  @default(now()) @map("uploaded_at")
   // ─── Backup / offload tracking ───
   isSynced        Boolean   @default(false) @map("is_synced")
   storageLocation String    @default("local") @map("storage_location") // 'local' | 'remote'
   remoteKey       String?   @map("remote_key")
   syncedAt        DateTime? @map("synced_at")
   localDeletedAt  DateTime? @map("local_deleted_at")
-  claim        Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim           Claim     @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   @@index([isSynced, storageLocation])
   @@map("claim_documents")
 }
 
 model DocumentSubmission {
-  id             String            @id @default(uuid())
-  hospitalId     String            @map("hospital_id")
-  patientName    String            @map("patient_name")
-  documentTypeId String?           @map("document_type_id")
-  fileName       String            @map("file_name")
-  originalName   String            @map("original_name")
-  filePath       String            @map("file_path")
-  fileType       String?           @map("file_type")
-  fileSize       Int?              @map("file_size")
-  status         String            @default("pending")
-  claimId        String?           @map("claim_id")
-  notes          String            @default("")
-  uploadedById      String?           @map("uploaded_by_id")
-  statusChangedById String?           @map("status_changed_by_id")
-  statusChangedAt   DateTime?         @map("status_changed_at")
+  id                String             @id @default(uuid())
+  hospitalId        String             @map("hospital_id")
+  patientName       String             @map("patient_name")
+  documentTypeId    String?            @map("document_type_id")
+  fileName          String             @map("file_name")
+  originalName      String             @map("original_name")
+  filePath          String             @map("file_path")
+  fileType          String?            @map("file_type")
+  fileSize          Int?               @map("file_size")
+  status            String             @default("pending")
+  claimId           String?            @map("claim_id")
+  notes             String             @default("")
+  uploadedById      String?            @map("uploaded_by_id")
+  statusChangedById String?            @map("status_changed_by_id")
+  statusChangedAt   DateTime?          @map("status_changed_at")
   // ─── Backup / offload tracking ───
-  isSynced        Boolean   @default(false) @map("is_synced")
-  storageLocation String    @default("local") @map("storage_location") // 'local' | 'remote'
-  remoteKey       String?   @map("remote_key")
-  syncedAt        DateTime? @map("synced_at")
-  localDeletedAt  DateTime? @map("local_deleted_at")
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
-  hospital          Hospital          @relation(fields: [hospitalId], references: [id])
+  isSynced          Boolean            @default(false) @map("is_synced")
+  storageLocation   String             @default("local") @map("storage_location") // 'local' | 'remote'
+  remoteKey         String?            @map("remote_key")
+  syncedAt          DateTime?          @map("synced_at")
+  localDeletedAt    DateTime?          @map("local_deleted_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  hospital          Hospital           @relation(fields: [hospitalId], references: [id])
   documentType      ClaimDocumentType? @relation(fields: [documentTypeId], references: [id])
-  claim             Claim?            @relation(fields: [claimId], references: [id])
-  uploadedBy        User?             @relation("SubmissionUploadedBy", fields: [uploadedById], references: [id])
-  statusChangedBy   User?             @relation("SubmissionStatusChangedBy", fields: [statusChangedById], references: [id])
+  claim             Claim?             @relation(fields: [claimId], references: [id])
+  uploadedBy        User?              @relation("SubmissionUploadedBy", fields: [uploadedById], references: [id])
+  statusChangedBy   User?              @relation("SubmissionStatusChangedBy", fields: [statusChangedById], references: [id])
 
   @@index([isSynced, storageLocation])
   @@map("document_submissions")
@@ -721,24 +792,24 @@ model Notification {
 // ─── Staff Salary Module ───────────────────────────────────────────
 
 model Employee {
-  id            String              @id @default(uuid())
-  empNumber     String              @unique @map("emp_number")
-  name          String
-  basicSalary   Float               @map("basic_salary")
-  shiftStart    String              @map("shift_start")
-  shiftEnd      String              @map("shift_end")
-  standardHours Float               @map("standard_hours")
-  joiningDate   DateTime?           @map("joining_date")
-  lastDate      DateTime?           @map("last_date")
-  userId        String?             @unique @map("user_id")
-  isActive      Boolean             @default(true) @map("is_active")
-  dailyOtEnabled Boolean            @default(true) @map("daily_ot_enabled")
-  createdAt     DateTime            @default(now()) @map("created_at")
-  updatedAt     DateTime            @updatedAt @map("updated_at")
-  user          User?               @relation(fields: [userId], references: [id])
-  allowances    EmployeeAllowance[]
-  attendance    AttendanceRecord[]
-  salaryRecords SalaryRecord[]
+  id             String              @id @default(uuid())
+  empNumber      String              @unique @map("emp_number")
+  name           String
+  basicSalary    Float               @map("basic_salary")
+  shiftStart     String              @map("shift_start")
+  shiftEnd       String              @map("shift_end")
+  standardHours  Float               @map("standard_hours")
+  joiningDate    DateTime?           @map("joining_date")
+  lastDate       DateTime?           @map("last_date")
+  userId         String?             @unique @map("user_id")
+  isActive       Boolean             @default(true) @map("is_active")
+  dailyOtEnabled Boolean             @default(true) @map("daily_ot_enabled")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  user           User?               @relation(fields: [userId], references: [id])
+  allowances     EmployeeAllowance[]
+  attendance     AttendanceRecord[]
+  salaryRecords  SalaryRecord[]
 
   @@map("employees")
 }
@@ -831,26 +902,26 @@ model SiteSetting {
 // to the client in plaintext. Exactly one enabled server is the primary,
 // whose byte-verified copy gates local deletion.
 model BackupServer {
-  id             String   @id @default(uuid())
-  name           String
-  host           String
-  port           Int      @default(22)
-  username       String
-  authType       String   @default("password") @map("auth_type") // 'password' | 'key'
-  encPassword    String?  @map("enc_password")
-  encPrivateKey  String?  @map("enc_private_key")
-  encPassphrase  String?  @map("enc_passphrase")
-  remoteBasePath String   @default("/backups") @map("remote_base_path")
-  hostFingerprint String? @map("host_fingerprint")
-  isPrimary      Boolean  @default(false) @map("is_primary")
-  isEnabled      Boolean  @default(true) @map("is_enabled")
-  order          Int      @default(0)
-  lastTestedAt   DateTime? @map("last_tested_at")
-  lastTestOk     Boolean?  @map("last_test_ok")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  name            String
+  host            String
+  port            Int       @default(22)
+  username        String
+  authType        String    @default("password") @map("auth_type") // 'password' | 'key'
+  encPassword     String?   @map("enc_password")
+  encPrivateKey   String?   @map("enc_private_key")
+  encPassphrase   String?   @map("enc_passphrase")
+  remoteBasePath  String    @default("/backups") @map("remote_base_path")
+  hostFingerprint String?   @map("host_fingerprint")
+  isPrimary       Boolean   @default(false) @map("is_primary")
+  isEnabled       Boolean   @default(true) @map("is_enabled")
+  order           Int       @default(0)
+  lastTestedAt    DateTime? @map("last_tested_at")
+  lastTestOk      Boolean?  @map("last_test_ok")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  locations      FileBackupLocation[]
+  locations FileBackupLocation[]
 
   @@index([isEnabled, order])
   @@map("backup_servers")
@@ -861,19 +932,19 @@ model BackupServer {
 // ClaimDocument and DocumentSubmission. The unique constraint is the
 // idempotency backbone: one row per file per server, re-runs upsert.
 model FileBackupLocation {
-  id         String   @id @default(uuid())
-  sourceType String   @map("source_type") // 'claim_document' | 'document_submission'
-  sourceId   String   @map("source_id")
-  serverId   String   @map("server_id")
-  remoteKey  String   @map("remote_key")
-  remoteSize Int?     @map("remote_size")
-  status     String   @default("pending") // 'pending'|'uploaded'|'verified'|'failed'|'deleted'
+  id         String    @id @default(uuid())
+  sourceType String    @map("source_type") // 'claim_document' | 'document_submission'
+  sourceId   String    @map("source_id")
+  serverId   String    @map("server_id")
+  remoteKey  String    @map("remote_key")
+  remoteSize Int?      @map("remote_size")
+  status     String    @default("pending") // 'pending'|'uploaded'|'verified'|'failed'|'deleted'
   error      String?
   uploadedAt DateTime? @map("uploaded_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  server     BackupServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  server BackupServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
 
   @@unique([sourceType, sourceId, serverId])
   @@index([sourceType, sourceId])
@@ -884,7 +955,7 @@ model FileBackupLocation {
 // Run log / audit for backup executions.
 model BackupRun {
   id            String    @id @default(uuid())
-  trigger       String    // 'manual' | 'cron' | 'on_settled'
+  trigger       String // 'manual' | 'cron' | 'on_settled'
   status        String    @default("running") // 'running'|'success'|'partial'|'failed'|'interrupted'|'skipped'
   triggeredById String?   @map("triggered_by_id")
   filesScanned  Int       @default(0) @map("files_scanned")
@@ -896,7 +967,7 @@ model BackupRun {
   startedAt     DateTime  @default(now()) @map("started_at")
   finishedAt    DateTime? @map("finished_at")
 
-  triggeredBy   User?     @relation("BackupRunTriggeredBy", fields: [triggeredById], references: [id])
+  triggeredBy User? @relation("BackupRunTriggeredBy", fields: [triggeredById], references: [id])
 
   @@index([startedAt(sort: Desc)])
   @@map("backup_runs")

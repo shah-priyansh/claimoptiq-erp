@@ -12,7 +12,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getExpensesAPI, getExpenseSummaryAPI, getExpenseCategoriesAPI, createExpenseAPI,
-  updateExpenseAPI, deleteExpenseAPI, getReferencesAPI, getBankAccountsAPI, createCashBankAPI,
+  updateExpenseAPI, deleteExpenseAPI, getReferencesAPI, getPartiesAPI, getBankAccountsAPI, createCashBankAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import ExpenseFormModal from './ExpenseFormModal';
@@ -92,6 +92,7 @@ const ExpenseList = () => {
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [references, setReferences] = useState([]);
+  const [parties, setParties] = useState([]);
   const [loadingRefs, setLoadingRefs] = useState(true);
   const [summary, setSummary] = useState({ rows: [], grandTotal: 0 });
   const [loading, setLoading] = useState(true);
@@ -261,6 +262,8 @@ const ExpenseList = () => {
       .then(({ data }) => setBankAccounts(data || []))
       .catch(() => setBankAccounts([]))
       .finally(() => setLoadingBankAccounts(false));
+
+    getPartiesAPI({ active: 'true' }).then(({ data }) => setParties(data || [])).catch(() => {});
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -629,6 +632,7 @@ const ExpenseList = () => {
         mode={modal.mode}
         categories={categories}
         references={references}
+        parties={parties}
         loadingRefs={loadingRefs}
         onClose={() => setModal({ open: false, item: null, mode: 'create' })}
         onSave={handleSave}

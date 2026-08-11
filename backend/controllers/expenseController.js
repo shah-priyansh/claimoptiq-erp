@@ -2,7 +2,7 @@ const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 
 const expenseInclude = {
-  category: { select: { id: true, slug: true, label: true, isSystem: true } },
+  category: { select: { id: true, slug: true, label: true, isSystem: true, nature: true } },
   reference: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
   updatedBy: { select: { id: true, name: true } },
@@ -134,7 +134,31 @@ const pickFields = (body) => {
   if (body.notes !== undefined) data.notes = String(body.notes || '').slice(0, 1000);
   if (body.partyName !== undefined) data.partyName = String(body.partyName || '').slice(0, 200);
   if (body.referenceId !== undefined) data.referenceId = body.referenceId || null;
+  if (body.partyId !== undefined) data.partyId = body.partyId || null;
   return data;
+};
+
+// Attribute an expense to a Party for the ledger. An explicit partyId wins;
+// otherwise derive from the reference's party, else find-or-create a standalone
+// party from the free-text partyName. Returns null when nothing to attribute.
+const resolvePartyId = async (tx, data) => {
+  if (data.partyId) return data.partyId;
+  if (data.referenceId) {
+    let p = await tx.party.findUnique({ where: { referenceId: data.referenceId }, select: { id: true } });
+    if (!p) {
+      const r = await tx.reference.findUnique({ where: { id: data.referenceId }, select: { name: true, mobile: true, address: true, isActive: true } });
+      if (r) p = await tx.party.create({ data: { name: r.name, phone: r.mobile || '', billingAddress: r.address || '', referenceId: data.referenceId, isActive: r.isActive } });
+    }
+    if (p) return p.id;
+  }
+  const name = (data.partyName || '').trim();
+  if (name) {
+    const existing = await tx.party.findFirst({ where: { name, hospitalId: null, referenceId: null }, select: { id: true } });
+    if (existing) return existing.id;
+    const created = await tx.party.create({ data: { name } });
+    return created.id;
+  }
+  return null;
 };
 
 exports.list = async (req, res) => {
@@ -313,7 +337,8 @@ exports.create = async (req, res) => {
     const payment = await resolvePayment(req.body);
 
     const item = await prisma.$transaction(async (tx) => {
-      const created = await tx.expense.create({ data: { ...data, createdById: req.user?.id || null } });
+      const partyId = await resolvePartyId(tx, data);
+      const created = await tx.expense.create({ data: { ...data, partyId, createdById: req.user?.id || null } });
       // Mirror the outflow into the cashbook so Total On Hand drops. Skip a
       // zero-amount expense (nothing to move) and honour paymentMode 'none'.
       if (payment && Math.round(created.amount) !== 0) {
@@ -440,6 +465,15 @@ exports.update = async (req, res) => {
     const existing = await prisma.expense.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: 'Not found' });
     const data = pickFields(req.body);
+    // Re-attribute the party only when a party-related field was edited, so an
+    // unrelated update never clears an existing partyId.
+    if (['partyId', 'referenceId', 'partyName'].some((k) => req.body[k] !== undefined)) {
+      data.partyId = await resolvePartyId(prisma, {
+        partyId: data.partyId,
+        referenceId: data.referenceId !== undefined ? data.referenceId : existing.referenceId,
+        partyName: data.partyName !== undefined ? data.partyName : existing.partyName,
+      });
+    }
     const item = await prisma.expense.update({
       where: { id: req.params.id },
       data: { ...data, updatedById: req.user?.id || null },
