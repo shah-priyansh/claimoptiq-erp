@@ -1,5 +1,7 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { getJournalNetByAccount, journalKey, drSide } = require('../services/journalBalances');
+const partyCtrl = require('./partyController');
 
 // Account types that live in the new `accounts` table (Bank/Cash/Party/Expense
 // are rolled into the chart from their own tables).
@@ -130,6 +132,58 @@ exports.chart = async (req, res) => {
         { key: 'liabilities', label: 'Liabilities', total: groupTotal(liabilityLines), accounts: liabilityLines },
         { key: 'equity', label: 'Equity', total: groupTotal(equityLines), accounts: equityLines },
         { key: 'expenses', label: 'Expenses', total: groupTotal(expenseLines), accounts: expenseLines },
+      ],
+    });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error', error: e.message });
+  }
+};
+
+// Flat, grouped list of every selectable Chart-of-Accounts account WITH its
+// current Dr-signed balance, for the Journal Entry "Select A/C" picker.
+exports.ledgerOptions = async (req, res) => {
+  try {
+    const [accounts, bankAccounts, bankRows, cashRows, categories, catTotals, parties, partyBalances, jnet] = await Promise.all([
+      prisma.account.findMany({ where: { isActive: true }, orderBy: [{ name: 'asc' }] }),
+      prisma.bankAccount.findMany({ where: { isActive: true }, orderBy: [{ isDefault: 'desc' }, { bankName: 'asc' }] }),
+      prisma.cashBankEntry.groupBy({ by: ['bankAccountId', 'direction'], where: { bankAccountId: { not: null } }, _sum: { amount: true } }),
+      prisma.cashBankEntry.groupBy({ by: ['direction'], where: { mode: 'cash' }, _sum: { amount: true } }),
+      prisma.expenseCategory.findMany({ where: { isActive: true }, orderBy: [{ order: 'asc' }, { label: 'asc' }] }),
+      prisma.expense.groupBy({ by: ['categoryId'], _sum: { amount: true } }),
+      prisma.party.findMany({ where: { isActive: true }, orderBy: [{ name: 'asc' }] }),
+      partyCtrl.computeBalances(),
+      getJournalNetByAccount(prisma),
+    ]);
+
+    const j = (kind, id) => jnet.get(journalKey(kind, id)) || 0;
+
+    const bankNativeDr = new Map();
+    for (const r of bankRows) {
+      const sign = r.direction === 'in' ? 1 : -1;
+      bankNativeDr.set(r.bankAccountId, (bankNativeDr.get(r.bankAccountId) || 0) + sign * (r._sum.amount || 0));
+    }
+    const cashNativeDr = cashRows.reduce((s, r) => s + (r.direction === 'in' ? 1 : -1) * (r._sum.amount || 0), 0);
+    const catTotalMap = new Map(catTotals.map((c) => [c.categoryId, c._sum.amount || 0]));
+
+    const line = (kind, id, name, code, nativeDr) => {
+      const { balance, side } = drSide(nativeDr + j(kind, id));
+      return { kind, id, name, code: code || '', balance, side };
+    };
+
+    const bankAccountsOut = bankAccounts.map((b) => line('bank', b.id, b.bankName, b.accountNumber, bankNativeDr.get(b.id) || 0));
+    const cashOut = [line('cash', null, 'Cash in Hand', '', cashNativeDr)];
+    const ledgerOut = accounts.map((a) => line('ledger_account', a.id, a.name, a.accountCode, a.openingBalance || 0));
+    const expenseOut = categories.map((c) => line('expense_category', c.id, c.label, c.slug, catTotalMap.get(c.id) || 0));
+    // Party native balance is a signed receivable (+ they owe us = Dr).
+    const partyOut = parties.map((p) => line('party', p.id, p.name, '', partyCtrl.partyBalance(p, partyBalances)));
+
+    res.json({
+      groups: [
+        { key: 'bank', label: 'Bank Accounts', accounts: bankAccountsOut },
+        { key: 'cash', label: 'Cash', accounts: cashOut },
+        { key: 'ledger', label: 'Capital / Assets / Loans', accounts: ledgerOut },
+        { key: 'expense', label: 'Expense Heads', accounts: expenseOut },
+        { key: 'party', label: 'Sundry Debtors / Creditors', accounts: partyOut },
       ],
     });
   } catch (e) {
