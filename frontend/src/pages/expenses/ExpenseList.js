@@ -76,12 +76,6 @@ const PAY_STATUS = {
   pending: { label: 'Pending',      cls: 'bg-gray-100 text-gray-600' },
 };
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
-const monthStart = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
-};
-
 const ExpenseList = () => {
   const confirm = useConfirm();
   const { can } = useAuth();
@@ -201,8 +195,8 @@ const ExpenseList = () => {
   const [filters, setFilters] = usePersistedFilters('expenses:filters', {
     categoryId: '',
     referenceId: '',
-    from: monthStart(),
-    to: todayIso(),
+    from: '',
+    to: '',
     q: '',
   });
 

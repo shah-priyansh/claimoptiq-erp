@@ -14,8 +14,6 @@ import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const formatINR = (n) => '₹' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN');
 const formatDate = (d) => _formatDate(d);
-const todayIso = () => new Date().toISOString().slice(0, 10);
-const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
 
 const lineSummary = (lines = []) => lines.map((l) =>
   `${l.accountName} ${l.debit > 0 ? 'Dr ' + formatINR(l.debit) : 'Cr ' + formatINR(l.credit)}`).join('  →  ');
@@ -35,7 +33,7 @@ const AccountEntryList = () => {
   const [page, setPage] = usePersistedFilters('journal:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('journal:pageSize', 25);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = usePersistedFilters('journal:filters', { from: monthStart(), to: todayIso(), q: '' });
+  const [filters, setFilters] = usePersistedFilters('journal:filters', { from: '', to: '', q: '' });
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const params = useMemo(() => ({
