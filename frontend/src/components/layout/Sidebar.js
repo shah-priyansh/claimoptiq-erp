@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -104,17 +105,17 @@ const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick, colla
       <button
         type="button"
         onClick={() => (collapsed ? onExpand?.() : setOpen((o) => !o))}
-        title={collapsed ? label : undefined}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${collapsed ? 'lg:justify-center lg:px-0 lg:group-hover:justify-start lg:group-hover:px-3' : ''} ${
+        data-tip={collapsed ? label : undefined}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${collapsed ? 'lg:justify-center lg:px-0' : ''} ${
           isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
         }`}
       >
         <Icon className="w-5 h-5 flex-shrink-0" />
-        <span className={`flex-1 text-left ${collapsed ? 'lg:hidden lg:group-hover:block' : ''}`}>{label}</span>
-        <HiOutlineChevronDown className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''} ${collapsed ? 'lg:hidden lg:group-hover:block' : ''}`} />
+        <span className={`flex-1 text-left ${collapsed ? 'lg:hidden' : ''}`}>{label}</span>
+        <HiOutlineChevronDown className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''} ${collapsed ? 'lg:hidden' : ''}`} />
       </button>
       {open && (
-        <div className={`mt-0.5 ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5 ${collapsed ? 'lg:hidden lg:group-hover:block' : ''}`}>
+        <div className={`mt-0.5 ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5 ${collapsed ? 'lg:hidden' : ''}`}>
           {visible.map((it) => (
             <NavLink key={it.to} to={it.to}
               className={({ isActive: routerActive }) => subLinkClass({ isActive: itemActive(it, routerActive) })}
@@ -131,7 +132,7 @@ const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick, colla
 
 // Small uppercase section heading between groups.
 const SectionLabel = ({ children, collapsed }) => (
-  <p className={`px-3 pt-4 pb-1 text-[10px] font-semibold tracking-widest uppercase text-gray-400 ${collapsed ? 'lg:hidden lg:group-hover:block' : ''}`}>
+  <p className={`px-3 pt-4 pb-1 text-[10px] font-semibold tracking-widest uppercase text-gray-400 ${collapsed ? 'lg:hidden' : ''}`}>
     {children}
   </p>
 );
@@ -151,18 +152,32 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
     accessItems.some((it) => canManageModule(it.module)) ||
     configItems.some((it) => canManageModule(it.module));
 
+  // Collapsed-rail hover tooltip. Delegated on the nav (via [data-tip]) so we
+  // don't wrap every item; rendered in a body portal so the nav's overflow
+  // doesn't clip it.
+  const [tip, setTip] = useState(null);
+  useEffect(() => { if (!collapsed) setTip(null); }, [collapsed]);
+  const onNavHover = (e) => {
+    if (!collapsed) return;
+    const el = e.target.closest?.('[data-tip]');
+    const label = el?.getAttribute('data-tip');
+    if (!label) { setTip(null); return; }
+    const r = el.getBoundingClientRect();
+    setTip({ label, top: r.top + r.height / 2, left: r.right + 10 });
+  };
+
   return (
     <>
       {isOpen && (
         <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={onClose} />
       )}
       <aside
-        className={`group fixed top-0 left-0 z-30 h-full w-64 bg-white border-r border-gray-100 flex flex-col transform transition-all duration-200 ease-in-out lg:translate-x-0 ${
+        className={`fixed top-0 left-0 z-30 h-full w-64 bg-white border-r border-gray-100 flex flex-col transform transition-all duration-200 ease-in-out lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${collapsed ? 'lg:w-16 lg:hover:w-64 lg:hover:shadow-xl' : ''}`}
+        } ${collapsed ? 'lg:w-16' : ''}`}
       >
         {/* Logo */}
-        <div className={`flex items-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0 ${collapsed ? 'lg:px-2 lg:justify-center lg:gap-0 lg:group-hover:px-5 lg:group-hover:justify-start lg:group-hover:gap-3' : ''}`}>
+        <div className={`flex items-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0 ${collapsed ? 'lg:px-2 lg:justify-center lg:gap-0' : ''}`}>
           <div className="relative flex-shrink-0">
             <div className="w-9 h-9 bg-primary-600 rounded-xl flex items-center justify-center shadow-sm shadow-primary-200">
               <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
@@ -174,7 +189,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             </div>
             <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
           </div>
-          <div className={`min-w-0 ${collapsed ? 'lg:hidden lg:group-hover:block' : ''}`}>
+          <div className={`min-w-0 ${collapsed ? 'lg:hidden' : ''}`}>
             <h1 className="text-[15px] font-bold text-gray-900 leading-tight tracking-tight">ClaimOPTIQ</h1>
             <p className="text-[10px] text-gray-400 font-semibold tracking-widest uppercase mt-0.5">FCC ERP Suite</p>
           </div>
@@ -183,43 +198,43 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             type="button"
             onClick={onCollapse}
             title="Collapse sidebar"
-            className={`ml-auto p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors ${collapsed ? 'lg:hidden lg:group-hover:flex' : 'hidden lg:flex'}`}
+            className={`ml-auto p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors ${collapsed ? 'lg:hidden' : 'hidden lg:flex'}`}
           >
             <HiOutlineChevronDoubleLeft className="w-5 h-5" />
           </button>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto mt-2 px-3 pb-6 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto mt-2 px-3 pb-6 space-y-0.5" onMouseOver={onNavHover} onMouseLeave={() => setTip(null)}>
 
           {canViewModule('dashboard') && (
-            <NavLink to="/dashboard" onClick={onClose} title={collapsed ? 'Dashboard' : undefined}
-              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0 lg:group-hover:justify-start lg:group-hover:px-3' : ''}`}>
+            <NavLink to="/dashboard" onClick={onClose} data-tip={collapsed ? 'Dashboard' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineHome className="w-5 h-5 flex-shrink-0" />
-              <span className={collapsed ? 'lg:hidden lg:group-hover:inline' : ''}>Dashboard</span>
+              <span className={collapsed ? 'lg:hidden' : ''}>Dashboard</span>
             </NavLink>
           )}
 
           {canViewModule('claims') && (
-            <NavLink to="/claims" onClick={onClose} title={collapsed ? 'Claims' : undefined}
-              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0 lg:group-hover:justify-start lg:group-hover:px-3' : ''}`}>
+            <NavLink to="/claims" onClick={onClose} data-tip={collapsed ? 'Claims' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
-              <span className={collapsed ? 'lg:hidden lg:group-hover:inline' : ''}>Claims</span>
+              <span className={collapsed ? 'lg:hidden' : ''}>Claims</span>
             </NavLink>
           )}
 
           {canViewModule('document_submissions') && user?.hospital && (
-            <NavLink to="/documents/upload" onClick={onClose} title={collapsed ? 'Upload Document' : undefined}
-              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0 lg:group-hover:justify-start lg:group-hover:px-3' : ''}`}>
+            <NavLink to="/documents/upload" onClick={onClose} data-tip={collapsed ? 'Upload Document' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineCloudUpload className="w-5 h-5 flex-shrink-0" />
-              <span className={collapsed ? 'lg:hidden lg:group-hover:inline' : ''}>Upload Document</span>
+              <span className={collapsed ? 'lg:hidden' : ''}>Upload Document</span>
             </NavLink>
           )}
           {canViewModule('document_submissions') && !user?.hospital && (
-            <NavLink to="/documents/inbox" onClick={onClose} title={collapsed ? 'Document Inbox' : undefined}
-              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0 lg:group-hover:justify-start lg:group-hover:px-3' : ''}`}>
+            <NavLink to="/documents/inbox" onClick={onClose} data-tip={collapsed ? 'Document Inbox' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineInbox className="w-5 h-5 flex-shrink-0" />
-              <span className={collapsed ? 'lg:hidden lg:group-hover:inline' : ''}>Document Inbox</span>
+              <span className={collapsed ? 'lg:hidden' : ''}>Document Inbox</span>
             </NavLink>
           )}
 
@@ -236,10 +251,10 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
           />
 
           {canViewModule('staff') && (
-            <NavLink to="/staff" onClick={onClose} title={collapsed ? 'Staff' : undefined}
-              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0 lg:group-hover:justify-start lg:group-hover:px-3' : ''}`}>
+            <NavLink to="/staff" onClick={onClose} data-tip={collapsed ? 'Staff' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineUserGroup className="w-5 h-5 flex-shrink-0" />
-              <span className={collapsed ? 'lg:hidden lg:group-hover:inline' : ''}>Staff</span>
+              <span className={collapsed ? 'lg:hidden' : ''}>Staff</span>
             </NavLink>
           )}
 
@@ -280,15 +295,24 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
               <SectionLabel collapsed={collapsed}>Admin</SectionLabel>
               {/* `end` prevents /settings from matching /settings/direct-patient-billing
                   so only one item highlights at a time. */}
-              <NavLink to="/settings" end onClick={onClose} title={collapsed ? 'Settings' : undefined}
-                className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0 lg:group-hover:justify-start lg:group-hover:px-3' : ''}`}>
+              <NavLink to="/settings" end onClick={onClose} data-tip={collapsed ? 'Settings' : undefined}
+                className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
                 <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
-                <span className={collapsed ? 'lg:hidden lg:group-hover:inline' : ''}>Settings</span>
+                <span className={collapsed ? 'lg:hidden' : ''}>Settings</span>
               </NavLink>
             </>
           )}
         </nav>
       </aside>
+      {collapsed && tip && createPortal(
+        <div
+          style={{ position: 'fixed', top: tip.top, left: tip.left, transform: 'translateY(-50%)', zIndex: 60 }}
+          className="hidden lg:block pointer-events-none whitespace-nowrap rounded-md bg-gray-900 text-white text-xs font-medium px-2.5 py-1.5 shadow-lg"
+        >
+          {tip.label}
+        </div>,
+        document.body,
+      )}
     </>
   );
 };
