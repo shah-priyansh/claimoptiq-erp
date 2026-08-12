@@ -341,6 +341,40 @@ model AccountEntry {
   @@map("account_entries")
 }
 
+model JournalEntry {
+  id          String        @id @default(uuid())
+  refNumber   String        @unique @map("ref_number")
+  date        DateTime
+  description String        @default("")
+  createdById String?       @map("created_by_id")
+  createdBy   User?         @relation("JournalEntryCreatedBy", fields: [createdById], references: [id])
+  lines       JournalLine[]
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@index([date(sort: Desc)])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id          String       @id @default(uuid())
+  entryId     String       @map("entry_id")
+  entry       JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  accountKind String       @map("account_kind")
+  accountId   String?      @map("account_id")
+  accountName String       @map("account_name")
+
+  debit       Float        @default(0)
+  credit      Float        @default(0)
+
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  @@index([entryId])
+  @@index([accountKind, accountId])
+  @@map("journal_lines")
+}
+
 model CashBankEntry {
   id        String   @id @default(uuid())
   date      DateTime
@@ -558,6 +592,7 @@ model User {
   expensesUpdated          Expense[]            @relation("ExpenseUpdatedBy")
   cashBankCreated          CashBankEntry[]      @relation("CashBankCreatedBy")
   accountEntriesCreated    AccountEntry[]       @relation("AccountEntryCreatedBy")
+  journalEntriesCreated    JournalEntry[]       @relation("JournalEntryCreatedBy")
   backupRunsTriggered      BackupRun[]          @relation("BackupRunTriggeredBy")
 
   @@index([phone])
