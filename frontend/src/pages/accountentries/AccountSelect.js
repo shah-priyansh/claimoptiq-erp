@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { HiOutlineSearch, HiCheck, HiSelector } from 'react-icons/hi';
+import { HiOutlineSearch, HiCheck, HiSelector, HiChevronRight } from 'react-icons/hi';
 
 const formatINR = (n) => '₹' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN');
 const optValue = (a) => `${a.kind}:${a.id ?? ''}`;
@@ -12,6 +12,7 @@ const AccountSelect = ({ groups = [], value, onChange, placeholder = 'Select A/C
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [coords, setCoords] = useState(null);
+  const [expanded, setExpanded] = useState(() => new Set());
   const triggerRef = useRef(null);
   const panelRef = useRef(null);
   const inputRef = useRef(null);
@@ -21,6 +22,20 @@ const AccountSelect = ({ groups = [], value, onChange, placeholder = 'Select A/C
     for (const g of groups) for (const a of g.accounts) if (optValue(a) === value) return a;
     return null;
   }, [groups, value]);
+
+  // Group key that holds the currently-selected account (auto-expanded on open).
+  const selectedGroupKey = useMemo(() => {
+    if (!value) return null;
+    for (const g of groups) for (const a of g.accounts) if (optValue(a) === value) return g.key;
+    return null;
+  }, [groups, value]);
+
+  const isExpanded = (key) => (query.trim() ? true : expanded.has(key));
+  const toggleGroup = (key) => setExpanded((s) => {
+    const n = new Set(s);
+    n.has(key) ? n.delete(key) : n.add(key);
+    return n;
+  });
 
   const position = () => {
     const el = triggerRef.current;
@@ -40,6 +55,12 @@ const AccountSelect = ({ groups = [], value, onChange, placeholder = 'Select A/C
   };
 
   useLayoutEffect(() => { if (open) position(); }, [open]);
+
+  // On open, collapse all groups except the one holding the current selection.
+  useEffect(() => {
+    if (open) { setQuery(''); setExpanded(new Set(selectedGroupKey ? [selectedGroupKey] : [])); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -106,8 +127,18 @@ const AccountSelect = ({ groups = [], value, onChange, placeholder = 'Select A/C
               <p className="px-3 py-6 text-center text-sm text-gray-400">No matching account</p>
             ) : filtered.map((g) => (
               <div key={g.key}>
-                <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-600 bg-gray-100 border-b border-gray-200 sticky top-0 z-10">{g.label}</p>
-                {g.accounts.map((a) => {
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(g.key)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 bg-gray-100 border-b border-gray-200 sticky top-0 z-10 hover:bg-gray-200/70 transition-colors"
+                >
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-600">
+                    <HiChevronRight className={`w-3.5 h-3.5 text-gray-500 transition-transform ${isExpanded(g.key) ? 'rotate-90' : ''}`} />
+                    {g.label}
+                  </span>
+                  <span className="text-[11px] font-medium text-gray-400">{g.accounts.length}</span>
+                </button>
+                {isExpanded(g.key) && g.accounts.map((a) => {
                   const v = optValue(a);
                   const isSel = v === value;
                   return (
