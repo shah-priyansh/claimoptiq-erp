@@ -226,3 +226,7 @@ exports.remove = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: e.message });
   }
 };
+
+// Reused by the journal ledger-options picker to show each party's Cur Bal.
+exports.computeBalances = computeBalances;
+exports.partyBalance = partyBalance;

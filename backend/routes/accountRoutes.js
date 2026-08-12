@@ -7,6 +7,7 @@ router.use(protect);
 
 // Reads open to any authenticated user; mutations require chart_of_accounts.
 router.get('/chart', ctrl.chart);
+router.get('/ledger-options', ctrl.ledgerOptions);
 router.route('/')
   .get(ctrl.list)
   .post(checkPermission('chart_of_accounts', 'create'), ctrl.create);
