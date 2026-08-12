@@ -271,6 +271,14 @@ export const importAccountEntriesAPI    = (rows) => API.post('/account-entries/i
 export const updateAccountEntryAPI      = (id, data) => API.patch(`/account-entries/${id}`, data);
 export const deleteAccountEntryAPI      = (id) => API.delete(`/account-entries/${id}`);
 
+// ── Journal Entries (double-entry) ──────────────────────────────
+export const getLedgerOptionsAPI       = () => API.get('/accounts/ledger-options');
+export const getJournalEntriesAPI      = (params) => API.get('/journal-entries', { params });
+export const getJournalEntryAPI        = (id) => API.get(`/journal-entries/${id}`);
+export const createJournalEntryAPI      = (data) => API.post('/journal-entries', data);
+export const updateJournalEntryAPI      = (id, data) => API.patch(`/journal-entries/${id}`, data);
+export const deleteJournalEntryAPI      = (id) => API.delete(`/journal-entries/${id}`);
+
 // TDS Rates master
 export const getTdsRatesAPI    = (params) => API.get('/tds-rates', { params });
 export const createTdsRateAPI  = (data) => API.post('/tds-rates', data);
