@@ -22,6 +22,7 @@ import {
   HiOutlineCalculator,
   HiOutlineReceiptTax,
   HiOutlineCollection,
+  HiOutlineChevronDoubleLeft,
 } from 'react-icons/hi';
 
 // Sub-nav items grouped under "Billing & Accounts".
@@ -134,7 +135,7 @@ const SectionLabel = ({ children }) => (
   </p>
 );
 
-const Sidebar = ({ isOpen, onClose }) => {
+const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
   const { canViewModule, canManageModule, user, roleSlug } = useAuth();
   const isSuperAdmin = roleSlug === 'super_admin';
 
@@ -155,9 +156,9 @@ const Sidebar = ({ isOpen, onClose }) => {
         <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={onClose} />
       )}
       <aside
-        className={`fixed top-0 left-0 z-30 h-full w-64 bg-white border-r border-gray-100 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 ${
+        className={`fixed top-0 left-0 z-30 h-full w-64 bg-white border-r border-gray-100 flex flex-col transform transition-transform duration-200 ease-in-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${collapsed ? 'lg:-translate-x-full' : 'lg:translate-x-0'}`}
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0">
@@ -176,6 +177,15 @@ const Sidebar = ({ isOpen, onClose }) => {
             <h1 className="text-[15px] font-bold text-gray-900 leading-tight tracking-tight">ClaimOPTIQ</h1>
             <p className="text-[10px] text-gray-400 font-semibold tracking-widest uppercase mt-0.5">FCC ERP Suite</p>
           </div>
+          {/* Desktop: collapse the whole sidebar */}
+          <button
+            type="button"
+            onClick={onCollapse}
+            title="Collapse sidebar"
+            className="hidden lg:flex ml-auto p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+          >
+            <HiOutlineChevronDoubleLeft className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Nav */}

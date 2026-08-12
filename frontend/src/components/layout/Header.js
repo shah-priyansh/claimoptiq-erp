@@ -55,7 +55,7 @@ const getPageTitle = (pathname) => {
   return '';
 };
 
-const Header = ({ onMenuClick }) => {
+const Header = ({ onMenuClick, collapsed, onToggleCollapse }) => {
   const { user, logout } = useAuth();
   const confirm = useConfirm();
   const location = useLocation();
@@ -91,8 +91,15 @@ const Header = ({ onMenuClick }) => {
           <span className="font-bold text-primary-700 text-base">ClaimOptiq</span>
         </div>
 
-        {/* Desktop: welcome + page title with accent bar */}
+        {/* Desktop: burger (toggles sidebar collapse) + welcome + page title */}
         <div className="hidden lg:flex items-center gap-3">
+          <button
+            onClick={onToggleCollapse}
+            title={collapsed ? 'Show sidebar' : 'Hide sidebar'}
+            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+          >
+            <HiOutlineMenu className="w-5 h-5" />
+          </button>
           <div className="w-1 h-10 bg-primary-600 rounded-full" />
           <div>
             <p className="text-[11px] font-semibold text-primary-700 uppercase tracking-widest leading-none truncate max-w-[400px]">{welcomeText}</p>
