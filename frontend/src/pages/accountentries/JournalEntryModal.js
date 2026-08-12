@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { HiOutlineX, HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi';
 import { getLedgerOptionsAPI } from '../../services/api';
+import AccountSelect from './AccountSelect';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -102,15 +103,9 @@ const JournalEntryModal = ({ open, initial, onClose, onSave }) => {
               return (
                 <div key={i} className="grid grid-cols-[1fr_140px_140px_36px] items-center px-3 py-2 border-t border-gray-100 gap-2">
                   <div>
-                    <select value={l.accountKind ? `${l.accountKind}:${l.accountId ?? ''}` : ''} onChange={(e) => onPickAccount(i, e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm">
-                      <option value="">Select A/C</option>
-                      {groups.map((g) => (
-                        <optgroup key={g.key} label={g.label}>
-                          {g.accounts.map((a) => <option key={optValue(a)} value={optValue(a)}>{a.name}</option>)}
-                        </optgroup>
-                      ))}
-                    </select>
+                    <AccountSelect groups={groups}
+                      value={l.accountKind ? `${l.accountKind}:${l.accountId ?? ''}` : ''}
+                      onChange={(v) => onPickAccount(i, v)} />
                     {acct && <p className="text-[11px] text-gray-400 mt-0.5">Cur Bal: {formatINR(acct.balance)} {acct.side}</p>}
                   </div>
                   <input type="number" min="0" step="0.01" value={l.credit} onChange={(e) => onCredit(i, e.target.value)}
