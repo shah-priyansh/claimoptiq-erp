@@ -147,7 +147,7 @@ exports.chart = async (req, res) => {
     const groupTotal = (lines) => lines.reduce((s, l) => s + l.balance, 0);
     res.json({
       groups: [
-        { key: 'assets', label: 'Assets', total: groupTotal(assetLines), accounts: assetLines },
+        { key: 'assets', label: 'Assets', total: groupTotal(assetLines), accounts: assetLines, subgroupOrder: ['Current Assets', 'Fixed Assets', 'Non-Current Assets', 'Other Assets'] },
         { key: 'liabilities', label: 'Liabilities', total: groupTotal(liabilityLines), accounts: liabilityLines },
         { key: 'equity', label: 'Equity', total: groupTotal(equityLines), accounts: equityLines },
         { key: 'income', label: 'Incomes', total: groupTotal(incomeLines), accounts: incomeLines },
