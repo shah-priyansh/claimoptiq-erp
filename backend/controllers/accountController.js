@@ -5,9 +5,12 @@ const partyCtrl = require('./partyController');
 
 // Account types that live in the new `accounts` table (Bank/Cash/Party/Expense
 // are rolled into the chart from their own tables).
-const VALID_TYPES = ['fixed_asset', 'capital', 'loan', 'other'];
-const GROUP_OF = { fixed_asset: 'assets', capital: 'equity', loan: 'liabilities', other: 'assets' };
-const VALID_GROUPS = ['assets', 'liabilities', 'equity'];
+const VALID_TYPES = ['fixed_asset', 'current_asset', 'non_current_asset', 'capital', 'loan', 'income', 'other'];
+const GROUP_OF = {
+  fixed_asset: 'assets', current_asset: 'assets', non_current_asset: 'assets',
+  capital: 'equity', loan: 'liabilities', income: 'income', other: 'assets',
+};
+const VALID_GROUPS = ['assets', 'liabilities', 'equity', 'income'];
 const OPEN_INVOICE_STATUSES = ['issued', 'partially_paid'];
 
 const pickFields = (body) => {
@@ -113,12 +116,18 @@ exports.chart = async (req, res) => {
     const accountsOfType = (t) => accounts.filter((a) => a.accountType === t)
       .map((a) => ({ id: a.id, kind: t, name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) }));
 
+    const withSub = (lines, subgroup) => lines.map((l) => ({ ...l, subgroup }));
+    const otherOf = (group) => accounts.filter((a) => a.accountType === 'other' && a.group === group)
+      .map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) }));
+
     const assetLines = [
-      ...bankAccounts.map((b) => ({ id: b.id, kind: 'bank', name: b.bankName, code: b.accountNumber || '', balance: round(bankBal.get(b.id) || 0) + j('bank', b.id) })),
-      { id: 'cash', kind: 'cash', name: 'Cash in Hand', code: '', balance: cashBalance + j('cash', null) },
-      ...accountsOfType('fixed_asset'),
-      ...accounts.filter((a) => a.accountType === 'other' && a.group === 'assets').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) })),
-      { id: 'sundry_debtors', kind: 'sundry_debtors', name: 'Sundry Debtors', code: '', balance: receivable + Math.max(0, partyJournalNet) },
+      ...withSub(bankAccounts.map((b) => ({ id: b.id, kind: 'bank', name: b.bankName, code: b.accountNumber || '', balance: round(bankBal.get(b.id) || 0) + j('bank', b.id) })), 'Current Assets'),
+      { id: 'cash', kind: 'cash', name: 'Cash in Hand', code: '', subgroup: 'Current Assets', balance: cashBalance + j('cash', null) },
+      { id: 'sundry_debtors', kind: 'sundry_debtors', name: 'Sundry Debtors', code: '', subgroup: 'Current Assets', balance: receivable + Math.max(0, partyJournalNet) },
+      ...withSub(accountsOfType('current_asset'), 'Current Assets'),
+      ...withSub(accountsOfType('fixed_asset'), 'Fixed Assets'),
+      ...withSub(accountsOfType('non_current_asset'), 'Non-Current Assets'),
+      ...withSub(otherOf('assets'), 'Other Assets'),
     ];
     const liabilityLines = [
       ...accountsOfType('loan'),
@@ -129,6 +138,10 @@ exports.chart = async (req, res) => {
       ...accountsOfType('capital'),
       ...accounts.filter((a) => a.accountType === 'other' && a.group === 'equity').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) })),
     ];
+    const incomeLines = [
+      ...accountsOfType('income'),
+      ...otherOf('income'),
+    ];
     const expenseLines = categories.map((c) => ({ id: c.id, kind: 'expense_category', name: c.label, code: c.slug, nature: c.nature, balance: (catTotalMap.get(c.id) || 0) + j('expense_category', c.id) }));
 
     const groupTotal = (lines) => lines.reduce((s, l) => s + l.balance, 0);
@@ -137,6 +150,7 @@ exports.chart = async (req, res) => {
         { key: 'assets', label: 'Assets', total: groupTotal(assetLines), accounts: assetLines },
         { key: 'liabilities', label: 'Liabilities', total: groupTotal(liabilityLines), accounts: liabilityLines },
         { key: 'equity', label: 'Equity', total: groupTotal(equityLines), accounts: equityLines },
+        { key: 'income', label: 'Incomes', total: groupTotal(incomeLines), accounts: incomeLines },
         { key: 'expenses', label: 'Expenses', total: groupTotal(expenseLines), accounts: expenseLines },
       ],
     });

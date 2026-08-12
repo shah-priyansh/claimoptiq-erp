@@ -18,15 +18,50 @@ const KIND_ICON = {
   bank: HiOutlineCreditCard, cash: HiOutlineCash, sundry_debtors: HiOutlineOfficeBuilding, sundry_creditors: HiOutlineOfficeBuilding,
 };
 
+// A single account row (name + code + nature badge + balance).
+const AccountRow = ({ a }) => {
+  const Icon = KIND_ICON[a.kind] || HiOutlineLibrary;
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50">
+      <span className="flex items-center gap-2 min-w-0">
+        <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" />
+        <span className="text-sm text-gray-700 truncate">{a.name}</span>
+        {a.code && <span className="text-[11px] text-gray-400 font-mono">{a.code}</span>}
+        {a.nature && a.nature !== 'expense' && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${NATURE_CLS[a.nature] || ''}`}>
+            {a.nature === 'fixed_asset' ? 'Fixed Asset' : 'Capital'}
+          </span>
+        )}
+      </span>
+      <span className={`text-sm font-medium whitespace-nowrap ${a.balance < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(a.balance)}</span>
+    </div>
+  );
+};
+
+// Cluster a group's accounts by their subgroup label, preserving first-seen order.
+const subgroupsOf = (accounts) => {
+  const order = [];
+  const map = new Map();
+  for (const a of accounts) {
+    const key = a.subgroup || '';
+    if (!map.has(key)) { map.set(key, []); order.push(key); }
+    map.get(key).push(a);
+  }
+  return order.map((k) => [k, map.get(k)]);
+};
+
 // Account Type options for "Add Account" — each routes to the right create API.
 const ACCOUNT_TYPES = [
-  { value: 'fixed_asset',     label: 'Assets / Fixed Assets',                route: 'account' },
-  { value: 'bank',            label: 'Current Assets / Bank Accounts',       route: 'bank' },
-  { value: 'sundry_debtor',   label: 'Current Assets / Sundry Debtors',      route: 'party', openingType: 'to_collect' },
-  { value: 'sundry_creditor', label: 'Current Liabilities / Sundry Creditors', route: 'party', openingType: 'to_pay' },
-  { value: 'loan',            label: 'Liabilities / Loan Accounts',          route: 'account' },
-  { value: 'capital',         label: 'Equity / Capital',                     route: 'account' },
-  { value: 'other',           label: 'Other Account',                        route: 'account' },
+  { value: 'fixed_asset',      label: 'Assets / Fixed Assets',                  route: 'account' },
+  { value: 'current_asset',    label: 'Assets / Current Assets',                route: 'account' },
+  { value: 'non_current_asset', label: 'Assets / Non-Current Assets',           route: 'account' },
+  { value: 'bank',             label: 'Current Assets / Bank Accounts',         route: 'bank' },
+  { value: 'sundry_debtor',    label: 'Current Assets / Sundry Debtors',        route: 'party', openingType: 'to_collect' },
+  { value: 'sundry_creditor',  label: 'Current Liabilities / Sundry Creditors', route: 'party', openingType: 'to_pay' },
+  { value: 'loan',             label: 'Liabilities / Loan Accounts',            route: 'account' },
+  { value: 'capital',          label: 'Equity / Capital',                       route: 'account' },
+  { value: 'income',           label: 'Income',                                 route: 'account', openingType: 'credit' },
+  { value: 'other',            label: 'Other Account',                          route: 'account' },
 ];
 
 const blank = { accountType: 'fixed_asset', name: '', accountCode: '', openingBalance: '', openingType: 'debit', asOfDate: '' };
@@ -77,7 +112,9 @@ const AddAccountModal = ({ open, onClose, onCreated }) => {
         <form onSubmit={submit} className="p-5 space-y-4">
           <div>
             <label className={label}>Account Type *</label>
-            <select value={form.accountType} onChange={(e) => set('accountType', e.target.value)} className={input}>
+            <select value={form.accountType}
+              onChange={(e) => { const v = e.target.value; setForm((f) => ({ ...f, accountType: v, openingType: v === 'income' ? 'credit' : 'debit' })); }}
+              className={input}>
               {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
@@ -177,28 +214,27 @@ const ChartOfAccounts = () => {
                   <span className={`text-sm font-semibold ${g.total < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(g.total)}</span>
                 </button>
                 {!isCollapsed && (
-                  <div className="divide-y divide-gray-50">
-                    {g.accounts.length === 0 ? (
-                      <div className="px-4 py-4 text-sm text-gray-400">No accounts</div>
-                    ) : g.accounts.map((a) => {
-                      const Icon = KIND_ICON[a.kind] || HiOutlineLibrary;
-                      return (
-                        <div key={`${a.kind}-${a.id}`} className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50">
-                          <span className="flex items-center gap-2 min-w-0">
-                            <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                            <span className="text-sm text-gray-700 truncate">{a.name}</span>
-                            {a.code && <span className="text-[11px] text-gray-400 font-mono">{a.code}</span>}
-                            {a.nature && a.nature !== 'expense' && (
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${NATURE_CLS[a.nature] || ''}`}>
-                                {a.nature === 'fixed_asset' ? 'Fixed Asset' : 'Capital'}
-                              </span>
-                            )}
-                          </span>
-                          <span className={`text-sm font-medium whitespace-nowrap ${a.balance < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(a.balance)}</span>
+                  g.accounts.length === 0 ? (
+                    <div className="px-4 py-4 text-sm text-gray-400">No accounts</div>
+                  ) : g.accounts.some((a) => a.subgroup) ? (
+                    <div>
+                      {subgroupsOf(g.accounts).map(([sub, accts]) => (
+                        <div key={sub || 'none'}>
+                          <div className="flex items-center justify-between px-4 py-1.5 bg-gray-50 border-y border-gray-100">
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{sub || 'Other'}</span>
+                            <span className="text-xs font-medium text-gray-500">{formatINR(accts.reduce((s, a) => s + a.balance, 0))}</span>
+                          </div>
+                          <div className="divide-y divide-gray-50">
+                            {accts.map((a) => <AccountRow key={`${a.kind}-${a.id}`} a={a} />)}
+                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-50">
+                      {g.accounts.map((a) => <AccountRow key={`${a.kind}-${a.id}`} a={a} />)}
+                    </div>
+                  )
                 )}
               </div>
             );
