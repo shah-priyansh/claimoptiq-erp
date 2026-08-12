@@ -19,11 +19,6 @@ import { formatDateTime } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
-const todayIso = () => new Date().toISOString().slice(0, 10);
-const monthStart = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
-};
 
 const MODE_ICONS = { cash: HiOutlineCash, bank: HiOutlineCreditCard, upi: HiOutlineQrcode };
 
@@ -91,7 +86,7 @@ const CashBankList = () => {
   const [page, setPage] = usePersistedFilters('cashbank:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('cashbank:pageSize', 25);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = usePersistedFilters('cashbank:filters', { direction: '', mode: '', from: monthStart(), to: todayIso(), q: '' });
+  const [filters, setFilters] = usePersistedFilters('cashbank:filters', { direction: '', mode: '', from: '', to: '', q: '' });
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const activeBucket = BUCKETS.find((b) => b.mode === filters.mode) || BUCKETS[0];
