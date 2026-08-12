@@ -9,6 +9,13 @@ import { useAuth } from '../../context/AuthContext';
 const Layout = () => {
   const { user, loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop-only collapse of the whole sidebar (persisted). Mobile uses sidebarOpen.
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
+  const toggleCollapsed = () => setCollapsed((c) => {
+    const next = !c;
+    localStorage.setItem('sidebarCollapsed', next ? '1' : '0');
+    return next;
+  });
 
   if (loading) {
     return (
@@ -24,9 +31,9 @@ const Layout = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="lg:ml-64">
-        <Header onMenuClick={() => setSidebarOpen(true)} />
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={collapsed} onCollapse={toggleCollapsed} />
+      <div className={`transition-[margin] duration-200 ease-in-out ${collapsed ? '' : 'lg:ml-64'}`}>
+        <Header onMenuClick={() => setSidebarOpen(true)} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
         <main className="p-4 lg:p-6 pb-24 lg:pb-6">
           <Outlet />
         </main>
