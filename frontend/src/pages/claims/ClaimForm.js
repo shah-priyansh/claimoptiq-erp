@@ -20,7 +20,6 @@ import {
 
 const isImage = (name) => /\.(jpe?g|png)$/i.test(name || '');
 
-const MAX_FILES_PER_UPLOAD = 50;
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
@@ -147,17 +146,7 @@ const ClaimForm = () => {
     }
     if (!accepted.length) return;
 
-    const remaining = MAX_FILES_PER_UPLOAD - pendingAdmissionFiles.length;
-    if (remaining <= 0) {
-      toast.error(`Upload limit reached — max ${MAX_FILES_PER_UPLOAD} files per upload`);
-      return;
-    }
-    const toAdd = accepted.slice(0, remaining);
-    if (accepted.length > remaining) {
-      toast.error(`Only ${remaining} more file${remaining > 1 ? 's' : ''} can be added (max ${MAX_FILES_PER_UPLOAD} per upload)`);
-    }
-
-    const entries = toAdd.map(f => ({ file: f, previewUrl: URL.createObjectURL(f) }));
+    const entries = accepted.map(f => ({ file: f, previewUrl: URL.createObjectURL(f) }));
     setPendingAdmissionFiles(p => [...p, ...entries]);
   };
 
@@ -535,7 +524,7 @@ const ClaimForm = () => {
             <div>
               <h2 className="text-base font-semibold text-gray-800">Admission Documents</h2>
               <p className="text-xs text-gray-400 mt-0.5">Insurance cards, auth letters, prescription, ID proof, etc.</p>
-              <p className="text-xs font-medium text-gray-600 mt-1.5">Up to {MAX_FILES_PER_UPLOAD} files per upload · {MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG</p>
+              <p className="text-xs font-medium text-gray-600 mt-1.5">{MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG</p>
             </div>
             <label className="inline-flex items-center gap-2 border border-dashed border-gray-300 hover:border-primary-400 hover:bg-primary-50/30 text-gray-500 hover:text-primary-600 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer transition-all flex-shrink-0">
               <HiOutlineUpload className="w-4 h-4" />

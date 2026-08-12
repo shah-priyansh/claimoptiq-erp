@@ -207,7 +207,6 @@ const DocMiniGrid = ({ docs, onPreview, onDelete, isEditable, deletingDocId }) =
   );
 };
 
-const MAX_FILES_PER_UPLOAD = 50;
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
@@ -520,18 +519,7 @@ const ClaimDetail = () => {
     }
     if (!accepted.length) return;
 
-    const currentCount = (pendingFiles[category] || []).length;
-    const remaining = MAX_FILES_PER_UPLOAD - currentCount;
-    if (remaining <= 0) {
-      toast.error(`Upload limit reached — max ${MAX_FILES_PER_UPLOAD} files per upload. Save current attachments first.`);
-      return;
-    }
-    const toAdd = accepted.slice(0, remaining);
-    if (accepted.length > remaining) {
-      toast.error(`Only ${remaining} more file${remaining > 1 ? 's' : ''} can be added (max ${MAX_FILES_PER_UPLOAD} per upload)`);
-    }
-
-    const entries = toAdd.map(f => ({
+    const entries = accepted.map(f => ({
       file: f,
       previewUrl: URL.createObjectURL(f),
       ...(category === 'other' ? { category: '' } : {}),
@@ -795,7 +783,7 @@ const ClaimDetail = () => {
         )}
       </div>
       {canUpload && (
-        <p className="text-xs font-medium text-gray-600 mb-3">Up to {MAX_FILES_PER_UPLOAD} files per upload · {MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG</p>
+        <p className="text-xs font-medium text-gray-600 mb-3">{MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG</p>
       )}
       <PendingDocGrid
         files={pendingFiles[pendingKey]}
