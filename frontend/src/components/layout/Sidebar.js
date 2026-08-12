@@ -76,7 +76,7 @@ const subLinkClass = ({ isActive }) =>
   }`;
 
 // Generic collapsible section. Top-level component so its useState survives parent re-renders.
-const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick }) => {
+const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick, collapsed, onExpand }) => {
   const location = useLocation();
   const visible = items.filter((it) => viewCheck(it.module));
   // The Claims Report opened from the Invoice listing (…/reports/claims?select=1)
@@ -103,17 +103,18 @@ const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick }) => 
     <div className="pt-1">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+        onClick={() => (collapsed ? onExpand?.() : setOpen((o) => !o))}
+        title={collapsed ? label : undefined}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${collapsed ? 'lg:justify-center lg:px-0' : ''} ${
           isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
         }`}
       >
         <Icon className="w-5 h-5 flex-shrink-0" />
-        <span className="flex-1 text-left">{label}</span>
-        <HiOutlineChevronDown className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <span className={`flex-1 text-left ${collapsed ? 'lg:hidden' : ''}`}>{label}</span>
+        <HiOutlineChevronDown className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''} ${collapsed ? 'lg:hidden' : ''}`} />
       </button>
       {open && (
-        <div className="mt-0.5 ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5">
+        <div className={`mt-0.5 ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5 ${collapsed ? 'lg:hidden' : ''}`}>
           {visible.map((it) => (
             <NavLink key={it.to} to={it.to}
               className={({ isActive: routerActive }) => subLinkClass({ isActive: itemActive(it, routerActive) })}
@@ -129,8 +130,8 @@ const CollapsibleSection = ({ label, Icon, items, viewCheck, onChildClick }) => 
 };
 
 // Small uppercase section heading between groups.
-const SectionLabel = ({ children }) => (
-  <p className="px-3 pt-4 pb-1 text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+const SectionLabel = ({ children, collapsed }) => (
+  <p className={`px-3 pt-4 pb-1 text-[10px] font-semibold tracking-widest uppercase text-gray-400 ${collapsed ? 'lg:hidden' : ''}`}>
     {children}
   </p>
 );
@@ -156,12 +157,12 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
         <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={onClose} />
       )}
       <aside
-        className={`fixed top-0 left-0 z-30 h-full w-64 bg-white border-r border-gray-100 flex flex-col transform transition-transform duration-200 ease-in-out ${
+        className={`fixed top-0 left-0 z-30 h-full w-64 bg-white border-r border-gray-100 flex flex-col transform transition-all duration-200 ease-in-out lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${collapsed ? 'lg:-translate-x-full' : 'lg:translate-x-0'}`}
+        } ${collapsed ? 'lg:w-16' : ''}`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0">
+        <div className={`flex items-center gap-3 px-5 h-16 border-b border-gray-100 flex-shrink-0 ${collapsed ? 'lg:px-2 lg:justify-center lg:gap-0' : ''}`}>
           <div className="relative flex-shrink-0">
             <div className="w-9 h-9 bg-primary-600 rounded-xl flex items-center justify-center shadow-sm shadow-primary-200">
               <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
@@ -173,16 +174,16 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             </div>
             <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
           </div>
-          <div className="min-w-0">
+          <div className={`min-w-0 ${collapsed ? 'lg:hidden' : ''}`}>
             <h1 className="text-[15px] font-bold text-gray-900 leading-tight tracking-tight">ClaimOPTIQ</h1>
             <p className="text-[10px] text-gray-400 font-semibold tracking-widest uppercase mt-0.5">FCC ERP Suite</p>
           </div>
-          {/* Desktop: collapse the whole sidebar */}
+          {/* Desktop: collapse the whole sidebar (hidden while collapsed — the header burger expands it) */}
           <button
             type="button"
             onClick={onCollapse}
             title="Collapse sidebar"
-            className="hidden lg:flex ml-auto p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+            className={`ml-auto p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors ${collapsed ? 'lg:hidden' : 'hidden lg:flex'}`}
           >
             <HiOutlineChevronDoubleLeft className="w-5 h-5" />
           </button>
@@ -192,33 +193,37 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
         <nav className="flex-1 overflow-y-auto mt-2 px-3 pb-6 space-y-0.5">
 
           {canViewModule('dashboard') && (
-            <NavLink to="/dashboard" className={linkClass} onClick={onClose}>
+            <NavLink to="/dashboard" onClick={onClose} title={collapsed ? 'Dashboard' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineHome className="w-5 h-5 flex-shrink-0" />
-              Dashboard
+              <span className={collapsed ? 'lg:hidden' : ''}>Dashboard</span>
             </NavLink>
           )}
 
           {canViewModule('claims') && (
-            <NavLink to="/claims" className={linkClass} onClick={onClose}>
+            <NavLink to="/claims" onClick={onClose} title={collapsed ? 'Claims' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
-              Claims
+              <span className={collapsed ? 'lg:hidden' : ''}>Claims</span>
             </NavLink>
           )}
 
           {canViewModule('document_submissions') && user?.hospital && (
-            <NavLink to="/documents/upload" className={linkClass} onClick={onClose}>
+            <NavLink to="/documents/upload" onClick={onClose} title={collapsed ? 'Upload Document' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineCloudUpload className="w-5 h-5 flex-shrink-0" />
-              Upload Document
+              <span className={collapsed ? 'lg:hidden' : ''}>Upload Document</span>
             </NavLink>
           )}
           {canViewModule('document_submissions') && !user?.hospital && (
-            <NavLink to="/documents/inbox" className={linkClass} onClick={onClose}>
+            <NavLink to="/documents/inbox" onClick={onClose} title={collapsed ? 'Document Inbox' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineInbox className="w-5 h-5 flex-shrink-0" />
-              Document Inbox
+              <span className={collapsed ? 'lg:hidden' : ''}>Document Inbox</span>
             </NavLink>
           )}
 
-          {hasWorkspace && <SectionLabel>Workspace</SectionLabel>}
+          {hasWorkspace && <SectionLabel collapsed={collapsed}>Workspace</SectionLabel>}
 
           <CollapsibleSection
             label="Billing & Accounts"
@@ -226,16 +231,19 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             items={billingItems}
             viewCheck={canViewModule}
             onChildClick={onClose}
+            collapsed={collapsed}
+            onExpand={onCollapse}
           />
 
           {canViewModule('staff') && (
-            <NavLink to="/staff" className={linkClass} onClick={onClose}>
+            <NavLink to="/staff" onClick={onClose} title={collapsed ? 'Staff' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineUserGroup className="w-5 h-5 flex-shrink-0" />
-              Staff
+              <span className={collapsed ? 'lg:hidden' : ''}>Staff</span>
             </NavLink>
           )}
 
-          {hasSystem && <SectionLabel>System</SectionLabel>}
+          {hasSystem && <SectionLabel collapsed={collapsed}>System</SectionLabel>}
 
           <CollapsibleSection
             label="Masters"
@@ -243,6 +251,8 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             items={masterItems}
             viewCheck={canManageModule}
             onChildClick={onClose}
+            collapsed={collapsed}
+            onExpand={onCollapse}
           />
 
           <CollapsibleSection
@@ -251,6 +261,8 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             items={accessItems}
             viewCheck={canManageModule}
             onChildClick={onClose}
+            collapsed={collapsed}
+            onExpand={onCollapse}
           />
 
           <CollapsibleSection
@@ -259,16 +271,19 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             items={configItems}
             viewCheck={canManageModule}
             onChildClick={onClose}
+            collapsed={collapsed}
+            onExpand={onCollapse}
           />
 
           {isSuperAdmin && (
             <>
-              <SectionLabel>Admin</SectionLabel>
+              <SectionLabel collapsed={collapsed}>Admin</SectionLabel>
               {/* `end` prevents /settings from matching /settings/direct-patient-billing
                   so only one item highlights at a time. */}
-              <NavLink to="/settings" end className={linkClass} onClick={onClose}>
+              <NavLink to="/settings" end onClick={onClose} title={collapsed ? 'Settings' : undefined}
+                className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
                 <HiOutlineCog className="w-5 h-5 flex-shrink-0" />
-                Settings
+                <span className={collapsed ? 'lg:hidden' : ''}>Settings</span>
               </NavLink>
             </>
           )}

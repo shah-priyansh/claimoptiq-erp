@@ -32,7 +32,7 @@ const Layout = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={collapsed} onCollapse={toggleCollapsed} />
-      <div className={`transition-[margin] duration-200 ease-in-out ${collapsed ? '' : 'lg:ml-64'}`}>
+      <div className={`transition-[margin] duration-200 ease-in-out ${collapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
         <Header onMenuClick={() => setSidebarOpen(true)} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
         <main className="p-4 lg:p-6 pb-24 lg:pb-6">
           <Outlet />
