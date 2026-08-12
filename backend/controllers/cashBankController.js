@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
+const { getJournalNetByAccount, journalKey } = require('../services/journalBalances');
 
 const VALID_DIRECTIONS = ['in', 'out'];
 const VALID_MODES = ['cash', 'bank', 'upi'];
@@ -194,6 +195,10 @@ exports.balances = async (req, res) => {
     for (const row of contraFrom) {
       if (row.fromMode && out[row.fromMode] !== undefined) out[row.fromMode] -= row._sum.amount || 0;
     }
+    // Fold Journal Entry lines: a debit to cash/bank increases it, a credit decreases it.
+    const jnet = await getJournalNetByAccount(prisma);
+    out.cash += jnet.get(journalKey('cash', null)) || 0;
+    for (const [key, val] of jnet) { if (key.startsWith('bank:')) out.bank += val; }
     out.total = out.cash + out.bank + out.upi;
     res.json({
       cash: Math.round(out.cash),

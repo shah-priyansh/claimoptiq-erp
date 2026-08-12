@@ -67,6 +67,8 @@ exports.remove = async (req, res) => {
   try {
     const existing = await prisma.account.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: 'Not found' });
+    const usedBy = await prisma.journalLine.count({ where: { accountKind: 'ledger_account', accountId: existing.id } });
+    if (usedBy > 0) return res.status(409).json({ message: `Cannot delete: used by ${usedBy} journal line(s)` });
     await prisma.account.delete({ where: { id: req.params.id } });
     res.json({ message: 'Deleted' });
   } catch (e) {
@@ -80,7 +82,7 @@ exports.remove = async (req, res) => {
 // (as Sundry Debtors/Creditors summary lines), and ExpenseCategories.
 exports.chart = async (req, res) => {
   try {
-    const [accounts, bankAccounts, bankRows, cashRows, invAgg, expTotAgg, expPaidRows, categories, catTotals] = await Promise.all([
+    const [accounts, bankAccounts, bankRows, cashRows, invAgg, expTotAgg, expPaidRows, categories, catTotals, jnet] = await Promise.all([
       prisma.account.findMany({ where: { isActive: true }, orderBy: [{ name: 'asc' }] }),
       prisma.bankAccount.findMany({ where: { isActive: true }, orderBy: [{ isDefault: 'desc' }, { bankName: 'asc' }] }),
       prisma.cashBankEntry.groupBy({ by: ['bankAccountId', 'direction'], where: { bankAccountId: { not: null } }, _sum: { amount: true } }),
@@ -90,7 +92,10 @@ exports.chart = async (req, res) => {
       prisma.$queryRaw`SELECT COALESCE(SUM(CASE WHEN direction = 'in' THEN -amount ELSE amount END), 0) AS paid FROM cash_bank_entries WHERE expense_id IS NOT NULL`,
       prisma.expenseCategory.findMany({ where: { isActive: true }, orderBy: [{ order: 'asc' }, { label: 'asc' }] }),
       prisma.expense.groupBy({ by: ['categoryId'], _sum: { amount: true } }),
+      getJournalNetByAccount(prisma),
     ]);
+
+    const j = (kind, id) => jnet.get(journalKey(kind, id)) || 0;
 
     // Bank balances per account.
     const bankBal = new Map();
@@ -102,28 +107,29 @@ exports.chart = async (req, res) => {
     const receivable = Math.round(invAgg._sum.amountPending || 0);
     const payable = Math.round((expTotAgg._sum.amount || 0) - Number(expPaidRows[0]?.paid || 0));
     const catTotalMap = new Map(catTotals.map((c) => [c.categoryId, Math.round(c._sum.amount || 0)]));
+    const partyJournalNet = [...jnet].filter(([k]) => k.startsWith('party:')).reduce((s, [, v]) => s + v, 0);
 
     const round = (n) => Math.round(Number(n) || 0);
     const accountsOfType = (t) => accounts.filter((a) => a.accountType === t)
-      .map((a) => ({ id: a.id, kind: t, name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) }));
+      .map((a) => ({ id: a.id, kind: t, name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) }));
 
     const assetLines = [
-      ...bankAccounts.map((b) => ({ id: b.id, kind: 'bank', name: b.bankName, code: b.accountNumber || '', balance: round(bankBal.get(b.id) || 0) })),
-      { id: 'cash', kind: 'cash', name: 'Cash in Hand', code: '', balance: cashBalance },
+      ...bankAccounts.map((b) => ({ id: b.id, kind: 'bank', name: b.bankName, code: b.accountNumber || '', balance: round(bankBal.get(b.id) || 0) + j('bank', b.id) })),
+      { id: 'cash', kind: 'cash', name: 'Cash in Hand', code: '', balance: cashBalance + j('cash', null) },
       ...accountsOfType('fixed_asset'),
-      ...accounts.filter((a) => a.accountType === 'other' && a.group === 'assets').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) })),
-      { id: 'sundry_debtors', kind: 'sundry_debtors', name: 'Sundry Debtors', code: '', balance: receivable },
+      ...accounts.filter((a) => a.accountType === 'other' && a.group === 'assets').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) })),
+      { id: 'sundry_debtors', kind: 'sundry_debtors', name: 'Sundry Debtors', code: '', balance: receivable + Math.max(0, partyJournalNet) },
     ];
     const liabilityLines = [
       ...accountsOfType('loan'),
-      ...accounts.filter((a) => a.accountType === 'other' && a.group === 'liabilities').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) })),
-      { id: 'sundry_creditors', kind: 'sundry_creditors', name: 'Sundry Creditors', code: '', balance: payable },
+      ...accounts.filter((a) => a.accountType === 'other' && a.group === 'liabilities').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) })),
+      { id: 'sundry_creditors', kind: 'sundry_creditors', name: 'Sundry Creditors', code: '', balance: payable + Math.max(0, -partyJournalNet) },
     ];
     const equityLines = [
       ...accountsOfType('capital'),
-      ...accounts.filter((a) => a.accountType === 'other' && a.group === 'equity').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) })),
+      ...accounts.filter((a) => a.accountType === 'other' && a.group === 'equity').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) })),
     ];
-    const expenseLines = categories.map((c) => ({ id: c.id, kind: 'expense_category', name: c.label, code: c.slug, nature: c.nature, balance: catTotalMap.get(c.id) || 0 }));
+    const expenseLines = categories.map((c) => ({ id: c.id, kind: 'expense_category', name: c.label, code: c.slug, nature: c.nature, balance: (catTotalMap.get(c.id) || 0) + j('expense_category', c.id) }));
 
     const groupTotal = (lines) => lines.reduce((s, l) => s + l.balance, 0);
     res.json({
