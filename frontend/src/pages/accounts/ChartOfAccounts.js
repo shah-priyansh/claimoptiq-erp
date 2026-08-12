@@ -38,16 +38,19 @@ const AccountRow = ({ a }) => {
   );
 };
 
-// Cluster a group's accounts by their subgroup label, preserving first-seen order.
-const subgroupsOf = (accounts) => {
-  const order = [];
+// Cluster a group's accounts by subgroup. Honours a declared `subgroupOrder`
+// (so empty sub-groups still render as structure), then appends any extras.
+const subgroupsOf = (g) => {
   const map = new Map();
-  for (const a of accounts) {
+  const order = [];
+  for (const a of g.accounts) {
     const key = a.subgroup || '';
     if (!map.has(key)) { map.set(key, []); order.push(key); }
     map.get(key).push(a);
   }
-  return order.map((k) => [k, map.get(k)]);
+  const declared = g.subgroupOrder || [];
+  const keys = [...declared, ...order.filter((k) => !declared.includes(k))];
+  return keys.map((k) => [k, map.get(k) || []]);
 };
 
 // Account Type options for "Add Account" — each routes to the right create API.
@@ -214,22 +217,26 @@ const ChartOfAccounts = () => {
                   <span className={`text-sm font-semibold ${g.total < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(g.total)}</span>
                 </button>
                 {!isCollapsed && (
-                  g.accounts.length === 0 ? (
-                    <div className="px-4 py-4 text-sm text-gray-400">No accounts</div>
-                  ) : g.accounts.some((a) => a.subgroup) ? (
+                  (g.subgroupOrder?.length || g.accounts.some((a) => a.subgroup)) ? (
                     <div>
-                      {subgroupsOf(g.accounts).map(([sub, accts]) => (
+                      {subgroupsOf(g).map(([sub, accts]) => (
                         <div key={sub || 'none'}>
                           <div className="flex items-center justify-between px-4 py-1.5 bg-gray-50 border-y border-gray-100">
                             <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{sub || 'Other'}</span>
                             <span className="text-xs font-medium text-gray-500">{formatINR(accts.reduce((s, a) => s + a.balance, 0))}</span>
                           </div>
-                          <div className="divide-y divide-gray-50">
-                            {accts.map((a) => <AccountRow key={`${a.kind}-${a.id}`} a={a} />)}
-                          </div>
+                          {accts.length === 0 ? (
+                            <div className="px-4 py-2 text-xs text-gray-300">No accounts</div>
+                          ) : (
+                            <div className="divide-y divide-gray-50">
+                              {accts.map((a) => <AccountRow key={`${a.kind}-${a.id}`} a={a} />)}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
+                  ) : g.accounts.length === 0 ? (
+                    <div className="px-4 py-4 text-sm text-gray-400">No accounts</div>
                   ) : (
                     <div className="divide-y divide-gray-50">
                       {g.accounts.map((a) => <AccountRow key={`${a.kind}-${a.id}`} a={a} />)}
