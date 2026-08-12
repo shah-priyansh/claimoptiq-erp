@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCash, HiOutlineCreditCard,
-  HiOutlineQrcode, HiOutlineUpload, HiOutlineSearch, HiOutlineCollection,
+  HiOutlineQrcode, HiOutlineUpload, HiOutlineSearch, HiOutlineCollection, HiOutlineExternalLink,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -40,6 +41,33 @@ const txnName = (e) => {
   if (e.invoice) return e.invoice.hospital?.name || e.invoice.invoiceNumber || 'Invoice';
   if (e.expense) return e.expense.category?.label || 'Expense';
   return e.hospital?.name || e.notes || '—';
+};
+
+// The invoice/expense this entry is linked to, as a clickable chip.
+const LinkedCell = ({ e }) => {
+  if (e.invoice) {
+    const label = e.invoice.invoiceNumber || e.invoice.hospital?.name || 'Invoice';
+    return (
+      <Link to={`/invoices/${e.invoice._id}`} title={`Invoice ${label}`}
+        className="inline-flex items-center gap-1 max-w-[200px] text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline">
+        <span className="px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 shrink-0">Invoice</span>
+        <span className="truncate">{label}</span>
+        <HiOutlineExternalLink className="w-3.5 h-3.5 shrink-0 opacity-60" />
+      </Link>
+    );
+  }
+  if (e.expense) {
+    const label = e.expense.category?.label || 'Expense';
+    return (
+      <Link to="/expenses" title={`Expense · ${label}`}
+        className="inline-flex items-center gap-1 max-w-[200px] text-xs font-medium text-amber-700 hover:text-amber-800 hover:underline">
+        <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 shrink-0">Expense</span>
+        <span className="truncate">{label}</span>
+        <HiOutlineExternalLink className="w-3.5 h-3.5 shrink-0 opacity-60" />
+      </Link>
+    );
+  }
+  return <span className="text-gray-300">—</span>;
 };
 
 const CashBankList = () => {
@@ -244,6 +272,7 @@ const CashBankList = () => {
                   <tr>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Type</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Name</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Linked To</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
                     <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
                     <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
@@ -269,6 +298,7 @@ const CashBankList = () => {
                           <div className="text-gray-700 truncate">{txnName(e)}</div>
                           {sub && <div className="text-[11px] text-gray-400 font-mono truncate">{sub}</div>}
                         </td>
+                        <td className="py-3 px-4"><LinkedCell e={e} /></td>
                         <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDateTime(e.date)}</td>
                         <td className={`py-3 px-4 text-right font-medium ${e.direction === 'in' ? 'text-green-700' : 'text-red-700'}`}>
                           {e.direction === 'in' ? '+' : '−'}{formatINR(e.amount)}
