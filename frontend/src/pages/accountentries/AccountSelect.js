@@ -106,7 +106,7 @@ const AccountSelect = ({ groups = [], value, onChange, placeholder = 'Select A/C
               <p className="px-3 py-6 text-center text-sm text-gray-400">No matching account</p>
             ) : filtered.map((g) => (
               <div key={g.key}>
-                <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50 sticky top-0">{g.label}</p>
+                <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-600 bg-gray-100 border-b border-gray-200 sticky top-0 z-10">{g.label}</p>
                 {g.accounts.map((a) => {
                   const v = optValue(a);
                   const isSel = v === value;
