@@ -180,12 +180,12 @@ const CashBankList = () => {
 
       <div className="grid grid-cols-12 gap-4">
         {/* Left: money buckets */}
-        <div className="col-span-12 md:col-span-4 lg:col-span-3 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col">
+        <div className="col-span-12 md:col-span-4 lg:col-span-3 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)]">
           <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Account</span>
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Balance</span>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 flex-1 min-h-0 overflow-y-auto">
             {BUCKETS.map((b) => {
               const bal = balances[b.balanceKey] ?? 0;
               const Icon = b.icon;
@@ -266,12 +266,12 @@ const CashBankList = () => {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Name</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Linked To</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
+                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Name</th>
+                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Linked To</th>
+                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                    <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                    <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -280,7 +280,7 @@ const CashBankList = () => {
                     const sub = e.utrNumber || e.chequeNumber || null;
                     return (
                       <tr key={e._id} className="hover:bg-gray-50">
-                        <td className="py-3 px-4">
+                        <td className="py-3 px-3 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <span className={`text-xs font-medium px-2 py-0.5 rounded ${e.direction === 'in' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                               {e.direction === 'in' ? 'Payment-In' : 'Payment-Out'}
@@ -290,16 +290,16 @@ const CashBankList = () => {
                             </span>
                           </div>
                         </td>
-                        <td className="py-3 px-4 max-w-xs">
+                        <td className="py-3 px-3 max-w-[220px]">
                           <div className="text-gray-700 truncate">{txnName(e)}</div>
                           {sub && <div className="text-[11px] text-gray-400 font-mono truncate">{sub}</div>}
                         </td>
-                        <td className="py-3 px-4"><LinkedCell e={e} /></td>
-                        <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDateTime(e.date)}</td>
-                        <td className={`py-3 px-4 text-right font-medium ${e.direction === 'in' ? 'text-green-700' : 'text-red-700'}`}>
+                        <td className="py-3 px-3"><LinkedCell e={e} /></td>
+                        <td className="py-3 px-3 text-gray-600 whitespace-nowrap">{formatDateTime(e.date)}</td>
+                        <td className={`py-3 px-3 text-right font-medium whitespace-nowrap ${e.direction === 'in' ? 'text-green-700' : 'text-red-700'}`}>
                           {e.direction === 'in' ? '+' : '−'}{formatINR(e.amount)}
                         </td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-3 px-3 text-right">
                           <div className="flex justify-end gap-1">
                             {canEdit && (
                               <button onClick={() => setModal({ open: true, item: e })}
