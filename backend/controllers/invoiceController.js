@@ -1242,9 +1242,30 @@ exports.openHospitals = async (req, res) => {
   }
 };
 
+// Whitelisted sortable columns → Prisma orderBy builder. Keeps the sort param
+// from reaching arbitrary/nonexistent fields. `hospital` sorts by the related
+// hospital's name (direct-patient invoices have none, so the DB places them at
+// the null end).
+const INVOICE_SORT_FIELDS = {
+  invoiceNumber: (dir) => ({ invoiceNumber: dir }),
+  hospital: (dir) => ({ hospital: { name: dir } }),
+  month: (dir) => ({ month: dir }),
+  status: (dir) => ({ status: dir }),
+  grandTotal: (dir) => ({ grandTotal: dir }),
+  amountPaid: (dir) => ({ amountPaid: dir }),
+  amountPending: (dir) => ({ amountPending: dir }),
+};
+
 exports.list = async (req, res) => {
   try {
-    const { hospitalId, status, month, page, limit = 25, isDirectPatient } = req.query;
+    const { hospitalId, status, month, page, limit = 25, isDirectPatient, sort, dir } = req.query;
+    const direction = dir === 'asc' ? 'asc' : 'desc';
+    const sortBuilder = INVOICE_SORT_FIELDS[sort];
+    // Append createdAt as a stable tiebreaker so equal keys keep a fixed order
+    // across pages. No/invalid sort → the default month-then-newest ordering.
+    const orderBy = sortBuilder
+      ? [sortBuilder(direction), { createdAt: 'desc' }]
+      : [{ month: 'desc' }, { createdAt: 'desc' }];
     const where = {};
     if (hospitalId) where.hospitalId = hospitalId;
     // Synthetic '__open' matches anything still owed: issued or partially
@@ -1272,7 +1293,7 @@ exports.list = async (req, res) => {
       prisma.invoice.findMany({
         where,
         include: invoiceListInclude,
-        orderBy: [{ month: 'desc' }, { createdAt: 'desc' }],
+        orderBy,
         skip,
         take,
       }),

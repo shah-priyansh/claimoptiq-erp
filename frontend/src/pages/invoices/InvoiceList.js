@@ -7,6 +7,7 @@ import {
   HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
   HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
   HiOutlineChartBar, HiOutlinePencil, HiOutlineCash, HiOutlineBan, HiOutlineUpload,
+  HiChevronUp, HiChevronDown, HiSelector,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -75,6 +76,8 @@ const InvoiceList = () => {
   const [filters, setFilters] = usePersistedFilters('invoices:filters', { hospitalId: '', status: '', month: '', type: '' });
   const [page, setPage] = usePersistedFilters('invoices:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('invoices:pageSize', 25);
+  // Server-side column sort. Empty field = backend default (month, then newest).
+  const [sort, setSort] = usePersistedFilters('invoices:sort', { field: '', dir: 'desc' });
   const [total, setTotal] = useState(0);
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
   const [actionMenu, setActionMenu] = useState(null); // { id, top?, bottom?, left }
@@ -94,6 +97,26 @@ const InvoiceList = () => {
   const [voidingId, setVoidingId] = useState(null);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
+
+  // Click a sortable header: a new column starts ascending; the active column
+  // toggles asc/desc. Sorting is server-side, so it spans every page.
+  const toggleSort = (field) => {
+    setSort((s) => (s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }));
+    setPage(1);
+  };
+  const sortHeader = (field, label, align = 'left') => {
+    const active = sort.field === field;
+    const Arrow = active ? (sort.dir === 'asc' ? HiChevronUp : HiChevronDown) : HiSelector;
+    return (
+      <th className={`${align === 'right' ? 'text-right' : 'text-left'} py-3 px-4 text-xs font-semibold uppercase`}>
+        <button type="button" onClick={() => toggleSort(field)}
+          className={`inline-flex items-center gap-1 transition-colors ${active ? 'text-primary-600' : 'text-gray-500 hover:text-gray-700'}`}>
+          <span>{label}</span>
+          <Arrow className={`w-3.5 h-3.5 ${active ? 'text-primary-600' : 'text-gray-300'}`} />
+        </button>
+      </th>
+    );
+  };
 
   const openActionMenu = (e, id) => {
     e.stopPropagation();
@@ -222,7 +245,7 @@ const InvoiceList = () => {
   // Avoids surfacing a stale selection that no longer matches what the
   // operator sees on screen.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setSelectedIds([]); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type]);
+  useEffect(() => { setSelectedIds([]); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type, sort.field, sort.dir]);
 
   const selectedInvoices = items.filter((x) => selectedIds.includes(x._id));
   const selectionHospitalId = selectedInvoices[0]?.hospital?._id || null;
@@ -260,6 +283,7 @@ const InvoiceList = () => {
       if (filters.month) params.month = filters.month + '-01';
       if (filters.type === 'direct') params.isDirectPatient = 'true';
       else if (filters.type === 'hospital') params.isDirectPatient = 'false';
+      if (sort.field) { params.sort = sort.field; params.dir = sort.dir; }
       const { data } = await getInvoicesAPI(params);
       setItems(data.invoices || []);
       setTotal(data.total || 0);
@@ -299,7 +323,7 @@ const InvoiceList = () => {
   useEffect(() => { refreshOpenInvoiceHospitals(); }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type]);
+  useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type, sort.field, sort.dir]);
 
   const handleDelete = async (item) => {
     if (item.status !== 'draft' && item.status !== 'void') {
@@ -514,13 +538,13 @@ const InvoiceList = () => {
                       className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:cursor-not-allowed"
                     />
                   </th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Invoice #</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Hospital</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Month</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Grand Total</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Paid</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Pending</th>
+                  {sortHeader('invoiceNumber', 'Invoice #')}
+                  {sortHeader('hospital', 'Hospital')}
+                  {sortHeader('month', 'Month')}
+                  {sortHeader('status', 'Status')}
+                  {sortHeader('grandTotal', 'Grand Total', 'right')}
+                  {sortHeader('amountPaid', 'Paid', 'right')}
+                  {sortHeader('amountPending', 'Pending', 'right')}
                   <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
