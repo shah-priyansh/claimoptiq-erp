@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Loader from '../../components/ui/Loader';
 import ReactDOM from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -512,7 +513,7 @@ const InvoiceList = () => {
         </div>
 
         {loading ? (
-          <div className="py-8 text-center text-gray-400">Loading...</div>
+          <Loader label="Loading…" className="py-8" />
         ) : items.length === 0 ? (
           <div className="py-8 text-center text-gray-400">No invoices found</div>
         ) : (

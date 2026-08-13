@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Loader from '../../components/ui/Loader';
 import { getUsersAPI, createUserAPI, updateUserAPI, getHospitalsAPI, getRolesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -146,7 +147,7 @@ const UserList = () => {
         {/* Mobile Cards */}
         <div className="md:hidden">
           {loading ? (
-            <div className="py-12 text-center text-gray-400">Loading...</div>
+            <Loader label="Loading…" className="py-12" />
           ) : users.length === 0 ? (
             <div className="py-12 text-center text-gray-400">No users found</div>
           ) : (
@@ -204,7 +205,7 @@ const UserList = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={7} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={7} className="py-8"><Loader label="Loading…" /></td></tr>
               ) : users.map((u, idx) => (
                 <tr key={u._id} className="hover:bg-gray-50">
                   <td className="py-3 px-4 text-sm text-gray-500">{idx + 1}</td>

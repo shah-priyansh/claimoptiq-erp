@@ -20,6 +20,7 @@ import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { isValidPhone, onPhoneInput } from '../../utils/validators';
 import { resolveAutomationStatus } from '../../utils/statusAutomation';
+import Loader from '../../components/ui/Loader';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const CATEGORY_LABELS = {
@@ -698,10 +699,7 @@ const ClaimDetail = () => {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <div className="w-10 h-10 border-[3px] border-primary-100 border-t-primary-600 rounded-full animate-spin" />
-        <p className="text-sm text-gray-400">Loading claim...</p>
-      </div>
+      <Loader label="Loading claim…" className="h-64" />
     );
   }
   if (!claim) return null;

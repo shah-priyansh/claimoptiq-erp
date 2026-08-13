@@ -27,6 +27,22 @@ const SearchableSelect = ({
     ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
     : options;
 
+  // Optional grouping: when any option declares a `group`, render section
+  // headers (preserving first-seen group order). Fully backward-compatible —
+  // stays flat when no option has a group.
+  const hasGroups = filtered.some(o => o.group);
+  const groupedFiltered = hasGroups
+    ? (() => {
+        const map = new Map(); const order = [];
+        for (const o of filtered) {
+          const g = o.group || '';
+          if (!map.has(g)) { map.set(g, []); order.push(g); }
+          map.get(g).push(o);
+        }
+        return order.map(g => [g, map.get(g)]);
+      })()
+    : null;
+
   const open = () => {
     if (disabled) return;
     const r = triggerRef.current.getBoundingClientRect();
@@ -45,6 +61,32 @@ const SearchableSelect = ({
     onChange(val);
     setIsOpen(false);
     setSearch('');
+  };
+
+  const renderOption = (o) => {
+    const isActive = o.value === value;
+    return (
+      <button
+        key={o.value}
+        type="button"
+        onClick={() => select(o.value)}
+        className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between gap-2 transition-colors ${
+          isActive ? 'bg-primary-50' : 'hover:bg-gray-50'
+        }`}
+      >
+        {o.badgeClass || o.badgeStyle ? (
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${o.badgeClass || ''}`} style={o.badgeStyle}>{o.label}</span>
+        ) : (
+          <span className={`flex-1 min-w-0 flex items-center gap-2 ${isActive ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>
+            <span className="truncate">{o.label}</span>
+            {o.tag && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap flex-shrink-0 ${o.tag.className || ''}`}>{o.tag.label}</span>
+            )}
+          </span>
+        )}
+        {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
+      </button>
+    );
   };
 
   useEffect(() => {
@@ -163,32 +205,17 @@ const SearchableSelect = ({
                 <div className="px-4 py-8 text-center">
                   <p className="text-sm text-gray-400">No results for "{search}"</p>
                 </div>
+              ) : hasGroups ? (
+                groupedFiltered.map(([g, opts]) => (
+                  <div key={g || '_ungrouped'}>
+                    {g && (
+                      <div className="px-3 pt-2 pb-1 bg-gray-100 border-b border-gray-200 text-[11px] font-semibold uppercase tracking-wide text-gray-500 sticky top-0 z-10">{g}</div>
+                    )}
+                    {opts.map(renderOption)}
+                  </div>
+                ))
               ) : (
-                filtered.map(o => {
-                  const isActive = o.value === value;
-                  return (
-                    <button
-                      key={o.value}
-                      type="button"
-                      onClick={() => select(o.value)}
-                      className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between gap-2 transition-colors ${
-                        isActive ? 'bg-primary-50' : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      {o.badgeClass || o.badgeStyle ? (
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${o.badgeClass || ''}`} style={o.badgeStyle}>{o.label}</span>
-                      ) : (
-                        <span className={`flex-1 min-w-0 flex items-center gap-2 ${isActive ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>
-                          <span className="truncate">{o.label}</span>
-                          {o.tag && (
-                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap flex-shrink-0 ${o.tag.className || ''}`}>{o.tag.label}</span>
-                          )}
-                        </span>
-                      )}
-                      {isActive && <HiCheck className="w-4 h-4 text-primary-600 flex-shrink-0" />}
-                    </button>
-                  );
-                })
+                filtered.map(renderOption)
               )}
             </div>
 

@@ -21,6 +21,7 @@ import { expenseImportConfig } from '../../components/import/transactionImportCo
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import { formatDate as _formatDate } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
+import Loader from '../../components/ui/Loader';
 
 const buildExpenseVoucherHtml = (e) => {
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
@@ -398,10 +399,7 @@ const ExpenseList = () => {
                   </button>
                 )}
                 {loading && summary.rows.length === 0 ? (
-                  <div className="py-6 flex items-center justify-center gap-2 text-xs text-gray-400">
-                    <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-primary-600 rounded-full animate-spin" />
-                    <span>Loading categories…</span>
-                  </div>
+                  <Loader inline label="Loading categories…" className="justify-center py-6" />
                 ) : visibleRows.length === 0 ? (
                   <div className="py-6 text-center text-xs text-gray-400">
                     {categorySearch.trim() ? 'No categories match' : 'No categories with expenses in this range'}
@@ -445,7 +443,7 @@ const ExpenseList = () => {
               </div>
 
               {loading ? (
-                <div className="py-8 text-center text-gray-400">Loading...</div>
+                <Loader label="Loading…" className="py-8" />
               ) : items.length === 0 ? (
                 <div className="py-8 text-center text-gray-400">No expenses found in this range</div>
               ) : (
@@ -547,10 +545,7 @@ const ExpenseList = () => {
                               <tr className="bg-gray-50/70">
                                 <td colSpan={filters.categoryId ? 9 : 10} className="px-4 py-3">
                                   {expState?.loading ? (
-                                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                                      <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-primary-600 rounded-full animate-spin" />
-                                      Loading breakdown…
-                                    </div>
+                                    <Loader inline label="Loading breakdown…" className="" />
                                   ) : breakdown.length === 0 ? (
                                     <p className="text-xs text-gray-400">No entries in this bucket.</p>
                                   ) : (

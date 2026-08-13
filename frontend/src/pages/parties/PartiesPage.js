@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineSearch, HiOutlineUserGroup, HiOutlineX, HiOutlineSwitchHorizontal } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
@@ -309,7 +310,7 @@ const PartiesPage = () => {
                   <h3 className="text-sm font-semibold text-gray-700">Transactions</h3>
                 </div>
                 {loadingLedger ? (
-                  <div className="py-8 text-center text-gray-400">Loading...</div>
+                  <Loader label="Loading…" className="py-8" />
                 ) : txns.length === 0 ? (
                   <div className="py-8 text-center text-gray-400">No transactions for this party</div>
                 ) : (

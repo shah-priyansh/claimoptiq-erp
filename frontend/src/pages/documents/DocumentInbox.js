@@ -17,6 +17,7 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { formatDate as _formatDate } from '../../utils/format';
+import Loader from '../../components/ui/Loader';
 
 const STATUS_OPTIONS = [
   { value: 'pending',  label: 'Pending' },
@@ -304,9 +305,7 @@ const DocumentInbox = () => {
 
       {/* Grouped Accordion */}
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
-        </div>
+        <Loader className="py-16" />
       ) : patientNames.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 py-14 text-center">
           <HiOutlineClipboardList className="w-10 h-10 text-gray-300 mx-auto mb-2" />

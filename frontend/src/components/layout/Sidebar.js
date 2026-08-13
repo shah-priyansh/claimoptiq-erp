@@ -23,7 +23,6 @@ import {
   HiOutlineCalculator,
   HiOutlineReceiptTax,
   HiOutlineCollection,
-  HiOutlineChevronDoubleLeft,
 } from 'react-icons/hi';
 
 // Sub-nav items grouped under "Billing & Accounts".
@@ -193,15 +192,6 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             <h1 className="text-[15px] font-bold text-gray-900 leading-tight tracking-tight">ClaimOPTIQ</h1>
             <p className="text-[10px] text-gray-400 font-semibold tracking-widest uppercase mt-0.5">FCC ERP Suite</p>
           </div>
-          {/* Desktop: collapse the whole sidebar (hidden while collapsed — the header burger expands it) */}
-          <button
-            type="button"
-            onClick={onCollapse}
-            title="Collapse sidebar"
-            className={`ml-auto p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors ${collapsed ? 'lg:hidden' : 'hidden lg:flex'}`}
-          >
-            <HiOutlineChevronDoubleLeft className="w-5 h-5" />
-          </button>
         </div>
 
         {/* Nav */}

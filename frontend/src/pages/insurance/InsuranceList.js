@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import Loader from '../../components/ui/Loader';
 import { getInsuranceAPI, createInsuranceAPI, updateInsuranceAPI, deleteInsuranceAPI, importInsuranceAPI, getClaimStatusesAPI, bulkInsuranceStatusAutomationAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useAuth } from '../../context/AuthContext';
@@ -195,7 +196,7 @@ const InsuranceList = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={canEdit ? 8 : 7} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={canEdit ? 8 : 7} className="py-8"><Loader label="Loading…" /></td></tr>
               ) : items.length === 0 ? (
                 <tr><td colSpan={canEdit ? 8 : 7} className="py-8 text-center text-gray-400">No insurance companies added yet</td></tr>
               ) : visibleItems.map((item, idx) => (

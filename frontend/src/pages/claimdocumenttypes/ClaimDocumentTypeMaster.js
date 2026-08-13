@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Loader from '../../components/ui/Loader';
 import {
   getClaimDocumentTypesAPI,
   createClaimDocumentTypeAPI,
@@ -184,7 +185,7 @@ const ClaimDocumentTypeMaster = () => {
       {/* Mobile Cards */}
       <div className="md:hidden space-y-2">
         {loading ? (
-          <div className="bg-white rounded-xl border border-gray-200 py-12 text-center text-gray-400">Loading...</div>
+          <div className="bg-white rounded-xl border border-gray-200 py-12"><Loader label="Loading…" /></div>
         ) : docTypes.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 py-12 text-center text-gray-400">No document types found.</div>
         ) : docTypes.map((d) => (
@@ -247,7 +248,7 @@ const ClaimDocumentTypeMaster = () => {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={7} className="py-8 text-center text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={7} className="py-8"><Loader label="Loading…" /></td></tr>
             ) : docTypes.length === 0 ? (
               <tr><td colSpan={7} className="py-10 text-center text-gray-400">No document types found.</td></tr>
             ) : docTypes.map((d) => (

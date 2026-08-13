@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineX } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
@@ -153,7 +154,7 @@ const TdsRateList = () => {
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         {loading ? (
-          <div className="py-8 text-center text-gray-400">Loading...</div>
+          <Loader label="Loading…" className="py-8" />
         ) : items.length === 0 ? (
           <div className="py-8 text-center text-gray-400">No TDS rates configured yet</div>
         ) : (

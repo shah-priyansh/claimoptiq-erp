@@ -14,6 +14,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ImportClaimsModal from './ImportClaimsModal';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
+import Loader from '../../components/ui/Loader';
 
 // Claim-type display config — keeps label, dot color, and outlined-tag style in sync.
 // Type uses an outlined tag (border + colored dot) so it visually contrasts with
@@ -48,27 +49,29 @@ const CLAIM_TYPE_OPTIONS = Object.entries(CLAIM_TYPE_CONFIG).map(([value, c]) =>
 }));
 
 // ─── Field definitions (shared with Reports) ─────────────────────────────────
-// Order here drives the export sequence (Excel + PDF), and matches the columns
-// in the operations team's reference workbook so imports/exports stay aligned.
+// Order here drives the export sequence (Excel + PDF). It mirrors the claim
+// import template's column order (see ImportClaimsModal) so a file exported from
+// here lines up 1:1 with the import sheet and can be edited and re-imported.
+// The SR column is prepended by the export builders, so this list starts at the
+// template's second column (Patient Name).
 const fmtDateCell = (d) => _formatDate(d, '');
 const BASE_FIELD_DEFS = [
-  { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => formatMonthLabel(c.month, '') },
-  { key: 'hospital',                  label: 'HOSPITAL',               width: 26, pdfW: 32, defaultOn: true,  nonHospitalOnly: true, getValue: c => c.isDirectPatient ? (c.hospital?.name ? `${c.hospital.name} (Direct)` : 'Direct Patient') : (c.hospital?.name || '-') },
-  { key: 'doctorName',                label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
   { key: 'patientName',               label: 'PATIENT NAME',           width: 22, pdfW: 28, defaultOn: true,  getValue: c => c.patientName || '' },
   { key: 'patientMobile',             label: 'PATIENT MOBILE',         width: 14, pdfW: 18, defaultOn: false, getValue: c => c.patientMobile || '' },
+  { key: 'hospital',                  label: 'HOSPITAL',               width: 26, pdfW: 32, defaultOn: true,  nonHospitalOnly: true, getValue: c => c.isDirectPatient ? (c.hospital?.name ? `${c.hospital.name} (Direct)` : 'Direct Patient') : (c.hospital?.name || '-') },
+  { key: 'referenceBy',               label: 'REFERENCE BY',           width: 18, pdfW: 28, defaultOn: true,  superAdminOnly: true, getValue: c => c.hospital?.referenceBy || '' },
   { key: 'isDirectPatient',           label: 'DIRECT PATIENT',         width: 12, pdfW: 14, defaultOn: false, getValue: c => c.isDirectPatient ? 'Yes' : 'No' },
+  { key: 'doctorName',                label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
   { key: 'claimType',                 label: 'CLAIM TYPE',             width: 14, pdfW: 18, defaultOn: true,  getValue: c => c.claimType || '' },
   { key: 'insuranceCompany',          label: 'COMPANY NAME',           width: 22, pdfW: 26, defaultOn: true,  getValue: c => c.insuranceCompany?.name || '' },
   { key: 'tpa',                       label: 'TPA NAME',               width: 18, pdfW: 22, defaultOn: true,  getValue: c => c.tpa?.name || '' },
-  { key: 'ccnNo',                     label: 'CCN NO',                 width: 13, pdfW: 14, defaultOn: true,  getValue: c => c.ccnNo || '' },
   { key: 'policyNo',                  label: 'POLICY NO',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.policyNo || '' },
   { key: 'clientId',                  label: 'CLIENT ID',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.clientId || '' },
-  { key: 'treatmentType',             label: 'TREATMENT TYPE',         width: 14, pdfW: 18, defaultOn: false, getValue: c => c.treatmentType || '' },
-  { key: 'diagnosis',                 label: 'DIAGNOSIS',              width: 22, pdfW: 28, defaultOn: false, getValue: c => c.diagnosis || '' },
-  { key: 'surgeryName',               label: 'SURGERY NAME',           width: 20, pdfW: 24, defaultOn: false, getValue: c => c.surgeryName || '' },
+  { key: 'ccnNo',                     label: 'CCN NO',                 width: 13, pdfW: 14, defaultOn: true,  getValue: c => c.ccnNo || '' },
   { key: 'dateOfAdmit',               label: 'D.O.A.',                 width: 13, pdfW: 16, defaultOn: true,  getValue: c => fmtDateCell(c.dateOfAdmit) },
   { key: 'dateOfDischarge',           label: 'D.O.D.',                 width: 13, pdfW: 16, defaultOn: true,  getValue: c => fmtDateCell(c.dateOfDischarge) },
+  { key: 'month',                     label: 'MONTH',                  width: 12, pdfW: 14, defaultOn: false, getValue: c => formatMonthLabel(c.month, '') },
+  { key: 'status',                    label: 'STATUS',                 width: 18, pdfW: 22, defaultOn: false, getValue: c => (c.status || '').replace(/_/g, ' ') },
   { key: 'hospitalBill',              label: 'HOSPITAL BILL',          width: 14, pdfW: 22, defaultOn: true,  isAmount: true, getValue: c => c.hospitalFinalBill || 0 },
   { key: 'mouDiscount',               label: 'MOU DISCOUNT',           width: 14, pdfW: 18, defaultOn: false, isAmount: true, getValue: c => c.mouDiscount || 0 },
   { key: 'deduction',                 label: 'DEDUCTION',              width: 12, pdfW: 16, defaultOn: false, isAmount: true, getValue: c => c.deduction || 0 },
@@ -87,10 +90,11 @@ const BASE_FIELD_DEFS = [
   { key: 'bankTransfer',              label: 'BANK TRANSFER AMOUNT',   width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.bankTransferAmount || 0 },
   { key: 'settlementDate',            label: 'SETTLEMENT DATE',        width: 14, pdfW: 18, defaultOn: false, getValue: c => fmtDateCell(c.settlementDate) },
   { key: 'neftNo',                    label: 'NEFT NO',                width: 14, pdfW: 16, defaultOn: false, getValue: c => c.neftNo || '' },
+  { key: 'treatmentType',             label: 'TREATMENT TYPE',         width: 14, pdfW: 18, defaultOn: false, getValue: c => c.treatmentType || '' },
+  { key: 'diagnosis',                 label: 'DIAGNOSIS',              width: 22, pdfW: 28, defaultOn: false, getValue: c => c.diagnosis || '' },
+  { key: 'surgeryName',               label: 'SURGERY NAME',           width: 20, pdfW: 24, defaultOn: false, getValue: c => c.surgeryName || '' },
   { key: 'remarks',                   label: 'REMARKS',                width: 22, pdfW: 28, defaultOn: false, getValue: c => c.remarks || '' },
   { key: 'rejectedReason',            label: 'REJECTED REASON',        width: 20, pdfW: 26, defaultOn: false, getValue: c => c.rejectedReason || '' },
-  { key: 'status',                    label: 'STATUS',                 width: 18, pdfW: 22, defaultOn: false, getValue: c => (c.status || '').replace(/_/g, ' ') },
-  { key: 'referenceBy',               label: 'REFERENCE BY',           width: 18, pdfW: 28, defaultOn: true,  superAdminOnly: true, getValue: c => c.hospital?.referenceBy || '' },
   { key: 'filePrice',                 label: 'FILE PRICE',             width: 12, pdfW: 22, defaultOn: true,  superAdminOnly: true, isAmount: true, getValue: null },
 ];
 const FIELD_GROUPS = [
@@ -1072,10 +1076,7 @@ const ClaimList = () => {
               </div>
               <div className="max-h-56 overflow-y-auto overscroll-contain border-t border-gray-100">
                 {loading ? (
-                  <div className="flex items-center justify-center gap-2 py-6">
-                    <div className="w-4 h-4 border-2 border-gray-200 border-t-primary-500 rounded-full animate-spin" />
-                    <span className="text-xs text-gray-400">Loading...</span>
-                  </div>
+                  <Loader inline label="Loading…" className="justify-center py-6" />
                 ) : filtered.length === 0 ? (
                   <p className="px-4 py-4 text-xs text-gray-400 text-center">No results</p>
                 ) : filtered.map(s => {
@@ -1290,7 +1291,7 @@ const ClaimList = () => {
         {/* Mobile Cards */}
         <div className="md:hidden">
           {loading ? (
-            <div className="py-12 text-center text-gray-400">Loading...</div>
+            <Loader label="Loading claims…" className="py-12" />
           ) : claims.length === 0 ? (
             <div className="py-12 text-center text-gray-400">No claims found</div>
           ) : (
@@ -1375,7 +1376,7 @@ const ClaimList = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={(isHospitalUser ? 8 : 9) - (showBillStatus ? 0 : 1)} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={(isHospitalUser ? 8 : 9) - (showBillStatus ? 0 : 1)} className="py-8"><Loader label="Loading claims…" className="" /></td></tr>
               ) : claims.length === 0 ? (
                 <tr><td colSpan={(isHospitalUser ? 8 : 9) - (showBillStatus ? 0 : 1)} className="py-8 text-center text-gray-400">No claims found</td></tr>
               ) : claims.map((c, rowIdx) => (
