@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Loader from '../../components/ui/Loader';
 import { getClaimStatusesAPI, createClaimStatusAPI, updateClaimStatusAPI, deleteClaimStatusAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -407,7 +408,7 @@ const ClaimStatusMaster = () => {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={7} className="py-8 text-center text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={7} className="py-8"><Loader label="Loading…" /></td></tr>
             ) : statuses.length === 0 ? (
               <tr><td colSpan={7} className="py-10 text-center text-gray-400">No statuses found. Run seed to add defaults.</td></tr>
             ) : statuses.map((s) => (

@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { HiOutlineSearch, HiCheck, HiSelector, HiChevronRight } from 'react-icons/hi';
+import { HiOutlineSearch, HiCheck, HiSelector, HiChevronRight, HiOutlinePlusCircle } from 'react-icons/hi';
 
 const formatINR = (n) => '₹' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN');
 const optValue = (a) => `${a.kind}:${a.id ?? ''}`;
@@ -8,7 +8,7 @@ const optValue = (a) => `${a.kind}:${a.id ?? ''}`;
 // Searchable, grouped account picker for Journal Entry lines. Renders the
 // dropdown panel in a body portal (fixed positioning) so the modal's
 // overflow-hidden table doesn't clip it. Each row shows the account's Cur Bal.
-const AccountSelect = ({ groups = [], value, onChange, placeholder = 'Select A/C' }) => {
+const AccountSelect = ({ groups = [], value, onChange, placeholder = 'Select A/C', onAddAccount }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [coords, setCoords] = useState(null);
@@ -123,6 +123,15 @@ const AccountSelect = ({ groups = [], value, onChange, placeholder = 'Select A/C
             </div>
           </div>
           <div className="overflow-y-auto" style={{ maxHeight: coords.listMax }}>
+            {onAddAccount && (
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setQuery(''); onAddAccount(); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-primary-600 hover:bg-primary-50 border-b border-gray-100 transition-colors"
+              >
+                <HiOutlinePlusCircle className="w-4 h-4 shrink-0" /> Add Account
+              </button>
+            )}
             {filtered.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-gray-400">No matching account</p>
             ) : filtered.map((g) => (

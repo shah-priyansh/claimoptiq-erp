@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
 import {
-  HiOutlinePlus, HiOutlineX, HiOutlineLibrary, HiOutlineCreditCard, HiOutlineCash,
+  HiOutlinePlus, HiOutlineLibrary, HiOutlineCreditCard, HiOutlineCash,
   HiOutlineOfficeBuilding, HiOutlineChevronDown, HiOutlineChevronRight,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
-import {
-  getChartOfAccountsAPI, createAccountAPI, createPartyAPI, createBankAccountAPI,
-} from '../../services/api';
+import { getChartOfAccountsAPI } from '../../services/api';
+import AddAccountModal from './AddAccountModal';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 
@@ -53,121 +53,6 @@ const subgroupsOf = (g) => {
   return keys.map((k) => [k, map.get(k) || []]);
 };
 
-// Account Type options for "Add Account" — each routes to the right create API.
-const ACCOUNT_TYPES = [
-  { value: 'fixed_asset',      label: 'Assets / Fixed Assets',                  route: 'account' },
-  { value: 'current_asset',    label: 'Assets / Current Assets',                route: 'account' },
-  { value: 'non_current_asset', label: 'Assets / Non-Current Assets',           route: 'account' },
-  { value: 'bank',             label: 'Current Assets / Bank Accounts',         route: 'bank' },
-  { value: 'sundry_debtor',    label: 'Current Assets / Sundry Debtors',        route: 'party', openingType: 'to_collect' },
-  { value: 'sundry_creditor',  label: 'Current Liabilities / Sundry Creditors', route: 'party', openingType: 'to_pay' },
-  { value: 'loan',             label: 'Liabilities / Loan Accounts',            route: 'account' },
-  { value: 'capital',          label: 'Equity / Capital',                       route: 'account' },
-  { value: 'income',           label: 'Income',                                 route: 'account', openingType: 'credit' },
-  { value: 'other',            label: 'Other Account',                          route: 'account' },
-];
-
-const blank = { accountType: 'fixed_asset', name: '', accountCode: '', openingBalance: '', openingType: 'debit', asOfDate: '' };
-
-const AddAccountModal = ({ open, onClose, onCreated }) => {
-  const [form, setForm] = useState(blank);
-  const [saving, setSaving] = useState(false);
-  useEffect(() => { if (open) setForm(blank); }, [open]);
-  if (!open) return null;
-
-  const typeDef = ACCOUNT_TYPES.find((t) => t.value === form.accountType) || ACCOUNT_TYPES[0];
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!form.name.trim()) { toast.error('Account name is required'); return; }
-    setSaving(true);
-    try {
-      const opening = Number(form.openingBalance) || 0;
-      if (typeDef.route === 'bank') {
-        await createBankAccountAPI({ bankName: form.name });
-      } else if (typeDef.route === 'party') {
-        await createPartyAPI({ name: form.name, openingBalance: opening, openingType: typeDef.openingType });
-      } else {
-        await createAccountAPI({
-          name: form.name, accountType: form.accountType, accountCode: form.accountCode,
-          openingBalance: opening, openingType: form.openingType, asOfDate: form.asOfDate || null,
-        });
-      }
-      toast.success('Account added');
-      onCreated();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to add account');
-    } finally { setSaving(false); }
-  };
-
-  const input = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500';
-  const label = 'block text-xs font-medium text-gray-500 mb-1';
-  const showCode = typeDef.route === 'account';
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-800">Add Account</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><HiOutlineX className="w-5 h-5 text-gray-500" /></button>
-        </div>
-        <form onSubmit={submit} className="p-5 space-y-4">
-          <div>
-            <label className={label}>Account Type *</label>
-            <select value={form.accountType}
-              onChange={(e) => { const v = e.target.value; setForm((f) => ({ ...f, accountType: v, openingType: v === 'income' ? 'credit' : 'debit' })); }}
-              className={input}>
-              {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={label}>Account Name *</label>
-            <input value={form.name} onChange={(e) => set('name', e.target.value)} className={input} placeholder="Enter account name" />
-          </div>
-          {showCode && (
-            <div>
-              <label className={label}>Account Code</label>
-              <input value={form.accountCode} onChange={(e) => set('accountCode', e.target.value)} className={input} />
-            </div>
-          )}
-          {typeDef.route !== 'bank' && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className={label}>Opening Balance</label>
-                <div className="flex gap-2">
-                  <input type="number" value={form.openingBalance} onChange={(e) => set('openingBalance', e.target.value)} placeholder="0" className={input} />
-                  {typeDef.route === 'account' && (
-                    <select value={form.openingType} onChange={(e) => set('openingType', e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm">
-                      <option value="debit">Dr</option>
-                      <option value="credit">Cr</option>
-                    </select>
-                  )}
-                </div>
-              </div>
-              {typeDef.route === 'account' && (
-                <div>
-                  <label className={label}>As of Date</label>
-                  <input type="date" value={form.asOfDate} onChange={(e) => set('asOfDate', e.target.value)} className={input} />
-                </div>
-              )}
-            </div>
-          )}
-          {typeDef.route === 'bank' && (
-            <p className="text-xs text-gray-400">Bank account details (A/C no., IFSC, opening balance) can be set under Bank Accounts.</p>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-            <button type="submit" disabled={saving || !form.name.trim()} className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 rounded-lg">
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
 const ChartOfAccounts = () => {
   const { can } = useAuth();
   const canCreate = can('chart_of_accounts', 'create');
@@ -201,7 +86,7 @@ const ChartOfAccounts = () => {
       </div>
 
       {loading ? (
-        <div className="py-16 text-center text-gray-400">Loading...</div>
+        <Loader label="Loading…" className="py-16" />
       ) : (
         <div className="space-y-4">
           {groups.map((g) => {

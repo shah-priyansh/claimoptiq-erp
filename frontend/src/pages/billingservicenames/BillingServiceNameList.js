@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Loader from '../../components/ui/Loader';
 import { getBillingServiceNamesAPI, createBillingServiceNameAPI, updateBillingServiceNameAPI, deleteBillingServiceNameAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useAuth } from '../../context/AuthContext';
@@ -148,7 +149,7 @@ const BillingServiceNameList = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={4} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={4} className="py-8"><Loader label="Loading…" /></td></tr>
               ) : items.length === 0 ? (
                 <tr><td colSpan={4} className="py-8 text-center text-gray-400">No service names added yet</td></tr>
               ) : items.map((item, idx) => (

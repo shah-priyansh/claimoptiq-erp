@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSwitchHorizontal } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
@@ -120,7 +121,7 @@ const AccountEntryList = () => {
         )}
 
         {loading ? (
-          <div className="py-8 text-center text-gray-400">Loading...</div>
+          <Loader label="Loading…" className="py-8" />
         ) : tab === 'journal' ? (
           items.length === 0 ? <div className="py-8 text-center text-gray-400">No journal entries in this range</div> : (
             <div className="overflow-x-auto">

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
@@ -130,7 +131,7 @@ const ReferenceList = () => {
         </div>
 
         {loading ? (
-          <div className="py-8 text-center text-gray-400">Loading...</div>
+          <Loader label="Loading…" className="py-8" />
         ) : visible.length === 0 ? (
           <div className="py-8 text-center text-gray-400">No references found</div>
         ) : (

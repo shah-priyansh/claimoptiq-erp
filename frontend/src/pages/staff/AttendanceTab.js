@@ -9,6 +9,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlineClock, HiOutlineCheck, HiOutlineExclamation, HiChevronDown, HiOutlineX } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import Loader from '../../components/ui/Loader';
 
 const NativeSelect = ({ value, onChange, children, className = '' }) => (
   <div className={`relative inline-flex items-center ${className}`}>
@@ -266,10 +267,7 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
             {loading && (
               <tr>
                 <td colSpan={9} className="py-16">
-                  <div className="flex flex-col items-center justify-center gap-3 text-gray-400">
-                    <div className="w-8 h-8 border-[3px] border-primary-100 border-t-primary-600 rounded-full animate-spin" />
-                    <p className="text-sm font-medium">Loading attendance...</p>
-                  </div>
+                  <Loader label="Loading attendance…" className="" />
                 </td>
               </tr>
             )}
@@ -696,10 +694,7 @@ const ReadOnlyMonthGrid = ({ employee, month, year, holidays }) => {
             {loading && (
               <tr>
                 <td colSpan={8} className="py-16">
-                  <div className="flex flex-col items-center justify-center gap-3 text-gray-400">
-                    <div className="w-8 h-8 border-[3px] border-primary-100 border-t-primary-600 rounded-full animate-spin" />
-                    <p className="text-sm font-medium">Loading attendance...</p>
-                  </div>
+                  <Loader label="Loading attendance…" className="" />
                 </td>
               </tr>
             )}

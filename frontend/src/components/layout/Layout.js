@@ -5,6 +5,7 @@ import Header from './Header';
 import BottomNav from './BottomNav';
 import FloatingUploadButton from './FloatingUploadButton';
 import { useAuth } from '../../context/AuthContext';
+import Loader from '../ui/Loader';
 
 const Layout = () => {
   const { user, loading } = useAuth();
@@ -20,7 +21,7 @@ const Layout = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <Loader size="lg" />
       </div>
     );
   }

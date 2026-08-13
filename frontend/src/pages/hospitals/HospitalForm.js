@@ -8,6 +8,7 @@ import { formatINR } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useAuth } from '../../context/AuthContext';
+import Loader from '../../components/ui/Loader';
 
 const BILLING_TYPE_OPTIONS = [
   { value: 'fixed_monthly',  label: 'Fixed Monthly' },
@@ -248,10 +249,7 @@ const HospitalForm = () => {
 
   if (fetchLoading) return (
     <div>
-      <div className="flex flex-col items-center justify-center py-32 gap-3">
-        <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gray-400">Loading hospital data...</p>
-      </div>
+      <Loader label="Loading hospital data…" className="py-32" />
     </div>
   );
 

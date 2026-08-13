@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Loader from '../../components/ui/Loader';
 import { getHolidaysAPI, createHolidayAPI, updateHolidayAPI, deleteHolidayAPI, getOtSettingsAPI, updateOtSettingsAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -219,7 +220,7 @@ const HolidayList = ({ canEdit }) => {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={4} className="py-10 text-center text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={4} className="py-10"><Loader label="Loading…" /></td></tr>
             ) : holidays.length === 0 ? (
               <tr><td colSpan={4} className="py-10 text-center text-gray-400">No holidays for {year}</td></tr>
             ) : holidays.map(h => (

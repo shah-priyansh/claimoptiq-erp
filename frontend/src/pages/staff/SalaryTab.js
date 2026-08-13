@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import Loader from '../../components/ui/Loader';
 import { computeSalaryAPI, getSalaryRecordsAPI, getMySalaryAPI, updateSalaryRecordAPI, getOtSettingsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -512,7 +513,7 @@ const AdminSalaryView = ({ canEdit }) => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={10} className="py-10 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={10} className="py-10"><Loader label="Loading…" /></td></tr>
               ) : records.length === 0 ? (
                 <tr><td colSpan={10} className="py-10 text-center text-gray-400">Click "Compute Salary" to generate records</td></tr>
               ) : records.map(r => (
@@ -565,7 +566,7 @@ const MySalaryView = () => {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {state === 'loading' ? (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={6} className="py-8"><Loader label="Loading…" /></td></tr>
             ) : state === 'unlinked' ? (
               <tr><td colSpan={6} className="py-10 text-center text-gray-500">
                 <p className="font-medium text-gray-600">Your account isn’t linked to an employee record yet.</p>

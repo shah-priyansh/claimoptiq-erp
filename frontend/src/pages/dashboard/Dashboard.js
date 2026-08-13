@@ -13,6 +13,7 @@ import {
   HiChevronRight,
 } from 'react-icons/hi';
 import { statusCardStyle } from '../claimstatus/ClaimStatusMaster';
+import Loader from '../../components/ui/Loader';
 
 const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
@@ -69,9 +70,7 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
-      </div>
+      <Loader className="h-64" />
     );
   }
 

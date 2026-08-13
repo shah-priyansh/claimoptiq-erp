@@ -13,6 +13,7 @@ import { toast } from 'react-toastify';
 import { isValidPhone, onPhoneInput, inputCls } from '../../utils/validators';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import DateInput from '../../components/ui/DateInput';
+import Loader from '../../components/ui/Loader';
 import {
   HiOutlineDocumentText, HiOutlineX, HiOutlineUpload,
   HiOutlineTrash, HiOutlineDownload,
@@ -277,10 +278,7 @@ const ClaimForm = () => {
 
   if (fetchLoading) return (
     <div>
-      <div className="flex flex-col items-center justify-center py-32 gap-3">
-        <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gray-400">Loading claim data...</p>
-      </div>
+      <Loader label="Loading claim data…" className="py-32" />
     </div>
   );
 

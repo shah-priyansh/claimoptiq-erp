@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { HiOutlineX, HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi';
 import { getLedgerOptionsAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import AccountSelect from './AccountSelect';
+import AddAccountModal from '../accounts/AddAccountModal';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -18,10 +20,18 @@ const JournalEntryModal = ({ open, initial, onClose, onSave }) => {
   const [lines, setLines] = useState([emptyLine(), emptyLine()]);
   const [groups, setGroups] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [addForLine, setAddForLine] = useState(null);
+  const { can } = useAuth();
+  const canAddAccount = can('chart_of_accounts', 'create');
+
+  const loadGroups = useCallback(
+    () => getLedgerOptionsAPI().then((r) => setGroups(r.data.groups)).catch(() => setGroups([])),
+    [],
+  );
 
   useEffect(() => {
     if (!open) return;
-    getLedgerOptionsAPI().then((r) => setGroups(r.data.groups)).catch(() => setGroups([]));
+    loadGroups();
     if (initial) {
       setDate((initial.date || '').slice(0, 10) || todayIso());
       setDescription(initial.description || '');
@@ -32,7 +42,7 @@ const JournalEntryModal = ({ open, initial, onClose, onSave }) => {
     } else {
       setDate(todayIso()); setDescription(''); setLines([emptyLine(), emptyLine()]);
     }
-  }, [open, initial]);
+  }, [open, initial, loadGroups]);
 
   // Map "kind:id" -> account (for Cur Bal display).
   const optIndex = useMemo(() => {
@@ -62,6 +72,14 @@ const JournalEntryModal = ({ open, initial, onClose, onSave }) => {
   const addLine = () => setLines((ls) => [...ls, emptyLine()]);
   const removeLine = (i) => setLines((ls) => (ls.length <= 2 ? ls : ls.filter((_, idx) => idx !== i)));
 
+  // A new account was created from the picker — refresh options and drop it
+  // straight into the line that opened the dialog.
+  const onAccountCreated = async (ref) => {
+    await loadGroups();
+    if (addForLine !== null && ref?.id) setLine(addForLine, { accountKind: ref.kind, accountId: ref.id });
+    setAddForLine(null);
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     if (!canSave) return;
@@ -78,6 +96,7 @@ const JournalEntryModal = ({ open, initial, onClose, onSave }) => {
   };
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-3xl rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
@@ -105,7 +124,8 @@ const JournalEntryModal = ({ open, initial, onClose, onSave }) => {
                   <div>
                     <AccountSelect groups={groups}
                       value={l.accountKind ? `${l.accountKind}:${l.accountId ?? ''}` : ''}
-                      onChange={(v) => onPickAccount(i, v)} />
+                      onChange={(v) => onPickAccount(i, v)}
+                      onAddAccount={canAddAccount ? () => setAddForLine(i) : undefined} />
                     {acct && <p className="text-[11px] text-gray-400 mt-0.5">Cur Bal: {formatINR(acct.balance)} {acct.side}</p>}
                   </div>
                   <input type="number" min="0" step="0.01" value={l.credit} onChange={(e) => onCredit(i, e.target.value)}
@@ -147,6 +167,8 @@ const JournalEntryModal = ({ open, initial, onClose, onSave }) => {
         </form>
       </div>
     </div>
+    <AddAccountModal open={addForLine !== null} onClose={() => setAddForLine(null)} onCreated={onAccountCreated} />
+    </>
   );
 };
 

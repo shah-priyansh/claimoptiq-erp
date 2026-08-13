@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import Loader from '../../components/ui/Loader';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { getHospitalsAPI, setHospitalStatusAPI, deleteHospitalAPI, deleteAllHospitalsAPI, importHospitalsAPI } from '../../services/api';
@@ -170,7 +171,7 @@ const HospitalList = () => {
         {/* Mobile Cards */}
         <div className="md:hidden">
           {loading ? (
-            <div className="py-12 text-center text-gray-400">Loading...</div>
+            <Loader label="Loading…" className="py-12" />
           ) : hospitals.length === 0 ? (
             <div className="py-12 text-center text-gray-400">No hospitals found</div>
           ) : (
@@ -278,7 +279,7 @@ const HospitalList = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={8} className="py-8 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={8} className="py-8"><Loader label="Loading…" /></td></tr>
               ) : hospitals.length === 0 ? (
                 <tr><td colSpan={8} className="py-8 text-center text-gray-400">No hospitals found</td></tr>
               ) : (

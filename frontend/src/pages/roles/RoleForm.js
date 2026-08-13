@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { createRoleAPI, updateRoleAPI, getRoleAPI, getModulesAPI } from '../../services/api';
 import { toast } from 'react-toastify';
 import { HiOutlineCog } from 'react-icons/hi';
+import Loader from '../../components/ui/Loader';
 
 const MODULE_GROUPS = [
   { label: null,             keys: ['dashboard', 'claims'] },
@@ -148,10 +149,7 @@ const RoleForm = () => {
 
   if (fetchLoading) return (
     <div>
-      <div className="flex flex-col items-center justify-center py-32 gap-3">
-        <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gray-400">Loading...</p>
-      </div>
+      <Loader label="Loading…" className="py-32" />
     </div>
   );
 

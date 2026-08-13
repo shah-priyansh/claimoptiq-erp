@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import JSZip from 'jszip';
+import Loader from '../../components/ui/Loader';
 
 // ─── Field definitions ────────────────────────────────────────────────────────
 // Order here drives the export sequence (Excel + PDF), and matches the columns
@@ -1251,10 +1252,7 @@ const Reports = ({ settlement = false }) => {
               {claims.length === 0 ? (
                 <tr><td colSpan={tableColCount} className="py-10 text-center text-gray-400">
                   {loading ? (
-                    <div className="flex items-center justify-center gap-2 text-gray-500">
-                      <div className="w-4 h-4 border-2 border-gray-300 border-t-primary-600 rounded-full animate-spin" />
-                      <span className="text-sm">Loading claims…</span>
-                    </div>
+                    <Loader inline label="Loading claims…" className="justify-center" />
                   ) : (visibleCols.length === 0 ? 'No columns selected. Click the gear icon to choose columns.' : 'No claims match the current filters.')}
                 </td></tr>
               ) : claims.map(c => (

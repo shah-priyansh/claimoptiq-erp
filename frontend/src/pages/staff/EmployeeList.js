@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Loader from '../../components/ui/Loader';
 import { getEmployeesAPI, createEmployeeAPI, updateEmployeeAPI, getUsersAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -238,7 +239,7 @@ const EmployeeList = ({ canEdit }) => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={10} className="py-10 text-center text-gray-400 text-sm">Loading...</td></tr>
+                <tr><td colSpan={10} className="py-10"><Loader label="Loading…" /></td></tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={10} className="py-10 text-center text-gray-400 text-sm">No employees found</td></tr>
               ) : filtered.map(emp => (
