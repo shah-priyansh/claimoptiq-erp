@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSwitchHorizontal } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSwitchHorizontal, HiOutlineUpload } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getJournalEntriesAPI, createJournalEntryAPI, updateJournalEntryAPI, deleteJournalEntryAPI,
-  getAccountEntriesAPI,
+  getAccountEntriesAPI, getLedgerOptionsAPI,
 } from '../../services/api';
 import JournalEntryModal from './JournalEntryModal';
+import TransactionImportModal from '../../components/import/TransactionImportModal';
+import { journalEntryImportConfig } from '../../components/import/transactionImportConfigs';
 import { formatDate as _formatDate } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 
@@ -31,6 +33,18 @@ const AccountEntryList = () => {
   const [legacy, setLegacy] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
+  const [importOpen, setImportOpen] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+
+  // Flat list of every selectable account (name + kind) for the import template's
+  // Accounts sheet and client-side name validation. Same source as the picker.
+  useEffect(() => {
+    getLedgerOptionsAPI()
+      .then((r) => setAccounts((r.data.groups || []).flatMap((g) => g.accounts || [])))
+      .catch(() => setAccounts([]));
+  }, []);
+
+  const importConfig = useMemo(() => journalEntryImportConfig({ accounts }), [accounts]);
   const [page, setPage] = usePersistedFilters('journal:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('journal:pageSize', 25);
   const [total, setTotal] = useState(0);
@@ -86,10 +100,16 @@ const AccountEntryList = () => {
           <Tab id="legacy" label="Legacy" />
         </div>
         {tab === 'journal' && canCreate && (
-          <button onClick={() => setModal({ open: true, item: null })}
-            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
-            <HiOutlinePlus className="w-4 h-4" /> Add Entry
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setImportOpen(true)}
+              className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+              <HiOutlineUpload className="w-4 h-4" /> Import
+            </button>
+            <button onClick={() => setModal({ open: true, item: null })}
+              className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+              <HiOutlinePlus className="w-4 h-4" /> Add Entry
+            </button>
+          </div>
         )}
       </div>
 
@@ -196,6 +216,13 @@ const AccountEntryList = () => {
 
       <JournalEntryModal open={modal.open} initial={modal.item}
         onClose={() => setModal({ open: false, item: null })} onSave={handleSave} />
+
+      <TransactionImportModal
+        open={importOpen}
+        config={importConfig}
+        onClose={() => setImportOpen(false)}
+        onImported={fetchAll}
+      />
     </div>
   );
 };

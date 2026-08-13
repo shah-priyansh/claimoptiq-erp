@@ -1,7 +1,7 @@
 // Entity-specific configs for the generic TransactionImportModal. Each builder
 // closes over the reference data the list page already has loaded, so the modal
 // stays a pure, data-agnostic component.
-import { importExpensesAPI, importCashBankAPI, importAccountEntriesAPI, importInvoicesAPI } from '../../services/api';
+import { importExpensesAPI, importCashBankAPI, importAccountEntriesAPI, importInvoicesAPI, importJournalEntriesAPI } from '../../services/api';
 import { norm, cleanNum, parseDateLoose } from './importHelpers';
 
 const MODES = ['cash', 'bank', 'upi'];
@@ -181,6 +181,61 @@ export const accountEntryImportConfig = () => ({
     return issues;
   },
 });
+
+// ── Journal Entries (double-entry) ─────────────────────────────────────────
+// One row = one balanced entry: Debit Account is debited by Amount, Credit
+// Account credited by the same Amount. Account names must match the Chart of
+// Accounts (the picker's ledger options), listed on the Accounts sheet.
+export const journalEntryImportConfig = ({ accounts = [] }) => {
+  const names = accounts.map((a) => a.name).filter(Boolean);
+  const nameSet = new Set(names.map((n) => norm(n)));
+  const exDr = names.find((n) => /rent|expense|office|salary/i.test(n)) || names[0] || 'Office Rent';
+  const exCr = names.find((n) => /bank|hdfc|cash/i.test(n)) || names[1] || 'Cash in Hand';
+
+  return {
+    title: 'Import Journal Entries',
+    entityLabel: 'journal entry',
+    sheetName: 'JournalEntries',
+    templateName: 'journal-entries-import-template.xlsx',
+    dateKeys: ['date'],
+    columns: [
+      { key: 'date', label: 'Date *', width: 14, required: true, note: 'YYYY-MM-DD or DD/MM/YYYY' },
+      { key: 'debitAccount', label: 'Debit Account *', width: 28, required: true, note: 'Account to debit — must match an account (see Accounts sheet)' },
+      { key: 'creditAccount', label: 'Credit Account *', width: 28, required: true, note: 'Account to credit — must match an account (see Accounts sheet)' },
+      { key: 'amount', label: 'Amount *', width: 14, required: true, note: 'Numbers only, no ₹ or commas' },
+      { key: 'description', label: 'Description', width: 30, note: 'Optional' },
+    ],
+    sampleRows: [
+      { date: '2025-03-12', debitAccount: exDr, creditAccount: exCr, amount: 15000, description: 'March office rent' },
+    ],
+    refSheets: [
+      { name: 'Accounts', header: 'Account Name (use in the Debit / Credit Account columns)', values: names },
+    ],
+    previewColumns: [
+      { key: 'date', label: 'Date' },
+      { key: 'debitAccount', label: 'Debit Account' },
+      { key: 'creditAccount', label: 'Credit Account' },
+      { key: 'amount', label: 'Amount', align: 'right' },
+    ],
+    uploadAPI: (rows) => importJournalEntriesAPI(rows),
+    validateRow: (r) => {
+      const issues = [];
+      if (!parseDateLoose(r.date)) issues.push({ type: 'date', label: `Date ${r.date ? `invalid: "${r.date}"` : 'missing'}` });
+      const dr = String(r.debitAccount ?? '').trim();
+      const cr = String(r.creditAccount ?? '').trim();
+      if (!dr) issues.push({ type: 'debitAccount', label: 'Debit Account missing' });
+      else if (!nameSet.has(norm(dr))) issues.push({ type: 'debitAccount', label: `Debit Account not found: "${dr}"` });
+      if (!cr) issues.push({ type: 'creditAccount', label: 'Credit Account missing' });
+      else if (!nameSet.has(norm(cr))) issues.push({ type: 'creditAccount', label: `Credit Account not found: "${cr}"` });
+      if (dr && cr && norm(dr) === norm(cr)) issues.push({ type: 'account', label: 'Debit and Credit accounts must differ' });
+      const amt = cleanNum(r.amount);
+      if (amt === null) issues.push({ type: 'amount', label: 'Amount missing' });
+      else if (Number.isNaN(amt)) issues.push({ type: 'amount', label: `Amount not a number: "${r.amount}"` });
+      else if (amt <= 0) issues.push({ type: 'amount', label: 'Amount must be greater than 0' });
+      return issues;
+    },
+  };
+};
 
 // ── Invoices (legacy / opening-balance) ────────────────────────────────────
 export const invoiceImportConfig = ({ hospitals = [] }) => {

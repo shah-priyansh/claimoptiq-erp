@@ -278,6 +278,7 @@ export const getJournalEntryAPI        = (id) => API.get(`/journal-entries/${id}
 export const createJournalEntryAPI      = (data) => API.post('/journal-entries', data);
 export const updateJournalEntryAPI      = (id, data) => API.patch(`/journal-entries/${id}`, data);
 export const deleteJournalEntryAPI      = (id) => API.delete(`/journal-entries/${id}`);
+export const importJournalEntriesAPI    = (rows) => API.post('/journal-entries/import', { rows });
 
 // TDS Rates master
 export const getTdsRatesAPI    = (params) => API.get('/tds-rates', { params });

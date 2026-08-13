@@ -23,6 +23,7 @@ import CashBankFormModal from '../cashbank/CashBankFormModal';
 import BulkReceivePaymentModal from './BulkReceivePaymentModal';
 import { invoiceFilename } from './bulkInvoiceUtils';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
+import { patientNameForInvoice } from '../../utils/invoice';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -52,24 +53,6 @@ const formatDate = (d) => {
 // because service names like "TPA DESK SERVICE - REIMBURSEMENT" carry their
 // own hyphens; the last " - " fallback handles very old invoices that used
 // hyphen as the separator.
-const patientNameForInvoice = (inv) => {
-  if (!inv?.isDirectPatient) return null;
-  // Imported party / direct-patient bills carry the name directly.
-  if (inv.partyName) return inv.partyName;
-  const firstTpa = (inv.lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
-  const desc = firstTpa?.description || '';
-  let afterSep = '';
-  if (desc.includes('—')) {
-    const parts = desc.split(/\s*—\s*/);
-    afterSep = parts.slice(1).join(' — ');
-  } else {
-    const idx = desc.lastIndexOf(' - ');
-    afterSep = idx >= 0 ? desc.slice(idx + 3) : '';
-  }
-  const name = afterSep.replace(/\s*\(CCN[^)]*\)\s*$/, '').trim();
-  return name || 'Direct Patient';
-};
-
 const InvoiceList = () => {
   const navigate = useNavigate();
   const confirm = useConfirm();

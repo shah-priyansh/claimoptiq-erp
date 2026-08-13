@@ -367,7 +367,7 @@ const ExpenseList = () => {
         return (
           <div className="grid grid-cols-12 gap-4">
             {/* Left: Category list */}
-            <div className="col-span-12 md:col-span-4 lg:col-span-3 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col">
+            <div className="col-span-12 md:col-span-4 lg:col-span-3 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)]">
               <div className="p-3 border-b border-gray-100">
                 <div className="relative">
                   <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -383,7 +383,7 @@ const ExpenseList = () => {
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Category</span>
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Amount</span>
               </div>
-              <div className="divide-y divide-gray-100 max-h-[calc(100vh-340px)] overflow-y-auto">
+              <div className="divide-y divide-gray-100 flex-1 min-h-0 overflow-y-auto">
                 {!(loading && summary.rows.length === 0) && (
                   <button
                     onClick={() => { setFilters((f) => ({ ...f, categoryId: '' })); setPage(1); }}

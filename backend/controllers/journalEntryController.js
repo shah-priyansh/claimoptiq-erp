@@ -1,6 +1,71 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
-const { normalizeLines, assertBalanced, nextRefNumber } = require('../utils/journalValidation');
+const { normalizeLines, assertBalanced, nextRefNumber, round2 } = require('../utils/journalValidation');
+
+const norm = (s) => String(s || '').trim().toLowerCase();
+
+// Loose date parser for bulk import — accepts YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY,
+// and Excel serials. Returns a UTC-midnight Date or null. Mirrors the other
+// import controllers so operators can reuse the same date formats everywhere.
+const parseImportDate = (val) => {
+  if (val === undefined || val === null || val === '') return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  const s = String(val).trim();
+  if (!s) return null;
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const d = new Date(Math.round((Number(s) - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return (isNaN(d.getTime()) || d.getUTCMonth() !== +m[2] - 1) ? null : d;
+  }
+  m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (m) {
+    let [, a, b, yy] = m;
+    if (yy.length === 2) yy = '20' + yy;
+    let day = +a, month = +b;
+    if (month > 12 && day <= 12) { const t = day; day = month; month = t; }
+    if (!day || !month || day > 31 || month > 12) return null;
+    const d = new Date(Date.UTC(+yy, month - 1, day));
+    return (isNaN(d.getTime()) || d.getUTCMonth() !== month - 1) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+// Build a lookup from account display name → { accountKind, accountId, accountName }
+// across every account source a journal line can reference. A name shared by two
+// different accounts is marked `ambiguous` so the import flags it rather than
+// silently guessing which one the operator meant.
+const buildAccountNameMap = async () => {
+  const [banks, ledgers, cats, parties] = await Promise.all([
+    prisma.bankAccount.findMany({ where: { isActive: true }, select: { id: true, bankName: true } }),
+    prisma.account.findMany({ where: { isActive: true }, select: { id: true, name: true } }),
+    prisma.expenseCategory.findMany({ where: { isActive: true }, select: { id: true, label: true } }),
+    prisma.party.findMany({ where: { isActive: true }, select: { id: true, name: true } }),
+  ]);
+  const map = new Map();
+  const add = (kind, id, name) => {
+    const key = norm(name);
+    if (!key) return;
+    const existing = map.get(key);
+    if (existing) {
+      if (!existing.ambiguous && !(existing.accountKind === kind && existing.accountId === id)) {
+        map.set(key, { ambiguous: true });
+      }
+    } else {
+      map.set(key, { accountKind: kind, accountId: id, accountName: name });
+    }
+  };
+  banks.forEach((b) => add('bank', b.id, b.bankName));
+  add('cash', null, 'Cash in Hand');
+  ledgers.forEach((a) => add('ledger_account', a.id, a.name));
+  cats.forEach((c) => add('expense_category', c.id, c.label));
+  parties.forEach((p) => add('party', p.id, p.name));
+  return map;
+};
 
 const journalInclude = {
   lines: true,
@@ -108,6 +173,124 @@ exports.create = async (req, res) => {
     res.status(201).json(toResponse(entry));
   } catch (error) {
     if (error.status) return res.status(error.status).json({ message: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Bulk import: one row = one balanced two-legged journal entry. Each row carries
+// a Debit Account name, a Credit Account name, an amount and a date; the row
+// becomes an entry that debits the first and credits the second by that amount.
+exports.bulkImport = async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || !rows.length) {
+      return res.status(400).json({ message: 'rows (non-empty array) is required' });
+    }
+    if (rows.length > 2000) return res.status(400).json({ message: 'Maximum 2000 rows per import' });
+
+    const nameMap = await buildAccountNameMap();
+    const resolve = (raw) => {
+      const key = norm(raw);
+      if (!key) return { error: 'required' };
+      const hit = nameMap.get(key);
+      if (!hit) return { error: 'notfound' };
+      if (hit.ambiguous) return { error: 'ambiguous' };
+      return hit;
+    };
+
+    const errors = [];
+    const toCreate = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      const rowNum = i + 2; // header is row 1 in the source file
+      const rowErrors = [];
+
+      const dateVal = parseImportDate(row.date);
+      if (!dateVal) rowErrors.push(row.date ? `Date invalid: "${row.date}"` : 'Date is required');
+
+      const drRaw = String(row.debitAccount ?? '').trim();
+      const crRaw = String(row.creditAccount ?? '').trim();
+      const dr = resolve(drRaw);
+      const cr = resolve(crRaw);
+      if (dr.error === 'required') rowErrors.push('Debit Account is required');
+      else if (dr.error === 'notfound') rowErrors.push(`Debit Account not found: "${drRaw}"`);
+      else if (dr.error === 'ambiguous') rowErrors.push(`Debit Account name is ambiguous: "${drRaw}"`);
+      if (cr.error === 'required') rowErrors.push('Credit Account is required');
+      else if (cr.error === 'notfound') rowErrors.push(`Credit Account not found: "${crRaw}"`);
+      else if (cr.error === 'ambiguous') rowErrors.push(`Credit Account name is ambiguous: "${crRaw}"`);
+      if (!dr.error && !cr.error && dr.accountKind === cr.accountKind && dr.accountId === cr.accountId) {
+        rowErrors.push('Debit and Credit accounts must differ');
+      }
+
+      const amtRaw = row.amount;
+      const amtStr = String(amtRaw ?? '').replace(/,/g, '').trim();
+      const amt = Number(amtStr);
+      if (amtStr === '') rowErrors.push('Amount is required');
+      else if (!Number.isFinite(amt)) rowErrors.push(`Amount must be a number: "${amtRaw}"`);
+      else if (amt <= 0) rowErrors.push('Amount must be greater than 0');
+
+      const label = drRaw && crRaw ? `${drRaw} → ${crRaw}` : (drRaw || crRaw || (dateVal ? dateVal.toISOString().slice(0, 10) : ''));
+      if (rowErrors.length) { errors.push({ row: rowNum, name: label, errors: rowErrors }); continue; }
+
+      toCreate.push({
+        rowNum,
+        label,
+        date: dateVal,
+        description: String(row.description ?? '').slice(0, 1000),
+        lines: [
+          { accountKind: dr.accountKind, accountId: dr.accountId, accountName: dr.accountName, debit: round2(amt), credit: 0 },
+          { accountKind: cr.accountKind, accountId: cr.accountId, accountName: cr.accountName, debit: 0, credit: round2(amt) },
+        ],
+      });
+    }
+
+    // Assign sequential ref numbers from the current max; a P2002 collision (a
+    // concurrent create grabbed the number) just bumps the counter and retries.
+    const latest = await prisma.journalEntry.findFirst({ orderBy: { createdAt: 'desc' }, select: { refNumber: true } });
+    const startMatch = /(\d+)\s*$/.exec(latest?.refNumber || '');
+    let counter = startMatch ? parseInt(startMatch[1], 10) : 0;
+
+    const created = [];
+    for (const item of toCreate) {
+      let done = false;
+      for (let attempt = 0; attempt < 5 && !done; attempt++) {
+        counter += 1;
+        try {
+          const entry = await prisma.journalEntry.create({
+            data: {
+              refNumber: `JE-${counter}`,
+              date: item.date,
+              description: item.description,
+              createdById: req.user?.id || null,
+              lines: { create: item.lines },
+            },
+            select: { id: true, refNumber: true },
+          });
+          created.push({ row: item.rowNum, id: entry.id, name: item.label, refNumber: entry.refNumber });
+          done = true;
+        } catch (e) {
+          if (e.code === 'P2002') continue; // ref collision → bump and retry
+          errors.push({ row: item.rowNum, name: item.label, errors: [e.message || 'Failed to save'] });
+          done = true;
+        }
+      }
+      if (!done) errors.push({ row: item.rowNum, name: item.label, errors: ['Could not assign a reference number, please retry'] });
+    }
+
+    const successCount = created.length;
+    res.json({
+      message: `Imported ${successCount} of ${rows.length} journal entr${rows.length === 1 ? 'y' : 'ies'}`,
+      created,
+      errors,
+      totalRows: rows.length,
+      successCount,
+      createdCount: successCount,
+      updatedCount: 0,
+      skippedCount: 0,
+      errorCount: errors.length,
+      mode: 'append',
+    });
+  } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

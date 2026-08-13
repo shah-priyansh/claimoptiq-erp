@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { HiOutlineX } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import { invoiceDisplayName } from '../../utils/invoice';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const blank = {
@@ -210,10 +211,17 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                     placeholder="Select invoice"
                     searchPlaceholder="Search invoices..."
                     allowClear
-                    options={invoices.map((i) => ({
-                      value: i._id,
-                      label: `${i.invoiceNumber || `Draft-${i._id.slice(0,8)}`} • ${i.hospital?.name || ''}`,
-                    }))}
+                    options={invoices
+                      // Only invoices with an outstanding balance are receivable.
+                      // Fully-received ones are hidden — except the one this entry
+                      // is already linked to, so edit mode keeps its selection.
+                      .filter((i) => (i.amountPending || 0) > 0 || i._id === form.invoiceId)
+                      .map((i) => {
+                        const name = invoiceDisplayName(i);
+                        const num = i.invoiceNumber || `Draft-${i._id.slice(0, 8)}`;
+                        const bal = `₹${Math.round(i.amountPending || 0).toLocaleString('en-IN')}`;
+                        return { value: i._id, label: `${num}${name ? ` • ${name}` : ''} — ${bal}` };
+                      })}
                   />
                 </>
               )}
