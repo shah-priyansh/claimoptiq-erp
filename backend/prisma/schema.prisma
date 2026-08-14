@@ -690,7 +690,7 @@ model Claim {
   policyNo                  String               @default("") @map("policy_no")
   clientId                  String               @default("") @map("client_id")
   ccnNo                     String               @default("") @map("ccn_no")
-  dateOfAdmit               DateTime             @map("date_of_admit")
+  dateOfAdmit               DateTime?            @map("date_of_admit")
   dateOfDischarge           DateTime?            @map("date_of_discharge")
   hospitalFinalBill         Float                @default(0) @map("hospital_final_bill")
   mouDiscount               Float                @default(0) @map("mou_discount")

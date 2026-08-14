@@ -468,8 +468,8 @@ const ClaimForm = () => {
           <h2 className="text-base font-semibold text-gray-800 mb-4">Admission Dates</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Date of Admit *</label>
-              <DateInput type="date" name="dateOfAdmit" value={form.dateOfAdmit} onChange={handleChange} required />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date of Admit</label>
+              <DateInput type="date" name="dateOfAdmit" value={form.dateOfAdmit} onChange={handleChange} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date of Discharge</label>

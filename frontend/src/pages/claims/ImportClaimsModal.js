@@ -27,7 +27,7 @@ const COLUMNS = [
   { key: 'policyNo',            label: 'Policy No',                     width: 16 },
   { key: 'clientId',            label: 'Client ID',                     width: 14 },
   { key: 'ccnNo',               label: 'CCN No',                        width: 14 },
-  { key: 'dateOfAdmit',         label: 'Date of Admit *',               width: 14, note: 'YYYY-MM-DD or DD/MM/YYYY', required: true },
+  { key: 'dateOfAdmit',         label: 'Date of Admit',                 width: 14, note: 'YYYY-MM-DD or DD/MM/YYYY (optional)' },
   { key: 'dateOfDischarge',     label: 'Date of Discharge',             width: 14, note: 'YYYY-MM-DD or DD/MM/YYYY' },
   { key: 'month',               label: 'Month',                         width: 12, note: 'Defaults to Date of Admit if blank' },
   { key: 'status',              label: 'Status',                        width: 14, note: 'Status slug or label (see Statuses sheet). Defaults to admitted.' },
@@ -302,8 +302,9 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
         }
       }
       if (!cleanCell(r.patientName)) { issues.push({ type: 'patient',    label: 'Patient name missing' }); bump('patient'); }
-      if (!parseDateLoose(r.dateOfAdmit)) {
-        issues.push({ type: 'date', label: `Date of Admit invalid${r.dateOfAdmit ? `: "${formatDateCell(r.dateOfAdmit)}"` : ''}` });
+      // D.O.A is optional — only flag a value that was provided but is invalid.
+      if (cleanCell(r.dateOfAdmit) && !parseDateLoose(r.dateOfAdmit)) {
+        issues.push({ type: 'date', label: `Date of Admit invalid: "${formatDateCell(r.dateOfAdmit)}"` });
         bump('date');
       }
       const ct = norm(cleanCell(r.claimType)).replace(/\s+/g, '_');
