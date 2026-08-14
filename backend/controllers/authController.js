@@ -12,6 +12,7 @@ const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
 const userInclude = {
   role: { include: { modulePermissions: true } },
   hospital: { select: { id: true, name: true } },
+  reference: { select: { id: true, name: true } },
 };
 
 const formatUser = (user) => {
@@ -22,6 +23,7 @@ const formatUser = (user) => {
     _id: rest.id,
     role: formatRole(rest.role),
     hospital: rest.hospital ? { ...rest.hospital, _id: rest.hospital.id } : null,
+    reference: rest.reference ? { ...rest.reference, _id: rest.reference.id } : null,
   };
 };
 
@@ -171,7 +173,7 @@ exports.getMe = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role, hospital, phone } = req.body;
+    const { name, email, password, role, hospital, reference, phone } = req.body;
 
     if (!phone || !phone.trim()) {
       return res.status(400).json({ message: 'Phone number is required' });
@@ -201,6 +203,7 @@ exports.createUser = async (req, res) => {
         password: hashed,
         roleId: role,
         hospitalId: hospital || null,
+        referenceId: reference || null,
         phone,
       },
       include: userInclude,
@@ -286,7 +289,7 @@ exports.changePassword = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
   try {
-    const { name, email, role, hospital, phone, isActive, password } = req.body;
+    const { name, email, role, hospital, reference, phone, isActive, password } = req.body;
 
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -301,6 +304,7 @@ exports.updateUser = async (req, res) => {
     if (email) updateData.email = email.toLowerCase().trim();
     if (role) updateData.roleId = role;
     if (hospital !== undefined) updateData.hospitalId = hospital || null;
+    if (reference !== undefined) updateData.referenceId = reference || null;
     if (phone !== undefined) updateData.phone = phone;
     if (isActive !== undefined) updateData.isActive = isActive;
     if (password) updateData.password = await bcrypt.hash(password, 12);

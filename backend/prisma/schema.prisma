@@ -109,6 +109,7 @@ model Reference {
   hospitals          Hospital[]
   expenses           Expense[]
   party              Party?
+  users              User[]
 
   @@index([name])
   @@map("references")
@@ -571,6 +572,10 @@ model User {
   password                 String
   roleId                   String               @map("role_id")
   hospitalId               String?              @map("hospital_id")
+  // Reference-scoped login: when set, the user only sees data for the hospitals
+  // belonging to this reference (mirrors hospitalId, one level up). Nullable —
+  // most users have no reference scope.
+  referenceId              String?              @map("reference_id")
   phone                    String
   isActive                 Boolean              @default(true) @map("is_active")
   resetTokenHash           String?              @map("reset_token_hash")
@@ -579,6 +584,7 @@ model User {
   updatedAt                DateTime             @updatedAt @map("updated_at")
   role                     Role                 @relation(fields: [roleId], references: [id])
   hospital                 Hospital?            @relation(fields: [hospitalId], references: [id])
+  reference                Reference?           @relation(fields: [referenceId], references: [id])
   claimsCreated            Claim[]              @relation("ClaimCreatedBy")
   claimsUpdated            Claim[]              @relation("ClaimUpdatedBy")
   claimStatusChanges       ClaimStatusHistory[] @relation("ClaimStatusChangedBy")

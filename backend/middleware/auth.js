@@ -56,11 +56,13 @@ const protect = async (req, res, next) => {
         include: {
           role: { include: { modulePermissions: true } },
           hospital: { select: { id: true, name: true } },
+          reference: { select: { id: true, name: true } },
         },
       });
       if (user) {
         user._id = user.id;
         if (user.hospital) user.hospital._id = user.hospital.id;
+        if (user.reference) user.reference._id = user.reference.id;
         _userCache.set(decoded.id, { user, expiry: Date.now() + USER_CACHE_TTL });
       }
     }
