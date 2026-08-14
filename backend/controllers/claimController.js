@@ -14,6 +14,15 @@ const getUserHospitalId = (user) => {
   return user.hospitalId || user.hospital?.id || null;
 };
 
+// D.O.A is optional. A blank, unparseable, or pre-1970 value is stored as NULL
+// rather than a bogus epoch date (e.g. an Excel blank cell that arrives as
+// serial 0 → 1899-12-30). The bulk-import path has its own guard in parseDate.
+const toAdmitDate = (val) => {
+  if (!val) return null;
+  const d = new Date(val);
+  return (!isNaN(d.getTime()) && d.getFullYear() >= 1970) ? d : null;
+};
+
 // A hospital user is normally scoped to their own hospital's claims. A Hospital
 // *Admin* whose hospital is a *parent* additionally sees every branch's claims,
 // so their effective view scope is [ownId, ...branchIds]. Everyone else
@@ -131,7 +140,7 @@ exports.createClaim = async (req, res) => {
         policyNo: req.body.policyNo || '',
         clientId: req.body.clientId || '',
         ccnNo: req.body.ccnNo || '',
-        dateOfAdmit: new Date(req.body.dateOfAdmit),
+        dateOfAdmit: toAdmitDate(req.body.dateOfAdmit),
         dateOfDischarge: req.body.dateOfDischarge ? new Date(req.body.dateOfDischarge) : null,
         hospitalFinalBill: req.body.hospitalFinalBill || 0,
         mouDiscount: req.body.mouDiscount || 0,
@@ -479,6 +488,8 @@ exports.updateClaim = async (req, res) => {
           : req.body[key];
       }
     }
+    // dateOfAdmit is optional but must never persist a bogus pre-1970 epoch date.
+    if (data.dateOfAdmit && data.dateOfAdmit.getFullYear() < 1970) data.dateOfAdmit = null;
     if (req.body.insuranceCompany !== undefined) data.insuranceCompanyId = req.body.insuranceCompany || null;
     if (req.body.tpa !== undefined) data.tpaId = req.body.tpa || null;
     if (req.body.isDirectPatient !== undefined) {
@@ -1279,8 +1290,14 @@ exports.importClaims = async (req, res) => {
       if (!claimType) rowErrors.push('Claim Type is required');
       else if (!CLAIM_TYPES.includes(claimType)) rowErrors.push(`Claim Type "${row.claimType}" is invalid — must be one of: ${CLAIM_TYPES.join(', ')}`);
 
+      // D.O.A is optional — a blank cell stays blank (NULL). Only flag a value
+      // that was actually provided but couldn't be parsed. parseDate treats a
+      // pre-1970 epoch date (Excel serial-0 → 1899-12-30) as blank, so it too
+      // passes through as null rather than being stored.
       const dateOfAdmit = parseDate(row.dateOfAdmit);
-      if (!dateOfAdmit) rowErrors.push(`Date of Admit "${row.dateOfAdmit || ''}" could not be parsed — use YYYY-MM-DD, DD/MM/YYYY or MM/DD/YYYY`);
+      if (!dateOfAdmit && cleanCell(row.dateOfAdmit)) {
+        rowErrors.push(`Date of Admit "${row.dateOfAdmit}" could not be parsed — use YYYY-MM-DD, DD/MM/YYYY or MM/DD/YYYY`);
+      }
 
       // ── Hospital / Direct Patient ───────────────────────────────────
       let hospitalId = null;
@@ -1396,6 +1413,9 @@ exports.importClaims = async (req, res) => {
       const onlineSubmitDate  = parseDate(row.onlineSubmitDate);
       const settlementDate    = parseDate(row.settlementDate);
       const monthVal          = parseDate(row.month) || dateOfAdmit;
+      // month is required; with D.O.A now optional it can no longer be relied on
+      // as a guaranteed fallback, so a row with neither is rejected.
+      if (!monthVal) rowErrors.push('Month is required — provide a Month, or a Date of Admit to derive it from');
 
       // ── Submit mode ─────────────────────────────────────────────────
       const submitMode = norm(cleanCell(row.submitMode));
