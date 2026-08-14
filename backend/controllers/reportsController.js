@@ -236,13 +236,16 @@ exports.references = async (req, res) => {
       select: { id: true, name: true, commissionRate: true, isActive: true },
     });
 
-    // Business given: sum invoice.netTotal grouped by hospital.referenceId
+    // Business given: sum invoice.netTotal grouped by hospital.referenceId.
+    // Exclude null-hospital (direct-patient) invoices — they have no hospital,
+    // so no referenceId, and a null in the `hospitalId` list would throw a
+    // Prisma validation error on the `id: { in }` lookup below.
     const businessRows = await prisma.invoice.groupBy({
       by: ['hospitalId'],
-      where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to } },
+      where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to }, hospitalId: { not: null } },
       _sum: { netTotal: true },
     });
-    const hospitalIds = businessRows.map((r) => r.hospitalId);
+    const hospitalIds = businessRows.map((r) => r.hospitalId).filter(Boolean);
     const hospitals = hospitalIds.length
       ? await prisma.hospital.findMany({ where: { id: { in: hospitalIds } }, select: { id: true, referenceId: true } })
       : [];
@@ -532,7 +535,7 @@ exports.balanceSheet = async (req, res) => {
           issuedAt: { lte: to },
         },
         select: {
-          hospitalId: true, grandTotal: true, amountPaid: true,
+          hospitalId: true, grandTotal: true, amountPaid: true, partyName: true, status: true,
           hospital: { select: { id: true, name: true } },
         },
       }),
@@ -613,13 +616,24 @@ exports.balanceSheet = async (req, res) => {
     const upiTotal = Math.round(cashBucket.upi);
 
     // --- Sundry Debtors (per hospital, outstanding > 0) ---
+    // Direct-patient invoices have no hospital; their debtor is the free-text
+    // `partyName`. Group those per party (keyed distinctly from hospitals) so
+    // they show a real name instead of collapsing into a single blank row.
     const debtorMap = new Map();
     for (const inv of openInvoices) {
+      // Fully-paid invoices are settled — not receivables. Skipping them keeps
+      // an over-paid invoice (amountPaid > grandTotal) from posting a negative
+      // debtor that would make this total disagree with the dashboard's
+      // "Receivables" (which counts only issued / partially_paid invoices).
+      if (inv.status === 'paid') continue;
       const due = (inv.grandTotal || 0) - (inv.amountPaid || 0);
       if (Math.abs(due) < 0.5) continue;
-      const cur = debtorMap.get(inv.hospitalId) || { key: inv.hospitalId, label: inv.hospital?.name || '—', value: 0 };
+      const isDirect = !inv.hospitalId;
+      const key = isDirect ? `party:${inv.partyName || ''}` : inv.hospitalId;
+      const label = inv.hospital?.name || inv.partyName || '—';
+      const cur = debtorMap.get(key) || { key, label, value: 0 };
       cur.value += due;
-      debtorMap.set(inv.hospitalId, cur);
+      debtorMap.set(key, cur);
     }
     const debtorRows = Array.from(debtorMap.values())
       .map((r) => ({ ...r, value: Math.round(r.value) }))
@@ -742,7 +756,7 @@ exports.dashboard = async (req, res) => {
       prisma.accountEntry.groupBy({ where: { entryType: 'contra' }, by: ['fromMode'], _sum: { amount: true } }),
       prisma.invoice.groupBy({
         by: ['hospitalId'],
-        where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: mStart, lte: mEndInclusive } },
+        where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: mStart, lte: mEndInclusive }, hospitalId: { not: null } },
         _sum: { netTotal: true },
         orderBy: { _sum: { netTotal: 'desc' } },
         take: 1,

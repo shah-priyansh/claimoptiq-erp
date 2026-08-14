@@ -15,7 +15,7 @@ import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getInvoicesAPI, deleteInvoiceAPI, deleteAllInvoicesAPI, voidInvoiceAPI,
   getHospitalsAPI, openInvoicePdf, previewInvoicePdf, printInvoicePdf, createCashBankAPI, getBankAccountsAPI,
-  getOpenInvoiceHospitalsAPI,
+  getOpenInvoiceHospitalsAPI, getInvoicePartyNamesAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import TransactionImportModal from '../../components/import/TransactionImportModal';
@@ -69,11 +69,14 @@ const InvoiceList = () => {
   // invoice. Powers the "Open Invoice Hospitals" quick-filter dropdown.
   const [openInvoiceHospitals, setOpenInvoiceHospitals] = useState([]);
   const [loadingOpenHospitals, setLoadingOpenHospitals] = useState(true);
+  // Distinct party names across invoices — powers the "Party" filter dropdown.
+  const [partyNames, setPartyNames] = useState([]);
+  const [loadingParties, setLoadingParties] = useState(true);
   // Bank accounts feed the Mark-as-Paid modal's bank picker.
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = usePersistedFilters('invoices:filters', { hospitalId: '', status: '', month: '', type: '' });
+  const [filters, setFilters] = usePersistedFilters('invoices:filters', { hospitalId: '', status: '', month: '', type: '', party: '' });
   const [page, setPage] = usePersistedFilters('invoices:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('invoices:pageSize', 25);
   // Server-side column sort. Empty field = backend default (month, then newest).
@@ -245,7 +248,7 @@ const InvoiceList = () => {
   // Avoids surfacing a stale selection that no longer matches what the
   // operator sees on screen.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setSelectedIds([]); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type, sort.field, sort.dir]);
+  useEffect(() => { setSelectedIds([]); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type, filters.party, sort.field, sort.dir]);
 
   const selectedInvoices = items.filter((x) => selectedIds.includes(x._id));
   const selectionHospitalId = selectedInvoices[0]?.hospital?._id || null;
@@ -283,6 +286,7 @@ const InvoiceList = () => {
       if (filters.month) params.month = filters.month + '-01';
       if (filters.type === 'direct') params.isDirectPatient = 'true';
       else if (filters.type === 'hospital') params.isDirectPatient = 'false';
+      if (filters.party) params.partyName = filters.party;
       if (sort.field) { params.sort = sort.field; params.dir = sort.dir; }
       const { data } = await getInvoicesAPI(params);
       setItems(data.invoices || []);
@@ -308,6 +312,10 @@ const InvoiceList = () => {
       .then(({ data }) => setBankAccounts(data || []))
       .catch(() => setBankAccounts([]))
       .finally(() => setLoadingBankAccounts(false));
+    getInvoicePartyNamesAPI()
+      .then(({ data }) => setPartyNames(data.parties || []))
+      .catch(() => setPartyNames([]))
+      .finally(() => setLoadingParties(false));
   }, []);
 
   // Refresh the open-invoice hospital list whenever the page is loaded or the
@@ -323,7 +331,7 @@ const InvoiceList = () => {
   useEffect(() => { refreshOpenInvoiceHospitals(); }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type, sort.field, sort.dir]);
+  useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type, filters.party, sort.field, sort.dir]);
 
   const handleDelete = async (item) => {
     if (item.status !== 'draft' && item.status !== 'void') {
@@ -437,7 +445,7 @@ const InvoiceList = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-6 gap-3">
+        <div className="p-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Hospital</label>
             <SearchableSelect
@@ -506,13 +514,26 @@ const InvoiceList = () => {
             />
           </div>
           <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Party</label>
+            <SearchableSelect
+              isLoading={loadingParties}
+              value={filters.party}
+              onChange={(v) => { setFilters((f) => ({ ...f, party: v })); setPage(1); }}
+              placeholder={partyNames.length ? 'All parties' : 'No parties'}
+              searchPlaceholder="Search parties..."
+              noneLabel="All parties"
+              allowClear
+              options={partyNames.map((n) => ({ value: n, label: n }))}
+            />
+          </div>
+          <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Month</label>
             <input type="month" value={filters.month}
               onChange={(e) => { setFilters((f) => ({ ...f, month: e.target.value })); setPage(1); }}
               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-700" />
           </div>
           <div className="flex items-end">
-            <button onClick={() => { setFilters({ hospitalId: '', status: '', month: '', type: '' }); setPage(1); }}
+            <button onClick={() => { setFilters({ hospitalId: '', status: '', month: '', type: '', party: '' }); setPage(1); }}
               className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors">
               Clear filters
             </button>

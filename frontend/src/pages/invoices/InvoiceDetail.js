@@ -38,6 +38,9 @@ const LINE_TYPE_LABEL = {
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const formatMonth = (d) => d ? new Date(d).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '-';
 const formatDate = (d) => _formatDate(d);
+// Seed the native <input type="date"/"month"> controls from a stored ISO date.
+const toDateInput = (d) => { if (!d) return ''; const dt = new Date(d); return isNaN(dt.getTime()) ? '' : dt.toISOString().slice(0, 10); };
+const toMonthInput = (d) => { if (!d) return ''; const dt = new Date(d); return isNaN(dt.getTime()) ? '' : dt.toISOString().slice(0, 7); };
 
 // 'TPA Desk — RAJESH PATEL (CCN-0001)' → 'TPA Desk'. Used to collapse rows
 // from the same billing service into a single expandable group header.
@@ -65,6 +68,12 @@ const InvoiceDetail = () => {
   const [discount, setDiscount] = useState(0);
   const [tdsRateId, setTdsRateId] = useState('');
   const [gstRate, setGstRate] = useState(0);
+  // Editable dates: month (accounting period, required), invoice date, issued
+  // date (drives reports) and due date. Stored as <input>-friendly strings.
+  const [month, setMonth] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState('');
+  const [issuedAt, setIssuedAt] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [tdsRates, setTdsRates] = useState([]);
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
   const [payments, setPayments] = useState([]);
@@ -161,6 +170,10 @@ const InvoiceDetail = () => {
       setRoundOff(data.roundOff || 0);
       setDiscount(data.discount || 0);
       setGstRate(data.gstRate ?? 0);
+      setMonth(toMonthInput(data.month));
+      setInvoiceDate(toDateInput(data.invoiceDate));
+      setIssuedAt(toDateInput(data.issuedAt));
+      setDueDate(toDateInput(data.dueDate));
       setAdjustments((data.lineItems || []).filter((l) => l.lineType === 'adjustment').map((l) => ({
         description: l.description, amount: l.amount,
       })));
@@ -235,6 +248,15 @@ const InvoiceDetail = () => {
       if (lineEdits.length) payload.lineEdits = lineEdits;
       if (manualItems.length) payload.manualItems = manualItems;
       if (removedLineIds.length) payload.removedLineIds = removedLineIds;
+
+      // Only send date fields that actually changed, so an unchanged date
+      // keeps its exact stored value (incl. time-of-day) rather than being
+      // re-normalised to midnight on every save. `month` is required — never
+      // send it empty; the others send '' to clear.
+      if (month && month !== toMonthInput(invoice.month)) payload.month = month;
+      if (invoiceDate !== toDateInput(invoice.invoiceDate)) payload.invoiceDate = invoiceDate;
+      if (!isDraft && issuedAt !== toDateInput(invoice.issuedAt)) payload.issuedAt = issuedAt;
+      if (!isDraft && dueDate !== toDateInput(invoice.dueDate)) payload.dueDate = dueDate;
 
       await updateInvoiceAPI(id, payload);
       toast.success(invoice.status === 'draft' ? 'Draft saved' : 'Invoice updated');
@@ -608,6 +630,49 @@ const InvoiceDetail = () => {
             <p className="text-xs text-gray-400 mt-2">
               Tip: use a negative amount for a discount, positive for an extra charge. Claim-linked rows update the claim's file price when the invoice is issued.
             </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Month <span className="text-xs text-gray-400 font-normal">(accounting period)</span>
+                </label>
+                <input
+                  type="month" value={month}
+                  onChange={(e) => setMonth(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Invoice Date <span className="text-xs text-gray-400 font-normal">(printed on bill)</span>
+                </label>
+                <input
+                  type="date" value={invoiceDate}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+              {!isDraft && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Issued Date <span className="text-xs text-gray-400 font-normal">(drives reports)</span>
+                  </label>
+                  <input
+                    type="date" value={issuedAt}
+                    onChange={(e) => setIssuedAt(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                </div>
+              )}
+              {!isDraft && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Due Date <span className="text-xs text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="date" value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
               <div>
