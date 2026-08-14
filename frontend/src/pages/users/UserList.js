@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import Loader from '../../components/ui/Loader';
-import { getUsersAPI, createUserAPI, updateUserAPI, getHospitalsAPI, getRolesAPI } from '../../services/api';
+import { getUsersAPI, createUserAPI, updateUserAPI, getHospitalsAPI, getRolesAPI, getReferencesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineX } from 'react-icons/hi';
 import { isValidEmail, isValidPhone, onPhoneInput, inputCls } from '../../utils/validators';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
-const emptyForm = { name: '', email: '', password: '', role: '', hospital: '', phone: '' };
+const emptyForm = { name: '', email: '', password: '', role: '', hospital: '', reference: '', phone: '' };
 
 const UserList = () => {
   const { can } = useAuth();
   const [users, setUsers] = useState([]);
   const [hospitals, setHospitals] = useState([]);
+  const [references, setReferences] = useState([]);
   const [roles, setRoles] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -22,14 +23,19 @@ const UserList = () => {
 
   const fetchData = async () => {
     try {
-      const [usersRes, hospitalsRes, rolesRes] = await Promise.all([
+      const [usersRes, hospitalsRes, rolesRes, referencesRes] = await Promise.all([
         getUsersAPI(),
-        getHospitalsAPI({ all: 'true', active: 'true' }),
-        getRolesAPI()
+        // All hospitals (incl. inactive) so the reference preview matches the
+        // backend scope, which spans a reference's active AND inactive hospitals.
+        // The hospital picker below is filtered back to active-only.
+        getHospitalsAPI({ all: 'true' }),
+        getRolesAPI(),
+        getReferencesAPI({ active: 'true' })
       ]);
       setUsers(usersRes.data);
       setHospitals(hospitalsRes.data);
       setRoles(rolesRes.data);
+      setReferences(referencesRes.data || []);
     } catch { toast.error('Failed to fetch data'); }
     finally { setLoading(false); }
   };
@@ -39,6 +45,20 @@ const UserList = () => {
   const selectedRole = roles.find(r => r._id === form.role);
   const isHospitalRole = ['hospital_admin', 'hospital_staff'].includes(selectedRole?.slug);
   const isHospitalAdmin = selectedRole?.slug === 'hospital_admin';
+  // A reference-scoped login is tied to a Reference; picking one limits the
+  // user to that reference's hospitals across claims/reports/dashboard.
+  const isReferenceRole = selectedRole?.slug === 'reference';
+  const selectedReference = references.find(r => r._id === form.reference);
+  // Hospitals auto-included for the picked reference — matched by the master
+  // link (reference.name) OR the free-text referenceBy, mirroring how the
+  // backend scopes a reference login. Shown so the operator sees the access.
+  const referenceHospitals = (isReferenceRole && selectedReference)
+    ? hospitals.filter(h => {
+        const rn = selectedReference.name.trim().toLowerCase();
+        return (h.reference?.name || '').trim().toLowerCase() === rn
+            || (h.referenceBy || '').trim().toLowerCase() === rn;
+      })
+    : [];
   // Branches of the picked hospital. A hospital admin auto-inherits visibility
   // of these — surfaced as a read-only note so the operator sees what's included.
   const selectedHospitalBranches = form.hospital
@@ -53,7 +73,9 @@ const UserList = () => {
     return acc;
   }, {});
   const hospitalById = Object.fromEntries(hospitals.map(h => [h._id, h]));
-  const hospitalOptions = hospitals.map(h => {
+  // The hospital-admin picker stays active-only (you don't assign a login to a
+  // deactivated hospital); the reference preview above uses the full list.
+  const hospitalOptions = hospitals.filter(h => h.isActive).map(h => {
     const branchCount = branchCountByParent[h._id] || 0;
     let tag = null;
     if (h.parentHospitalId) {
@@ -73,6 +95,7 @@ const UserList = () => {
     if (!editId && !form.password) e.password = 'Password is required';
     if (form.password && form.password.length < 6) e.password = 'Password must be at least 6 characters';
     if (!form.role) e.role = 'Role is required';
+    if (isReferenceRole && !form.reference) e.reference = 'Reference is required';
     if (!form.phone.trim()) e.phone = 'Phone number is required';
     else if (!isValidPhone(form.phone)) e.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
     return e;
@@ -84,7 +107,11 @@ const UserList = () => {
     if (Object.keys(e_).length) { setErrors(e_); return; }
     try {
       const submitData = { ...form };
-      if (!submitData.hospital) delete submitData.hospital;
+      // A user has at most one scope. Clear the field that doesn't apply to the
+      // chosen role so switching roles never leaves a stale hospital/reference
+      // link (the backend maps '' → null).
+      if (!isHospitalRole) submitData.hospital = '';
+      if (!isReferenceRole) submitData.reference = '';
       if (editId) {
         if (!submitData.password) delete submitData.password;
         await updateUserAPI(editId, submitData);
@@ -115,6 +142,7 @@ const UserList = () => {
       password: '',
       role: user.role?._id || '',
       hospital: user.hospital?._id || '',
+      reference: user.reference?._id || '',
       phone: user.phone || ''
     });
     setEditId(user._id);
@@ -301,6 +329,41 @@ const UserList = () => {
                     <p className="mt-1.5 text-xs text-teal-700 bg-teal-50 border border-teal-100 rounded-md px-2.5 py-1.5">
                       This hospital has {selectedHospitalBranches.length} sub-branch{selectedHospitalBranches.length === 1 ? '' : 'es'}. This admin will also see their claims: {selectedHospitalBranches.map(b => b.name).join(', ')}.
                     </p>
+                  )}
+                </div>
+              )}
+              {isReferenceRole && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference *</label>
+                  <SearchableSelect
+                    options={references.map(r => ({ value: r._id, label: r.name }))}
+                    value={form.reference}
+                    onChange={(v) => setField('reference', v)}
+                    placeholder={loading ? 'Loading...' : 'Select Reference'}
+                    searchPlaceholder="Search references..."
+                    disabled={loading}
+                    isLoading={loading}
+                    allowClear
+                  />
+                  {errors.reference && <p className="text-xs text-red-500 mt-1">{errors.reference}</p>}
+                  {form.reference ? (
+                    referenceHospitals.length > 0 ? (
+                      <div className="mt-1.5 text-xs text-purple-700 bg-purple-50 border border-purple-100 rounded-md px-2.5 py-1.5">
+                        <p className="font-medium mb-1">
+                          Auto-included: {referenceHospitals.length} hospital{referenceHospitals.length === 1 ? '' : 's'}
+                          {(() => { const inactive = referenceHospitals.filter(h => !h.isActive).length; return inactive > 0 ? ` (${referenceHospitals.length - inactive} active, ${inactive} inactive)` : ''; })()}
+                        </p>
+                        <div className="max-h-24 overflow-y-auto leading-relaxed">
+                          {referenceHospitals.map(h => h.name + (h.isActive ? '' : ' (inactive)')).join(', ')}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2.5 py-1.5">
+                        No hospitals are linked to this reference yet — this login won't see any claims until hospitals are assigned to it.
+                      </p>
+                    )
+                  ) : (
+                    <p className="mt-1.5 text-xs text-gray-500">Pick a reference — this login will only see data for the hospitals belonging to it.</p>
                   )}
                 </div>
               )}

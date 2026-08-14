@@ -32,6 +32,11 @@ const toAdmitDate = (val) => {
 // paths only — create/import/delete-all and per-claim write guards keep the
 // exact single-hospital rule.
 const getUserHospitalScope = async (user) => {
+  // Reference-scoped login: limited to the hospitals belonging to their
+  // reference. Matched both by the FK link and the free-text `referenceBy`
+  // name so hospitals linked either way are covered (may be []). Takes
+  // precedence — a reference user has no single hospitalId.
+  if (user?.referenceId) return getReferenceHospitalIds(user);
   const hospitalId = getUserHospitalId(user);
   if (!hospitalId) return null;
   if (user.role?.slug !== 'hospital_admin') return [hospitalId];
@@ -40,6 +45,31 @@ const getUserHospitalScope = async (user) => {
     select: { id: true },
   });
   return branches.length ? [hospitalId, ...branches.map((b) => b.id)] : [hospitalId];
+};
+
+// Hospital IDs owned by a reference-scoped user's reference — matched by the
+// referenceId FK OR the denormalised free-text `referenceBy` name (case-
+// insensitive), since only ~1/4 of hospitals carry the FK. Returns [] when the
+// reference owns no hospitals (so the user correctly sees nothing).
+const getReferenceHospitalIds = async (user) => {
+  const or = [{ referenceId: user.referenceId }];
+  if (user.reference?.name) or.push({ referenceBy: { equals: user.reference.name, mode: 'insensitive' } });
+  const hospitals = await prisma.hospital.findMany({ where: { OR: or }, select: { id: true } });
+  return hospitals.map((h) => h.id);
+};
+
+// Per-claim write/read guard: true if this scoped user may NOT touch `claim`.
+// Hospital users → their own hospital only (unchanged). Reference users → any
+// hospital under their reference. Office/super users (no scope) → never blocked.
+// Direct-patient claims (no hospital) are always off-limits to scoped users.
+const claimOutOfScope = async (user, claim) => {
+  const uid = getUserHospitalId(user);
+  if (uid) return claim.hospitalId !== uid || claim.isDirectPatient;
+  if (user?.referenceId) {
+    const ids = await getReferenceHospitalIds(user);
+    return !ids.includes(claim.hospitalId) || claim.isDirectPatient;
+  }
+  return false;
 };
 
 // Fire-and-forget: when claim(s) are settled, offload their files. The
@@ -458,8 +488,7 @@ exports.updateClaim = async (req, res) => {
     ]);
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+    if (await claimOutOfScope(req.user, claim)) {
       return res.status(403).json({ message: "You can only update your own hospital's claims" });
     }
 
@@ -556,8 +585,7 @@ const loadClaimHistoryEntry = async (req, res) => {
   });
   if (!claim) { res.status(404).json({ message: 'Claim not found' }); return null; }
 
-  const userHospitalId = getUserHospitalId(req.user);
-  if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+  if (await claimOutOfScope(req.user, claim)) {
     res.status(403).json({ message: "You can only edit your own hospital's claims" });
     return null;
   }
@@ -620,8 +648,7 @@ exports.uploadDocuments = async (req, res) => {
     const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+    if (await claimOutOfScope(req.user, claim)) {
       return res.status(403).json({ message: "You can only upload to your own hospital's claims" });
     }
 
@@ -655,8 +682,7 @@ exports.deleteDocument = async (req, res) => {
     const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+    if (await claimOutOfScope(req.user, claim)) {
       return res.status(403).json({ message: "You can only manage your own hospital's claims" });
     }
 
@@ -683,8 +709,7 @@ exports.streamDocument = async (req, res) => {
     const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+    if (await claimOutOfScope(req.user, claim)) {
       return res.status(403).json({ message: "You can only access your own hospital's claims" });
     }
 
@@ -717,8 +742,7 @@ exports.deleteClaim = async (req, res) => {
     const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    const userHospitalId = getUserHospitalId(req.user);
-    if (userHospitalId && (claim.hospitalId !== userHospitalId || claim.isDirectPatient)) {
+    if (await claimOutOfScope(req.user, claim)) {
       return res.status(403).json({ message: "You can only delete your own hospital's claims" });
     }
 
@@ -752,6 +776,9 @@ exports.deleteAllClaims = async (req, res) => {
     const where = {};
     if (userHospitalId) {
       where.hospitalId = userHospitalId;
+      where.isDirectPatient = false;
+    } else if (req.user.referenceId) {
+      where.hospitalId = { in: await getReferenceHospitalIds(req.user) };
       where.isDirectPatient = false;
     }
 
@@ -1639,6 +1666,9 @@ exports.downloadSettledBackup = async (req, res) => {
     if (userHospitalId) {
       where.hospitalId = userHospitalId;
       where.isDirectPatient = false;
+    } else if (req.user.referenceId) {
+      where.hospitalId = { in: await getReferenceHospitalIds(req.user) };
+      where.isDirectPatient = false;
     }
 
     const claims = await prisma.claim.findMany({
@@ -1897,10 +1927,18 @@ exports.invalidateDashboardCache = () => { _dashboardCache.clear(); };
 exports.getDashboardStats = async (req, res) => {
   try {
     const userHospitalId = getUserHospitalId(req.user);
-    const baseWhere = userHospitalId ? { hospitalId: userHospitalId, isDirectPatient: false } : {};
+    // Reference logins are scoped to their reference's hospitals, like a hospital
+    // user but across a set of hospitals.
+    const referenceIds = req.user.referenceId ? await getReferenceHospitalIds(req.user) : null;
+    const isScoped = !!userHospitalId || !!referenceIds;
+    const baseWhere = userHospitalId
+      ? { hospitalId: userHospitalId, isDirectPatient: false }
+      : referenceIds
+        ? { hospitalId: { in: referenceIds }, isDirectPatient: false }
+        : {};
 
     const now = new Date();
-    const cacheKey = `${userHospitalId || 'admin'}|${now.getFullYear()}-${now.getMonth()}`;
+    const cacheKey = `${userHospitalId || (req.user.referenceId ? 'ref:' + req.user.referenceId : 'admin')}|${now.getFullYear()}-${now.getMonth()}`;
     const cached = _dashboardCache.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
       return res.json(cached.payload);
@@ -1939,7 +1977,7 @@ exports.getDashboardStats = async (req, res) => {
       // Hospital totals for the super-admin dashboard: total + active/inactive
       // split (one groupBy round trip instead of two counts). Hospital users
       // don't see this card, so they get zeroes.
-      userHospitalId
+      isScoped
         ? Promise.resolve({ total: 0, active: 0, inactive: 0 })
         : prisma.hospital.groupBy({ by: ['isActive'], _count: { _all: true } }).then((rows) => {
             const active = rows.find((r) => r.isActive === true)?._count._all || 0;
@@ -2011,7 +2049,7 @@ exports.getDashboardStats = async (req, res) => {
       hospitalCount: hospitalStats.total,
       hospitalActive: hospitalStats.active,
       hospitalInactive: hospitalStats.inactive,
-      isHospitalUser: !!userHospitalId,
+      isHospitalUser: isScoped,
       monthlyStats: {
         totalSettlement,
         totalFilePrice,

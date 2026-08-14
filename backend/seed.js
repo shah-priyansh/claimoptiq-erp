@@ -106,6 +106,26 @@ const defaultRoles = [
       document_submissions: { view: true, create: true },
     }),
   },
+  {
+    // Reference login — an external reference person (e.g. Ravi Paghdar) who
+    // sees ONLY the claims of the hospitals under their reference. Scope comes
+    // from User.referenceId; permissions are editable on the Roles page.
+    // NOTE: reports/invoices are intentionally NOT granted yet — those reports
+    // are not reference-scoped until Phase 2, so enabling them here would leak
+    // other references' financials. Enable them once Phase 2 lands.
+    name: 'Reference', slug: 'reference',
+    description: 'Reference partner — view claims for their own reference hospitals only.',
+    isSystem: true,
+    permissions: buildPermissions({
+      dashboard:            { view: true },
+      claims:               { view: true },
+      hospitals:            { view: true },
+      insurance:            { view: true },
+      tpa:                  { view: true },
+      claim_statuses:       { view: true },
+      claim_document_types: { view: true },
+    }),
+  },
 ];
 
 const insuranceCompanies = [
