@@ -1242,6 +1242,24 @@ exports.openHospitals = async (req, res) => {
   }
 };
 
+// Distinct free-text party names that appear on invoices — powers the
+// invoice-list "Party" filter. Party bills carry only `partyName` (no
+// `partyId` FK), so options are sourced straight from the invoices.
+exports.partyNames = async (req, res) => {
+  try {
+    const rows = await prisma.invoice.findMany({
+      where: { partyName: { not: null } },
+      distinct: ['partyName'],
+      select: { partyName: true },
+      orderBy: { partyName: 'asc' },
+    });
+    const parties = rows.map((r) => r.partyName).filter((n) => n && n.trim());
+    res.json({ parties });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 // Whitelisted sortable columns → Prisma orderBy builder. Keeps the sort param
 // from reaching arbitrary/nonexistent fields. `hospital` sorts by the related
 // hospital's name (direct-patient invoices have none, so the DB places them at
@@ -1258,7 +1276,7 @@ const INVOICE_SORT_FIELDS = {
 
 exports.list = async (req, res) => {
   try {
-    const { hospitalId, status, month, page, limit = 25, isDirectPatient, sort, dir } = req.query;
+    const { hospitalId, status, month, page, limit = 25, isDirectPatient, sort, dir, partyName } = req.query;
     const direction = dir === 'asc' ? 'asc' : 'desc';
     const sortBuilder = INVOICE_SORT_FIELDS[sort];
     // Append createdAt as a stable tiebreaker so equal keys keep a fixed order
@@ -1287,6 +1305,9 @@ exports.list = async (req, res) => {
     // invoices listing).
     if (isDirectPatient === 'true') where.isDirectPatient = true;
     else if (isDirectPatient === 'false') where.isDirectPatient = false;
+    // Party filter — matches the free-text party name on imported direct-patient
+    // bills (these carry only `partyName`, not a `partyId` FK).
+    if (partyName) where.partyName = partyName;
     const take = Math.min(Number(limit) || 25, 100);
     const skip = page ? (Number(page) - 1) * take : 0;
     const [invoices, total] = await Promise.all([
@@ -1378,7 +1399,31 @@ exports.update = async (req, res) => {
       notes, adjustments, tdsRateId, gstRate,
       lineEdits, manualItems, removedLineIds,
       roundOff, discount,
+      month, invoiceDate, issuedAt, dueDate,
     } = req.body;
+
+    // --- Date edits (month / invoice date / issued date / due date) ---
+    // `month` is required (never null). invoiceDate / issuedAt / dueDate are
+    // nullable and can be cleared by sending an empty string. Accept either a
+    // month string ("YYYY-MM") / date string ("YYYY-MM-DD") or a full ISO value.
+    const parseDateOrThrow = (v) => {
+      const d = new Date(v);
+      if (isNaN(d.getTime())) { const e = new Error('Invalid date value'); e.status = 400; throw e; }
+      return d;
+    };
+    const dateData = {};
+    if (month !== undefined && month !== null && String(month) !== '') {
+      const raw = String(month);
+      const d = parseDateOrThrow(/^\d{4}-\d{2}$/.test(raw) ? `${raw}-01T00:00:00.000Z` : raw);
+      dateData.month = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    }
+    for (const [key, val] of [['invoiceDate', invoiceDate], ['issuedAt', issuedAt], ['dueDate', dueDate]]) {
+      if (val === undefined) continue;
+      if (val === null || String(val) === '') { dateData[key] = null; continue; }
+      const raw = String(val);
+      dateData[key] = parseDateOrThrow(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00.000Z` : raw);
+    }
+    const dateChanged = Object.keys(dateData).length > 0;
 
     const tdsChanged = tdsRateId !== undefined;
     const gstChanged = gstRate !== undefined;
@@ -1393,6 +1438,7 @@ exports.update = async (req, res) => {
       tdsChanged ||
       gstChanged ||
       discountChanged ||
+      dateChanged ||
       roundOff !== undefined ||
       notes !== undefined ||
       Array.isArray(lineEdits) ||
@@ -1410,6 +1456,7 @@ exports.update = async (req, res) => {
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
+            ...dateData,
             ...(notes !== undefined ? { notes: String(notes || '') } : {}),
             ...(roundOff !== undefined ? { roundOff: Math.round(Number(roundOff) || 0) } : {}),
             subtotalTpaDesk: built.totals.subtotalTpaDesk,
@@ -1498,6 +1545,7 @@ exports.update = async (req, res) => {
         settingsData.tdsName = tds.name;
         settingsData.tdsSection = tds.section;
       }
+      Object.assign(settingsData, dateData);
       if (Object.keys(settingsData).length) {
         await tx.invoice.update({ where: { id: invoice.id }, data: settingsData });
       }
