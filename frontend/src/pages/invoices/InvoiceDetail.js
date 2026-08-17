@@ -12,7 +12,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import {
   getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, previewInvoicePdf, printInvoicePdf,
   getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI, createCashBankAPI,
-  getBankAccountsAPI,
+  getBankAccountsAPI, getBillingServiceNamesAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
@@ -84,12 +84,18 @@ const InvoiceDetail = () => {
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
+  // Master list of billing service names — powers the line-item description
+  // autocomplete (native datalist) while still allowing free-text descriptions.
+  const [serviceNames, setServiceNames] = useState([]);
 
   useEffect(() => {
     getBankAccountsAPI({ active: 'true' })
       .then(({ data }) => setBankAccounts(data || []))
       .catch(() => setBankAccounts([]))
       .finally(() => setLoadingBankAccounts(false));
+    getBillingServiceNamesAPI()
+      .then(({ data }) => setServiceNames((data || []).map((s) => s.name).filter(Boolean)))
+      .catch(() => setServiceNames([]));
   }, []);
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
@@ -531,7 +537,7 @@ const InvoiceDetail = () => {
                         <tr key={row._origId || `row-${idx}`} className="hover:bg-gray-50">
                           <td className="py-3 px-4 text-gray-400 text-sm">{idx + 1}</td>
                           <td className="py-3 px-4">
-                            <input value={row.description}
+                            <input value={row.description} list="invoice-service-names"
                               onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
                               placeholder="Description"
                               className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
@@ -590,7 +596,7 @@ const InvoiceDetail = () => {
                           <tr key={row._origId || `row-${idx}`} className="bg-white">
                             <td className="py-2 px-4 text-gray-400 text-xs pl-10">{idx + 1}</td>
                             <td className="py-2 px-4">
-                              <input value={row.description}
+                              <input value={row.description} list="invoice-service-names"
                                 onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
                                 placeholder="Description"
                                 className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
@@ -625,6 +631,10 @@ const InvoiceDetail = () => {
                   </tr>
                 </tfoot>
               </table>
+              {/* Shared autocomplete source for every line-item Description field. */}
+              <datalist id="invoice-service-names">
+                {serviceNames.map((name) => <option key={name} value={name} />)}
+              </datalist>
             </div>
 
             <p className="text-xs text-gray-400 mt-2">
@@ -913,13 +923,14 @@ const InvoiceDetail = () => {
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">
           Totals
-          {isDraft && <span className="ml-2 text-xs font-normal text-gray-400">(live — Save Draft to persist)</span>}
+          {!isVoid && <span className="ml-2 text-xs font-normal text-gray-400">(live — {isDraft ? 'Save Draft' : 'Save Changes'} to persist)</span>}
         </h2>
         {(() => {
-          // In draft mode, show the live preview so the operator can see the
-          // effect of discount/GST/TDS/roundOff edits before saving. Once
-          // issued, the persisted totals are authoritative.
-          const t = isDraft ? {
+          // For any editable invoice (anything but void), show the live preview
+          // so the operator sees the effect of discount/GST/TDS/roundOff edits
+          // before saving — not just in draft. Void invoices keep their
+          // persisted (zeroed-out) totals since they can't be edited.
+          const t = !isVoid ? {
             subtotalTpaDesk: liveTotals.tpa,
             subtotalServices: liveTotals.services,
             subtotalAdjust: liveTotals.adjust,

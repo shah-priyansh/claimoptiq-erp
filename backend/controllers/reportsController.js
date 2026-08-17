@@ -6,6 +6,7 @@
 // so the UI can render any of them with a single table + chart component.
 
 const prisma = require('../config/prisma');
+const { getJournalNetByAccount, journalKey } = require('../services/journalBalances');
 
 const ACTIVE_INVOICE_STATUSES = ['issued', 'partially_paid', 'paid'];
 
@@ -50,11 +51,13 @@ exports.sales = async (req, res) => {
     const invoices = await prisma.invoice.findMany({
       where: {
         status: { in: ACTIVE_INVOICE_STATUSES },
-        issuedAt: { gte: from, lte: to },
+        // Sales belong to the month the bill was made (invoiceDate), not when it
+        // was issued in the system — a July claim billed in Aug is an Aug sale.
+        invoiceDate: { gte: from, lte: to },
         ...hospitalFilter,
       },
       select: {
-        id: true, hospitalId: true, issuedAt: true, netTotal: true, amountPaid: true,
+        id: true, hospitalId: true, invoiceDate: true, netTotal: true, amountPaid: true,
         hospital: { select: { id: true, name: true } },
         lineItems: groupBy === 'service'
           ? { select: { lineType: true, amount: true, billingServiceNameId: true, billingServiceName: { select: { id: true, name: true } } } }
@@ -65,7 +68,7 @@ exports.sales = async (req, res) => {
     const rowsMap = new Map();
     if (groupBy === 'month') {
       for (const inv of invoices) {
-        const m = monthStart(inv.issuedAt);
+        const m = monthStart(inv.invoiceDate);
         const key = monthKey(m);
         const cur = rowsMap.get(key) || { key, label: monthLabel(m), value: 0, paid: 0, invoiceCount: 0 };
         cur.value += inv.netTotal || 0;
@@ -176,8 +179,8 @@ exports.profit = async (req, res) => {
     const { from, to, filtersOut } = resolveRange(req.query);
     const [invoices, expenses] = await Promise.all([
       prisma.invoice.findMany({
-        where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to } },
-        select: { issuedAt: true, netTotal: true },
+        where: { status: { in: ACTIVE_INVOICE_STATUSES }, invoiceDate: { gte: from, lte: to } },
+        select: { invoiceDate: true, netTotal: true },
       }),
       // P&L profit excludes capital / fixed-asset spend (not real expenses).
       prisma.expense.findMany({
@@ -194,7 +197,7 @@ exports.profit = async (req, res) => {
       cur[field] += val;
       byMonth.set(key, cur);
     };
-    for (const inv of invoices) bump(inv.issuedAt, 'sales', inv.netTotal || 0);
+    for (const inv of invoices) bump(inv.invoiceDate, 'sales', inv.netTotal || 0);
     for (const e of expenses) bump(e.date, 'expense', e.amount || 0);
 
     const rows = Array.from(byMonth.values())
@@ -242,7 +245,8 @@ exports.references = async (req, res) => {
     // Prisma validation error on the `id: { in }` lookup below.
     const businessRows = await prisma.invoice.groupBy({
       by: ['hospitalId'],
-      where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to }, hospitalId: { not: null } },
+      // Business given is a sales figure → count by bill date (invoiceDate).
+      where: { status: { in: ACTIVE_INVOICE_STATUSES }, invoiceDate: { gte: from, lte: to }, hospitalId: { not: null } },
       _sum: { netTotal: true },
     });
     const hospitalIds = businessRows.map((r) => r.hospitalId).filter(Boolean);
@@ -380,9 +384,9 @@ exports.taxesDiscount = async (req, res) => {
     const { from, to, filtersOut } = resolveRange(req.query);
 
     const invoices = await prisma.invoice.findMany({
-      where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: from, lte: to } },
+      where: { status: { in: ACTIVE_INVOICE_STATUSES }, invoiceDate: { gte: from, lte: to } },
       select: {
-        id: true, hospitalId: true, issuedAt: true,
+        id: true, hospitalId: true, invoiceDate: true,
         discount: true, gstAmount: true, gstRate: true,
         tdsAmount: true, tdsRate: true, tdsName: true, tdsSection: true,
         netTotal: true, gross: true,
@@ -403,7 +407,7 @@ exports.taxesDiscount = async (req, res) => {
         if (!v) continue;
         total += v;
         count += 1;
-        const m = monthStart(inv.issuedAt);
+        const m = monthStart(inv.invoiceDate);
         const mk = monthKey(m);
         const mCur = byMonth.get(mk) || { key: mk, label: monthLabel(m), value: 0, count: 0 };
         mCur.value += v; mCur.count += 1; byMonth.set(mk, mCur);
@@ -741,9 +745,11 @@ exports.dashboard = async (req, res) => {
       topRefCommissionRow,
       paidThisMonthAgg,
       pendingTotalAgg,
+      jnet,
     ] = await Promise.all([
       prisma.invoice.findMany({
-        where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: mStart, lte: mEndInclusive } },
+        // Sales counted by bill date (invoiceDate), not issue date.
+        where: { status: { in: ACTIVE_INVOICE_STATUSES }, invoiceDate: { gte: mStart, lte: mEndInclusive } },
         select: { netTotal: true, hospitalId: true, hospital: { select: { id: true, name: true } } },
       }),
       // Dashboard month profit excludes capital / fixed-asset spend.
@@ -756,7 +762,7 @@ exports.dashboard = async (req, res) => {
       prisma.accountEntry.groupBy({ where: { entryType: 'contra' }, by: ['fromMode'], _sum: { amount: true } }),
       prisma.invoice.groupBy({
         by: ['hospitalId'],
-        where: { status: { in: ACTIVE_INVOICE_STATUSES }, issuedAt: { gte: mStart, lte: mEndInclusive }, hospitalId: { not: null } },
+        where: { status: { in: ACTIVE_INVOICE_STATUSES }, invoiceDate: { gte: mStart, lte: mEndInclusive }, hospitalId: { not: null } },
         _sum: { netTotal: true },
         orderBy: { _sum: { netTotal: 'desc' } },
         take: 1,
@@ -781,6 +787,8 @@ exports.dashboard = async (req, res) => {
         where: { status: { in: ['issued', 'partially_paid'] } },
         _sum: { amountPending: true },
       }),
+      // General/contra/ledger journal entries' net effect on cash & bank.
+      getJournalNetByAccount(prisma),
     ]);
 
     const sales = monthInvoices.reduce((a, i) => a + (i.netTotal || 0), 0);
@@ -794,6 +802,10 @@ exports.dashboard = async (req, res) => {
     }
     for (const row of contraTo) if (row.toMode) cashByMode[row.toMode] += row._sum.amount || 0;
     for (const row of contraFrom) if (row.fromMode) cashByMode[row.fromMode] -= row._sum.amount || 0;
+    // Fold journal (general/contra/ledger) entries into cash/bank so this Total
+    // matches the Cash/Bank page: Total = income − expenses − general entries.
+    cashByMode.cash += jnet.get(journalKey('cash', null)) || 0;
+    for (const [key, val] of jnet) if (key.startsWith('bank:')) cashByMode.bank += val;
     const cashTotal = cashByMode.cash + cashByMode.bank + cashByMode.upi;
 
     let topHospital = null;
