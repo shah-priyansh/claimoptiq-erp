@@ -3,13 +3,17 @@ import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlineLibrary, HiOutlineCreditCard, HiOutlineCash,
-  HiOutlineOfficeBuilding, HiOutlineChevronDown, HiOutlineChevronRight,
+  HiOutlineOfficeBuilding, HiOutlineChevronDown, HiOutlineChevronRight, HiOutlinePencil,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
-import { getChartOfAccountsAPI } from '../../services/api';
+import { getChartOfAccountsAPI, getAccountsAPI } from '../../services/api';
 import AddAccountModal from './AddAccountModal';
 
 const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+
+// Chart rows whose `kind` is one of these are backed by an editable ledger
+// Account (row.id === Account uuid). Bank/cash/party/expense rows are not.
+const EDITABLE_KINDS = new Set(['fixed_asset', 'current_asset', 'non_current_asset', 'capital', 'loan', 'income', 'other']);
 
 const NATURE_CLS = {
   expense: 'bg-gray-100 text-gray-600', capital: 'bg-indigo-50 text-indigo-700', fixed_asset: 'bg-teal-50 text-teal-700',
@@ -18,11 +22,12 @@ const KIND_ICON = {
   bank: HiOutlineCreditCard, cash: HiOutlineCash, sundry_debtors: HiOutlineOfficeBuilding, sundry_creditors: HiOutlineOfficeBuilding,
 };
 
-// A single account row (name + code + nature badge + balance).
-const AccountRow = ({ a }) => {
+// A single account row (name + code + nature badge + balance). When `onEdit` is
+// provided, a hover-revealed pencil surfaces the edit action.
+const AccountRow = ({ a, onEdit }) => {
   const Icon = KIND_ICON[a.kind] || HiOutlineLibrary;
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50">
+    <div className="group flex items-center justify-between px-4 py-2.5 hover:bg-gray-50">
       <span className="flex items-center gap-2 min-w-0">
         <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" />
         <span className="text-sm text-gray-700 truncate">{a.name}</span>
@@ -33,7 +38,15 @@ const AccountRow = ({ a }) => {
           </span>
         )}
       </span>
-      <span className={`text-sm font-medium whitespace-nowrap ${a.balance < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(a.balance)}</span>
+      <span className="flex items-center gap-2 flex-shrink-0">
+        <span className={`text-sm font-medium whitespace-nowrap ${a.balance < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(a.balance)}</span>
+        {onEdit && (
+          <button onClick={onEdit} title="Edit account"
+            className="p-1 rounded text-gray-400 hover:text-primary-600 hover:bg-gray-200 transition-colors">
+            <HiOutlinePencil className="w-4 h-4" />
+          </button>
+        )}
+      </span>
     </div>
   );
 };
@@ -56,20 +69,32 @@ const subgroupsOf = (g) => {
 const ChartOfAccounts = () => {
   const { can } = useAuth();
   const canCreate = can('chart_of_accounts', 'create');
+  const canEdit = can('chart_of_accounts', 'edit');
 
   const [groups, setGroups] = useState([]);
+  const [accountsById, setAccountsById] = useState({});
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [editAccount, setEditAccount] = useState(null);
   const [collapsed, setCollapsed] = useState({});
 
   const load = () => {
     setLoading(true);
-    getChartOfAccountsAPI()
-      .then(({ data }) => setGroups(data.groups || []))
+    Promise.all([getChartOfAccountsAPI(), getAccountsAPI()])
+      .then(([chartRes, acctRes]) => {
+        setGroups(chartRes.data.groups || []);
+        const map = {};
+        for (const a of (acctRes.data || [])) map[a.id] = a;
+        setAccountsById(map);
+      })
       .catch(() => toast.error('Failed to load chart of accounts'))
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
+
+  // Only rows backed by an editable ledger Account (present in accountsById) get
+  // an edit affordance; returns the raw account to prefill, or null.
+  const editableAccount = (a) => (canEdit && EDITABLE_KINDS.has(a.kind) ? accountsById[a.id] : null);
 
   const toggle = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
 
@@ -114,7 +139,10 @@ const ChartOfAccounts = () => {
                             <div className="px-4 py-2 text-xs text-gray-300">No accounts</div>
                           ) : (
                             <div className="divide-y divide-gray-50">
-                              {accts.map((a) => <AccountRow key={`${a.kind}-${a.id}`} a={a} />)}
+                              {accts.map((a) => {
+                                const acct = editableAccount(a);
+                                return <AccountRow key={`${a.kind}-${a.id}`} a={a} onEdit={acct ? () => setEditAccount(acct) : undefined} />;
+                              })}
                             </div>
                           )}
                         </div>
@@ -124,7 +152,10 @@ const ChartOfAccounts = () => {
                     <div className="px-4 py-4 text-sm text-gray-400">No accounts</div>
                   ) : (
                     <div className="divide-y divide-gray-50">
-                      {g.accounts.map((a) => <AccountRow key={`${a.kind}-${a.id}`} a={a} />)}
+                      {g.accounts.map((a) => {
+                        const acct = editableAccount(a);
+                        return <AccountRow key={`${a.kind}-${a.id}`} a={a} onEdit={acct ? () => setEditAccount(acct) : undefined} />;
+                      })}
                     </div>
                   )
                 )}
@@ -134,7 +165,13 @@ const ChartOfAccounts = () => {
         </div>
       )}
 
-      <AddAccountModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => { setAddOpen(false); load(); }} />
+      <AddAccountModal
+        open={addOpen || !!editAccount}
+        account={editAccount}
+        onClose={() => { setAddOpen(false); setEditAccount(null); }}
+        onCreated={() => { setAddOpen(false); load(); }}
+        onSaved={() => { setEditAccount(null); load(); }}
+      />
     </div>
   );
 };
