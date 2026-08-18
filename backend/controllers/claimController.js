@@ -1952,23 +1952,37 @@ exports.getDashboardStats = async (req, res) => {
       statusGroups,
       allStatuses,
       monthlySettledAgg,
+      monthlySettledList,
       monthlyBilledClaims,
       hospitalStats,
     ] = await Promise.all([
       prisma.claim.count({ where: baseWhere }),
       prisma.claim.groupBy({ by: ['status'], where: baseWhere, _count: { id: true } }),
       getCachedStatuses(),
-      // Use the claim's `month` field (the business month assigned on the form),
-      // not settlementDate/createdAt, so a claim tagged "June" shows up in June's stats
-      // regardless of when it was actually settled or created.
+      // "This month" settlements are counted by when the claim was actually
+      // settled (settlementDate), not the business `month` tag on the form — so a
+      // claim settled this month appears here even when it's tagged an earlier
+      // business month (common for imported/historical claims).
       prisma.claim.aggregate({
         where: {
           ...baseWhere,
           status: 'settled',
-          month: { gte: monthStart, lte: monthEnd },
+          settlementDate: { gte: monthStart, lte: monthEnd },
         },
         _sum: { bankTransferAmount: true, finalApprovalAmount: true },
         _count: { _all: true },
+      }),
+      // The actual settled claims behind the "Monthly Settlements" tile — powers
+      // the click-through breakdown. Same settlementDate window as the aggregate.
+      prisma.claim.findMany({
+        where: { ...baseWhere, status: 'settled', settlementDate: { gte: monthStart, lte: monthEnd } },
+        select: {
+          id: true, patientName: true, finalApprovalAmount: true,
+          bankTransferAmount: true, settlementDate: true,
+          hospital: { select: { name: true } },
+        },
+        orderBy: { settlementDate: 'desc' },
+        take: 50,
       }),
       prisma.claim.findMany({
         where: { ...baseWhere, isBilled: true, month: { gte: monthStart, lte: monthEnd } },
@@ -2029,6 +2043,14 @@ exports.getDashboardStats = async (req, res) => {
     const totalSettlement = monthlySettledAgg._sum.bankTransferAmount || 0;
     const totalApprovalAmount = monthlySettledAgg._sum.finalApprovalAmount || 0;
 
+    const settledList = monthlySettledList.map((c) => ({
+      id: c.id,
+      label: c.patientName,
+      sub: c.hospital?.name || null,
+      date: c.settlementDate,
+      amount: Math.round(c.finalApprovalAmount || 0),
+    }));
+
     let totalFilePrice = 0;
     for (const c of monthlyBilledClaims) {
       totalFilePrice += c.filePriceOverridden && c.filePrice
@@ -2055,6 +2077,7 @@ exports.getDashboardStats = async (req, res) => {
         totalFilePrice,
         totalApprovalAmount,
         count: monthlySettledAgg._count._all || 0,
+        settledList,
       },
     };
     _dashboardCache.set(cacheKey, { payload, expiry: Date.now() + DASHBOARD_CACHE_TTL });

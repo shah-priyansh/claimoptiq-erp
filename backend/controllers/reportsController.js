@@ -750,12 +750,12 @@ exports.dashboard = async (req, res) => {
       prisma.invoice.findMany({
         // Sales counted by bill date (invoiceDate), not issue date.
         where: { status: { in: ACTIVE_INVOICE_STATUSES }, invoiceDate: { gte: mStart, lte: mEndInclusive } },
-        select: { netTotal: true, hospitalId: true, hospital: { select: { id: true, name: true } } },
+        select: { netTotal: true, hospitalId: true, partyName: true, invoiceDate: true, hospital: { select: { id: true, name: true } } },
       }),
       // Dashboard month profit excludes capital / fixed-asset spend.
       prisma.expense.findMany({
         where: { date: { gte: mStart, lte: mEndInclusive }, category: { nature: 'expense' } },
-        select: { amount: true, categoryId: true, category: { select: { label: true, slug: true } } },
+        select: { amount: true, categoryId: true, date: true, category: { select: { label: true, slug: true } } },
       }),
       prisma.cashBankEntry.groupBy({ by: ['mode', 'direction'], _sum: { amount: true } }),
       prisma.accountEntry.groupBy({ where: { entryType: 'contra' }, by: ['toMode'], _sum: { amount: true } }),
@@ -795,6 +795,17 @@ exports.dashboard = async (req, res) => {
     const expense = monthExpenses.reduce((a, e) => a + (e.amount || 0), 0);
     const profit = sales - expense;
 
+    // Record lists behind the Sales / Expenses tiles — power the dashboard's
+    // click-through breakdown. Capped so the payload stays small.
+    const salesList = monthInvoices
+      .map((i) => ({ label: i.hospital?.name || i.partyName || 'Invoice', date: i.invoiceDate, amount: Math.round(i.netTotal || 0) }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 50);
+    const expenseList = monthExpenses
+      .map((e) => ({ label: e.category?.label || 'Expense', date: e.date, amount: Math.round(e.amount || 0) }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 50);
+
     const cashByMode = { cash: 0, bank: 0, upi: 0 };
     for (const row of cashAgg) {
       const sign = row.direction === 'in' ? 1 : -1;
@@ -827,6 +838,8 @@ exports.dashboard = async (req, res) => {
         profit: Math.round(profit),
         invoiceCount: monthInvoices.length,
         expenseCount: monthExpenses.length,
+        salesList,
+        expenseList,
       },
       cashBank: {
         cash: Math.round(cashByMode.cash),
