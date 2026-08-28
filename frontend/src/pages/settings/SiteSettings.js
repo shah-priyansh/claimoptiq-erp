@@ -21,6 +21,8 @@ const SiteSettings = () => {
     // Login
     login_title: '', login_subtitle: '', login_tagline: '',
     login_stat_claims: '', login_stat_hospitals: '', login_disclaimer: '',
+    // Announcement / news ticker
+    announcement_text: '',
     // Invoice template
     invoice_company_name: '', invoice_company_address: '', invoice_company_phone: '',
     invoice_company_email: '', invoice_company_website: '', invoice_logo_url: '',
@@ -90,6 +92,28 @@ const SiteSettings = () => {
 
       <form onSubmit={handleSave} className="space-y-5">
         {tab === 'login' && (
+          <>
+          <div className="bg-white rounded-xl border border-gray-200 p-6 max-w-lg">
+            <h2 className="text-base font-semibold text-gray-700 mb-1">Announcement Bar</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Scrolling news line shown on the Dashboard and the Document Upload page. Leave blank to hide it.
+            </p>
+            <textarea
+              rows={2}
+              value={form.announcement_text}
+              onChange={set('announcement_text')}
+              placeholder="e.g. 📢 Diwali holiday: office closed 1–5 Nov. Upload documents by 31 Oct."
+              className={`${inputCls} resize-none`}
+            />
+            {form.announcement_text.trim() && (
+              <div className="mt-3 overflow-hidden rounded-lg bg-primary-600 text-white">
+                <div className="whitespace-nowrap py-2 px-4 text-sm font-medium truncate">
+                  📢 {form.announcement_text.trim()}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white rounded-xl border border-gray-200 p-6 max-w-lg">
             <h2 className="text-base font-semibold text-gray-700 mb-4">Login Page</h2>
             <div className="space-y-4">
@@ -121,6 +145,7 @@ const SiteSettings = () => {
               </div>
             </div>
           </div>
+          </>
         )}
 
         {tab === 'invoice' && (
