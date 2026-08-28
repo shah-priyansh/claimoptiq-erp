@@ -107,7 +107,7 @@ export const computeTotals = (editLines, settings, previewTotals, overrideTds) =
 // the freshly-created draft is immediately issued (gets an invoiceNumber
 // and flips status to 'issued') so the caller never has to open the draft
 // to issue it.
-export const commitDraft = async (draft, { autoIssue = false } = {}) => {
+export const commitDraft = async (draft, { autoIssue = false, includeFixedServices = true } = {}) => {
   const monthIso = new Date(draft.month).toISOString().slice(0, 10);
   const monthArg = monthIso.slice(0, 7) + '-01';
   const manualItemsForCreate = draft.editLines
@@ -125,6 +125,9 @@ export const commitDraft = async (draft, { autoIssue = false } = {}) => {
     ...(draft.settings.invoiceDate ? { invoiceDate: draft.settings.invoiceDate } : {}),
     ...(manualItemsForCreate.length ? { manualItems: manualItemsForCreate } : {}),
     ...(draft.isDirectPatient ? { isDirectPatient: true } : {}),
+    // Must match the flag the preview was built with, so the server-built lines
+    // line up with draft.previewLines during reconciliation below.
+    ...(includeFixedServices === false ? { includeFixedServices: false } : {}),
   });
 
   const lineEdits = [];

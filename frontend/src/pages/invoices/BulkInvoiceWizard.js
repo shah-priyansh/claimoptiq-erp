@@ -25,6 +25,11 @@ const todayIso = () => {
 };
 
 // Build initial draft state from a single preview group.
+// Stable identity for a draft across re-previews (used to carry over the
+// operator's approve/cancel + tax settings when the fixed-services toggle
+// triggers a reload).
+const draftKey = (d) => `${d.isDirectPatient ? 'dp' : 'reg'}|${d.hospitalId || 'nohosp'}|${new Date(d.month).toISOString()}|${(d.claimIds || [])[0] || ''}`;
+
 const draftFromPreview = (p) => ({
   hospitalId: p.hospitalId,
   hospital: p.hospital,
@@ -123,6 +128,14 @@ const BulkInvoiceWizard = () => {
   const [skipped, setSkipped] = useState([]);
   const [skippedDismissed, setSkippedDismissed] = useState(false);
 
+  // Fixed-services toggle. Default ON (matches prior behavior). `anyFixed` gates
+  // the toggle's visibility — it's only shown once a hospital in the batch is
+  // found to have fixed monthly/one-time services. `reloading` covers the
+  // re-preview while the operator flips the toggle.
+  const [includeFixed, setIncludeFixed] = useState(true);
+  const [anyFixed, setAnyFixed] = useState(false);
+  const [reloading, setReloading] = useState(false);
+
   // PDF preview modal state
   const [previewIdx, setPreviewIdx] = useState(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
@@ -152,36 +165,62 @@ const BulkInvoiceWizard = () => {
       .finally(() => setLoadingHospitals(false));
   }, []);
 
-  // Fetch previews on mount.
+  // Load (or reload) the bulk previews. `useFixed` controls whether fixed
+  // monthly/one-time service lines are included. On a toggle-triggered reload
+  // (`preserve`) we carry over each hospital's approve/cancel status and tax
+  // settings so the operator doesn't lose their review; only the line items
+  // refresh to reflect the fixed-services change.
+  const loadPreviews = async (useFixed, { preserve = false } = {}) => {
+    try {
+      const { data } = await previewBulkInvoiceAPI({ claimIds, includeFixedServices: useFixed });
+      const previews = data.previews || [];
+      setSkipped(data.skipped || []);
+      // Detected only when fixed lines are actually present (i.e. useFixed=true).
+      // Never un-set it, so the toggle stays visible after switching OFF.
+      const detected = previews.some((p) => (p.lines || []).some((l) => l.lineType === 'service_fixed'));
+      setAnyFixed((prev) => prev || detected);
+      if (!previews.length) {
+        toast.info('No billable invoices to build from the selected claims.');
+        navigate('/reports/claims?select=1');
+        return;
+      }
+      setDrafts((prevDrafts) => {
+        const byKey = preserve ? new Map(prevDrafts.map((d) => [draftKey(d), d])) : new Map();
+        return previews.map((p) => {
+          const fresh = draftFromPreview(p);
+          const old = byKey.get(draftKey(fresh));
+          return old ? { ...fresh, status: old.status, settings: { ...fresh.settings, ...old.settings } } : fresh;
+        });
+      });
+    } catch (e) {
+      const data = e.response?.data;
+      const skippedCount = (data?.skipped || []).length;
+      const baseMsg = data?.message || 'Failed to load previews';
+      toast.error(skippedCount ? `${baseMsg} — all ${skippedCount} claim${skippedCount === 1 ? '' : 's'} were skipped (cancelled/already billed/no hospital)` : baseMsg);
+      if (!preserve) navigate('/reports/claims?select=1');
+    } finally {
+      setLoading(false);
+      setReloading(false);
+    }
+  };
+
+  // Fetch previews on mount (fixed services included by default).
   useEffect(() => {
     if (!claimIds.length) {
       toast.error('No claims selected. Pick claims on the Claims Report first.');
       navigate('/reports/claims?select=1');
       return;
     }
-    (async () => {
-      try {
-        const { data } = await previewBulkInvoiceAPI({ claimIds });
-        const previews = data.previews || [];
-        setSkipped(data.skipped || []);
-        if (!previews.length) {
-          toast.info('No billable invoices to build from the selected claims.');
-          navigate('/reports/claims?select=1');
-          return;
-        }
-        setDrafts(previews.map(draftFromPreview));
-      } catch (e) {
-        const data = e.response?.data;
-        const skippedCount = (data?.skipped || []).length;
-        const baseMsg = data?.message || 'Failed to load previews';
-        toast.error(skippedCount ? `${baseMsg} — all ${skippedCount} claim${skippedCount === 1 ? '' : 's'} were skipped (cancelled/already billed/no hospital)` : baseMsg);
-        navigate('/reports/claims?select=1');
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadPreviews(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleToggleFixed = async () => {
+    const next = !includeFixed;
+    setIncludeFixed(next);
+    setReloading(true);
+    await loadPreviews(next, { preserve: true });
+  };
 
   const current = drafts[currentIdx];
   const totalDrafts = drafts.length;
@@ -350,7 +389,7 @@ const BulkInvoiceWizard = () => {
     for (let i = 0; i < targets.length; i++) {
       const { d, idx } = targets[i];
       try {
-        const inv = await commitDraft(d, { autoIssue: true });
+        const inv = await commitDraft(d, { autoIssue: true, includeFixedServices: includeFixed });
         updateDraft(idx, { status: 'success', invoice: inv, error: '' });
         results.push({ draft: d, ok: true, invoice: inv });
       } catch (e) {
@@ -495,6 +534,22 @@ const BulkInvoiceWizard = () => {
     </div>
   );
 
+  // Fixed-services toggle — shown once a hospital in the batch is known to have
+  // fixed monthly/one-time services. Flipping it re-previews with/without them.
+  const fixedToggle = anyFixed ? (
+    <div className="flex items-center justify-between gap-4 p-3 mb-3 border border-primary-200 bg-primary-50/60 rounded-lg">
+      <div className="text-sm">
+        <p className="font-medium text-gray-800">Include fixed services</p>
+        <p className="text-xs text-gray-500 mt-0.5">Monthly / one-time charges configured on the hospital. Turn off to bill claims only.</p>
+      </div>
+      <label className="inline-flex items-center gap-2 cursor-pointer select-none shrink-0">
+        <span className="text-xs font-medium text-gray-600 w-16 text-right">{reloading ? 'Updating…' : (includeFixed ? 'Included' : 'Skipped')}</span>
+        <input type="checkbox" checked={includeFixed} onChange={handleToggleFixed} disabled={reloading} className="sr-only peer" />
+        <div className="relative w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-primary-600 peer-focus:ring-2 peer-focus:ring-primary-300 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 peer-disabled:opacity-60" />
+      </label>
+    </div>
+  ) : null;
+
   if (loading) {
     return <div className="py-16 text-center text-gray-500">Loading previews…</div>;
   }
@@ -605,6 +660,8 @@ const BulkInvoiceWizard = () => {
               <p className="text-2xl font-bold text-gray-900 tabular-nums">{formatINR(approvedTotal)}</p>
             </div>
           </div>
+
+          <div className="mt-4">{fixedToggle}</div>
 
           <div className="mt-5 overflow-x-auto border border-gray-200 rounded-lg">
             <table className="w-full text-sm">
@@ -732,6 +789,8 @@ const BulkInvoiceWizard = () => {
           </button>
         </div>
       )}
+
+      {fixedToggle}
 
       {/* Hospital tabs */}
       <div className="border-b border-gray-200 mb-4 -mx-1 px-1 overflow-x-auto">
