@@ -257,20 +257,23 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       { key: 'invoiceDate', label: 'Invoice Date *', width: 14, required: true, aliases: ['Date'], note: 'YYYY-MM-DD. The invoice date (also the creation date).' },
       { key: 'month', label: 'Month', width: 10, aliases: ['MONTH'], note: 'Optional — billing month (e.g. JULY); the year comes from the Invoice Date. Blank = the Invoice Date’s month.' },
       { key: 'status', label: 'Status', width: 14, note: 'issued / paid / partially_paid / draft. Blank = auto from Amount Paid.' },
-      { key: 'grandTotal', label: 'Grand Total *', width: 14, required: true, aliases: ['Amount'], note: 'Per-row amount (numbers only). A merged invoice’s total is the sum of its rows.' },
-      { key: 'amountPaid', label: 'Amount Paid', width: 14, note: 'Optional — default 0. Cannot exceed Grand Total.' },
+      { key: 'grandTotal', label: 'Taxable Amount *', width: 15, required: true, aliases: ['Grand Total', 'Amount', 'Amount (pre-tax)'], note: 'Per-row PRE-TAX line amount (numbers only). GST is added and TDS deducted on top — the invoice total = sum of rows + GST − TDS. A merged invoice’s taxable is the sum of its rows.' },
+      { key: 'gstAmount', label: 'GST Amount', width: 12, aliases: ['GST', 'GST Amt'], note: 'Optional — GST amount added on top (numbers only). Summed across a merged invoice’s rows.' },
+      { key: 'tdsAmount', label: 'TDS Amount', width: 12, aliases: ['TDS', 'TDS Amt'], note: 'Optional — TDS amount deducted (numbers only). Summed across a merged invoice’s rows.' },
+      { key: 'amountPaid', label: 'Amount Paid', width: 14, note: 'Optional — default 0. Cannot exceed the invoice total (taxable + GST − TDS).' },
       { key: 'notes', label: 'Notes', width: 28, aliases: ['Item Name', 'Description', 'Particulars'], note: 'Optional — becomes the line-item description' },
     ],
     sampleRows: [
       // INV-1001: two rows sharing an invoice number → MERGED into one invoice
-      // with two line items (dated in April, billed for March).
-      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 90000, amountPaid: 0, notes: 'TPA Desk — cashless files' },
-      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 55000, amountPaid: 0, notes: 'TPA Desk — reimbursement files' },
-      // INV-1002: a single-line invoice, fully paid.
-      { invoiceNumber: 'INV-1002', type: '', hospital: exHosp2, invoiceDate: '2025-04-30', month: 'April', status: 'paid', grandTotal: 62000, amountPaid: 62000, notes: 'Opening balance' },
+      // with two line items (dated in April, billed for March). No GST/TDS.
+      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 90000, gstAmount: '', tdsAmount: '', amountPaid: 0, notes: 'TPA Desk — cashless files' },
+      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 55000, gstAmount: '', tdsAmount: '', amountPaid: 0, notes: 'TPA Desk — reimbursement files' },
+      // INV-1002: a single-line invoice WITH GST (18%) and TDS (1%). Taxable
+      // 62,000 → +GST 11,160 − TDS 620 = invoice total 72,540.
+      { invoiceNumber: 'INV-1002', type: '', hospital: exHosp2, invoiceDate: '2025-04-30', month: 'April', status: '', grandTotal: 62000, gstAmount: 11160, tdsAmount: 620, amountPaid: 0, notes: 'Opening balance (18% GST, 1% TDS)' },
       // INV-1003: a direct-patient / party bill — Type = party, so the Hospital
       // column holds the party name (NOT matched against the hospital master).
-      { invoiceNumber: 'INV-1003', type: 'party', hospital: 'Ramesh Patel', invoiceDate: '2025-04-15', month: 'April', status: '', grandTotal: 12000, amountPaid: 0, notes: 'TPA Desk — reimbursement file' },
+      { invoiceNumber: 'INV-1003', type: 'party', hospital: 'Ramesh Patel', invoiceDate: '2025-04-15', month: 'April', status: '', grandTotal: 12000, gstAmount: '', tdsAmount: '', amountPaid: 0, notes: 'TPA Desk — reimbursement file' },
     ],
     refSheets: [
       { name: 'Hospitals', header: 'Hospital Name (use this in the Hospital column)', values: hospitals.map((h) => h.name) },
@@ -281,7 +284,9 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       { key: 'hospital', label: 'Hospital / Party' },
       { key: 'invoiceDate', label: 'Invoice Date' },
       { key: 'month', label: 'Month' },
-      { key: 'grandTotal', label: 'Grand Total', align: 'right' },
+      { key: 'grandTotal', label: 'Taxable', align: 'right' },
+      { key: 'gstAmount', label: 'GST', align: 'right' },
+      { key: 'tdsAmount', label: 'TDS', align: 'right' },
       { key: 'amountPaid', label: 'Amount Paid', align: 'right' },
       { key: 'status', label: 'Status' },
     ],
@@ -294,12 +299,21 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       if (!hospRaw) issues.push({ type: 'hospital', label: isParty ? 'Party name missing' : 'Hospital missing' });
       else if (!isParty && !hospSet.has(norm(hospRaw))) issues.push({ type: 'hospital', label: `Hospital not found: "${hospRaw}"` });
       const gt = cleanNum(r.grandTotal);
-      if (gt === null) issues.push({ type: 'amount', label: 'Grand Total missing' });
-      else if (Number.isNaN(gt) || gt < 0) issues.push({ type: 'amount', label: `Grand Total invalid: "${r.grandTotal}"` });
+      if (gt === null) issues.push({ type: 'amount', label: 'Taxable Amount missing' });
+      else if (Number.isNaN(gt) || gt < 0) issues.push({ type: 'amount', label: `Taxable Amount invalid: "${r.grandTotal}"` });
+      const gst = cleanNum(r.gstAmount);
+      if (gst !== null && (Number.isNaN(gst) || gst < 0)) issues.push({ type: 'amount', label: `GST Amount invalid: "${r.gstAmount}"` });
+      const tds = cleanNum(r.tdsAmount);
+      if (tds !== null && (Number.isNaN(tds) || tds < 0)) issues.push({ type: 'amount', label: `TDS Amount invalid: "${r.tdsAmount}"` });
+      // Final invoice total = taxable + GST − TDS (same as normal creation).
+      const validGt = gt !== null && !Number.isNaN(gt);
+      const total = validGt
+        ? gt + (gst !== null && !Number.isNaN(gst) ? gst : 0) - (tds !== null && !Number.isNaN(tds) ? tds : 0)
+        : null;
       const paid = cleanNum(r.amountPaid);
       if (paid !== null) {
         if (Number.isNaN(paid) || paid < 0) issues.push({ type: 'amount', label: `Amount Paid invalid: "${r.amountPaid}"` });
-        else if (gt !== null && !Number.isNaN(gt) && paid > gt) issues.push({ type: 'amount', label: 'Amount Paid exceeds Grand Total' });
+        else if (total !== null && paid > total) issues.push({ type: 'amount', label: 'Amount Paid exceeds invoice total' });
       }
       const status = norm(r.status);
       if (status && !INVOICE_STATUSES.includes(status)) issues.push({ type: 'status', label: `Status invalid: "${r.status}"` });

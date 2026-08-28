@@ -1063,13 +1063,29 @@ exports.bulkImport = async (req, res) => {
         if (!Number.isFinite(amountPaid) || amountPaid < 0) errs.push(`Amount Paid must be a non-negative number: "${row.amountPaid}"`);
       }
 
+      // Optional GST / TDS amounts (absolute ₹). Applied with the same logic as
+      // normal invoice creation: GST is added on top of the taxable line total,
+      // TDS is deducted — so the invoice total = gross + GST − TDS.
+      let gstAmount = 0;
+      const gstRaw = String(row.gstAmount ?? '').replace(/,/g, '').trim();
+      if (gstRaw !== '') {
+        gstAmount = Number(gstRaw);
+        if (!Number.isFinite(gstAmount) || gstAmount < 0) errs.push(`GST Amount must be a non-negative number: "${row.gstAmount}"`);
+      }
+      let tdsAmount = 0;
+      const tdsRaw = String(row.tdsAmount ?? '').replace(/,/g, '').trim();
+      if (tdsRaw !== '') {
+        tdsAmount = Number(tdsRaw);
+        if (!Number.isFinite(tdsAmount) || tdsAmount < 0) errs.push(`TDS Amount must be a non-negative number: "${row.tdsAmount}"`);
+      }
+
       const status = norm(row.status);
       if (status && !VALID_STATUSES.includes(status)) errs.push(`Status must be one of: ${VALID_STATUSES.join(', ')}`);
 
       const invNum = String(row.invoiceNumber ?? '').trim();
       const description = String(row.notes ?? '').trim();
 
-      return { rowNum, errs, isParty, hospital, hospRaw, month, rowInvDate, amount, amountPaid, status, invNum, description };
+      return { rowNum, errs, isParty, hospital, hospRaw, month, rowInvDate, amount, amountPaid, gstAmount, tdsAmount, status, invNum, description };
     });
 
     // ── Phase 2: group rows by invoice number. Rows sharing a (non-blank)
@@ -1123,15 +1139,29 @@ exports.bulkImport = async (req, res) => {
       // A matching invoice number updates that invoice in place; otherwise create.
       const existingId = invNumRaw ? existingByNumber.get(norm(invNumRaw)) : null;
 
-      const gt = Math.round(members.reduce((a, m) => a + m.amount, 0));
+      // Gross = sum of the per-row taxable line amounts. GST/TDS are summed
+      // across the merged invoice's rows, then applied with the same arithmetic
+      // as normal creation (see utils/calculateInvoiceTotals): GST adds on the
+      // taxable total, TDS deducts on (taxable + GST), grandTotal = gross+GST−TDS.
+      const gross = Math.round(members.reduce((a, m) => a + m.amount, 0));
+      const gstAmount = Math.round(members.reduce((a, m) => a + m.gstAmount, 0));
+      const tdsAmount = Math.round(members.reduce((a, m) => a + m.tdsAmount, 0));
+      const netTotal = gross + gstAmount - tdsAmount;
+      const grand = netTotal;
+      // Back-compute the effective rates from the amounts so the stored invoice
+      // shows a GST %/TDS % consistent with a normally-created invoice.
+      const gstRate = gross > 0 ? Math.round((gstAmount / gross) * 10000) / 100 : 0;
+      const tdsBase = gross + gstAmount;
+      const tdsRate = tdsBase > 0 ? Math.round((tdsAmount / tdsBase) * 10000) / 100 : 0;
+
       const paid = Math.round(members.reduce((a, m) => a + m.amountPaid, 0));
-      if (paid > gt) {
-        errors.push({ row: first.rowNum, name: label, errors: ['Amount Paid cannot exceed Grand Total'] });
+      if (paid > grand) {
+        errors.push({ row: first.rowNum, name: label, errors: ['Amount Paid cannot exceed the invoice total (taxable + GST − TDS)'] });
         continue;
       }
       // Prefer an explicit status if any row set one; else derive from paid total.
       const status = members.find((m) => m.status)?.status
-        || (paid <= 0 ? 'issued' : (paid >= gt ? 'paid' : 'partially_paid'));
+        || (paid <= 0 ? 'issued' : (paid >= grand ? 'paid' : 'partially_paid'));
       const invDate = first.rowInvDate || first.month;
 
       const lineItems = members.map((m, order) => ({
@@ -1142,7 +1172,8 @@ exports.bulkImport = async (req, res) => {
         meta: { imported: true },
       }));
       // Fields (re)set on both create and update so the invoice cleanly reflects
-      // the imported rows — a simple opening-balance style bill (no GST/TDS).
+      // the imported rows. GST/TDS follow normal-creation logic: added / deducted
+      // on top of the taxable line total.
       const financials = {
         invoiceNumber: invNumRaw || null,
         hospitalId,
@@ -1153,14 +1184,18 @@ exports.bulkImport = async (req, res) => {
         issuedAt: status === 'draft' ? null : first.month,
         invoiceDate: invDate,
         subtotalTpaDesk: 0,
-        subtotalServices: gt,
+        subtotalServices: gross,
         subtotalAdjust: 0,
-        gross: gt,
-        netTotal: gt,
-        grandTotal: gt,
+        gross,
+        gstRate,
+        gstAmount,
+        tdsRate,
+        tdsAmount,
+        netTotal,
+        grandTotal: grand,
         previousBalance: 0,
         amountPaid: paid,
-        amountPending: gt - paid,
+        amountPending: grand - paid,
       };
 
       try {
