@@ -116,10 +116,11 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
   const removeExtra = (idx) => setExtras((prev) => prev.filter((_, i) => i !== idx));
 
   // ── Multi-link (allowMultiLink): link ONE payment to several bills. Each
-  // becomes its own entry on save (see submit → allocations). When editing, the
-  // entry itself takes the primary allocation and each extra spawns a new entry.
+  // becomes its own entry on save (see submit → allocations). Create-only:
+  // editing an existing entry must never split it into siblings — the operator
+  // edits the single entry (amount / linked bill / notes) in place.
   const isEditing = !!(initial && initial._id);
-  const canMultiLink = allowMultiLink && (linkType === 'invoice' || linkType === 'expense') && !!primaryId;
+  const canMultiLink = allowMultiLink && !isEditing && (linkType === 'invoice' || linkType === 'expense') && !!primaryId;
   const multi = canMultiLink && extras.length > 0;
   const primaryAmt = Math.round(Number(primaryAmount) || 0);
   const multiTotal = primaryAmt + sumExtras;

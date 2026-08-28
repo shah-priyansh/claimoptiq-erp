@@ -20,6 +20,8 @@ export const ACCOUNT_TYPES = [
   { value: 'sundry_creditor',   label: 'Sundry Creditors',   group: 'Liabilities', route: 'party', openingType: 'to_pay' },
   { value: 'loan',              label: 'Loan Accounts',      group: 'Liabilities', route: 'account' },
   { value: 'capital',           label: 'Capital',            group: 'Equity',      route: 'account' },
+  { value: 'owner_equity',      label: "Owner's Equity",     group: 'Equity',      route: 'account' },
+  { value: 'owner_withdrawal',  label: "Owner's Withdrawal", group: 'Equity',      route: 'account' },
   { value: 'income',            label: 'Income',             group: 'Incomes',     route: 'account', openingType: 'credit' },
   { value: 'other',             label: 'Other Account',      group: 'Other',       route: 'account' },
 ];

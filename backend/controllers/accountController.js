@@ -5,10 +5,11 @@ const partyCtrl = require('./partyController');
 
 // Account types that live in the new `accounts` table (Bank/Cash/Party/Expense
 // are rolled into the chart from their own tables).
-const VALID_TYPES = ['fixed_asset', 'current_asset', 'non_current_asset', 'capital', 'loan', 'income', 'other'];
+const VALID_TYPES = ['fixed_asset', 'current_asset', 'non_current_asset', 'capital', 'owner_equity', 'owner_withdrawal', 'loan', 'income', 'other'];
 const GROUP_OF = {
   fixed_asset: 'assets', current_asset: 'assets', non_current_asset: 'assets',
-  capital: 'equity', loan: 'liabilities', income: 'income', other: 'assets',
+  capital: 'equity', owner_equity: 'equity', owner_withdrawal: 'equity',
+  loan: 'liabilities', income: 'income', other: 'assets',
 };
 const VALID_GROUPS = ['assets', 'liabilities', 'equity', 'income'];
 const OPEN_INVOICE_STATUSES = ['issued', 'partially_paid'];
@@ -136,6 +137,8 @@ exports.chart = async (req, res) => {
     ];
     const equityLines = [
       ...accountsOfType('capital'),
+      ...accountsOfType('owner_equity'),
+      ...accountsOfType('owner_withdrawal'),
       ...accounts.filter((a) => a.accountType === 'other' && a.group === 'equity').map((a) => ({ id: a.id, kind: 'other', name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) })),
     ];
     const incomeLines = [

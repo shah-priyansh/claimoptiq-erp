@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSwitchHorizontal, HiOutlineUpload } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineUpload } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getJournalEntriesAPI, createJournalEntryAPI, updateJournalEntryAPI, deleteJournalEntryAPI,
-  getAccountEntriesAPI, getLedgerOptionsAPI,
+  getLedgerOptionsAPI,
 } from '../../services/api';
 import JournalEntryModal from './JournalEntryModal';
 import TransactionImportModal from '../../components/import/TransactionImportModal';
@@ -28,9 +28,7 @@ const AccountEntryList = () => {
   const canEdit = can('account_entries', 'edit');
   const canDelete = can('account_entries', 'delete');
 
-  const [tab, setTab] = usePersistedFilters('journal:tab', 'journal');
   const [items, setItems] = useState([]);
-  const [legacy, setLegacy] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState({ open: false, item: null });
   const [importOpen, setImportOpen] = useState(false);
@@ -58,18 +56,13 @@ const AccountEntryList = () => {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      if (tab === 'journal') {
-        const r = await getJournalEntriesAPI(params);
-        setItems(r.data.entries); setTotal(r.data.total);
-      } else {
-        const r = await getAccountEntriesAPI({ from: filters.from || undefined, to: filters.to || undefined, limit: 200 });
-        setLegacy(r.data.entries); setTotal(r.data.total);
-      }
+      const r = await getJournalEntriesAPI(params);
+      setItems(r.data.entries); setTotal(r.data.total);
     } catch { toast.error('Failed to load entries'); } finally { setLoading(false); }
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchAll(); }, [params, tab]);
+  useEffect(() => { fetchAll(); }, [params]);
 
   const handleSave = async (form) => {
     try {
@@ -85,21 +78,11 @@ const AccountEntryList = () => {
     catch (e) { toast.error(e.response?.data?.message || 'Failed to delete'); }
   };
 
-  const Tab = ({ id, label }) => (
-    <button onClick={() => { setTab(id); setPage(1); }}
-      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === id ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-      {label}
-    </button>
-  );
-
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex gap-2 border-b border-gray-100">
-          <Tab id="journal" label="Journal Entries" />
-          <Tab id="legacy" label="Legacy" />
-        </div>
-        {tab === 'journal' && canCreate && (
+        <h2 className="text-lg font-semibold text-gray-800">Journal Entries</h2>
+        {canCreate && (
           <div className="flex items-center gap-2">
             <button onClick={() => setImportOpen(true)}
               className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
@@ -125,91 +108,50 @@ const AccountEntryList = () => {
             <input type="date" value={filters.to} onChange={(e) => { setFilters((f) => ({ ...f, to: e.target.value })); setPage(1); }}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
           </div>
-          {tab === 'journal' && (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
-              <input value={filters.q} onChange={(e) => { setFilters((f) => ({ ...f, q: e.target.value })); setPage(1); }}
-                placeholder="Ref / description / account…" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-            </div>
-          )}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+            <input value={filters.q} onChange={(e) => { setFilters((f) => ({ ...f, q: e.target.value })); setPage(1); }}
+              placeholder="Ref / description / account…" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          </div>
         </div>
-
-        {tab === 'legacy' && (
-          <p className="px-4 py-2 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
-            Legacy account entries (read-only). New entries use Journal Entries.
-          </p>
-        )}
 
         {loading ? (
           <Loader label="Loading…" className="py-8" />
-        ) : tab === 'journal' ? (
-          items.length === 0 ? <div className="py-8 text-center text-gray-400">No journal entries in this range</div> : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Ref</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Entry</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {items.map((e) => (
-                    <tr key={e._id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDate(e.date)}</td>
-                      <td className="py-3 px-4 font-medium text-gray-700 whitespace-nowrap">{e.refNumber}</td>
-                      <td className="py-3 px-4 text-gray-700 text-sm">{lineSummary(e.lines)}</td>
-                      <td className="py-3 px-4 text-gray-600 max-w-xs truncate">{e.description || <span className="text-gray-300">—</span>}</td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex justify-end gap-1">
-                          {canEdit && <button onClick={() => setModal({ open: true, item: e })} className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded"><HiOutlinePencil className="w-4 h-4" /></button>}
-                          {canDelete && <button onClick={() => handleDelete(e)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"><HiOutlineTrash className="w-4 h-4" /></button>}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+        ) : items.length === 0 ? (
+          <div className="py-8 text-center text-gray-400">No journal entries in this range</div>
         ) : (
-          legacy.length === 0 ? <div className="py-8 text-center text-gray-400">No legacy entries in this range</div> : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Debit</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Credit</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Contra</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Remarks</th>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Ref</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Entry</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {items.map((e) => (
+                  <tr key={e._id} className="hover:bg-gray-50">
+                    <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDate(e.date)}</td>
+                    <td className="py-3 px-4 font-medium text-gray-700 whitespace-nowrap">{e.refNumber}</td>
+                    <td className="py-3 px-4 text-gray-700 text-sm">{lineSummary(e.lines)}</td>
+                    <td className="py-3 px-4 text-gray-600 max-w-xs truncate">{e.description || <span className="text-gray-300">—</span>}</td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex justify-end gap-1">
+                        {canEdit && <button onClick={() => setModal({ open: true, item: e })} className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded"><HiOutlinePencil className="w-4 h-4" /></button>}
+                        {canDelete && <button onClick={() => handleDelete(e)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"><HiOutlineTrash className="w-4 h-4" /></button>}
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {legacy.map((e) => (
-                    <tr key={e._id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDate(e.date)}</td>
-                      <td className="py-3 px-4"><span className="text-xs font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-700">{e.entryType?.toUpperCase()}</span></td>
-                      <td className="py-3 px-4 text-right text-gray-700">{e.entryType === 'general' && e.debit > 0 ? formatINR(e.debit) : <span className="text-gray-300">—</span>}</td>
-                      <td className="py-3 px-4 text-right text-gray-700">{e.entryType === 'general' && e.credit > 0 ? formatINR(e.credit) : <span className="text-gray-300">—</span>}</td>
-                      <td className="py-3 px-4 text-gray-700">
-                        {e.entryType === 'contra' ? (
-                          <span className="inline-flex items-center gap-1"><span className="font-medium">{e.fromMode?.toUpperCase()}</span><HiOutlineSwitchHorizontal className="w-3.5 h-3.5 text-gray-400" /><span className="font-medium">{e.toMode?.toUpperCase()}</span><span className="ml-2 text-gray-500">{formatINR(e.amount)}</span></span>
-                        ) : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="py-3 px-4 text-gray-600 max-w-xs truncate">{e.remarks || <span className="text-gray-300">—</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
-        {!loading && tab === 'journal' && total > 0 && (
+        {!loading && total > 0 && (
           <PaginationBar page={page} pages={pages} total={total} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
         )}
       </div>

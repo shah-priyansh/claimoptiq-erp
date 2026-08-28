@@ -161,20 +161,9 @@ const CashBankList = () => {
 
   const handleSave = async (form) => {
     try {
-      if (modal.item && Array.isArray(form.allocations)) {
-        // Multi-link while editing: the edited entry takes the first bill, the
-        // rest become new sibling entries.
-        const { allocations, ...shared } = form;
-        const [primary, ...extras] = allocations;
-        await updateCashBankAPI(modal.item._id, {
-          ...shared,
-          amount: primary.amount,
-          invoiceId: primary.invoiceId || null,
-          expenseId: primary.expenseId || null,
-        });
-        if (extras.length) await createCashBankSplitAPI({ ...shared, allocations: extras });
-        toast.success(extras.length ? `Entry updated + ${extras.length} added` : 'Entry updated');
-      } else if (modal.item) {
+      if (modal.item) {
+        // Editing only ever updates the single entry in place — multi-link
+        // splitting is create-only (see CashBankFormModal canMultiLink).
         await updateCashBankAPI(modal.item._id, form);
         toast.success('Entry updated');
       } else if (Array.isArray(form.allocations)) {

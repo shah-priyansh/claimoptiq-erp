@@ -14,7 +14,7 @@ const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-I
 
 // Chart rows whose `kind` is one of these are backed by an editable ledger
 // Account (row.id === Account uuid). Bank/cash/party/expense rows are not.
-const EDITABLE_KINDS = new Set(['fixed_asset', 'current_asset', 'non_current_asset', 'capital', 'loan', 'income', 'other']);
+const EDITABLE_KINDS = new Set(['fixed_asset', 'current_asset', 'non_current_asset', 'capital', 'owner_equity', 'owner_withdrawal', 'loan', 'income', 'other']);
 
 // Drill-down target for a chart row: click-through to the existing list that
 // backs the account's balance, pre-filtered. Ledger accounts (EDITABLE_KINDS)

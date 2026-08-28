@@ -19,7 +19,6 @@ import {
 } from 'react-icons/hi';
 import { statusCardStyle } from '../claimstatus/ClaimStatusMaster';
 import Loader from '../../components/ui/Loader';
-import AnnouncementBar from '../../components/ui/AnnouncementBar';
 
 const StatCard = ({ title, value, icon: Icon, color, subtitle, valueClassName = 'text-gray-900', onClick }) => {
   const clickable = typeof onClick === 'function';
@@ -312,8 +311,6 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
-
-      <AnnouncementBar />
 
       {/* Upload CTA */}
       {canViewModule('document_submissions') && user?.hospital && (

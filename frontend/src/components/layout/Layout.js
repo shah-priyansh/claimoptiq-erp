@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import BottomNav from './BottomNav';
 import FloatingUploadButton from './FloatingUploadButton';
+import AnnouncementBar from '../ui/AnnouncementBar';
 import { useAuth } from '../../context/AuthContext';
 import Loader from '../ui/Loader';
 
@@ -36,6 +37,7 @@ const Layout = () => {
       <div className={`transition-[margin] duration-200 ease-in-out ${collapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
         <Header onMenuClick={() => setSidebarOpen(true)} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
         <main className="p-4 lg:p-6 pb-24 lg:pb-6">
+          <AnnouncementBar className="mb-6" />
           <Outlet />
         </main>
       </div>

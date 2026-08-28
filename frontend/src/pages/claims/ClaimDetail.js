@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { getClaimAPI, updateClaimAPI, updateClaimStatusHistoryAPI, deleteClaimStatusHistoryAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, getClaimDocFileURL } from '../../services/api';
+import { getClaimAPI, updateClaimAPI, updateClaimStatusHistoryAPI, deleteClaimStatusHistoryAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, getClaimProcessByValuesAPI, getClaimDocFileURL } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -261,6 +261,7 @@ const ClaimDetail = () => {
   const [pendingPreview, setPendingPreview] = useState(null);
 
   const [hospitals, setHospitals] = useState([]);
+  const [processByValues, setProcessByValues] = useState([]);
   const [insurances, setInsurances] = useState([]);
   const [tpas, setTPAs] = useState([]);
   const [stickerOpen, setStickerOpen] = useState(false);
@@ -344,6 +345,9 @@ const ClaimDetail = () => {
       setInsurances(i.data);
       setTPAs(t.data);
     }).catch(() => toast.error('Failed to load hospitals/insurance/TPA list'));
+    getClaimProcessByValuesAPI()
+      .then(({ data }) => setProcessByValues(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
   const fetchClaim = useCallback(async (isRefresh = false) => {
@@ -358,6 +362,7 @@ const ClaimDetail = () => {
         patientMobile: data.patientMobile || '',
         patientAddress: data.patientAddress || '',
         doctorName: data.doctorName || '',
+        claimProcessBy: data.claimProcessBy || '',
         claimType: data.claimType || 'cashless',
         insuranceCompany: data.insuranceCompany?._id || data.insuranceCompany || '',
         tpa: data.tpa?._id || data.tpa || '',
@@ -1244,6 +1249,18 @@ const ClaimDetail = () => {
                 </div>
 
                 <div>
+                  <label className={labelCls}>Claim Process By</label>
+                  <SearchableSelect
+                    value={admissionForm.claimProcessBy || ''}
+                    onChange={v => setAdmissionForm(f => ({ ...f, claimProcessBy: v }))}
+                    options={processByValues.map(v => ({ value: v, label: v }))}
+                    placeholder="Select or type a name"
+                    searchPlaceholder="Search or add name..."
+                    allowCustom
+                    allowClear />
+                </div>
+
+                <div>
                   <label className={labelCls}>Date of Admit</label>
                   <DateInput type="date" value={admissionForm.dateOfAdmit || ''}
                     onChange={e => setAdmissionForm(f => ({ ...f, dateOfAdmit: e.target.value }))}
@@ -1346,6 +1363,7 @@ const ClaimDetail = () => {
                   ['Patient Mobile',     claim.patientMobile || '—'],
                   ['Patient Address',    claim.patientAddress || '—'],
                   ['Doctor',             claim.doctorName || '—'],
+                  ['Claim Process By',   claim.claimProcessBy || '—'],
                   ['Date of Admit',      formatDate(claim.dateOfAdmit)],
                   ['Month',              formatMonth(claim.month)],
                   ['Insurance',          claim.insuranceCompany?.name || '—'],
