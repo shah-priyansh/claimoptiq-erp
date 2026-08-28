@@ -332,12 +332,20 @@ const BankAccountsPage = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {items.map((e) => (
+                        {items.map((e) => {
+                          const isJournal = e.source === 'journal';
+                          return (
                           <tr key={e._id} className="hover:bg-gray-50">
                             <td className="py-3 px-4 whitespace-nowrap">
-                              <span className={`text-xs font-medium px-2 py-0.5 rounded ${e.direction === 'in' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                                {e.direction === 'in' ? 'Payment-In' : 'Payment-Out'}
-                              </span>
+                              {isJournal ? (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded bg-purple-50 text-purple-700">
+                                  Journal-{e.direction === 'in' ? 'In' : 'Out'}
+                                </span>
+                              ) : (
+                                <span className={`text-xs font-medium px-2 py-0.5 rounded ${e.direction === 'in' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                  {e.direction === 'in' ? 'Payment-In' : 'Payment-Out'}
+                                </span>
+                              )}
                             </td>
                             <td className="py-3 px-4 text-gray-700 max-w-xs truncate">{txnName(e)}</td>
                             <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDateTime(e.date)}</td>
@@ -345,23 +353,29 @@ const BankAccountsPage = () => {
                               {e.direction === 'in' ? '+' : '−'}{formatINR(e.amount)}
                             </td>
                             <td className="py-3 px-4 text-right">
-                              <div className="flex justify-end gap-1">
-                                {canEdit && (
-                                  <button onClick={() => setModal({ open: true, item: e, defaults: null, lockDirection: null })}
-                                    className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
-                                    <HiOutlinePencil className="w-4 h-4" />
-                                  </button>
-                                )}
-                                {canDelete && (
-                                  <button onClick={() => handleDelete(e)}
-                                    className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                                    <HiOutlineTrash className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </div>
+                              {/* Journal rows are read-only here — edited from Account Entries. */}
+                              {isJournal ? (
+                                <span className="text-[11px] text-gray-400 pr-1">Account Entry</span>
+                              ) : (
+                                <div className="flex justify-end gap-1">
+                                  {canEdit && (
+                                    <button onClick={() => setModal({ open: true, item: e, defaults: null, lockDirection: null })}
+                                      className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
+                                      <HiOutlinePencil className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  {canDelete && (
+                                    <button onClick={() => handleDelete(e)}
+                                      className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
+                                      <HiOutlineTrash className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
