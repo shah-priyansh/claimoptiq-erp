@@ -127,6 +127,127 @@ const buildEntryData = async (body) => {
   };
 };
 
+// Money already paid on an expense = Σ its linked cash/bank entries ('out' pays
+// it down, an 'in' refund adds back). Expense.payments IS the CashBankEntry[]
+// relation, so an expense has no stored paid field — it's derived here.
+const paidOnExpense = (payments = []) =>
+  Math.round((payments || []).reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0));
+
+// ── Shared core for "split one payment into one entry per bill" ──────────────
+// bulkReceipt (hospital-scoped), allocatePartyPayment (party-scoped) and
+// createSplit (generic) all record ONE cashBankEntry per allocation so each
+// invoice/expense keeps its own paid rollup. This is the single implementation
+// they delegate to: it validates, resolves the bank account, enforces the
+// universal rules (bills exist, invoices aren't draft/void, amount ≤ pending),
+// creates the entries and recomputes invoice paid-status. Callers do their own
+// SCOPE checks (same hospital / same party) via the optional validate* hooks.
+// Kept lean — creates with a minimal select and re-fetches after the tx — so the
+// remote DB's 5s interactive-transaction budget isn't blown when many bills are
+// linked. Returns the fully-included entries (caller wraps with toResponse).
+const createAllocationEntries = async ({
+  direction, mode, date, bankAccountId, utrNumber, chequeNumber, notes,
+  allocations, userId, validateInvoice = null, validateExpense = null,
+}) => {
+  const parsedDate = parseDate(date);
+  if (!parsedDate) throw { status: 400, message: 'Valid date is required' };
+  if (direction !== 'in' && direction !== 'out') throw { status: 400, message: "direction must be 'in' or 'out'" };
+  if (!VALID_MODES.includes(mode)) throw { status: 400, message: `mode must be one of: ${VALID_MODES.join(', ')}` };
+  if (!Array.isArray(allocations) || !allocations.length) throw { status: 400, message: 'At least one allocation is required' };
+
+  const normalised = allocations.map((a) => ({
+    invoiceId: a?.invoiceId || null,
+    expenseId: a?.expenseId || null,
+    amount: Math.round(Number(a?.amount) || 0),
+  }));
+  for (const a of normalised) {
+    if (a.invoiceId && a.expenseId) throw { status: 400, message: 'An allocation links to at most one of invoice / expense' };
+    if (!a.invoiceId && !a.expenseId) throw { status: 400, message: 'Each allocation needs an invoice or an expense' };
+    if (a.amount <= 0) throw { status: 400, message: 'Each allocation amount must be greater than zero' };
+  }
+  if (direction === 'in' && normalised.some((a) => a.expenseId)) throw { status: 400, message: 'Money-in entries link invoices, not expenses' };
+  if (direction === 'out' && normalised.some((a) => a.invoiceId)) throw { status: 400, message: 'Money-out entries link expenses, not invoices' };
+  const refIds = normalised.map((a) => a.invoiceId || a.expenseId);
+  if (new Set(refIds).size !== refIds.length) throw { status: 400, message: 'Duplicate invoice / expense in allocations' };
+
+  // Bank account resolution — bank/upi need one (mirrors buildEntryData).
+  let resolvedBankAccountId = bankAccountId || null;
+  if (mode === 'bank' || mode === 'upi') {
+    if (!resolvedBankAccountId) {
+      const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
+      resolvedBankAccountId = def?.id || null;
+    }
+    if (!resolvedBankAccountId) throw { status: 400, message: 'Bank / UPI entries need a bank account. Add one in Site Settings → Bank Accounts.' };
+    const acct = await prisma.bankAccount.findUnique({ where: { id: resolvedBankAccountId }, select: { id: true, isActive: true } });
+    if (!acct) throw { status: 400, message: 'Bank account not found' };
+    if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
+  } else {
+    resolvedBankAccountId = null;
+  }
+
+  // Validate targets + enforce the pending cap. hospitalId is denormalised from
+  // each invoice; expenses carry none.
+  const invIds = normalised.filter((a) => a.invoiceId).map((a) => a.invoiceId);
+  const expIds = normalised.filter((a) => a.expenseId).map((a) => a.expenseId);
+  const invById = new Map();
+  if (invIds.length) {
+    const invoices = await prisma.invoice.findMany({
+      where: { id: { in: invIds } },
+      select: { id: true, status: true, amountPending: true, hospitalId: true, partyId: true },
+    });
+    for (const i of invoices) invById.set(i.id, i);
+  }
+  const expById = new Map();
+  if (expIds.length) {
+    const expenses = await prisma.expense.findMany({
+      where: { id: { in: expIds } },
+      select: { id: true, amount: true, partyId: true, payments: { select: { direction: true, amount: true } } },
+    });
+    for (const e of expenses) expById.set(e.id, e);
+  }
+  for (const a of normalised) {
+    if (a.invoiceId) {
+      const inv = invById.get(a.invoiceId);
+      if (!inv) throw { status: 400, message: 'Invoice not found' };
+      if (inv.status === 'draft') throw { status: 400, message: 'Cannot record payment against a draft invoice. Issue it first.' };
+      if (inv.status === 'void') throw { status: 400, message: 'Cannot record payment against a voided invoice.' };
+      if (validateInvoice) validateInvoice(inv);
+      if (a.amount > Math.round(inv.amountPending || 0)) throw { status: 400, message: 'Allocation exceeds the invoice pending amount' };
+    } else {
+      const exp = expById.get(a.expenseId);
+      if (!exp) throw { status: 400, message: 'Expense not found' };
+      if (validateExpense) validateExpense(exp);
+      const pending = Math.round((exp.amount || 0) - paidOnExpense(exp.payments));
+      if (a.amount > pending) throw { status: 400, message: 'Allocation exceeds the expense pending amount' };
+    }
+  }
+
+  const sharedData = {
+    date: parsedDate,
+    direction,
+    mode,
+    bankAccountId: resolvedBankAccountId,
+    utrNumber: String(utrNumber || '').slice(0, 60),
+    chequeNumber: String(chequeNumber || '').slice(0, 60),
+    notes: String(notes || '').slice(0, 1000),
+  };
+
+  const createdIds = await prisma.$transaction(async (tx) => {
+    const ids = [];
+    for (const a of normalised) {
+      const hospitalId = a.invoiceId ? (invById.get(a.invoiceId)?.hospitalId || null) : null;
+      const e = await tx.cashBankEntry.create({
+        data: { ...sharedData, amount: a.amount, invoiceId: a.invoiceId, expenseId: a.expenseId, hospitalId, createdById: userId || null },
+        select: { id: true },
+      });
+      ids.push(e.id);
+    }
+    for (const a of normalised) { if (a.invoiceId) await recomputeInvoicePaidStatus(tx, a.invoiceId); }
+    return ids;
+  }, { timeout: 20000 });
+
+  return prisma.cashBankEntry.findMany({ where: { id: { in: createdIds } }, include: cashBankInclude });
+};
+
 // A journal line that debits/credits cash or bank is money moving through those
 // accounts, so it belongs in the Cash/Bank list next to Payment-In/Out entries
 // (the balances endpoint already folds these in — this keeps the list in sync).
@@ -354,93 +475,10 @@ exports.create = async (req, res) => {
 exports.createSplit = async (req, res) => {
   try {
     const { date, direction, mode, bankAccountId, utrNumber, chequeNumber, notes, allocations } = req.body;
-
-    const parsedDate = parseDate(date);
-    if (!parsedDate) throw { status: 400, message: 'Valid date is required' };
-    if (!VALID_DIRECTIONS.includes(direction)) throw { status: 400, message: `direction must be one of: ${VALID_DIRECTIONS.join(', ')}` };
-    if (!VALID_MODES.includes(mode)) throw { status: 400, message: `mode must be one of: ${VALID_MODES.join(', ')}` };
-    if (!Array.isArray(allocations) || !allocations.length) throw { status: 400, message: 'At least one allocation is required' };
-
-    const normalised = allocations.map((a) => ({
-      invoiceId: a?.invoiceId || null,
-      expenseId: a?.expenseId || null,
-      amount: Math.round(Number(a?.amount) || 0),
-    }));
-    for (const a of normalised) {
-      if (a.invoiceId && a.expenseId) throw { status: 400, message: 'An allocation links to at most one of invoice / expense' };
-      if (!a.invoiceId && !a.expenseId) throw { status: 400, message: 'Each allocation needs an invoice or an expense' };
-      if (a.amount <= 0) throw { status: 400, message: 'Each allocation amount must be greater than zero' };
-    }
-    // Direction consistency: money-in settles invoices, money-out settles expenses.
-    if (direction === 'in' && normalised.some((a) => a.expenseId)) throw { status: 400, message: 'Money-in entries link invoices, not expenses' };
-    if (direction === 'out' && normalised.some((a) => a.invoiceId)) throw { status: 400, message: 'Money-out entries link expenses, not invoices' };
-
-    const refIds = normalised.map((a) => a.invoiceId || a.expenseId);
-    if (new Set(refIds).size !== refIds.length) throw { status: 400, message: 'Duplicate invoice / expense in allocations' };
-
-    // Validate targets. Invoices must be issued (not draft/void); hospitalId is
-    // denormalised from each invoice (mirrors buildEntryData).
-    const invIds = normalised.filter((a) => a.invoiceId).map((a) => a.invoiceId);
-    const expIds = normalised.filter((a) => a.expenseId).map((a) => a.expenseId);
-    const invoices = invIds.length
-      ? await prisma.invoice.findMany({ where: { id: { in: invIds } }, select: { id: true, status: true, hospitalId: true } })
-      : [];
-    const invById = new Map(invoices.map((i) => [i.id, i]));
-    for (const id of invIds) {
-      const inv = invById.get(id);
-      if (!inv) throw { status: 400, message: 'Invoice not found' };
-      if (inv.status === 'draft') throw { status: 400, message: 'Cannot record payment against a draft invoice. Issue it first.' };
-      if (inv.status === 'void') throw { status: 400, message: 'Cannot record payment against a voided invoice.' };
-    }
-    if (expIds.length) {
-      const expenses = await prisma.expense.findMany({ where: { id: { in: expIds } }, select: { id: true } });
-      const found = new Set(expenses.map((e) => e.id));
-      for (const id of expIds) { if (!found.has(id)) throw { status: 400, message: 'Expense not found' }; }
-    }
-
-    // Bank account resolution mirrors buildEntryData() — bank/upi need one.
-    let resolvedBankAccountId = bankAccountId || null;
-    if (mode === 'bank' || mode === 'upi') {
-      if (!resolvedBankAccountId) {
-        const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
-        resolvedBankAccountId = def?.id || null;
-      }
-      if (!resolvedBankAccountId) throw { status: 400, message: 'Bank / UPI entries need a bank account. Add one in Site Settings → Bank Accounts.' };
-      const acct = await prisma.bankAccount.findUnique({ where: { id: resolvedBankAccountId }, select: { id: true, isActive: true } });
-      if (!acct) throw { status: 400, message: 'Bank account not found' };
-      if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
-    } else {
-      resolvedBankAccountId = null;
-    }
-
-    const sharedData = {
-      date: parsedDate,
-      direction,
-      mode,
-      bankAccountId: resolvedBankAccountId,
-      utrNumber: String(utrNumber || '').slice(0, 60),
-      chequeNumber: String(chequeNumber || '').slice(0, 60),
-      notes: String(notes || '').slice(0, 1000),
-    };
-
-    // Keep the transaction lean (Neon is remote — heavy joins per create can
-    // blow the 5s interactive-transaction budget). Create with a minimal select,
-    // recompute paid status, then re-fetch the full rows outside the tx.
-    const createdIds = await prisma.$transaction(async (tx) => {
-      const ids = [];
-      for (const a of normalised) {
-        const hospitalId = a.invoiceId ? (invById.get(a.invoiceId)?.hospitalId || null) : null;
-        const e = await tx.cashBankEntry.create({
-          data: { ...sharedData, amount: a.amount, invoiceId: a.invoiceId, expenseId: a.expenseId, hospitalId, createdById: req.user?.id || null },
-          select: { id: true },
-        });
-        ids.push(e.id);
-      }
-      for (const a of normalised) { if (a.invoiceId) await recomputeInvoicePaidStatus(tx, a.invoiceId); }
-      return ids;
-    }, { timeout: 20000 });
-
-    const entries = await prisma.cashBankEntry.findMany({ where: { id: { in: createdIds } }, include: cashBankInclude });
+    const entries = await createAllocationEntries({
+      direction, mode, date, bankAccountId, utrNumber, chequeNumber, notes,
+      allocations, userId: req.user?.id,
+    });
     res.status(201).json({ entries: toResponse(entries) });
   } catch (error) {
     if (error.status) return res.status(error.status).json({ message: error.message });
@@ -588,92 +626,14 @@ exports.remove = async (req, res) => {
 exports.bulkReceipt = async (req, res) => {
   try {
     const { hospitalId, date, mode, bankAccountId, utrNumber, chequeNumber, notes, allocations } = req.body;
-
     if (!hospitalId) throw { status: 400, message: 'hospitalId is required' };
-    if (!Array.isArray(allocations) || !allocations.length) {
-      throw { status: 400, message: 'At least one invoice allocation is required' };
-    }
+    if (!Array.isArray(allocations) || !allocations.length) throw { status: 400, message: 'At least one invoice allocation is required' };
 
-    const parsedDate = parseDate(date);
-    if (!parsedDate) throw { status: 400, message: 'Valid date is required' };
-    if (!VALID_MODES.includes(mode)) {
-      throw { status: 400, message: `mode must be one of: ${VALID_MODES.join(', ')}` };
-    }
-
-    // Normalise + validate allocations.
-    const normalised = allocations
-      .map((a) => ({ invoiceId: String(a?.invoiceId || ''), amount: Math.round(Number(a?.amount) || 0) }))
-      .filter((a) => a.invoiceId);
-    if (!normalised.length) throw { status: 400, message: 'Allocations missing invoiceId' };
-    for (const a of normalised) {
-      if (a.amount <= 0) throw { status: 400, message: 'Each allocation amount must be greater than zero' };
-    }
-    const invoiceIds = normalised.map((a) => a.invoiceId);
-    if (new Set(invoiceIds).size !== invoiceIds.length) {
-      throw { status: 400, message: 'Duplicate invoice in allocations' };
-    }
-
-    const invoices = await prisma.invoice.findMany({
-      where: { id: { in: invoiceIds } },
-      select: { id: true, status: true, hospitalId: true },
-    });
-    if (invoices.length !== invoiceIds.length) {
-      throw { status: 400, message: 'One or more invoices not found' };
-    }
-    for (const inv of invoices) {
-      if (inv.hospitalId !== hospitalId) {
-        throw { status: 400, message: 'All invoices must belong to the same hospital' };
-      }
-      if (inv.status === 'draft') {
-        throw { status: 400, message: 'Cannot record payment against a draft invoice. Issue it first.' };
-      }
-      if (inv.status === 'void') {
-        throw { status: 400, message: 'Cannot record payment against a voided invoice.' };
-      }
-    }
-
-    // Bank account resolution mirrors buildEntryData() — bank/upi need one.
-    let resolvedBankAccountId = bankAccountId || null;
-    if (mode === 'bank' || mode === 'upi') {
-      if (!resolvedBankAccountId) {
-        const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
-        resolvedBankAccountId = def?.id || null;
-      }
-      if (!resolvedBankAccountId) {
-        throw { status: 400, message: 'Bank / UPI entries need a bank account. Add one in Site Settings → Bank Accounts.' };
-      }
-      const acct = await prisma.bankAccount.findUnique({ where: { id: resolvedBankAccountId }, select: { id: true, isActive: true } });
-      if (!acct) throw { status: 400, message: 'Bank account not found' };
-      if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
-    } else {
-      resolvedBankAccountId = null;
-    }
-
-    const sharedData = {
-      date: parsedDate,
-      direction: 'in',
-      mode,
-      hospitalId,
-      bankAccountId: resolvedBankAccountId,
-      utrNumber: String(utrNumber || '').slice(0, 60),
-      chequeNumber: String(chequeNumber || '').slice(0, 60),
-      notes: String(notes || '').slice(0, 1000),
-      expenseId: null,
-    };
-
-    const entries = await prisma.$transaction(async (tx) => {
-      const created = [];
-      for (const a of normalised) {
-        const e = await tx.cashBankEntry.create({
-          data: { ...sharedData, amount: a.amount, invoiceId: a.invoiceId, createdById: req.user?.id || null },
-          include: cashBankInclude,
-        });
-        created.push(e);
-      }
-      for (const a of normalised) {
-        await recomputeInvoicePaidStatus(tx, a.invoiceId);
-      }
-      return created;
+    const entries = await createAllocationEntries({
+      direction: 'in', mode, date, bankAccountId, utrNumber, chequeNumber, notes,
+      allocations: allocations.map((a) => ({ invoiceId: a?.invoiceId, amount: a?.amount })),
+      userId: req.user?.id,
+      validateInvoice: (inv) => { if (inv.hospitalId !== hospitalId) throw { status: 400, message: 'All invoices must belong to the same hospital' }; },
     });
 
     res.status(201).json({ entries: toResponse(entries) });
@@ -690,104 +650,24 @@ exports.bulkReceipt = async (req, res) => {
 exports.allocatePartyPayment = async (req, res) => {
   try {
     const { partyId, direction, date, mode, bankAccountId, utrNumber, chequeNumber, notes, allocations } = req.body;
-
     if (!partyId) throw { status: 400, message: 'partyId is required' };
     if (direction !== 'in' && direction !== 'out') throw { status: 400, message: "direction must be 'in' or 'out'" };
     if (!Array.isArray(allocations) || !allocations.length) throw { status: 400, message: 'At least one allocation is required' };
 
-    const parsedDate = parseDate(date);
-    if (!parsedDate) throw { status: 400, message: 'Valid date is required' };
-    if (!VALID_MODES.includes(mode)) throw { status: 400, message: `mode must be one of: ${VALID_MODES.join(', ')}` };
-
     const party = await prisma.party.findUnique({ where: { id: partyId }, select: { id: true } });
     if (!party) throw { status: 404, message: 'Party not found' };
 
-    const normalised = allocations
-      .map((a) => ({ refId: String(a?.refId || ''), amount: Math.round(Number(a?.amount) || 0) }))
-      .filter((a) => a.refId);
-    if (!normalised.length) throw { status: 400, message: 'Allocations missing refId' };
-    for (const a of normalised) {
-      if (a.amount <= 0) throw { status: 400, message: 'Each allocation amount must be greater than zero' };
-    }
-    const refIds = normalised.map((a) => a.refId);
-    if (new Set(refIds).size !== refIds.length) throw { status: 400, message: 'Duplicate transaction in allocations' };
+    // The party UI sends generic `refId`s — map them to invoice/expense by direction.
+    const mapped = (allocations || []).map((a) => (direction === 'in'
+      ? { invoiceId: String(a?.refId || ''), amount: a?.amount }
+      : { expenseId: String(a?.refId || ''), amount: a?.amount }));
 
-    // Bank account resolution — mirrors bulkReceipt / buildEntryData.
-    let resolvedBankAccountId = bankAccountId || null;
-    if (mode === 'bank' || mode === 'upi') {
-      if (!resolvedBankAccountId) {
-        const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
-        resolvedBankAccountId = def?.id || null;
-      }
-      if (!resolvedBankAccountId) throw { status: 400, message: 'Bank / UPI entries need a bank account. Add one in Site Settings → Bank Accounts.' };
-      const acct = await prisma.bankAccount.findUnique({ where: { id: resolvedBankAccountId }, select: { id: true, isActive: true } });
-      if (!acct) throw { status: 400, message: 'Bank account not found' };
-      if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
-    } else {
-      resolvedBankAccountId = null;
-    }
-
-    const shared = {
-      date: parsedDate,
-      mode,
-      bankAccountId: resolvedBankAccountId,
-      utrNumber: String(utrNumber || '').slice(0, 60),
-      chequeNumber: String(chequeNumber || '').slice(0, 60),
-      notes: String(notes || '').slice(0, 1000),
-    };
-
-    let entries;
-    if (direction === 'in') {
-      const invoices = await prisma.invoice.findMany({
-        where: { id: { in: refIds } },
-        select: { id: true, partyId: true, status: true, amountPending: true, hospitalId: true },
-      });
-      if (invoices.length !== refIds.length) throw { status: 400, message: 'One or more invoices not found' };
-      const byId = new Map(invoices.map((i) => [i.id, i]));
-      for (const a of normalised) {
-        const inv = byId.get(a.refId);
-        if (inv.partyId !== partyId) throw { status: 400, message: 'All invoices must belong to this party' };
-        if (inv.status === 'draft') throw { status: 400, message: 'Cannot record payment against a draft invoice. Issue it first.' };
-        if (inv.status === 'void') throw { status: 400, message: 'Cannot record payment against a voided invoice.' };
-        if (a.amount > Math.round(inv.amountPending || 0)) throw { status: 400, message: 'Allocation exceeds the invoice pending amount' };
-      }
-      entries = await prisma.$transaction(async (tx) => {
-        const created = [];
-        for (const a of normalised) {
-          const inv = byId.get(a.refId);
-          created.push(await tx.cashBankEntry.create({
-            data: { ...shared, direction: 'in', amount: a.amount, invoiceId: a.refId, expenseId: null, hospitalId: inv.hospitalId || null, createdById: req.user?.id || null },
-            include: cashBankInclude,
-          }));
-        }
-        for (const a of normalised) await recomputeInvoicePaidStatus(tx, a.refId);
-        return created;
-      });
-    } else {
-      const expenses = await prisma.expense.findMany({
-        where: { id: { in: refIds } },
-        select: { id: true, partyId: true, amount: true, payments: { select: { direction: true, amount: true } } },
-      });
-      if (expenses.length !== refIds.length) throw { status: 400, message: 'One or more expenses not found' };
-      const byId = new Map(expenses.map((e) => [e.id, e]));
-      const paidOf = (payments = []) => Math.round(payments.reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0));
-      for (const a of normalised) {
-        const exp = byId.get(a.refId);
-        if (exp.partyId !== partyId) throw { status: 400, message: 'All expenses must belong to this party' };
-        const pending = Math.round((exp.amount || 0) - paidOf(exp.payments));
-        if (a.amount > pending) throw { status: 400, message: 'Allocation exceeds the expense pending amount' };
-      }
-      entries = await prisma.$transaction(async (tx) => {
-        const created = [];
-        for (const a of normalised) {
-          created.push(await tx.cashBankEntry.create({
-            data: { ...shared, direction: 'out', amount: a.amount, expenseId: a.refId, invoiceId: null, createdById: req.user?.id || null },
-            include: cashBankInclude,
-          }));
-        }
-        return created;
-      });
-    }
+    const entries = await createAllocationEntries({
+      direction, mode, date, bankAccountId, utrNumber, chequeNumber, notes,
+      allocations: mapped, userId: req.user?.id,
+      validateInvoice: (inv) => { if (inv.partyId !== partyId) throw { status: 400, message: 'All invoices must belong to this party' }; },
+      validateExpense: (exp) => { if (exp.partyId !== partyId) throw { status: 400, message: 'All expenses must belong to this party' }; },
+    });
 
     res.status(201).json({ entries: toResponse(entries) });
   } catch (error) {
