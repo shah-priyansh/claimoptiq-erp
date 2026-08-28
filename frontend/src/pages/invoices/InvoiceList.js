@@ -15,7 +15,7 @@ import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getInvoicesAPI, deleteInvoiceAPI, deleteAllInvoicesAPI, voidInvoiceAPI,
   getHospitalsAPI, openInvoicePdf, previewInvoicePdf, printInvoicePdf, createCashBankAPI, getBankAccountsAPI,
-  getOpenInvoiceHospitalsAPI, getInvoicePartyNamesAPI,
+  getOpenInvoiceHospitalsAPI, getInvoicePartyNamesAPI, getPartyLedgerAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import TransactionImportModal from '../../components/import/TransactionImportModal';
@@ -88,6 +88,9 @@ const InvoiceList = () => {
   // When set, the Cash/Bank entry modal opens pre-filled to record a receipt
   // against this invoice. The user can adjust mode/amount/UTR before saving.
   const [paymentInvoice, setPaymentInvoice] = useState(null);
+  // The party's open invoices, fed to the payment modal so any amount beyond
+  // this invoice's pending can be linked to the party's other open invoices.
+  const [payOpenInvoices, setPayOpenInvoices] = useState([]);
   // Bulk-receive selection — only payable invoices from a single hospital.
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -194,12 +197,27 @@ const InvoiceList = () => {
   // Open the Cash/Bank entry modal pre-linked to the invoice. The user can
   // tweak the mode / amount / reference number before saving — replaces the
   // old "instantly record full cash payment" behaviour.
-  const markPaid = (inv) => {
+  const markPaid = async (inv) => {
     const pending = Math.max(0, Math.round(inv.amountPending || 0));
     if (pending <= 0) {
       toast.info('Invoice is already fully paid');
       return;
     }
+    // Default the picker list to just this invoice; if it has a party, load the
+    // party's other open invoices so the excess can be split across them.
+    let openList = [{ _id: inv._id, invoiceNumber: inv.invoiceNumber, amountPending: pending }];
+    if (inv.partyId) {
+      setMarkingPaidId(inv._id);
+      try {
+        const { data } = await getPartyLedgerAPI(inv.partyId);
+        const rows = (data?.transactions || [])
+          .filter((t) => t.type === 'invoice' && t.balance > 0)
+          .map((t) => ({ _id: t.refId, invoiceNumber: t.number || t.name, amountPending: t.balance }));
+        if (rows.some((r) => r._id === inv._id)) openList = rows;
+      } catch { /* fall back to the single-invoice list */ }
+      finally { setMarkingPaidId(null); }
+    }
+    setPayOpenInvoices(openList);
     setPaymentInvoice(inv);
   };
 
@@ -207,11 +225,19 @@ const InvoiceList = () => {
     if (!paymentInvoice) return;
     setMarkingPaidId(paymentInvoice._id);
     try {
-      await createCashBankAPI({
-        ...form,
-        direction: 'in', // mark-as-paid is always a receipt
-        invoiceId: paymentInvoice._id,
-      });
+      // Split payment → one receipt per linked invoice; otherwise a single one.
+      const entries = form.allocations?.length
+        ? form.allocations
+        : [{ invoiceId: paymentInvoice._id, amount: form.amount }];
+      for (const a of entries) {
+        await createCashBankAPI({
+          date: form.date, mode: form.mode, notes: form.notes,
+          bankAccountId: form.bankAccountId, utrNumber: form.utrNumber, chequeNumber: form.chequeNumber,
+          direction: 'in', // mark-as-paid is always a receipt
+          invoiceId: a.invoiceId,
+          amount: a.amount,
+        });
+      }
       toast.success('Payment recorded');
       setPaymentInvoice(null);
       fetchInvoices();
@@ -791,13 +817,14 @@ const InvoiceList = () => {
           notes: '',
           invoice: { _id: paymentInvoice._id },
         } : null}
-        invoices={paymentInvoice ? [paymentInvoice] : []}
+        invoices={payOpenInvoices}
         expenses={[]}
         bankAccounts={bankAccounts}
         loadingInvoices={false}
         loadingExpenses={false}
         loadingBankAccounts={loadingBankAccounts}
         lockDirection="in"
+        allowSplit
         onClose={() => setPaymentInvoice(null)}
         onSave={handlePaymentSave}
       />

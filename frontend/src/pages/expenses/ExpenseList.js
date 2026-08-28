@@ -13,6 +13,7 @@ import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getExpensesAPI, getExpenseSummaryAPI, getExpenseCategoriesAPI, createExpenseAPI,
   updateExpenseAPI, deleteExpenseAPI, getReferencesAPI, getPartiesAPI, getBankAccountsAPI, createCashBankAPI,
+  getPartyLedgerAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import ExpenseFormModal from './ExpenseFormModal';
@@ -98,6 +99,9 @@ const ExpenseList = () => {
   const actionMenuRef = useRef(null);
   const [previewExpense, setPreviewExpense] = useState(null);
   const [paymentExpense, setPaymentExpense] = useState(null);
+  // The party's open expenses, so any amount beyond this expense's pending can be
+  // linked/split across the party's other open expenses.
+  const [payOpenExpenses, setPayOpenExpenses] = useState([]);
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
@@ -131,15 +135,41 @@ const ExpenseList = () => {
     };
   }, [actionMenu]);
 
+  // Open the payment modal; if the expense has a party, load its other open
+  // expenses so an over-payment can be split across them.
+  const payExpense = async (e) => {
+    const pending = Math.max(0, Math.round(e.amountPending != null ? e.amountPending : (e.amount || 0) - (e.amountPaid || 0)));
+    let openList = [{ _id: e._id, category: e.category, amount: pending, amountPending: pending, date: e.date }];
+    if (e.partyId) {
+      try {
+        const { data } = await getPartyLedgerAPI(e.partyId);
+        const rows = (data?.transactions || [])
+          .filter((t) => t.type === 'expense' && t.balance > 0)
+          .map((t) => ({ _id: t.refId, category: { label: t.name }, amount: t.balance, amountPending: t.balance, date: t.date }));
+        if (rows.some((r) => r._id === e._id)) openList = rows;
+      } catch { /* fall back to single-expense list */ }
+    }
+    setPayOpenExpenses(openList);
+    setPaymentExpense(e);
+  };
+
   const handlePaymentSave = async (form) => {
     if (!paymentExpense) return;
     setPaymentSaving(true);
     try {
-      await createCashBankAPI({
-        ...form,
-        direction: 'out',
-        expenseId: paymentExpense._id,
-      });
+      // Split payment → one payout per linked expense; otherwise a single one.
+      const entries = form.allocations?.length
+        ? form.allocations
+        : [{ expenseId: paymentExpense._id, amount: form.amount }];
+      for (const a of entries) {
+        await createCashBankAPI({
+          date: form.date, mode: form.mode, notes: form.notes,
+          bankAccountId: form.bankAccountId, utrNumber: form.utrNumber, chequeNumber: form.chequeNumber,
+          direction: 'out',
+          expenseId: a.expenseId,
+          amount: a.amount,
+        });
+      }
       toast.success('Payment recorded');
       setPaymentExpense(null);
       fetchAll();
@@ -687,7 +717,7 @@ const ExpenseList = () => {
               </button>
               <div className="my-1 border-t border-gray-100" />
               <button
-                onClick={() => { setActionMenu(null); setPaymentExpense(e); }}
+                onClick={() => { setActionMenu(null); payExpense(e); }}
                 className="w-full text-left px-3 py-2 text-sm text-green-700 hover:bg-green-50 flex items-center gap-2">
                 <HiOutlineCash className="w-4 h-4" /> Make Payment
               </button>
@@ -730,15 +760,16 @@ const ExpenseList = () => {
         initial={paymentExpense ? {
           direction: 'out',
           mode: 'cash',
-          amount: paymentExpense.amount || 0,
+          amount: Math.max(0, Math.round(paymentExpense.amountPending != null ? paymentExpense.amountPending : (paymentExpense.amount || 0) - (paymentExpense.amountPaid || 0))),
           expense: { _id: paymentExpense._id },
           notes: paymentExpense.notes || '',
         } : null}
         invoices={[]}
-        expenses={paymentExpense ? [paymentExpense] : []}
+        expenses={payOpenExpenses}
         bankAccounts={bankAccounts}
         loadingBankAccounts={loadingBankAccounts}
         lockDirection="out"
+        allowSplit
         onClose={() => !paymentSaving && setPaymentExpense(null)}
         onSave={handlePaymentSave}
       />

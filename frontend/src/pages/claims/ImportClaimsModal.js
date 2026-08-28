@@ -21,6 +21,7 @@ const COLUMNS = [
   { key: 'referenceBy',         label: 'Reference By',                  width: 18, note: 'Optional — must match the hospital\'s reference (see Hospitals sheet)', superAdminOnly: true },
   { key: 'isDirectPatient',     label: 'Is Direct Patient (Yes/No)',    width: 12 },
   { key: 'doctorName',          label: 'Doctor Name',                   width: 18 },
+  { key: 'claimProcessBy',      label: 'Claim Process By',              width: 18, note: 'Optional — who processed the claim' },
   { key: 'claimType',           label: 'Claim Type *',                  width: 14, note: 'cashless / cashless anywhere / reimbursement / grievance', required: true },
   { key: 'insuranceCompany',    label: 'Insurance Company',             width: 24, note: 'Must match exactly (see Insurance sheet)' },
   { key: 'tpa',                 label: 'TPA',                           width: 24, note: 'Must match exactly (see TPA sheet)' },

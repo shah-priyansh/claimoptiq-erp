@@ -119,7 +119,7 @@ exports.ledger = async (req, res) => {
       const pending = Math.round(inv.amountPending || 0);
       if (OPEN_INVOICE_STATUSES.includes(inv.status)) receivable += pending;
       rows.push({
-        type: 'invoice', name: inv.invoiceNumber || 'Invoice', number: inv.invoiceNumber || null,
+        type: 'invoice', refId: inv.id, name: inv.invoiceNumber || 'Invoice', number: inv.invoiceNumber || null,
         date: inv.invoiceDate || inv.issuedAt || inv.createdAt, total: Math.round(inv.grandTotal || 0),
         balance: pending, dueDate: inv.dueDate || null, status: inv.status,
       });
@@ -135,8 +135,9 @@ exports.ledger = async (req, res) => {
       const pending = total - paid;
       payable += pending;
       rows.push({
-        type: 'expense', name: e.category?.label || e.notes || 'Expense', number: null,
+        type: 'expense', refId: e.id, name: e.category?.label || e.notes || 'Expense', number: null,
         date: e.date, total, balance: pending, dueDate: null, status: expenseStatus(total, paid),
+        notes: e.notes || '',
       });
       for (const pay of e.payments.filter((p) => p.direction === 'out')) {
         rows.push({ type: 'payment_out', name: 'Payment-Out', number: null, date: pay.date, total: Math.round(pay.amount || 0), balance: 0, dueDate: null, status: 'used' });

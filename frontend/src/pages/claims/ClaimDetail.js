@@ -264,6 +264,13 @@ const ClaimDetail = () => {
   const [insurances, setInsurances] = useState([]);
   const [tpas, setTPAs] = useState([]);
   const [stickerOpen, setStickerOpen] = useState(false);
+  // Ephemeral, per-print courier-sticker address overrides ({ to, from }).
+  // Never persisted — reset when the modal opens/closes so the master
+  // (insurance / TPA / hospital) addresses are left untouched.
+  const [stickerEditMode, setStickerEditMode] = useState(false);
+  const [stickerAddressEdits, setStickerAddressEdits] = useState({});
+  const openSticker = () => { setStickerAddressEdits({}); setStickerEditMode(false); setStickerOpen(true); };
+  const closeSticker = () => { setStickerOpen(false); setStickerEditMode(false); setStickerAddressEdits({}); };
   const [dischargeForm, setDischargeForm] = useState({});
   const [admissionForm, setAdmissionForm] = useState({});
   const [mobileError, setMobileError] = useState('');
@@ -867,7 +874,7 @@ const ClaimDetail = () => {
                   {claim.isBilled ? 'FCC Billed' : 'Unbilled'}
                 </span>
               )}
-              <button onClick={() => setStickerOpen(true)}
+              <button onClick={openSticker}
                 title="Print courier sticker"
                 className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-colors">
                 <HiOutlinePrinter className="w-4 h-4" />
@@ -1095,6 +1102,7 @@ const ClaimDetail = () => {
                   ['Patient Name',     claim.patientName],
                   ['Mobile',           claim.patientMobile || '—'],
                   ['Doctor',           claim.doctorName || '—'],
+                  ...(claim.claimProcessBy ? [['Claim Process By', claim.claimProcessBy]] : []),
                   ...(claim.hospital?.referenceBy ? [['Reference', claim.hospital.referenceBy]] : []),
                   ['Claim Type',       <ClaimTypeBadge slug={claim.claimType} label={CLAIM_TYPE_LABELS[claim.claimType]} />],
                   ['Date of Admit',    formatDate(claim.dateOfAdmit)],
@@ -1946,6 +1954,9 @@ const ClaimDetail = () => {
           ? { name: 'Direct Patient', address: '', phone: '' }
           : { name: claim.hospital?.name, address: claim.hospital?.address, phone: claim.hospital?.phone };
         const claimNo = claim.ccnNo || (claim.monthClaimNo ? `M${claim.monthClaimNo}` : claim._id?.slice(-8).toUpperCase() || '');
+        const toAddr = stickerAddressEdits.to ?? (recipient.address || '');
+        const fromAddr = stickerAddressEdits.from ?? (sender.address || '');
+        const setAddr = (side, value) => setStickerAddressEdits((prev) => ({ ...prev, [side]: value }));
         return ReactDOM.createPortal(
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
             <style>{`
@@ -1974,9 +1985,13 @@ const ClaimDetail = () => {
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 print:hidden">
                 <div>
                   <h3 className="text-base font-semibold text-gray-900">Courier Sticker</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">A4 portrait · prints at top of page</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {stickerEditMode
+                      ? 'Editing addresses — applies to this print only, not saved to master'
+                      : 'A4 portrait · prints at top of page'}
+                  </p>
                 </div>
-                <button onClick={() => setStickerOpen(false)}
+                <button onClick={closeSticker}
                   className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
                   <HiOutlineX className="w-5 h-5" />
                 </button>
@@ -1990,8 +2005,17 @@ const ClaimDetail = () => {
                     <div>
                       <p className="tracking-wide mb-1">TO · {recipient.label}</p>
                       <p className="leading-snug">{recipient.name || '—'}</p>
-                      {recipient.address && (
-                        <p className="mt-1 leading-snug whitespace-pre-line">{recipient.address}</p>
+                      {stickerEditMode && (
+                        <textarea
+                          value={toAddr}
+                          onChange={(e) => setAddr('to', e.target.value)}
+                          rows={2}
+                          placeholder="Recipient address"
+                          className="print:hidden mt-1 w-full rounded-md border border-primary-300 bg-primary-50/40 px-2 py-1 text-base font-bold leading-snug text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-300 resize-y"
+                        />
+                      )}
+                      {toAddr && (
+                        <p className={`mt-1 leading-snug whitespace-pre-line ${stickerEditMode ? 'hidden print:block' : ''}`}>{toAddr}</p>
                       )}
                       {recipient.mobile && (
                         <p className="mt-1">Mobile: {recipient.mobile}</p>
@@ -2004,8 +2028,17 @@ const ClaimDetail = () => {
                       <div>
                         <p className="tracking-wide mb-1">FROM</p>
                         <p className="leading-snug">{sender.name || '—'}</p>
-                        {sender.address && (
-                          <p className="mt-1 leading-snug whitespace-pre-line">{sender.address}</p>
+                        {stickerEditMode && (
+                          <textarea
+                            value={fromAddr}
+                            onChange={(e) => setAddr('from', e.target.value)}
+                            rows={2}
+                            placeholder="Sender address"
+                            className="print:hidden mt-1 w-full rounded-md border border-primary-300 bg-primary-50/40 px-2 py-1 text-base font-bold leading-snug text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-300 resize-y"
+                          />
+                        )}
+                        {fromAddr && (
+                          <p className={`mt-1 leading-snug whitespace-pre-line ${stickerEditMode ? 'hidden print:block' : ''}`}>{fromAddr}</p>
                         )}
                         {sender.phone && (
                           <p className="mt-1">Mobile: {sender.phone}</p>
@@ -2021,15 +2054,21 @@ const ClaimDetail = () => {
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl print:hidden">
-                <button onClick={() => setStickerOpen(false)}
-                  className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-white font-medium">
-                  Close
+              <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl print:hidden">
+                <button onClick={() => setStickerEditMode((v) => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg font-medium border transition-colors ${stickerEditMode ? 'bg-primary-600 text-white border-primary-600 hover:bg-primary-700' : 'border-gray-300 text-gray-600 hover:bg-white'}`}>
+                  <HiOutlinePencil className="w-4 h-4" /> {stickerEditMode ? 'Done editing' : 'Edit addresses'}
                 </button>
-                <button onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium shadow-sm">
-                  <HiOutlinePrinter className="w-4 h-4" /> Print
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={closeSticker}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-white font-medium">
+                    Close
+                  </button>
+                  <button onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium shadow-sm">
+                    <HiOutlinePrinter className="w-4 h-4" /> Print
+                  </button>
+                </div>
               </div>
             </div>
           </div>,

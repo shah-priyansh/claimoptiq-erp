@@ -7,6 +7,7 @@
 
 const prisma = require('../config/prisma');
 const { getJournalNetByAccount, journalKey } = require('../services/journalBalances');
+const { computeCommissionRows } = require('../utils/referenceCommissionFlow');
 
 const ACTIVE_INVOICE_STATUSES = ['issued', 'partially_paid', 'paid'];
 
@@ -227,38 +228,89 @@ exports.profit = async (req, res) => {
 
 // === REFERENCES ============================================================
 // businessGiven = Σ invoice.netTotal where hospital.referenceId = ref AND invoice active in range.
+// commissionExpected = the commission the reference actually earns, replayed
+//   from its per-service config (percentage/fixed/per_claim/one_time) over each
+//   in-range invoice's line items — the same engine that books the live
+//   Reference Commission ledger. References with no per-service config fall back
+//   to the legacy flat `commissionRate` × businessGiven.
+// commissionRate (displayed) = effective blended rate = commissionExpected ÷
+//   businessGiven for per-service references, or the flat rate for legacy ones.
 // commissionPaid = Σ expense.amount where category=reference_commission AND referenceId = ref AND in range.
-// commissionPending = roughly businessGiven*rate − commissionPaid, surfaced as advisory.
+// commissionPending = commissionExpected − commissionPaid, surfaced as advisory.
 exports.references = async (req, res) => {
   try {
     const { from, to, filtersOut } = resolveRange(req.query);
     const refFilter = req.query.referenceId ? { id: req.query.referenceId } : {};
 
+    // Pull references WITH their per-service commission config. The flat
+    // `commissionRate` column is legacy and only used as a fallback below.
     const references = await prisma.reference.findMany({
       where: { ...refFilter },
-      select: { id: true, name: true, commissionRate: true, isActive: true },
+      select: {
+        id: true, name: true, commissionRate: true, isActive: true,
+        applicableServices: {
+          select: {
+            id: true, billingServiceNameId: true, commissionType: true, commissionValue: true,
+            billingServiceName: { select: { name: true } },
+          },
+        },
+      },
     });
+    const refById = new Map(references.map((r) => [r.id, r]));
+    const refIds = references.map((r) => r.id);
 
-    // Business given: sum invoice.netTotal grouped by hospital.referenceId.
-    // Exclude null-hospital (direct-patient) invoices — they have no hospital,
-    // so no referenceId, and a null in the `hospitalId` list would throw a
-    // Prisma validation error on the `id: { in }` lookup below.
-    const businessRows = await prisma.invoice.groupBy({
-      by: ['hospitalId'],
-      // Business given is a sales figure → count by bill date (invoiceDate).
-      where: { status: { in: ACTIVE_INVOICE_STATUSES }, invoiceDate: { gte: from, lte: to }, hospitalId: { not: null } },
-      _sum: { netTotal: true },
-    });
-    const hospitalIds = businessRows.map((r) => r.hospitalId).filter(Boolean);
-    const hospitals = hospitalIds.length
-      ? await prisma.hospital.findMany({ where: { id: { in: hospitalIds } }, select: { id: true, referenceId: true } })
+    // Hospitals feeding each reference → hospitalId → referenceId. Only
+    // reference-linked hospitals matter (direct-patient invoices have no
+    // hospital and so no reference).
+    const hospitals = refIds.length
+      ? await prisma.hospital.findMany({ where: { referenceId: { in: refIds } }, select: { id: true, referenceId: true } })
       : [];
     const hospRefMap = new Map(hospitals.map((h) => [h.id, h.referenceId]));
+    const hospitalIds = hospitals.map((h) => h.id);
+
+    // Load the in-range invoices for those hospitals WITH line items, so we can
+    // both sum business given AND replay the commission engine per invoice.
+    // Business given is a sales figure → count by bill date (invoiceDate).
+    const invoices = hospitalIds.length ? await prisma.invoice.findMany({
+      where: { status: { in: ACTIVE_INVOICE_STATUSES }, invoiceDate: { gte: from, lte: to }, hospitalId: { in: hospitalIds } },
+      select: {
+        id: true, hospitalId: true, netTotal: true,
+        lineItems: { select: { id: true, lineType: true, billingServiceNameId: true, amount: true, description: true } },
+      },
+      // Stable order so a one_time fee is attributed to the earliest invoice.
+      orderBy: [{ invoiceDate: 'asc' }, { createdAt: 'asc' }],
+    }) : [];
+
     const businessByRef = new Map();
-    for (const r of businessRows) {
-      const refId = hospRefMap.get(r.hospitalId);
+    const expectedByRef = new Map();
+    // Per reference, track which one_time services have already been billed in
+    // this range so the flat one-time fee isn't re-charged per invoice (mirrors
+    // the engine's cross-invoice dedup, scoped to the report window).
+    const onetimeUsedByRef = new Map();
+
+    for (const inv of invoices) {
+      const refId = hospRefMap.get(inv.hospitalId);
       if (!refId) continue;
-      businessByRef.set(refId, (businessByRef.get(refId) || 0) + (r._sum.netTotal || 0));
+      businessByRef.set(refId, (businessByRef.get(refId) || 0) + (inv.netTotal || 0));
+
+      const reference = refById.get(refId);
+      if (!reference || !(reference.applicableServices || []).length) continue;
+
+      let used = onetimeUsedByRef.get(refId);
+      if (!used) { used = new Set(); onetimeUsedByRef.set(refId, used); }
+      // Force isActive: this advisory report values an inactive reference's
+      // historical business too (the live engine skips inactive references).
+      const { rows: commissionRows } = computeCommissionRows(inv, { ...reference, isActive: true }, used);
+      let earned = 0;
+      for (const row of commissionRows) {
+        earned += row.amount;
+        const ot = /:one_time:(.+)$/.exec(row.dedupeKey);
+        if (ot) {
+          const entry = reference.applicableServices.find((e) => e.id === ot[1]);
+          if (entry) used.add(entry.billingServiceNameId);
+        }
+      }
+      expectedByRef.set(refId, (expectedByRef.get(refId) || 0) + earned);
     }
 
     // Commission paid: sum expenses in reference_commission category grouped by referenceId
@@ -277,13 +329,21 @@ exports.references = async (req, res) => {
     const rows = references.map((ref) => {
       const business = Math.round(businessByRef.get(ref.id) || 0);
       const paid = Math.round(paidByRef.get(ref.id) || 0);
-      // Advisory: expected = business * rate / 100. Pending = expected − paid.
-      const expected = Math.round(business * (Number(ref.commissionRate) || 0) / 100);
+      const hasServiceConfig = (ref.applicableServices || []).length > 0;
+      // Expected commission from the real per-service config; fall back to the
+      // legacy flat rate only when no per-service config exists.
+      const expected = hasServiceConfig
+        ? Math.round(expectedByRef.get(ref.id) || 0)
+        : Math.round(business * (Number(ref.commissionRate) || 0) / 100);
+      // Effective blended rate for per-service refs (1-decimal), flat rate otherwise.
+      const rate = hasServiceConfig
+        ? (business > 0 ? Math.round((expected / business) * 1000) / 10 : 0)
+        : (Number(ref.commissionRate) || 0);
       const pending = expected - paid;
       return {
         key: ref.id,
         label: ref.name,
-        commissionRate: ref.commissionRate,
+        commissionRate: rate,
         isActive: ref.isActive,
         businessGiven: business,
         commissionExpected: expected,

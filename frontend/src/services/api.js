@@ -224,6 +224,7 @@ export const updateCashBankAPI      = (id, data) => API.patch(`/cash-bank/${id}`
 export const deleteCashBankAPI      = (id) => API.delete(`/cash-bank/${id}`);
 export const recordInvoicePaymentAPI = (invoiceId, data) => API.post(`/invoices/${invoiceId}/payments`, data);
 export const bulkReceivePaymentAPI = (data) => API.post('/cash-bank/bulk-receipt', data);
+export const allocatePartyPaymentAPI = (data) => API.post('/cash-bank/party-allocate', data);
 
 // Bank accounts — operator-managed list, one flagged default for invoice PDF.
 export const getBankAccountsAPI    = (params) => API.get('/bank-accounts', { params });
@@ -302,6 +303,7 @@ export const saveDirectPatientBillingServicesAPI = (services) =>
 
 // Claims
 export const getClaimsAPI = (params) => API.get('/claims', { params });
+export const getClaimProcessByValuesAPI = () => API.get('/claims/process-by-values');
 export const exportClaimsAPI = (params) => API.get('/claims/export', { params });
 export const importClaimsAPI = (rows, opts = {}, config = {}) => API.post('/claims/import', { rows, ...opts }, config);
 export const getClaimAPI = (id) => API.get(`/claims/${id}`);

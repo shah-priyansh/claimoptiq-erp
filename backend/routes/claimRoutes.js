@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
-  createClaim, getClaims, getClaim, updateClaim,
+  createClaim, getClaims, getClaim, updateClaim, getClaimProcessByValues,
   uploadDocuments, deleteDocument, streamDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims, importClaims,
   deleteClaim, deleteAllClaims, fixBilledStatus,
   updateStatusHistory, deleteStatusHistory, downloadSettledBackup,
@@ -12,6 +12,9 @@ const upload = require('../middleware/upload');
 router.use(protect);
 
 router.get('/dashboard', checkPermission('dashboard', 'view'), getDashboardStats);
+// Distinct "Claim Process By" values for the self-learning form dropdown + list
+// filter. Must be declared before the '/:id' route so it isn't captured as an id.
+router.get('/process-by-values', checkPermission('claims', 'view'), getClaimProcessByValues);
 router.get('/export', checkPermission('claims', 'export'), exportClaims);
 // ZIP of all settled/billed claims' documents, arranged into the FCC filing tree.
 // Hit via a browser download link, so `protect` accepts the JWT via ?token=.

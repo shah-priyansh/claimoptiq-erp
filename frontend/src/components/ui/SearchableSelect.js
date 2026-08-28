@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { HiChevronDown, HiSearch, HiCheck, HiX } from 'react-icons/hi';
+import { HiChevronDown, HiSearch, HiCheck, HiX, HiPlus } from 'react-icons/hi';
 
 const SearchableSelect = ({
   options = [],
@@ -12,6 +12,7 @@ const SearchableSelect = ({
   disabled = false,
   isLoading = false,
   allowClear = false,
+  allowCustom = false,
   noneLabel = null,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -21,11 +22,19 @@ const SearchableSelect = ({
   const searchRef = useRef(null);
   const dropRef = useRef(null);
 
-  const selected = options.find(o => o.value === value);
+  // With allowCustom the value may be free-typed and not present in `options`
+  // (e.g. a brand-new "Claim Process By" name saved for the first time). Fall
+  // back to showing the raw value so the trigger reflects the current choice.
+  const selected = options.find(o => o.value === value) || (allowCustom && value ? { value, label: value } : undefined);
 
   const filtered = search
     ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
     : options;
+
+  // Offer to add the typed text as a new value when it doesn't already exist.
+  const trimmedSearch = search.trim();
+  const showAddCustom = allowCustom && trimmedSearch &&
+    !options.some(o => String(o.value).toLowerCase() === trimmedSearch.toLowerCase());
 
   // Optional grouping: when any option declares a `group`, render section
   // headers (preserving first-seen group order). Fully backward-compatible —
@@ -70,6 +79,9 @@ const SearchableSelect = ({
         key={o.value}
         type="button"
         onClick={() => select(o.value)}
+        // Native tooltip so labels that truncate (long hospital names etc.)
+        // stay fully readable on hover.
+        title={o.title || (typeof o.label === 'string' ? o.label : undefined)}
         className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between gap-2 transition-colors ${
           isActive ? 'bg-primary-50' : 'hover:bg-gray-50'
         }`}
@@ -95,8 +107,21 @@ const SearchableSelect = ({
       if (dropRef.current && dropRef.current.contains(e.target)) return;
       setIsOpen(false);
     };
+    // Close on any click outside the trigger and dropdown. The z-40 backdrop
+    // overlay can't do this reliably: inside a higher-stacked modal the modal
+    // paints over the overlay, so clicks on modal content never reach it. A
+    // document listener is independent of the stacking context.
+    const onDocDown = (e) => {
+      if (dropRef.current?.contains(e.target)) return;
+      if (triggerRef.current?.contains(e.target)) return;
+      setIsOpen(false);
+    };
     window.addEventListener('scroll', onScroll, true);
-    return () => window.removeEventListener('scroll', onScroll, true);
+    document.addEventListener('mousedown', onDocDown, true);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('mousedown', onDocDown, true);
+    };
   }, [isOpen]);
 
   return (
@@ -112,6 +137,11 @@ const SearchableSelect = ({
         >
           <option value="" />
           {options.map(o => <option key={o.value} value={o.value} />)}
+          {/* Custom free-typed value that isn't among the options — keeps the
+              hidden required <select> valid so the form can still submit. */}
+          {allowCustom && value && !options.some(o => o.value === value) && (
+            <option value={value} />
+          )}
         </select>
       )}
 
@@ -120,6 +150,7 @@ const SearchableSelect = ({
         type="button"
         onClick={open}
         disabled={disabled || isLoading}
+        title={selected && typeof selected.label === 'string' ? selected.label : undefined}
         className={`w-full flex items-center gap-2 px-3 py-2.5 border rounded-lg text-sm bg-white text-left transition-all focus:outline-none ${
           isOpen
             ? 'border-primary-500 ring-2 ring-primary-100'
@@ -188,6 +219,16 @@ const SearchableSelect = ({
 
             {/* Options list */}
             <div className="max-h-56 overflow-y-auto overscroll-contain">
+              {showAddCustom && (
+                <button
+                  type="button"
+                  onClick={() => select(trimmedSearch)}
+                  className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 text-primary-600 hover:bg-primary-50 border-b border-gray-50 font-medium"
+                >
+                  <HiPlus className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">Add "{trimmedSearch}"</span>
+                </button>
+              )}
               {noneLabel !== null && (
                 <button
                   type="button"
@@ -202,9 +243,11 @@ const SearchableSelect = ({
               )}
 
               {filtered.length === 0 ? (
-                <div className="px-4 py-8 text-center">
-                  <p className="text-sm text-gray-400">No results for "{search}"</p>
-                </div>
+                showAddCustom ? null : (
+                  <div className="px-4 py-8 text-center">
+                    <p className="text-sm text-gray-400">No results for "{search}"</p>
+                  </div>
+                )
               ) : hasGroups ? (
                 groupedFiltered.map(([g, opts]) => (
                   <div key={g || '_ungrouped'}>

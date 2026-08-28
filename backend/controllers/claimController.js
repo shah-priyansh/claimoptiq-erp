@@ -164,6 +164,7 @@ exports.createClaim = async (req, res) => {
         patientMobile: req.body.patientMobile || '',
         patientAddress: req.body.patientAddress || '',
         doctorName: req.body.doctorName || '',
+        claimProcessBy: req.body.claimProcessBy || '',
         claimType: req.body.claimType,
         insuranceCompanyId: req.body.insuranceCompany || null,
         tpaId: req.body.tpa || null,
@@ -228,7 +229,7 @@ const resolveClaimSort = (sortBy) => CLAIM_SORT_MAP[sortBy] || CLAIM_SORT_MAP.cr
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, dateBasis, search, directPatient, reference, isBilled, page = 1, limit = 25, skipCount, includeTotals, idsOnly, sortBy } = req.query;
+    const { hospital, status, claimType, claimProcessBy, month, dateFrom, dateTo, dateBasis, search, directPatient, reference, isBilled, page = 1, limit = 25, skipCount, includeTotals, idsOnly, sortBy } = req.query;
     const where = {};
     const orderBy = resolveClaimSort(sortBy);
 
@@ -267,6 +268,9 @@ exports.getClaims = async (req, res) => {
     if (isBilled === 'true') where.isBilled = true;
     else if (isBilled === 'false') where.isBilled = false;
     if (claimType) where.claimType = claimType;
+    // Free-text "Claim Process By" filter — exact match, case-insensitive (the
+    // self-learning dropdown feeds back the stored value verbatim).
+    if (claimProcessBy) where.claimProcessBy = { equals: claimProcessBy, mode: 'insensitive' };
     if (month) {
       const d = new Date(month);
       where.month = {
@@ -297,6 +301,7 @@ exports.getClaims = async (req, res) => {
         { policyNo: { contains: search, mode: 'insensitive' } },
         { ccnNo: { contains: search, mode: 'insensitive' } },
         { clientId: { contains: search, mode: 'insensitive' } },
+        { claimProcessBy: { contains: search, mode: 'insensitive' } },
         { hospital: { is: { name: { contains: search, mode: 'insensitive' } } } },
         { hospital: { is: { referenceBy: { contains: search, mode: 'insensitive' } } } },
         { hospital: { is: { reference: { is: { name: { contains: search, mode: 'insensitive' } } } } } },
@@ -500,7 +505,7 @@ exports.updateClaim = async (req, res) => {
     const data = { updatedById: req.user.id };
     const dateFields = ['dateOfAdmit', 'dateOfDischarge', 'finalApprovalDate', 'fileReceivedDate', 'courierSubmitDate', 'onlineSubmitDate', 'settlementDate', 'month'];
     const allowed = [
-      'status', 'patientName', 'patientMobile', 'patientAddress', 'doctorName', 'claimType',
+      'status', 'patientName', 'patientMobile', 'patientAddress', 'doctorName', 'claimProcessBy', 'claimType',
       'policyNo', 'clientId', 'ccnNo', 'hospitalFinalBill', 'mouDiscount',
       'deduction', 'finalApprovalAmount', 'fileReceivedDate', 'submitMode',
       'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber',
@@ -1496,6 +1501,7 @@ exports.importClaims = async (req, res) => {
           patientName,
           patientMobile: cleanCell(row.patientMobile),
           doctorName: cleanCell(row.doctorName),
+          claimProcessBy: cleanCell(row.claimProcessBy),
           claimType,
           insuranceCompanyId,
           tpaId,
@@ -1793,7 +1799,7 @@ exports.downloadSettledBackup = async (req, res) => {
 
 exports.exportClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, month, dateFrom, dateTo, search, directPatient, reference } = req.query;
+    const { hospital, status, claimType, claimProcessBy, month, dateFrom, dateTo, search, directPatient, reference } = req.query;
     const where = {};
 
     // Export mirrors the claims list: a parent-hospital admin exports their own
@@ -1824,6 +1830,7 @@ exports.exportClaims = async (req, res) => {
 
     if (status) where.status = status;
     if (claimType) where.claimType = claimType;
+    if (claimProcessBy) where.claimProcessBy = { equals: claimProcessBy, mode: 'insensitive' };
     if (month) {
       const d = new Date(month);
       where.month = {
@@ -1851,6 +1858,7 @@ exports.exportClaims = async (req, res) => {
         { policyNo: { contains: search, mode: 'insensitive' } },
         { ccnNo: { contains: search, mode: 'insensitive' } },
         { clientId: { contains: search, mode: 'insensitive' } },
+        { claimProcessBy: { contains: search, mode: 'insensitive' } },
         // Hospital name + its reference (denormalised text and linked master name).
         // Combines with any hospitalId/reference scoping via AND, so a hospital
         // user's results stay confined to their own hospital.
@@ -1876,6 +1884,24 @@ exports.exportClaims = async (req, res) => {
           hospital: hospital ? (({ referenceBy, ...h }) => h)(hospital) : hospital,
         }));
     res.json(stripped);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Distinct, previously-used "Claim Process By" values. Powers the self-learning
+// dropdown on the claim form and the list filter — once a value has been saved
+// on any claim it shows up here for reuse. Blank values are excluded and the
+// list is returned alphabetically.
+exports.getClaimProcessByValues = async (req, res) => {
+  try {
+    const rows = await prisma.claim.findMany({
+      where: { claimProcessBy: { not: '' } },
+      distinct: ['claimProcessBy'],
+      select: { claimProcessBy: true },
+      orderBy: { claimProcessBy: 'asc' },
+    });
+    res.json(rows.map((r) => r.claimProcessBy).filter(Boolean));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }

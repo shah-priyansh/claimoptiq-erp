@@ -43,6 +43,14 @@ const ReferencesReport = () => {
       </Link>
 
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
+        <div className="flex items-center justify-end mb-2">
+          <button
+            type="button"
+            onClick={() => setFilters({ ...defaultRange(), referenceId: '' })}
+            className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline">
+            Reset to default
+          </button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">From</label>

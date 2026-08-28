@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI, deleteClaimAPI, deleteAllClaimsAPI, getSettledBackupURL } from '../../services/api';
+import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI, deleteClaimAPI, deleteAllClaimsAPI, getSettledBackupURL, getClaimProcessByValuesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
@@ -62,6 +62,7 @@ const BASE_FIELD_DEFS = [
   { key: 'referenceBy',               label: 'REFERENCE BY',           width: 18, pdfW: 28, defaultOn: true,  superAdminOnly: true, getValue: c => c.hospital?.referenceBy || '' },
   { key: 'isDirectPatient',           label: 'DIRECT PATIENT',         width: 12, pdfW: 14, defaultOn: false, getValue: c => c.isDirectPatient ? 'Yes' : 'No' },
   { key: 'doctorName',                label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
+  { key: 'claimProcessBy',            label: 'CLAIM PROCESS BY',       width: 18, pdfW: 24, defaultOn: true,  getValue: c => c.claimProcessBy || '' },
   { key: 'claimType',                 label: 'CLAIM TYPE',             width: 14, pdfW: 18, defaultOn: true,  getValue: c => c.claimType || '' },
   { key: 'insuranceCompany',          label: 'COMPANY NAME',           width: 22, pdfW: 26, defaultOn: true,  getValue: c => c.insuranceCompany?.name || '' },
   { key: 'tpa',                       label: 'TPA NAME',               width: 18, pdfW: 22, defaultOn: true,  getValue: c => c.tpa?.name || '' },
@@ -98,7 +99,7 @@ const BASE_FIELD_DEFS = [
   { key: 'filePrice',                 label: 'FILE PRICE',             width: 12, pdfW: 22, defaultOn: true,  superAdminOnly: true, isAmount: true, getValue: null },
 ];
 const FIELD_GROUPS = [
-  { label: 'Patient Info', keys: ['patientName', 'patientMobile', 'isDirectPatient', 'doctorName', 'claimType', 'policyNo', 'clientId'] },
+  { label: 'Patient Info', keys: ['patientName', 'patientMobile', 'isDirectPatient', 'doctorName', 'claimProcessBy', 'claimType', 'policyNo', 'clientId'] },
   { label: 'Hospital',     keys: ['hospital'] },
   { label: 'Payor',        keys: ['insuranceCompany', 'tpa', 'ccnNo'] },
   { label: 'Treatment',    keys: ['treatmentType', 'diagnosis', 'surgeryName'] },
@@ -182,7 +183,7 @@ const ClaimList = () => {
 
   const initStatus = new URLSearchParams(location.search).get('status') || '';
   const [filters, setFilters] = usePersistedFilters('claims:filters', {
-    search: '', hospital: '', status: initStatus, claimType: '', month: '',
+    search: '', hospital: '', status: initStatus, claimType: '', claimProcessBy: '', month: '',
     dateFrom: '', dateTo: '', directPatient: '', reference: '', sortBy: 'createdAt_desc',
     page: 1, limit: 100,
   });
@@ -212,6 +213,20 @@ const ClaimList = () => {
     });
     return Array.from(byKey.values()).sort((a, b) => a.localeCompare(b)).map(r => ({ value: r, label: r }));
   }, [hospitals]);
+
+  // Distinct "Claim Process By" values for the filter dropdown — same source as
+  // the form's self-learning suggestions.
+  const [processByValues, setProcessByValues] = useState([]);
+  useEffect(() => {
+    getClaimProcessByValuesAPI()
+      .then(({ data }) => setProcessByValues(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
+  const processByOptions = React.useMemo(
+    () => processByValues.map(v => ({ value: v, label: v })),
+    [processByValues],
+  );
+
   const [searchInput, setSearchInput] = useState(() => filters.search || '');
 
   useEffect(() => {
@@ -230,6 +245,11 @@ const ClaimList = () => {
   const [stickerMode, setStickerMode] = useState(false);
   const [stickerSelectedIds, setStickerSelectedIds] = useState([]);
   const [stickerPreviewClaims, setStickerPreviewClaims] = useState(null);
+  // Ephemeral, per-print address overrides for the courier sticker. Keyed by
+  // group key → { to, from }. Never persisted — cleared when the modal closes,
+  // so the master (insurance / TPA / hospital) addresses are untouched.
+  const [stickerEditMode, setStickerEditMode] = useState(false);
+  const [stickerAddressEdits, setStickerAddressEdits] = useState({});
   const [loadingAllStickers, setLoadingAllStickers] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -295,8 +315,18 @@ const ClaimList = () => {
   const closeFieldModal = () => { setFieldModal({ open: false, pendingFormat: null }); setFieldSearch(''); };
 
   const toggleStickerSelect = (id) => setStickerSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  const openStickerPreview = (claimsToPrint) => setStickerPreviewClaims(claimsToPrint);
-  const closeStickerPreview = () => setStickerPreviewClaims(null);
+  const openStickerPreview = (claimsToPrint) => {
+    setStickerAddressEdits({});
+    setStickerEditMode(false);
+    setStickerPreviewClaims(claimsToPrint);
+  };
+  const closeStickerPreview = () => {
+    setStickerPreviewClaims(null);
+    setStickerEditMode(false);
+    setStickerAddressEdits({});
+  };
+  const setStickerAddress = (groupKey, side, value) =>
+    setStickerAddressEdits((prev) => ({ ...prev, [groupKey]: { ...prev[groupKey], [side]: value } }));
 
   // Fetch every claim matching the current filter set (with relations populated
   // so the sticker preview can read tpa / insuranceCompany / hospital fields)
@@ -344,7 +374,7 @@ const ClaimList = () => {
   // even when React strict mode fires the effect twice.
   const filterKey = JSON.stringify({
     search: filters.search, hospital: filters.hospital, status: filters.status,
-    claimType: filters.claimType, month: filters.month, dateFrom: filters.dateFrom,
+    claimType: filters.claimType, claimProcessBy: filters.claimProcessBy, month: filters.month, dateFrom: filters.dateFrom,
     dateTo: filters.dateTo, directPatient: filters.directPatient, reference: filters.reference,
     sortBy: filters.sortBy,
   });
@@ -1270,6 +1300,16 @@ const ClaimList = () => {
             searchPlaceholder="Search type..."
             allowClear
           />
+          {processByOptions.length > 0 && (
+            <SearchableSelect
+              options={processByOptions}
+              value={filters.claimProcessBy}
+              onChange={val => setFilters({ ...filters, claimProcessBy: val, page: 1 })}
+              placeholder="All Process By"
+              searchPlaceholder="Search process by..."
+              allowClear
+            />
+          )}
           <input
             type="date"
             value={filters.dateFrom}
@@ -1926,7 +1966,7 @@ const ClaimList = () => {
                 const groupKey = `${recipient.key}|${sender.key}`;
                 let g = byKey.get(groupKey);
                 if (!g) {
-                  g = { recipient, sender, claims: [] };
+                  g = { recipient, sender, claims: [], key: groupKey };
                   byKey.set(groupKey, g);
                   groups.push(g);
                 }
@@ -1939,7 +1979,9 @@ const ClaimList = () => {
                     <div>
                       <h3 className="text-base font-semibold text-gray-900">Courier Stickers</h3>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        {totalStickers} sticker{totalStickers > 1 ? 's' : ''} for {stickerPreviewClaims.length} claim{stickerPreviewClaims.length > 1 ? 's' : ''} · A4 portrait · stacked vertically
+                        {stickerEditMode
+                          ? 'Editing addresses — applies to this print only, not saved to master'
+                          : `${totalStickers} sticker${totalStickers > 1 ? 's' : ''} for ${stickerPreviewClaims.length} claim${stickerPreviewClaims.length > 1 ? 's' : ''} · A4 portrait · stacked vertically`}
                       </p>
                     </div>
                     <button onClick={closeStickerPreview}
@@ -1952,6 +1994,8 @@ const ClaimList = () => {
                     <div className="sticker-stack flex flex-col gap-5">
                       {groups.map((g, gi) => {
                         const { recipient, sender, claims } = g;
+                        const toAddr = stickerAddressEdits[g.key]?.to ?? (recipient.address || '');
+                        const fromAddr = stickerAddressEdits[g.key]?.from ?? (sender.address || '');
                         return (
                           <div key={gi} className="sticker-card bg-white border-2 border-gray-900 rounded-lg shadow-sm overflow-hidden">
                             {/* Uniform sticker text: every line the same font, size (text-base)
@@ -1961,8 +2005,17 @@ const ClaimList = () => {
                               <div>
                                 <p className="tracking-wide mb-1">TO · {recipient.label}</p>
                                 <p className="leading-snug">{recipient.name || '—'}</p>
-                                {recipient.address && (
-                                  <p className="mt-1 leading-snug whitespace-pre-line">{recipient.address}</p>
+                                {stickerEditMode && (
+                                  <textarea
+                                    value={toAddr}
+                                    onChange={(e) => setStickerAddress(g.key, 'to', e.target.value)}
+                                    rows={2}
+                                    placeholder="Recipient address"
+                                    className="print:hidden mt-1 w-full rounded-md border border-indigo-300 bg-indigo-50/40 px-2 py-1 text-base font-bold leading-snug text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-y"
+                                  />
+                                )}
+                                {toAddr && (
+                                  <p className={`mt-1 leading-snug whitespace-pre-line ${stickerEditMode ? 'hidden print:block' : ''}`}>{toAddr}</p>
                                 )}
                                 {recipient.mobile && (
                                   <p className="mt-1">Mobile: {recipient.mobile}</p>
@@ -1976,8 +2029,17 @@ const ClaimList = () => {
                                   FROM{sender.label !== 'Hospital' ? ` · ${sender.label}` : ''}
                                 </p>
                                 <p className="leading-snug">{sender.name || '—'}</p>
-                                {sender.address && (
-                                  <p className="mt-1 leading-snug whitespace-pre-line">{sender.address}</p>
+                                {stickerEditMode && (
+                                  <textarea
+                                    value={fromAddr}
+                                    onChange={(e) => setStickerAddress(g.key, 'from', e.target.value)}
+                                    rows={2}
+                                    placeholder="Sender address"
+                                    className="print:hidden mt-1 w-full rounded-md border border-indigo-300 bg-indigo-50/40 px-2 py-1 text-base font-bold leading-snug text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-y"
+                                  />
+                                )}
+                                {fromAddr && (
+                                  <p className={`mt-1 leading-snug whitespace-pre-line ${stickerEditMode ? 'hidden print:block' : ''}`}>{fromAddr}</p>
                                 )}
                                 {sender.phone && (
                                   <p className="mt-1">Mobile: {sender.phone}</p>
@@ -2016,15 +2078,21 @@ const ClaimList = () => {
               );
             })()}
 
-            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl print:hidden">
-              <button onClick={closeStickerPreview}
-                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-white font-medium">
-                Close
+            <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl print:hidden">
+              <button onClick={() => setStickerEditMode((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg font-medium border transition-colors ${stickerEditMode ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'border-gray-300 text-gray-600 hover:bg-white'}`}>
+                <HiOutlinePencil className="w-4 h-4" /> {stickerEditMode ? 'Done editing' : 'Edit addresses'}
               </button>
-              <button onClick={() => window.print()}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium shadow-sm">
-                <HiOutlinePrinter className="w-4 h-4" /> Print
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={closeStickerPreview}
+                  className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-white font-medium">
+                  Close
+                </button>
+                <button onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium shadow-sm">
+                  <HiOutlinePrinter className="w-4 h-4" /> Print
+                </button>
+              </div>
             </div>
           </div>
         </div>,

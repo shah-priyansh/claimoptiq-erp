@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { HiOutlineX } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { invoiceDisplayName } from '../../utils/invoice';
+import { formatDate } from '../../utils/format';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const blank = {
@@ -25,12 +26,16 @@ const blank = {
 // ledger page, where the operator freely picks IN or OUT.
 // `defaults` pre-fills a NEW entry (ignored when editing) — used by the Bank
 // Accounts page's Deposit/Withdraw to preset mode/direction/bankAccountId.
-const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, lockDirection = null, onClose, onSave }) => {
+const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, lockDirection = null, allowSplit = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  // Extra allocations for the "unused" amount when the entered amount exceeds the
+  // linked bill's pending. Each: { id, amount }. Only used when allowSplit.
+  const [extras, setExtras] = useState([]);
 
   useEffect(() => {
     if (!open) return;
+    setExtras([]);
     if (initial) {
       const linked = initial.invoice ? 'invoice' : initial.expense ? 'expense' : 'none';
       setForm({
@@ -66,25 +71,89 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
     }
   }, [form.mode, form.bankAccountId, bankAccounts, open]);
 
+  // Reset the excess allocations whenever the primary link changes.
+  useEffect(() => { setExtras([]); }, [form.link, form.invoiceId, form.expenseId]);
+
   if (!open) return null;
+
+  // ── Split-on-excess bookkeeping ──
+  const linkType = form.link; // 'invoice' | 'expense' | 'none'
+  const items = linkType === 'invoice' ? (invoices || []) : linkType === 'expense' ? (expenses || []) : [];
+  const pendingOf = (it) => Math.max(0, Math.round(Number(it?.amountPending ?? it?.amount ?? 0)));
+  const primaryId = linkType === 'invoice' ? form.invoiceId : linkType === 'expense' ? form.expenseId : '';
+  const primaryItem = items.find((it) => it._id === primaryId);
+  const primaryPending = primaryItem ? pendingOf(primaryItem) : 0;
+  const enteredAmount = Math.max(0, Math.round(Number(form.amount) || 0));
+  // Show the "link the excess" panel only when the amount is MORE than the
+  // linked bill's pending — otherwise this is an ordinary single entry.
+  const canSplit = allowSplit && !!primaryId && enteredAmount > primaryPending;
+  const primaryAlloc = primaryId ? Math.min(enteredAmount, primaryPending) : enteredAmount;
+  const sumExtras = extras.reduce((s, x) => s + Math.max(0, Math.round(Number(x.amount) || 0)), 0);
+  const unused = Math.max(0, enteredAmount - primaryAlloc - sumExtras);
+  const itemLabel = (it) => {
+    if (linkType === 'invoice') {
+      const num = it.invoiceNumber || `Draft-${(it._id || '').slice(0, 8)}`;
+      const dstr = it.invoiceDate ? `${formatDate(it.invoiceDate)} - ` : '';
+      const nm = invoiceDisplayName(it);
+      return `${dstr}${num}${nm ? ` • ${nm}` : ''} — ₹${pendingOf(it).toLocaleString('en-IN')}`;
+    }
+    return `${it.category?.label || 'Expense'} — ₹${pendingOf(it).toLocaleString('en-IN')}`;
+  };
+  const usedIds = new Set([primaryId, ...extras.map((x) => x.id)].filter(Boolean));
+  const rowOptions = (ownId) => items
+    .filter((it) => pendingOf(it) > 0 && (it._id === ownId || !usedIds.has(it._id)))
+    .map((it) => ({ value: it._id, label: itemLabel(it) }));
+  const setExtra = (idx, patch) => setExtras((prev) => prev.map((x, i) => (i === idx ? { ...x, ...patch } : x)));
+  const addExtra = () => setExtras((prev) => [...prev, { id: '', amount: '' }]);
+  const removeExtra = (idx) => setExtras((prev) => prev.filter((_, i) => i !== idx));
+  const autoFillExtras = () => {
+    let remaining = enteredAmount - primaryPending;
+    const out = [];
+    for (const it of items) {
+      if (it._id === primaryId || remaining <= 0) continue;
+      const p = pendingOf(it);
+      if (p <= 0) continue;
+      const give = Math.min(remaining, p);
+      out.push({ id: it._id, amount: give });
+      remaining -= give;
+    }
+    setExtras(out);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (Number(form.amount) <= 0) return;
+    if (enteredAmount <= 0) return;
+    const activeExtras = allowSplit ? extras.filter((x) => x.id && Math.round(Number(x.amount)) > 0) : [];
     setSaving(true);
     try {
-      await onSave({
+      const shared = {
         date: form.date,
         direction: form.direction,
         mode: form.mode,
-        amount: Number(form.amount) || 0,
         notes: form.notes,
-        invoiceId: form.link === 'invoice' ? (form.invoiceId || null) : null,
-        expenseId: form.link === 'expense' ? (form.expenseId || null) : null,
         bankAccountId: (form.mode === 'bank' || form.mode === 'upi') ? (form.bankAccountId || null) : null,
         utrNumber: form.utrNumber,
         chequeNumber: form.chequeNumber,
-      });
+      };
+      if (canSplit && activeExtras.length) {
+        // One entry per linked bill: the primary (capped at its pending) + extras.
+        const allocations = [
+          { invoiceId: linkType === 'invoice' ? primaryId : null, expenseId: linkType === 'expense' ? primaryId : null, amount: primaryAlloc },
+          ...activeExtras.map((x) => ({
+            invoiceId: linkType === 'invoice' ? x.id : null,
+            expenseId: linkType === 'expense' ? x.id : null,
+            amount: Math.round(Number(x.amount)),
+          })),
+        ].filter((a) => a.amount > 0);
+        await onSave({ ...shared, allocations });
+      } else {
+        await onSave({
+          ...shared,
+          amount: enteredAmount,
+          invoiceId: form.link === 'invoice' ? (form.invoiceId || null) : null,
+          expenseId: form.link === 'expense' ? (form.expenseId || null) : null,
+        });
+      }
     } finally {
       setSaving(false);
     }
@@ -219,8 +288,9 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                       .map((i) => {
                         const name = invoiceDisplayName(i);
                         const num = i.invoiceNumber || `Draft-${i._id.slice(0, 8)}`;
+                        const dstr = i.invoiceDate ? `${formatDate(i.invoiceDate)} - ` : '';
                         const bal = `₹${Math.round(i.amountPending || 0).toLocaleString('en-IN')}`;
-                        return { value: i._id, label: `${num}${name ? ` • ${name}` : ''} — ${bal}` };
+                        return { value: i._id, label: `${dstr}${num}${name ? ` • ${name}` : ''} — ${bal}` };
                       })}
                   />
                 </>
@@ -241,6 +311,51 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
               )}
             </div>
           </div>
+
+          {/* Appears only when the amount is MORE than the linked bill's pending:
+              apply its pending to that bill and link the remaining to other bills. */}
+          {canSplit && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-amber-800">
+                  ₹{primaryPending.toLocaleString('en-IN')} applied here · link the remaining ₹{(enteredAmount - primaryPending).toLocaleString('en-IN')}
+                </p>
+                <button type="button" onClick={autoFillExtras}
+                  className="text-xs font-semibold text-primary-700 border border-primary-300 rounded px-2 py-1 hover:bg-primary-50 shrink-0">
+                  Auto link
+                </button>
+              </div>
+              {extras.map((x, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <SearchableSelect
+                      value={x.id}
+                      onChange={(v) => setExtra(idx, { id: v || '' })}
+                      placeholder={`Select ${linkType}`}
+                      searchPlaceholder="Search…"
+                      allowClear
+                      options={rowOptions(x.id)}
+                    />
+                  </div>
+                  <input type="number" min="0" value={x.amount}
+                    onChange={(e) => setExtra(idx, { amount: e.target.value })}
+                    placeholder="0"
+                    className="w-28 px-2 py-2 border border-gray-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  <button type="button" onClick={() => removeExtra(idx)} className="p-1.5 text-gray-400 hover:text-red-600 shrink-0">
+                    <HiOutlineX className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex items-center justify-between pt-1">
+                <button type="button" onClick={addExtra} className="text-xs font-semibold text-primary-700 hover:text-primary-800">
+                  + Link another {linkType}
+                </button>
+                <span className={`text-xs font-semibold ${unused > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                  Unused ₹{unused.toLocaleString('en-IN')}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             {showUtr && (
