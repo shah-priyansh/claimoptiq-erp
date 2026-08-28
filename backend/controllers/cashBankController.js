@@ -346,6 +346,108 @@ exports.create = async (req, res) => {
   }
 };
 
+// POST /api/cash-bank/split — one payment linked to several invoices (money in)
+// or several expenses (money out). Like bulkReceipt/allocatePartyPayment, each
+// allocation becomes its OWN cash/bank entry so per-invoice/expense paid rollups
+// stay correct — but generic (any hospital, either direction). The Cash/Bank
+// entry form posts here when the operator links more than one bill.
+exports.createSplit = async (req, res) => {
+  try {
+    const { date, direction, mode, bankAccountId, utrNumber, chequeNumber, notes, allocations } = req.body;
+
+    const parsedDate = parseDate(date);
+    if (!parsedDate) throw { status: 400, message: 'Valid date is required' };
+    if (!VALID_DIRECTIONS.includes(direction)) throw { status: 400, message: `direction must be one of: ${VALID_DIRECTIONS.join(', ')}` };
+    if (!VALID_MODES.includes(mode)) throw { status: 400, message: `mode must be one of: ${VALID_MODES.join(', ')}` };
+    if (!Array.isArray(allocations) || !allocations.length) throw { status: 400, message: 'At least one allocation is required' };
+
+    const normalised = allocations.map((a) => ({
+      invoiceId: a?.invoiceId || null,
+      expenseId: a?.expenseId || null,
+      amount: Math.round(Number(a?.amount) || 0),
+    }));
+    for (const a of normalised) {
+      if (a.invoiceId && a.expenseId) throw { status: 400, message: 'An allocation links to at most one of invoice / expense' };
+      if (!a.invoiceId && !a.expenseId) throw { status: 400, message: 'Each allocation needs an invoice or an expense' };
+      if (a.amount <= 0) throw { status: 400, message: 'Each allocation amount must be greater than zero' };
+    }
+    // Direction consistency: money-in settles invoices, money-out settles expenses.
+    if (direction === 'in' && normalised.some((a) => a.expenseId)) throw { status: 400, message: 'Money-in entries link invoices, not expenses' };
+    if (direction === 'out' && normalised.some((a) => a.invoiceId)) throw { status: 400, message: 'Money-out entries link expenses, not invoices' };
+
+    const refIds = normalised.map((a) => a.invoiceId || a.expenseId);
+    if (new Set(refIds).size !== refIds.length) throw { status: 400, message: 'Duplicate invoice / expense in allocations' };
+
+    // Validate targets. Invoices must be issued (not draft/void); hospitalId is
+    // denormalised from each invoice (mirrors buildEntryData).
+    const invIds = normalised.filter((a) => a.invoiceId).map((a) => a.invoiceId);
+    const expIds = normalised.filter((a) => a.expenseId).map((a) => a.expenseId);
+    const invoices = invIds.length
+      ? await prisma.invoice.findMany({ where: { id: { in: invIds } }, select: { id: true, status: true, hospitalId: true } })
+      : [];
+    const invById = new Map(invoices.map((i) => [i.id, i]));
+    for (const id of invIds) {
+      const inv = invById.get(id);
+      if (!inv) throw { status: 400, message: 'Invoice not found' };
+      if (inv.status === 'draft') throw { status: 400, message: 'Cannot record payment against a draft invoice. Issue it first.' };
+      if (inv.status === 'void') throw { status: 400, message: 'Cannot record payment against a voided invoice.' };
+    }
+    if (expIds.length) {
+      const expenses = await prisma.expense.findMany({ where: { id: { in: expIds } }, select: { id: true } });
+      const found = new Set(expenses.map((e) => e.id));
+      for (const id of expIds) { if (!found.has(id)) throw { status: 400, message: 'Expense not found' }; }
+    }
+
+    // Bank account resolution mirrors buildEntryData() — bank/upi need one.
+    let resolvedBankAccountId = bankAccountId || null;
+    if (mode === 'bank' || mode === 'upi') {
+      if (!resolvedBankAccountId) {
+        const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
+        resolvedBankAccountId = def?.id || null;
+      }
+      if (!resolvedBankAccountId) throw { status: 400, message: 'Bank / UPI entries need a bank account. Add one in Site Settings → Bank Accounts.' };
+      const acct = await prisma.bankAccount.findUnique({ where: { id: resolvedBankAccountId }, select: { id: true, isActive: true } });
+      if (!acct) throw { status: 400, message: 'Bank account not found' };
+      if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
+    } else {
+      resolvedBankAccountId = null;
+    }
+
+    const sharedData = {
+      date: parsedDate,
+      direction,
+      mode,
+      bankAccountId: resolvedBankAccountId,
+      utrNumber: String(utrNumber || '').slice(0, 60),
+      chequeNumber: String(chequeNumber || '').slice(0, 60),
+      notes: String(notes || '').slice(0, 1000),
+    };
+
+    // Keep the transaction lean (Neon is remote — heavy joins per create can
+    // blow the 5s interactive-transaction budget). Create with a minimal select,
+    // recompute paid status, then re-fetch the full rows outside the tx.
+    const createdIds = await prisma.$transaction(async (tx) => {
+      const ids = [];
+      for (const a of normalised) {
+        const hospitalId = a.invoiceId ? (invById.get(a.invoiceId)?.hospitalId || null) : null;
+        const e = await tx.cashBankEntry.create({
+          data: { ...sharedData, amount: a.amount, invoiceId: a.invoiceId, expenseId: a.expenseId, hospitalId, createdById: req.user?.id || null },
+          select: { id: true },
+        });
+        ids.push(e.id);
+      }
+      for (const a of normalised) { if (a.invoiceId) await recomputeInvoicePaidStatus(tx, a.invoiceId); }
+      return ids;
+    }, { timeout: 20000 });
+
+    const entries = await prisma.cashBankEntry.findMany({ where: { id: { in: createdIds } }, include: cashBankInclude });
+    res.status(201).json({ entries: toResponse(entries) });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ message: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 // Bulk import — each valid row creates a standalone cash/bank movement
 // (append-only). Invoice/expense reconciliation links are intentionally out of
 // scope for import; do those in-app. Bank account is resolved by name / account

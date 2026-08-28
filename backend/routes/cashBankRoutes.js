@@ -9,6 +9,7 @@ router.get('/balances', checkPermission('cash_bank', 'view'), ctrl.balances);
 router.get('/summary', checkPermission('cash_bank', 'view'), ctrl.summary);
 router.post('/bulk-receipt', checkPermission('cash_bank', 'create'), ctrl.bulkReceipt);
 router.post('/party-allocate', checkPermission('cash_bank', 'create'), ctrl.allocatePartyPayment);
+router.post('/split', checkPermission('cash_bank', 'create'), ctrl.createSplit);
 router.post('/import', checkPermission('cash_bank', 'create'), ctrl.bulkImport);
 
 router.route('/')

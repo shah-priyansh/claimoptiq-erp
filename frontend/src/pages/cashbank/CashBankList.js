@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
-  getCashBankAPI, getCashBankBalancesAPI, createCashBankAPI, updateCashBankAPI, deleteCashBankAPI,
+  getCashBankAPI, getCashBankBalancesAPI, createCashBankAPI, createCashBankSplitAPI, updateCashBankAPI, deleteCashBankAPI,
   getInvoicesAPI, getExpensesAPI, getBankAccountsAPI,
 } from '../../services/api';
 import CashBankFormModal from './CashBankFormModal';
@@ -162,6 +162,10 @@ const CashBankList = () => {
       if (modal.item) {
         await updateCashBankAPI(modal.item._id, form);
         toast.success('Entry updated');
+      } else if (Array.isArray(form.allocations)) {
+        // Multi-link: one payment split into one entry per linked bill.
+        const { entries } = (await createCashBankSplitAPI(form)).data;
+        toast.success(`${entries?.length || form.allocations.length} entries added`);
       } else {
         await createCashBankAPI(form);
         toast.success('Entry added');
@@ -382,6 +386,7 @@ const CashBankList = () => {
         loadingInvoices={loadingInvoices}
         loadingExpenses={loadingExpenses}
         loadingBankAccounts={loadingBankAccounts}
+        allowMultiLink
         onClose={() => setModal({ open: false, item: null })}
         onSave={handleSave}
       />
