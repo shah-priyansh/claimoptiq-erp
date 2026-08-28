@@ -288,6 +288,25 @@ exports.references = async (req, res) => {
     // the engine's cross-invoice dedup, scoped to the report window).
     const onetimeUsedByRef = new Map();
 
+    // Name-match support. MANUAL / unlinked invoice lines carry no
+    // billingServiceNameId, so the id-based commission engine skips them and the
+    // report showed Rs 0 even when the reference has percentage configs. Here we
+    // also credit such lines by matching their description to a percentage
+    // config's service name — tokenised + singularised so e.g. the line
+    // "TPA DESK SERVICES - CASHLESS FILE" matches the config "TPA DESK SERVICE - CASHLESS".
+    const normTokens = (s) => new Set(
+      String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean).map((w) => w.replace(/s$/, '')),
+    );
+    const pctConfigByRef = new Map();
+    for (const ref of references) {
+      const pct = (ref.applicableServices || [])
+        .filter((s) => (s.commissionType || 'percentage') === 'percentage')
+        .map((s) => ({ tokens: normTokens(s.billingServiceName?.name), value: Number(s.commissionValue) || 0 }))
+        .filter((e) => e.tokens.size > 0);
+      pctConfigByRef.set(ref.id, pct);
+    }
+    const nameMatchByRef = new Map();
+
     for (const inv of invoices) {
       const refId = hospRefMap.get(inv.hospitalId);
       if (!refId) continue;
@@ -311,6 +330,27 @@ exports.references = async (req, res) => {
         }
       }
       expectedByRef.set(refId, (expectedByRef.get(refId) || 0) + earned);
+
+      // Credit MANUAL / unlinked lines (no billingServiceNameId) the id-based
+      // engine skipped, by name-matching their description to a percentage config.
+      const pctCfg = pctConfigByRef.get(refId) || [];
+      if (pctCfg.length) {
+        for (const line of (inv.lineItems || [])) {
+          if (line.billingServiceNameId) continue; // already handled by the engine
+          const amt = Number(line.amount) || 0;
+          if (amt <= 0) continue;
+          const lineTokens = normTokens(line.description);
+          if (!lineTokens.size) continue;
+          // Most specific config whose service-name tokens are all present in the line.
+          let best = null;
+          for (const cfg of pctCfg) {
+            let subset = true;
+            for (const t of cfg.tokens) { if (!lineTokens.has(t)) { subset = false; break; } }
+            if (subset && (!best || cfg.tokens.size > best.tokens.size)) best = cfg;
+          }
+          if (best) nameMatchByRef.set(refId, (nameMatchByRef.get(refId) || 0) + (amt * best.value) / 100);
+        }
+      }
     }
 
     // Commission paid: sum expenses in reference_commission category grouped by referenceId
@@ -329,15 +369,15 @@ exports.references = async (req, res) => {
     const rows = references.map((ref) => {
       const business = Math.round(businessByRef.get(ref.id) || 0);
       const paid = Math.round(paidByRef.get(ref.id) || 0);
-      const hasServiceConfig = (ref.applicableServices || []).length > 0;
-      // Expected commission from the real per-service config; fall back to the
-      // legacy flat rate only when no per-service config exists.
-      const expected = hasServiceConfig
-        ? Math.round(expectedByRef.get(ref.id) || 0)
-        : Math.round(business * (Number(ref.commissionRate) || 0) / 100);
-      // Effective blended rate for per-service refs (1-decimal), flat rate otherwise.
-      const rate = hasServiceConfig
-        ? (business > 0 ? Math.round((expected / business) * 1000) / 10 : 0)
+      // Per-service commission = id-matched engine + name-matched manual lines.
+      // Fall back to the legacy flat rate only when that yields nothing (no
+      // service config, or lines that match no configured service).
+      const perService = Math.round((expectedByRef.get(ref.id) || 0) + (nameMatchByRef.get(ref.id) || 0));
+      const flatExpected = Math.round(business * (Number(ref.commissionRate) || 0) / 100);
+      const expected = perService > 0 ? perService : flatExpected;
+      // Effective blended rate (1-decimal) shown in the Rate column.
+      const rate = business > 0
+        ? Math.round((expected / business) * 1000) / 10
         : (Number(ref.commissionRate) || 0);
       const pending = expected - paid;
       return {
