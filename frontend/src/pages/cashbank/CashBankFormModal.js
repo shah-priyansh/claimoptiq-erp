@@ -85,7 +85,11 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
   const items = linkType === 'invoice' ? (invoices || []) : linkType === 'expense' ? (expenses || []) : [];
   const pendingOf = (it) => Math.max(0, Math.round(Number(it?.amountPending ?? it?.amount ?? 0)));
   const primaryId = linkType === 'invoice' ? form.invoiceId : linkType === 'expense' ? form.expenseId : '';
-  const primaryItem = items.find((it) => it._id === primaryId);
+  // Fall back to the entry's own linked bill when it's a now-paid invoice/expense
+  // that's absent from the open pickers (edit mode), so its label still renders.
+  const linkedInitial = linkType === 'invoice' ? initial?.invoice : linkType === 'expense' ? initial?.expense : null;
+  const primaryItem = items.find((it) => it._id === primaryId)
+    || (linkedInitial && linkedInitial._id === primaryId ? linkedInitial : undefined);
   const primaryPending = primaryItem ? pendingOf(primaryItem) : 0;
   const enteredAmount = Math.max(0, Math.round(Number(form.amount) || 0));
   // Show the "link the excess" panel only when the amount is MORE than the
@@ -112,16 +116,17 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
   const removeExtra = (idx) => setExtras((prev) => prev.filter((_, i) => i !== idx));
 
   // ── Multi-link (allowMultiLink): link ONE payment to several bills. Each
-  // becomes its own entry on save (see submit → allocations). Create-only. ──
+  // becomes its own entry on save (see submit → allocations). When editing, the
+  // entry itself takes the primary allocation and each extra spawns a new entry.
   const isEditing = !!(initial && initial._id);
-  const canMultiLink = allowMultiLink && !isEditing && (linkType === 'invoice' || linkType === 'expense') && !!primaryId;
+  const canMultiLink = allowMultiLink && (linkType === 'invoice' || linkType === 'expense') && !!primaryId;
   const multi = canMultiLink && extras.length > 0;
   const primaryAmt = Math.round(Number(primaryAmount) || 0);
   const multiTotal = primaryAmt + sumExtras;
-  // First "+ Link another": seed the primary's own amount from its pending, then
-  // open a second row.
+  // First "+ Link another": seed the primary's own amount. When editing, default
+  // to this entry's current amount; otherwise the bill's pending balance.
   const openMulti = () => {
-    if (primaryAmount === '') setPrimaryAmount(String(primaryPending || enteredAmount || ''));
+    if (primaryAmount === '') setPrimaryAmount(String((isEditing && enteredAmount > 0 ? enteredAmount : primaryPending) || enteredAmount || ''));
     addExtra();
   };
   // Selecting a bill in an extra row auto-fills its amount from that bill's
@@ -216,6 +221,23 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
   const expenseOptions = expenses.map((e) => ({ value: e._id, label: expenseLabel(e) }));
   if (initial?.expense && !expenseOptions.some((o) => o.value === initial.expense._id)) {
     expenseOptions.unshift({ value: initial.expense._id, label: expenseLabel(initial.expense) });
+  }
+
+  // The invoice picker only lists still-open invoices. When editing an entry
+  // whose invoice is now fully paid (absent from the open list), merge it back
+  // in from `initial` so the current selection stays visible.
+  const invoiceLabel = (i) => {
+    const name = invoiceDisplayName(i);
+    const num = i.invoiceNumber || `Draft-${(i._id || '').slice(0, 8)}`;
+    const dstr = i.invoiceDate ? `${formatDate(i.invoiceDate)} - ` : '';
+    const bal = `₹${Math.round(i.amountPending || 0).toLocaleString('en-IN')}`;
+    return `${dstr}${num}${name ? ` • ${name}` : ''} — ${bal}`;
+  };
+  const invoiceOptions = invoices
+    .filter((i) => (i.amountPending || 0) > 0 || i._id === form.invoiceId)
+    .map((i) => ({ value: i._id, label: invoiceLabel(i) }));
+  if (initial?.invoice && !invoiceOptions.some((o) => o.value === initial.invoice._id)) {
+    invoiceOptions.unshift({ value: initial.invoice._id, label: invoiceLabel(initial.invoice) });
   }
 
   return (
@@ -328,18 +350,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                     placeholder="Select invoice"
                     searchPlaceholder="Search invoices..."
                     allowClear
-                    options={invoices
-                      // Only invoices with an outstanding balance are receivable.
-                      // Fully-received ones are hidden — except the one this entry
-                      // is already linked to, so edit mode keeps its selection.
-                      .filter((i) => (i.amountPending || 0) > 0 || i._id === form.invoiceId)
-                      .map((i) => {
-                        const name = invoiceDisplayName(i);
-                        const num = i.invoiceNumber || `Draft-${i._id.slice(0, 8)}`;
-                        const dstr = i.invoiceDate ? `${formatDate(i.invoiceDate)} - ` : '';
-                        const bal = `₹${Math.round(i.amountPending || 0).toLocaleString('en-IN')}`;
-                        return { value: i._id, label: `${dstr}${num}${name ? ` • ${name}` : ''} — ${bal}` };
-                      })}
+                    options={invoiceOptions}
                   />
                 </>
               )}
