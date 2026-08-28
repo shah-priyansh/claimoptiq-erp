@@ -8,6 +8,10 @@ const DEFAULTS = {
   login_tagline:        'AI-Powered Healthcare Business Operating System by First Care Consultancy',
   login_disclaimer:     'First Care Consultancy is not registered and not regulated by the Insurance Regulatory and Development Authority of India and doesn\'t have any tie up with insurance companies and Third party administrators.',
 
+  // Scrolling announcement / news ticker shown on the Dashboard and the
+  // Document Upload page. Empty string hides the bar entirely.
+  announcement_text:    '',
+
   // Invoice template (PDF branding) — editable from Settings → Invoice Template
   invoice_company_name:           'First Care Consultancy',
   invoice_company_address:        'G-13, Nishal Center, Near Nishal Circle, Pal RTO, Surat -395009',

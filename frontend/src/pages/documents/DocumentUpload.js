@@ -11,6 +11,7 @@ import {
 } from 'react-icons/hi';
 import { formatDate as _formatDate } from '../../utils/format';
 import Loader from '../../components/ui/Loader';
+import AnnouncementBar from '../../components/ui/AnnouncementBar';
 
 const formatDate = (d) => _formatDate(d, '—');
 
@@ -487,6 +488,8 @@ const DocumentUpload = () => {
 
       <input ref={mobileCamRef} type="file" accept="image/*" capture="environment" onChange={handleMobileCamera} className="hidden" />
       <input ref={galleryRef} type="file" accept="image/*,application/pdf" multiple onChange={handleFileChange} className="hidden" />
+
+      <AnnouncementBar className="mb-5" />
 
       {/* Tab switcher */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5 max-w-xs">
