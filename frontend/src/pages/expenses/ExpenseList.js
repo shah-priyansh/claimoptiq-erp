@@ -664,6 +664,7 @@ const ExpenseList = () => {
         categories={categories}
         references={references}
         parties={parties}
+        bankAccounts={bankAccounts}
         loadingRefs={loadingRefs}
         onClose={() => setModal({ open: false, item: null, mode: 'create' })}
         onSave={handleSave}

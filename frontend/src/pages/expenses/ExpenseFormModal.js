@@ -4,9 +4,11 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', partyName: '', referenceId: '', partyId: '' };
+const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', partyName: '', referenceId: '', partyId: '', paymentMode: 'cash', bankAccountId: '', paidAmount: '' };
 
-const ExpenseFormModal = ({ open, initial, mode = 'create', categories, references, parties = [], loadingRefs = false, onClose, onSave }) => {
+const PAYMENT_MODES = [{ value: 'cash', label: 'Cash' }, { value: 'bank', label: 'Bank' }, { value: 'upi', label: 'UPI' }];
+
+const ExpenseFormModal = ({ open, initial, mode = 'create', categories, references, parties = [], bankAccounts = [], loadingRefs = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
   const isEdit = mode === 'edit';
@@ -15,6 +17,9 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
   useEffect(() => {
     if (!open) return;
     if (initial) {
+      // Prefill the paid amount + mode from the current linked payment. A
+      // duplicate starts fresh (Unpaid) — its money hasn't moved yet.
+      const pay = (initial.payments || [])[0];
       setForm({
         date: isDuplicate ? todayIso() : (initial.date || '').slice(0, 10),
         categoryId: initial.category?._id || initial.categoryId || '',
@@ -23,13 +28,34 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
         partyName: initial.partyName || '',
         referenceId: initial.reference?._id || initial.referenceId || '',
         partyId: initial.party?._id || initial.partyId || '',
+        paymentMode: isDuplicate ? 'cash' : (pay?.mode || 'cash'),
+        bankAccountId: isDuplicate ? '' : (pay?.bankAccount?._id || pay?.bankAccountId || ''),
+        paidAmount: isDuplicate ? '' : (initial.amountPaid ? String(initial.amountPaid) : ''),
       });
     } else {
       setForm({ ...blank, categoryId: categories[0]?._id || '' });
     }
   }, [open, initial, categories, isDuplicate]);
 
+  // Auto-pick the default bank when switching to Bank/UPI; drop it for Cash
+  // (cash entries never carry a bank account). Mirrors the Cash/Bank form.
+  useEffect(() => {
+    if (!open) return;
+    if ((form.paymentMode === 'bank' || form.paymentMode === 'upi') && !form.bankAccountId && bankAccounts.length) {
+      const def = bankAccounts.find((a) => a.isDefault) || bankAccounts[0];
+      if (def) setForm((f) => ({ ...f, bankAccountId: def._id }));
+    }
+    if (form.paymentMode === 'cash' && form.bankAccountId) {
+      setForm((f) => ({ ...f, bankAccountId: '' }));
+    }
+  }, [form.paymentMode, form.bankAccountId, bankAccounts, open]);
+
   if (!open) return null;
+
+  const amountNum = Math.round(Number(form.amount) || 0);
+  const paidNum = form.paidAmount === '' ? 0 : Math.round(Number(form.paidAmount) || 0);
+  const balance = amountNum - paidNum;
+  const needsBank = form.paymentMode === 'bank' || form.paymentMode === 'upi';
 
   const submit = async (e) => {
     e.preventDefault();
@@ -44,6 +70,11 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
         partyName: form.partyName,
         referenceId: form.referenceId || null,
         partyId: form.partyId || null,
+        // Payment: paidAmount 0 => Unpaid. Backend clamps to [0, amount] and
+        // records a cash/bank OUT entry for the paid portion.
+        paymentMode: form.paymentMode,
+        bankAccountId: needsBank ? (form.bankAccountId || null) : null,
+        paidAmount: paidNum,
       });
     } finally {
       setSaving(false);
@@ -135,6 +166,59 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
               onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
           </div>
+
+          {/* Payment — leave Paid blank/0 for an Unpaid expense; enter part of
+              the amount for a partial payment. */}
+          <div className="border-t border-gray-100 pt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Mode</label>
+                <SearchableSelect
+                  value={form.paymentMode}
+                  onChange={(v) => setForm((f) => ({ ...f, paymentMode: v }))}
+                  options={PAYMENT_MODES}
+                  placeholder="Payment mode"
+                  searchPlaceholder="Search..."
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Paid (₹)</label>
+                  <button type="button"
+                    onClick={() => setForm((f) => ({ ...f, paidAmount: String(Math.abs(Math.round(Number(f.amount) || 0))) }))}
+                    className="text-xs font-medium text-primary-600 hover:text-primary-700">Full</button>
+                </div>
+                <input type="number" min="0" value={form.paidAmount}
+                  onChange={(e) => setForm((f) => ({ ...f, paidAmount: e.target.value }))}
+                  placeholder="0 — leave blank for Unpaid"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+            </div>
+            {needsBank && (
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account *</label>
+                {bankAccounts.length ? (
+                  <SearchableSelect
+                    value={form.bankAccountId}
+                    onChange={(v) => setForm((f) => ({ ...f, bankAccountId: v }))}
+                    options={bankAccounts.map((b) => ({ value: b._id, label: `${b.bankName}${b.accountNumber ? ` — ${b.accountNumber}` : ''}` }))}
+                    placeholder="Select bank account"
+                    searchPlaceholder="Search banks..."
+                  />
+                ) : (
+                  <p className="text-xs text-amber-600">No bank accounts. Add one in Settings → Bank Accounts, or use Cash.</p>
+                )}
+              </div>
+            )}
+            <div className="flex items-center justify-between mt-3 text-sm">
+              <span className="text-gray-500">Balance</span>
+              <span className={`font-semibold ${balance < 0 ? 'text-red-600' : balance === 0 ? 'text-green-600' : 'text-gray-800'}`}>
+                ₹{Math.abs(balance).toLocaleString('en-IN')}{balance < 0 ? ' over' : ''}
+              </span>
+            </div>
+            {balance < 0 && <p className="text-xs text-red-600 mt-1">Paid exceeds the amount — it will be capped to ₹{amountNum.toLocaleString('en-IN')}.</p>}
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
             <button type="submit" disabled={saving || !form.categoryId}
