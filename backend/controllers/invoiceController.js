@@ -1346,7 +1346,10 @@ exports.list = async (req, res) => {
     // Party filter — matches the free-text party name on imported direct-patient
     // bills (these carry only `partyName`, not a `partyId` FK).
     if (partyName) where.partyName = partyName;
-    const take = Math.min(Number(limit) || 25, 100);
+    // The paginated listing caps at 100/page. The '__open' filter powers payment
+    // dropdowns that must show EVERY still-owed invoice (client-side search only
+    // filters what's loaded), so allow a much larger single fetch there.
+    const take = Math.min(Number(limit) || 25, status === '__open' ? 5000 : 100);
     const skip = page ? (Number(page) - 1) * take : 0;
     const [invoices, total] = await Promise.all([
       prisma.invoice.findMany({
