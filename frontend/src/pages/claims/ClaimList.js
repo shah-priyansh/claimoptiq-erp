@@ -243,7 +243,12 @@ const ClaimList = () => {
   const [fieldSearch, setFieldSearch] = useState('');
   const [importOpen, setImportOpen] = useState(false);
   const [stickerMode, setStickerMode] = useState(false);
-  const [stickerSelectedIds, setStickerSelectedIds] = useState([]);
+  // Selected claims for courier stickers, keyed by id so the full claim object
+  // (with tpa/insurance/hospital relations) is retained even after the list is
+  // searched/filtered/paginated. Storing ids alone meant "Print N" filtered the
+  // CURRENT page and silently dropped any selected claim no longer shown.
+  const [stickerSelectedMap, setStickerSelectedMap] = useState({});
+  const stickerSelectedIds = React.useMemo(() => Object.keys(stickerSelectedMap), [stickerSelectedMap]);
   const [stickerPreviewClaims, setStickerPreviewClaims] = useState(null);
   // Ephemeral, per-print address overrides for the courier sticker. Keyed by
   // group key → { to, from }. Never persisted — cleared when the modal closes,
@@ -314,7 +319,11 @@ const ClaimList = () => {
   const deselectGroupKeys = (keys) => setSelectedFields(prev => prev.filter(k => !keys.includes(k)));
   const closeFieldModal = () => { setFieldModal({ open: false, pendingFormat: null }); setFieldSearch(''); };
 
-  const toggleStickerSelect = (id) => setStickerSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggleStickerSelect = (claim) => setStickerSelectedMap((prev) => {
+    const next = { ...prev };
+    if (next[claim._id]) delete next[claim._id]; else next[claim._id] = claim;
+    return next;
+  });
   const openStickerPreview = (claimsToPrint) => {
     setStickerAddressEdits({});
     setStickerEditMode(false);
@@ -1230,7 +1239,7 @@ const ClaimList = () => {
           <button
             onClick={() => {
               setStickerMode(m => {
-                if (m) setStickerSelectedIds([]);
+                if (m) setStickerSelectedMap({});
                 return !m;
               });
             }}
@@ -1355,11 +1364,11 @@ const ClaimList = () => {
               {claims.map((c) => (
                 <div key={c._id}
                   className={`p-4 active:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50' : ''}`}
-                  onClick={() => stickerMode ? toggleStickerSelect(c._id) : navigate(`/claims/${c._id}`)}>
+                  onClick={() => stickerMode ? toggleStickerSelect(c) : navigate(`/claims/${c._id}`)}>
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <div className="flex items-start gap-2 min-w-0">
                       {stickerMode && (
-                        <input type="checkbox" checked={stickerSelectedIds.includes(c._id)} onChange={() => toggleStickerSelect(c._id)}
+                        <input type="checkbox" checked={stickerSelectedIds.includes(c._id)} onChange={() => toggleStickerSelect(c)}
                           onClick={e => e.stopPropagation()}
                           className="mt-1 w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                       )}
@@ -1438,11 +1447,11 @@ const ClaimList = () => {
               ) : claims.map((c, rowIdx) => (
                 <tr key={c._id}
                   className={`hover:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
-                  onClick={() => stickerMode ? toggleStickerSelect(c._id) : navigate(`/claims/${c._id}`)}>
+                  onClick={() => stickerMode ? toggleStickerSelect(c) : navigate(`/claims/${c._id}`)}>
                   <td className="py-3 px-3 text-sm text-gray-500 align-top">
                     {stickerMode ? (
                       <input type="checkbox" checked={stickerSelectedIds.includes(c._id)}
-                        onChange={() => toggleStickerSelect(c._id)} onClick={e => e.stopPropagation()}
+                        onChange={() => toggleStickerSelect(c)} onClick={e => e.stopPropagation()}
                         className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                     ) : (isHospitalUser ? rowIdx + 1 : c.srNo)}
                   </td>
@@ -1846,10 +1855,10 @@ const ClaimList = () => {
       {stickerMode && stickerSelectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900 text-white rounded-xl shadow-2xl px-5 py-3 flex items-center gap-4">
           <span className="text-sm font-medium">{stickerSelectedIds.length} selected</span>
-          <button onClick={() => setStickerSelectedIds([])}
+          <button onClick={() => setStickerSelectedMap({})}
             className="text-xs text-gray-300 hover:text-white">Clear</button>
           <div className="h-5 w-px bg-gray-700" />
-          <button onClick={() => openStickerPreview(claims.filter(c => stickerSelectedIds.includes(c._id)))}
+          <button onClick={() => openStickerPreview(Object.values(stickerSelectedMap))}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium">
             <HiOutlinePrinter className="w-4 h-4" /> Print {stickerSelectedIds.length} Sticker{stickerSelectedIds.length > 1 ? 's' : ''}
           </button>
