@@ -205,6 +205,7 @@ exports.createClaim = async (req, res) => {
       },
       include: claimInclude,
     });
+    invalidateDashboardCache();
     res.status(201).json(toResponse(claim));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -550,6 +551,7 @@ exports.updateClaim = async (req, res) => {
       data,
       include: claimInclude,
     });
+    invalidateDashboardCache();
 
     // On completion, offload this claim's files (fire-and-forget; respects the
     // global enable + on-settled toggle + disk-pressure gate inside runBackup).
@@ -576,6 +578,7 @@ const resyncClaimStatus = async (claimId) => {
   if (remaining.length) {
     const current = remaining[remaining.length - 1];
     await prisma.claim.update({ where: { id: claimId }, data: { status: current.status } });
+    invalidateDashboardCache();
   }
   return remaining;
 };
@@ -765,6 +768,7 @@ exports.deleteClaim = async (req, res) => {
     removeClaimFiles(docs.map(d => d.filePath));
     // Sweep any offloaded remote copies + orphan location rows (polymorphic — no FK cascade).
     for (const d of docs) backupService.deleteRemoteCopies('claim_document', d.id).catch(() => {});
+    invalidateDashboardCache();
     res.json({ message: 'Claim deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -824,6 +828,7 @@ exports.deleteAllClaims = async (req, res) => {
 
     removeClaimFiles(docs.map(d => d.filePath));
     for (const d of docs) backupService.deleteRemoteCopies('claim_document', d.id).catch(() => {});
+    invalidateDashboardCache();
     res.json({ message: `${result} claim(s) deleted`, count: result });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -864,6 +869,7 @@ exports.bulkUpdateStatus = async (req, res) => {
         maybeBackupSettledClaims({ in: claimsToUpdate.map(c => c.id) }, req.user.id);
       }
     }
+    invalidateDashboardCache();
     res.json({ message: `${count} claims updated to "${status}"`, count });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -1619,6 +1625,8 @@ exports.importClaims = async (req, res) => {
       tpas:      [...fuzzyResolutions.tpas.entries()].map(([from, to]) => ({ from, to })),
     };
 
+    invalidateDashboardCache();
+
     // Always 200 — per-row errors are reported in the body. Returning 4xx for
     // an all-error batch makes the frontend abort the import loop, so a single
     // bad batch (e.g. one made entirely of duplicates) would stop the remaining
@@ -1922,6 +1930,7 @@ exports.bulkBill = async (req, res) => {
       data: { isBilled: targetIsBilled, updatedById: req.user.id },
     });
     const label = targetIsBilled ? 'billed' : 'unbilled';
+    invalidateDashboardCache();
     res.json({ message: `${count} claims marked as ${label}`, count });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -1948,7 +1957,14 @@ exports.invalidateStatusCache = () => { _statusCache = null; };
 const DASHBOARD_CACHE_TTL = 30 * 1000;
 const _dashboardCache = new Map();
 
-exports.invalidateDashboardCache = () => { _dashboardCache.clear(); };
+// Clears the cached dashboard payloads so the next /dashboard request recomputes
+// live. MUST be called by every claim mutation — otherwise the dashboard keeps
+// serving a stale status breakdown that disagrees with the (uncached) claims
+// list (e.g. still counting a claim as "Patient Admitted" after its status
+// changed). Referenced inside handlers defined earlier in this file — safe
+// because those bodies only run at request time, long after this initialises.
+const invalidateDashboardCache = () => { _dashboardCache.clear(); };
+exports.invalidateDashboardCache = invalidateDashboardCache;
 
 exports.getDashboardStats = async (req, res) => {
   try {
@@ -2191,7 +2207,7 @@ exports.fixBilledStatus = async (req, res) => {
 
     // Dashboard totals depend on status; bust the cache so the UI reflects
     // the repair immediately without waiting for the 30s TTL to lapse.
-    if (typeof _dashboardCache !== 'undefined') _dashboardCache.clear();
+    invalidateDashboardCache();
 
     res.json({
       scanned: stuckIds.length,

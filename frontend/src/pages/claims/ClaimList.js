@@ -62,7 +62,7 @@ const BASE_FIELD_DEFS = [
   { key: 'referenceBy',               label: 'REFERENCE BY',           width: 18, pdfW: 28, defaultOn: true,  superAdminOnly: true, getValue: c => c.hospital?.referenceBy || '' },
   { key: 'isDirectPatient',           label: 'DIRECT PATIENT',         width: 12, pdfW: 14, defaultOn: false, getValue: c => c.isDirectPatient ? 'Yes' : 'No' },
   { key: 'doctorName',                label: 'DOCTOR NAME',            width: 20, pdfW: 26, defaultOn: true,  getValue: c => c.doctorName || '' },
-  { key: 'claimProcessBy',            label: 'CLAIM PROCESS BY',       width: 18, pdfW: 24, defaultOn: true,  getValue: c => c.claimProcessBy || '' },
+  { key: 'claimProcessBy',            label: 'CLAIM PROCESS BY',       width: 18, pdfW: 24, defaultOn: false, getValue: c => c.claimProcessBy || '' },
   { key: 'claimType',                 label: 'CLAIM TYPE',             width: 14, pdfW: 18, defaultOn: true,  getValue: c => c.claimType || '' },
   { key: 'insuranceCompany',          label: 'COMPANY NAME',           width: 22, pdfW: 26, defaultOn: true,  getValue: c => c.insuranceCompany?.name || '' },
   { key: 'tpa',                       label: 'TPA NAME',               width: 18, pdfW: 22, defaultOn: true,  getValue: c => c.tpa?.name || '' },
@@ -87,7 +87,7 @@ const BASE_FIELD_DEFS = [
   { key: 'settlement',                label: 'SETTLEMENT AMOUNT',      width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.settlementAmount || 0 },
   { key: 'settlementAmountDeduction', label: 'SETTLEMENT DEDUCTION',   width: 16, pdfW: 20, defaultOn: false, isAmount: true, getValue: c => c.settlementAmountDeduction || 0 },
   { key: 'mouDiscountOnSettlement',   label: 'MOU DISC ON SETTLEMENT', width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.mouDiscountOnSettlement || 0 },
-  { key: 'tds',                       label: 'TDS',                    width: 12, pdfW: 14, defaultOn: false, isAmount: true, getValue: c => c.tds || 0 },
+  { key: 'tds',                       label: 'TDS',                    width: 12, pdfW: 18, defaultOn: false, isAmount: true, getValue: c => c.tds || 0 },
   { key: 'bankTransfer',              label: 'BANK TRANSFER AMOUNT',   width: 18, pdfW: 22, defaultOn: false, isAmount: true, getValue: c => c.bankTransferAmount || 0 },
   { key: 'settlementDate',            label: 'SETTLEMENT DATE',        width: 14, pdfW: 18, defaultOn: false, getValue: c => fmtDateCell(c.settlementDate) },
   { key: 'neftNo',                    label: 'NEFT NO',                width: 14, pdfW: 16, defaultOn: false, getValue: c => c.neftNo || '' },
@@ -412,7 +412,10 @@ const ClaimList = () => {
 
   const formatDate = (d) => _formatDate(d);
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
-  const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(v) : (v || '-');
+  // PDF amount formatter: round to whole rupees so large ₹ figures (TDS,
+  // settlement, grand totals) don't carry ".2"/".17" decimals that wrap the
+  // already-narrow amount columns onto 2-3 lines.
+  const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(Math.round(v)) : (v || '-');
 
   // ── Status change ─────────────────────────────────────────────────────────
 
@@ -747,7 +750,11 @@ const ClaimList = () => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const AVAILABLE = pageWidth - MARGIN_X * 2;
-    const scale = rawSum > AVAILABLE ? AVAILABLE / rawSum : 1;
+    // Fill the page width: shrink when columns overflow, and stretch (capped at
+    // 1.5x) to use the whole page when they'd otherwise leave it underutilised —
+    // this widens the narrow number columns so ₹ values stop wrapping onto
+    // multiple lines.
+    const scale = Math.min(AVAILABLE / rawSum, 1.5);
     const COL_WIDTHS = rawWidths.map(w => w * scale);
     const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
     const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
@@ -795,6 +802,9 @@ const ClaimList = () => {
       startY: 28,
       head: [COLS.map(f => f.label || 'SR')],
       body: bodyRows,
+      // Keep each claim row whole — never split its cells across a page break
+      // (that leaves an orphaned near-empty row under a repeated header).
+      rowPageBreak: 'avoid',
       theme: 'grid',
       styles: { lineColor: [156, 163, 175], lineWidth: 0.2, overflow: 'linebreak', cellPadding },
       headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: headFontSize, halign: 'center', valign: 'middle', lineColor: [37, 99, 235], lineWidth: 0.3 },
@@ -850,7 +860,11 @@ const ClaimList = () => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const AVAILABLE = pageWidth - MARGIN_X * 2;
-    const scale = rawSum > AVAILABLE ? AVAILABLE / rawSum : 1;
+    // Fill the page width: shrink when columns overflow, and stretch (capped at
+    // 1.5x) to use the whole page when they'd otherwise leave it underutilised —
+    // this widens the narrow number columns so ₹ values stop wrapping onto
+    // multiple lines.
+    const scale = Math.min(AVAILABLE / rawSum, 1.5);
     const COL_WIDTHS = rawWidths.map(w => w * scale);
     const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
     const columnStyles = COL_WIDTHS.reduce((acc, w, i) => {
@@ -950,6 +964,8 @@ const ClaimList = () => {
           startY,
           head: [COLS.map(f => f.label || 'SR')],
           body: bodyRows,
+          // Keep each claim row whole across page breaks (no orphaned rows).
+          rowPageBreak: 'avoid',
           theme: 'grid',
           styles: { lineColor: [156, 163, 175], lineWidth: 0.2, overflow: 'linebreak', cellPadding },
           headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: headFontSize, halign: 'center', valign: 'middle', lineColor: [37, 99, 235], lineWidth: 0.3 },
