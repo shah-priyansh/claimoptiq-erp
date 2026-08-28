@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import ReactDOM from 'react-dom';
 import { toast } from 'react-toastify';
 import {
@@ -223,13 +224,24 @@ const ExpenseList = () => {
   const [sumAmount, setSumAmount] = useState(0);
   const [sumPaid, setSumPaid] = useState(0);
   const [sumPending, setSumPending] = useState(0);
+  // Drill-down from the Chart of Accounts: ?categoryId=<id> preselects that
+  // expense head. Seed it into the INITIAL filter so the first fetch is already
+  // filtered (a post-mount setFilters fired a second fetch that raced with the
+  // default unfiltered one and could lose).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialCategoryId = searchParams.get('categoryId') || '';
   const [filters, setFilters] = usePersistedFilters('expenses:filters', {
-    categoryId: '',
+    categoryId: initialCategoryId,
     referenceId: '',
     from: '',
     to: '',
     q: '',
   });
+  // Tidy the URL after seeding (doesn't touch filters, so no refetch).
+  useEffect(() => {
+    if (searchParams.get('categoryId')) setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
 

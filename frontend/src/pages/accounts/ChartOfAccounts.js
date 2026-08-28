@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
 import {
@@ -15,6 +16,20 @@ const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-I
 // Account (row.id === Account uuid). Bank/cash/party/expense rows are not.
 const EDITABLE_KINDS = new Set(['fixed_asset', 'current_asset', 'non_current_asset', 'capital', 'loan', 'income', 'other']);
 
+// Drill-down target for a chart row: click-through to the existing list that
+// backs the account's balance, pre-filtered. Ledger accounts (EDITABLE_KINDS)
+// have no list of their own here — they keep the inline edit pencil instead.
+const drillPath = (a) => {
+  switch (a.kind) {
+    case 'sundry_creditors': return '/parties?balance=payable';    // parties you owe
+    case 'sundry_debtors':   return '/parties?balance=receivable';  // parties who owe you
+    case 'expense_category': return `/expenses?categoryId=${a.id}`;
+    case 'bank':             return '/cash-bank?mode=bank';
+    case 'cash':             return '/cash-bank?mode=cash';
+    default:                 return null;
+  }
+};
+
 const NATURE_CLS = {
   expense: 'bg-gray-100 text-gray-600', capital: 'bg-indigo-50 text-indigo-700', fixed_asset: 'bg-teal-50 text-teal-700',
 };
@@ -24,13 +39,17 @@ const KIND_ICON = {
 
 // A single account row (name + code + nature badge + balance). When `onEdit` is
 // provided, a hover-revealed pencil surfaces the edit action.
-const AccountRow = ({ a, onEdit }) => {
+const AccountRow = ({ a, onEdit, onOpen }) => {
   const Icon = KIND_ICON[a.kind] || HiOutlineLibrary;
   return (
-    <div className="group flex items-center justify-between px-4 py-2.5 hover:bg-gray-50">
+    <div
+      onClick={onOpen}
+      title={onOpen ? 'View details' : undefined}
+      className={`group flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 ${onOpen ? 'cursor-pointer' : ''}`}
+    >
       <span className="flex items-center gap-2 min-w-0">
         <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" />
-        <span className="text-sm text-gray-700 truncate">{a.name}</span>
+        <span className={`text-sm truncate ${onOpen ? 'text-gray-700 group-hover:text-primary-700' : 'text-gray-700'}`}>{a.name}</span>
         {a.code && <span className="text-[11px] text-gray-400 font-mono">{a.code}</span>}
         {a.nature && a.nature !== 'expense' && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded ${NATURE_CLS[a.nature] || ''}`}>
@@ -41,10 +60,13 @@ const AccountRow = ({ a, onEdit }) => {
       <span className="flex items-center gap-2 flex-shrink-0">
         <span className={`text-sm font-medium whitespace-nowrap ${a.balance < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(a.balance)}</span>
         {onEdit && (
-          <button onClick={onEdit} title="Edit account"
+          <button onClick={(e) => { e.stopPropagation(); onEdit(); }} title="Edit account"
             className="p-1 rounded text-gray-400 hover:text-primary-600 hover:bg-gray-200 transition-colors">
             <HiOutlinePencil className="w-4 h-4" />
           </button>
+        )}
+        {onOpen && (
+          <HiOutlineChevronRight className="w-4 h-4 text-gray-300 group-hover:text-primary-500 flex-shrink-0" />
         )}
       </span>
     </div>
@@ -68,6 +90,7 @@ const subgroupsOf = (g) => {
 
 const ChartOfAccounts = () => {
   const { can } = useAuth();
+  const navigate = useNavigate();
   const canCreate = can('chart_of_accounts', 'create');
   const canEdit = can('chart_of_accounts', 'edit');
 
@@ -141,7 +164,8 @@ const ChartOfAccounts = () => {
                             <div className="divide-y divide-gray-50">
                               {accts.map((a) => {
                                 const acct = editableAccount(a);
-                                return <AccountRow key={`${a.kind}-${a.id}`} a={a} onEdit={acct ? () => setEditAccount(acct) : undefined} />;
+                                const path = drillPath(a);
+                                return <AccountRow key={`${a.kind}-${a.id}`} a={a} onEdit={acct ? () => setEditAccount(acct) : undefined} onOpen={path ? () => navigate(path) : undefined} />;
                               })}
                             </div>
                           )}
@@ -154,7 +178,8 @@ const ChartOfAccounts = () => {
                     <div className="divide-y divide-gray-50">
                       {g.accounts.map((a) => {
                         const acct = editableAccount(a);
-                        return <AccountRow key={`${a.kind}-${a.id}`} a={a} onEdit={acct ? () => setEditAccount(acct) : undefined} />;
+                        const path = drillPath(a);
+                        return <AccountRow key={`${a.kind}-${a.id}`} a={a} onEdit={acct ? () => setEditAccount(acct) : undefined} onOpen={path ? () => navigate(path) : undefined} />;
                       })}
                     </div>
                   )
