@@ -12,7 +12,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import {
   getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, previewInvoicePdf, printInvoicePdf,
   getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI, createCashBankAPI,
-  getBankAccountsAPI, getBillingServiceNamesAPI,
+  getBankAccountsAPI, getHospitalAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
@@ -85,18 +85,28 @@ const InvoiceDetail = () => {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   // Master list of billing service names — powers the line-item description
-  // autocomplete (native datalist) while still allowing free-text descriptions.
+  // combobox: a clickable dropdown of services + type-to-search, while still
+  // allowing a free-text description (allowCustom).
   const [serviceNames, setServiceNames] = useState([]);
+  const serviceOptions = useMemo(() => serviceNames.map((name) => ({ value: name, label: name })), [serviceNames]);
 
   useEffect(() => {
     getBankAccountsAPI({ active: 'true' })
       .then(({ data }) => setBankAccounts(data || []))
       .catch(() => setBankAccounts([]))
       .finally(() => setLoadingBankAccounts(false));
-    getBillingServiceNamesAPI()
-      .then(({ data }) => setServiceNames((data || []).map((s) => s.name).filter(Boolean)))
-      .catch(() => setServiceNames([]));
   }, []);
+
+  // Line-item service dropdown lists THIS hospital's configured services.
+  const hospitalId = invoice?.hospital?._id || invoice?.hospital?.id || null;
+  useEffect(() => {
+    if (!hospitalId) { setServiceNames([]); return; }
+    getHospitalAPI(hospitalId)
+      .then(({ data }) => setServiceNames(
+        (data.billingServices || []).filter((s) => s.isActive !== false).map((s) => s.serviceName).filter(Boolean),
+      ))
+      .catch(() => setServiceNames([]));
+  }, [hospitalId]);
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
   const toggleGroup = (key) => setExpandedGroups((s) => {
@@ -537,10 +547,10 @@ const InvoiceDetail = () => {
                         <tr key={row._origId || `row-${idx}`} className="hover:bg-gray-50">
                           <td className="py-3 px-4 text-gray-400 text-sm">{idx + 1}</td>
                           <td className="py-3 px-4">
-                            <input value={row.description} list="invoice-service-names"
-                              onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                              placeholder="Description"
-                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                            <SearchableSelect value={row.description} options={serviceOptions} allowCustom allowClear
+                              onChange={(v) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: v } : r))}
+                              placeholder="Select or type a service"
+                              searchPlaceholder="Search services..." />
                           </td>
                           <td className="py-3 px-4">
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${pillFor(row.lineType)}`}>
@@ -596,10 +606,10 @@ const InvoiceDetail = () => {
                           <tr key={row._origId || `row-${idx}`} className="bg-white">
                             <td className="py-2 px-4 text-gray-400 text-xs pl-10">{idx + 1}</td>
                             <td className="py-2 px-4">
-                              <input value={row.description} list="invoice-service-names"
-                                onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                                placeholder="Description"
-                                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                              <SearchableSelect value={row.description} options={serviceOptions} allowCustom allowClear
+                                onChange={(v) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: v } : r))}
+                                placeholder="Select or type a service"
+                                searchPlaceholder="Search services..." />
                             </td>
                             <td className="py-2 px-4" />
                             <td className="py-2 px-4">
@@ -631,10 +641,6 @@ const InvoiceDetail = () => {
                   </tr>
                 </tfoot>
               </table>
-              {/* Shared autocomplete source for every line-item Description field. */}
-              <datalist id="invoice-service-names">
-                {serviceNames.map((name) => <option key={name} value={name} />)}
-              </datalist>
             </div>
 
             <p className="text-xs text-gray-400 mt-2">
