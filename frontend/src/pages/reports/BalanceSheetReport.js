@@ -70,7 +70,7 @@ const BalanceSheetReport = () => {
   const assetGroups = useMemo(() => {
     if (!data) return [];
     const a = data.assets;
-    return [a.sundryDebtors, a.bankAccounts, a.cashAccount, a.upiAccount, a.tdsReceivable, a.fixedAssets]
+    return [a.sundryDebtors, a.bankAccounts, a.cashAccount, a.upiAccount, a.tdsReceivable, a.loansReceivable, a.fixedAssets]
       .filter((g) => g && g.total !== 0);
   }, [data]);
 

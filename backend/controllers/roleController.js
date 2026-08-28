@@ -22,6 +22,7 @@ exports.getModules = async (req, res) => {
       { key: 'cash_bank', label: 'Cash / Bank', actions: ['view', 'create', 'edit', 'delete', 'export'] },
       { key: 'account_entries', label: 'Account Entries', actions: ['view', 'create', 'edit', 'delete', 'export'] },
       { key: 'chart_of_accounts', label: 'Chart of Accounts', actions: ['view', 'create', 'edit', 'delete'] },
+      { key: 'loans', label: 'Loans', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'users', label: 'User Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'roles', label: 'Role Management', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'settings', label: 'Settings', actions: ['view', 'edit'] },

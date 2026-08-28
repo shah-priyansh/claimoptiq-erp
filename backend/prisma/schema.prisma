@@ -141,6 +141,7 @@ model Party {
   reference       Reference? @relation(fields: [referenceId], references: [id])
   invoices        Invoice[]
   expenses        Expense[]
+  loans           Loan[]
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
@@ -600,6 +601,7 @@ model User {
   accountEntriesCreated    AccountEntry[]       @relation("AccountEntryCreatedBy")
   journalEntriesCreated    JournalEntry[]       @relation("JournalEntryCreatedBy")
   backupRunsTriggered      BackupRun[]          @relation("BackupRunTriggeredBy")
+  loansCreated             Loan[]               @relation("LoanCreatedBy")
 
   @@index([phone])
   @@map("users")
@@ -852,6 +854,7 @@ model Employee {
   allowances     EmployeeAllowance[]
   attendance     AttendanceRecord[]
   salaryRecords  SalaryRecord[]
+  loans          Loan[]
 
   @@map("employees")
 }
@@ -1013,4 +1016,65 @@ model BackupRun {
 
   @@index([startedAt(sort: Desc)])
   @@map("backup_runs")
+}
+
+// Loan tracker with a reducing-balance EMI schedule. `direction` = 'given'
+// (FCC lent money out → a receivable/asset) or 'taken' (FCC borrowed → a
+// payable/liability). Counterparty is a staff Employee, a Party, or free-text.
+model Loan {
+  id                 String            @id @default(uuid())
+  direction          String // 'given' | 'taken'
+  counterpartyName   String            @default("") @map("counterparty_name")
+  employeeId         String?           @map("employee_id")
+  partyId            String?           @map("party_id")
+  principal          Float
+  annualInterestRate Float             @default(0) @map("annual_interest_rate")
+  tenureMonths       Int               @map("tenure_months")
+  startDate          DateTime          @map("start_date")
+  emiAmount          Float             @default(0) @map("emi_amount")
+  // 'manual' | 'salary' (salary only applies to staff loans that are 'given').
+  repaymentSource    String            @default("manual") @map("repayment_source")
+  status             String            @default("active") // 'active' | 'closed'
+  disbursedAt        DateTime?         @map("disbursed_at")
+  // Cash/Bank entry created when the principal was disbursed/received (loose ref).
+  disburseEntryId    String?           @map("disburse_entry_id")
+  notes              String            @default("")
+  createdById        String?           @map("created_by_id")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  employee     Employee?         @relation(fields: [employeeId], references: [id])
+  party        Party?            @relation(fields: [partyId], references: [id])
+  createdBy    User?             @relation("LoanCreatedBy", fields: [createdById], references: [id])
+  installments LoanInstallment[]
+
+  @@index([direction, status])
+  @@index([employeeId])
+  @@index([partyId])
+  @@map("loans")
+}
+
+model LoanInstallment {
+  id                 String    @id @default(uuid())
+  loanId             String    @map("loan_id")
+  installmentNo      Int       @map("installment_no")
+  dueDate            DateTime  @map("due_date")
+  emiAmount          Float     @map("emi_amount")
+  principalComponent Float     @map("principal_component")
+  interestComponent  Float     @map("interest_component")
+  outstandingAfter   Float     @map("outstanding_after")
+  status             String    @default("pending") // 'pending' | 'paid'
+  paidAmount         Float     @default(0) @map("paid_amount")
+  paidDate           DateTime? @map("paid_date")
+  // How this installment was settled: cash/bank entry id, or the salary record
+  // id when deducted from staff salary (loose refs, no FK).
+  cashBankEntryId    String?   @map("cash_bank_entry_id")
+  salaryRecordId     String?   @map("salary_record_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@unique([loanId, installmentNo])
+  @@index([loanId])
+  @@map("loan_installments")
 }

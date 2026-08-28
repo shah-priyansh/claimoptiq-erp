@@ -8,6 +8,7 @@
 const prisma = require('../config/prisma');
 const { getJournalNetByAccount, journalKey } = require('../services/journalBalances');
 const { computeCommissionRows } = require('../utils/referenceCommissionFlow');
+const { loanTotals } = require('./loanController');
 
 const ACTIVE_INVOICE_STATUSES = ['issued', 'partially_paid', 'paid'];
 
@@ -745,6 +746,10 @@ exports.balanceSheet = async (req, res) => {
       .sort((a, b) => b.value - a.value);
     const debtorsTotal = debtorRows.reduce((a, r) => a + r.value, 0);
 
+    // --- Loan module: outstanding principal is a receivable (given) or a
+    // payable (taken); realised interest flows through the P&L. ---
+    const loanAgg = await loanTotals();
+
     // --- Tax pools ---
     const tdsReceivable = Math.round(issuedAgg._sum.tdsAmount || 0);
     const gstPayable = Math.round(issuedAgg._sum.gstAmount || 0);
@@ -755,7 +760,10 @@ exports.balanceSheet = async (req, res) => {
     // the remainder so the sheet balances by construction.
     const periodIncome = periodIncomeAgg._sum.netTotal || 0;
     const periodExpense = periodExpenseAgg._sum.amount || 0;
-    const retainedEarnings = Math.round(periodIncome - periodExpense);
+    // Loan interest realised on paid EMIs: income on loans we gave, expense on
+    // loans we took. Keeps the sheet balanced against the net cash the interest
+    // portion of each EMI moved.
+    const retainedEarnings = Math.round(periodIncome - periodExpense + loanAgg.interestIncome - loanAgg.interestExpense);
 
     // --- Chart-of-Accounts lines (Phase 3b) ---
     // Fixed Assets = capitalised fixed-asset spend + fixed-asset account openings.
@@ -777,10 +785,11 @@ exports.balanceSheet = async (req, res) => {
       ...(fixedAssetPurchases !== 0 ? [{ key: 'fa_purchases', label: 'Fixed asset purchases', value: fixedAssetPurchases }] : []),
     ];
 
-    const totalAssets = bankTotal + cashTotal + upiTotal + debtorsTotal + tdsReceivable + fixedAssetsTotal;
-    const knownLiabilities = gstPayable + retainedEarnings + loansTotal + explicitCapital;
+    const loansPayable = loansTotal + loanAgg.payable; // CoA loan accounts + loan-module 'taken'
+    const totalAssets = bankTotal + cashTotal + upiTotal + debtorsTotal + tdsReceivable + fixedAssetsTotal + loanAgg.receivable;
+    const knownLiabilities = gstPayable + retainedEarnings + loansPayable + explicitCapital;
     const ownersCapital = totalAssets - knownLiabilities;
-    const totalLiabilities = ownersCapital + retainedEarnings + explicitCapital + gstPayable + loansTotal;
+    const totalLiabilities = ownersCapital + retainedEarnings + explicitCapital + gstPayable + loansPayable;
 
     res.json({
       filters: {
@@ -794,6 +803,7 @@ exports.balanceSheet = async (req, res) => {
         cashAccount:   { label: 'Cash in Hand',   total: cashTotal,    items: cashTotal !== 0 ? [{ key: 'cash', label: 'Cash', value: cashTotal }] : [] },
         upiAccount:    { label: 'UPI',            total: upiTotal,     items: upiTotal !== 0 ? [{ key: 'upi', label: 'UPI', value: upiTotal }] : [] },
         tdsReceivable: { label: 'TDS Receivable', total: tdsReceivable, items: tdsReceivable !== 0 ? [{ key: 'tds', label: 'TDS deducted on invoices', value: tdsReceivable }] : [] },
+        loansReceivable: { label: 'Loans Receivable', total: loanAgg.receivable, items: loanAgg.receivable !== 0 ? [{ key: 'loans_recv', label: 'Loans given (outstanding)', value: loanAgg.receivable }] : [] },
         fixedAssets:   { label: 'Fixed Assets', total: fixedAssetsTotal, items: fixedAssetItems },
       },
       liabilities: {
@@ -809,7 +819,13 @@ exports.balanceSheet = async (req, res) => {
           lifetimeExpense: Math.round(expenseAgg._sum.amount || 0),
           total: ownersCapital + retainedEarnings + explicitCapital,
         },
-        loans: { label: 'Loans', total: loansTotal, items: acctItems.liabilities },
+        loans: {
+          label: 'Loans', total: loansPayable,
+          items: [
+            ...acctItems.liabilities,
+            ...(loanAgg.payable !== 0 ? [{ key: 'loans_pay', label: 'Loans taken (outstanding)', value: loanAgg.payable }] : []),
+          ],
+        },
         outwardDutiesTaxes: {
           label: 'Outward Duties & Taxes',
           total: gstPayable,

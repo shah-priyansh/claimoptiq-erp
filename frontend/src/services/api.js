@@ -111,6 +111,13 @@ export const createAccountAPI  = (data) => API.post('/accounts', data);
 export const updateAccountAPI  = (id, data) => API.patch(`/accounts/${id}`, data);
 export const deleteAccountAPI  = (id) => API.delete(`/accounts/${id}`);
 
+// Loans
+export const getLoansAPI = (params) => API.get('/loans', { params });
+export const getLoanAPI = (id) => API.get(`/loans/${id}`);
+export const createLoanAPI = (data) => API.post('/loans', data);
+export const deleteLoanAPI = (id) => API.delete(`/loans/${id}`);
+export const recordLoanPaymentAPI = (installmentId, data) => API.post(`/loans/installments/${installmentId}/pay`, data);
+
 // Invoices
 export const previewInvoiceAPI = (data) => API.post('/invoices/preview', data);
 export const previewBulkInvoiceAPI = (data) => API.post('/invoices/preview-bulk', data);
