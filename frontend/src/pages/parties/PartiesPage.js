@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineSearch, HiOutlineUserGroup, HiOutlineX, HiOutlineSwitchHorizontal } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineSearch, HiOutlineUserGroup, HiOutlineX, HiOutlineSwitchHorizontal, HiOutlineCash, HiOutlineDownload } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import PartyPaymentAllocateModal from './PartyPaymentAllocateModal';
 import {
   getPartiesAPI, getPartyLedgerAPI, createPartyAPI, updatePartyAPI, mergePartyAPI,
+  getBankAccountsAPI,
 } from '../../services/api';
 import { formatDateTime } from '../../utils/format';
 
@@ -179,14 +182,23 @@ const PartiesPage = () => {
   const { can } = useAuth();
   const canCreate = can('parties', 'create');
   const canEdit = can('parties', 'edit');
+  // Recording a payment writes a cash/bank entry, so it needs that permission.
+  const canRecordPayment = can('cash_bank', 'create');
 
   const [parties, setParties] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState('');
   const [ledger, setLedger] = useState(null);
   const [loadingLedger, setLoadingLedger] = useState(false);
+  const [ledgerNonce, setLedgerNonce] = useState(0);
   const [modal, setModal] = useState({ open: false, initial: null });
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [loadingBankAccounts, setLoadingBankAccounts] = useState(false);
+  // 'in' (allocate across open invoices) | 'out' (across open expenses) | null.
+  const [allocDirection, setAllocDirection] = useState(null);
+  // When opened from a specific row, that invoice/expense is pre-filled + linked.
+  const [allocFocusRefId, setAllocFocusRefId] = useState(null);
 
   const selected = parties.find((p) => p._id === selectedId) || null;
 
@@ -202,6 +214,16 @@ const PartiesPage = () => {
 
   useEffect(() => { loadParties(); }, []);
 
+  // Bank accounts feed the reused payment modal (bank/UPI mode picker).
+  useEffect(() => {
+    if (!canRecordPayment) return;
+    setLoadingBankAccounts(true);
+    getBankAccountsAPI()
+      .then(({ data }) => setBankAccounts(data || []))
+      .catch(() => {})
+      .finally(() => setLoadingBankAccounts(false));
+  }, [canRecordPayment]);
+
   useEffect(() => {
     if (!selectedId) { setLedger(null); return; }
     let cancelled = false;
@@ -211,7 +233,28 @@ const PartiesPage = () => {
       .catch(() => { if (!cancelled) toast.error('Failed to load party ledger'); })
       .finally(() => { if (!cancelled) setLoadingLedger(false); });
     return () => { cancelled = true; };
-  }, [selectedId]);
+  }, [selectedId, ledgerNonce]);
+
+  const exportLedger = () => {
+    if (!selected) return;
+    const rows = (ledger?.transactions || []);
+    if (!rows.length) { toast.info('No transactions to export'); return; }
+    const dateOnly = (d) => (d ? formatDateTime(d).split(',')[0] : '');
+    const data = rows.map((t) => ({
+      Type: TYPE_LABELS[t.type] || t.type,
+      Number: t.number || '',
+      Date: dateOnly(t.date),
+      Total: t.total,
+      Balance: t.balance,
+      'Due Date': dateOnly(t.dueDate),
+      Status: STATUS[t.status]?.label || t.status,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
+    const safe = (selected.name || 'party').replace(/[^a-z0-9]+/gi, '_').slice(0, 40);
+    XLSX.writeFile(wb, `Party_${safe}_ledger.xlsx`);
+  };
 
   const visible = useMemo(() => {
     if (!search.trim()) return parties;
@@ -225,6 +268,9 @@ const PartiesPage = () => {
   };
 
   const txns = ledger?.transactions || [];
+  const openInvoices = txns.filter((t) => t.type === 'invoice' && t.balance > 0);
+  const openExpenses = txns.filter((t) => t.type === 'expense' && t.balance > 0);
+  const afterPayment = () => { setLedgerNonce((n) => n + 1); loadParties(selectedId); };
 
   return (
     <div>
@@ -296,18 +342,40 @@ const PartiesPage = () => {
                       {selected.gstin && <span>GSTIN {selected.gstin}</span>}
                     </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-xs uppercase tracking-wide text-gray-400">{balanceLabel(ledger?.balance ?? selected.balance ?? 0)}</p>
-                    <p className={`text-lg font-semibold ${balanceCls(ledger?.balance ?? selected.balance ?? 0)}`}>
-                      {formatINR(Math.abs(ledger?.balance ?? selected.balance ?? 0))}
-                    </p>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <button onClick={exportLedger} disabled={!txns.length} title="Export ledger to Excel"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-primary-300 text-primary-700 hover:bg-primary-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                      <HiOutlineDownload className="w-4 h-4" /> Export
+                    </button>
+                    <div className="text-right">
+                      <p className="text-xs uppercase tracking-wide text-gray-400">{balanceLabel(ledger?.balance ?? selected.balance ?? 0)}</p>
+                      <p className={`text-lg font-semibold ${balanceCls(ledger?.balance ?? selected.balance ?? 0)}`}>
+                        {formatINR(Math.abs(ledger?.balance ?? selected.balance ?? 0))}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100">
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-gray-700">Transactions</h3>
+                  {canRecordPayment && (openInvoices.length > 0 || openExpenses.length > 0) && (
+                    <div className="flex items-center gap-2">
+                      {openInvoices.length > 0 && (
+                        <button onClick={() => { setAllocFocusRefId(null); setAllocDirection('in'); }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-green-300 text-green-700 hover:bg-green-50">
+                          <HiOutlineCash className="w-4 h-4" /> Receive Payment
+                        </button>
+                      )}
+                      {openExpenses.length > 0 && (
+                        <button onClick={() => { setAllocFocusRefId(null); setAllocDirection('out'); }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-300 text-red-700 hover:bg-red-50">
+                          <HiOutlineCash className="w-4 h-4" /> Make Payment
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {loadingLedger ? (
                   <Loader label="Loading…" className="py-8" />
@@ -325,6 +393,7 @@ const PartiesPage = () => {
                           <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Balance</th>
                           <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Due Date</th>
                           <th className="text-center py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                          {canRecordPayment && <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Action</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -346,6 +415,21 @@ const PartiesPage = () => {
                               <td className="py-3 px-4 text-center">
                                 <span className={`text-xs px-2 py-0.5 rounded ${st.cls}`}>{st.label}</span>
                               </td>
+                              {canRecordPayment && (
+                                <td className="py-3 px-4 text-right whitespace-nowrap">
+                                  {(t.type === 'invoice' || t.type === 'expense') && t.balance > 0 ? (
+                                    <button
+                                      onClick={() => { setAllocFocusRefId(t.refId); setAllocDirection(t.type === 'invoice' ? 'in' : 'out'); }}
+                                      className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border ${isIn ? 'border-green-300 text-green-700 hover:bg-green-50' : 'border-red-300 text-red-700 hover:bg-red-50'}`}
+                                    >
+                                      <HiOutlineCash className="w-3.5 h-3.5" />
+                                      {t.type === 'invoice' ? 'Receive' : 'Pay'}
+                                    </button>
+                                  ) : (
+                                    <span className="text-gray-300">—</span>
+                                  )}
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -372,6 +456,20 @@ const PartiesPage = () => {
         parties={parties}
         onClose={() => setMergeOpen(false)}
         onMerged={(targetId) => { setMergeOpen(false); loadParties(targetId); }}
+      />
+
+      {/* Allocate one payment across multiple open invoices / expenses of the party. */}
+      <PartyPaymentAllocateModal
+        open={!!allocDirection}
+        partyId={selectedId}
+        partyName={selected?.name}
+        direction={allocDirection || 'in'}
+        rows={allocDirection === 'out' ? openExpenses : openInvoices}
+        focusRefId={allocFocusRefId}
+        bankAccounts={bankAccounts}
+        loadingBankAccounts={loadingBankAccounts}
+        onClose={() => { setAllocDirection(null); setAllocFocusRefId(null); }}
+        onSaved={afterPayment}
       />
     </div>
   );

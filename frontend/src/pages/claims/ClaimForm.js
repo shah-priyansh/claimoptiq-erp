@@ -5,7 +5,7 @@ import {
   createClaimAPI, updateClaimAPI, getClaimAPI,
   getHospitalsAPI, getInsuranceAPI, getTPAAPI,
   updateSubmissionAPI, uploadDocumentsAPI, deleteDocumentAPI,
-  addHospitalDoctorAPI,
+  addHospitalDoctorAPI, getClaimProcessByValuesAPI,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -50,6 +50,8 @@ const ClaimForm = () => {
   const [hospitals, setHospitals] = useState([]);
   const [insurances, setInsurances] = useState([]);
   const [tpas, setTPAs] = useState([]);
+  // Previously-used "Claim Process By" values — the self-learning dropdown.
+  const [processByValues, setProcessByValues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(isEdit);
   const [dataLoading, setDataLoading] = useState(true);
@@ -72,6 +74,7 @@ const ClaimForm = () => {
     hospital: user?.hospital?._id || '', month: new Date().toISOString().slice(0, 7),
     isDirectPatient: false,
     patientName: fromPatientName, patientMobile: '', patientAddress: '', doctorName: '',
+    claimProcessBy: '',
     claimType: 'cashless',
     insuranceCompany: '', tpa: '',
     policyNo: '', clientId: '', ccnNo: '',
@@ -91,6 +94,12 @@ const ClaimForm = () => {
       setTPAs(t.data);
     }).finally(() => setDataLoading(false));
 
+    // Load the remembered "Claim Process By" values. Non-blocking — the field
+    // still accepts free-typed values while this resolves.
+    getClaimProcessByValuesAPI()
+      .then(({ data }) => setProcessByValues(Array.isArray(data) ? data : []))
+      .catch(() => {});
+
     if (isEdit) {
       getClaimAPI(id).then(({ data }) => {
         setForm({
@@ -101,6 +110,7 @@ const ClaimForm = () => {
           patientMobile: data.patientMobile || '',
           patientAddress: data.patientAddress || '',
           doctorName: data.doctorName || '',
+          claimProcessBy: data.claimProcessBy || '',
           claimType: data.claimType || 'cashless',
           insuranceCompany: data.insuranceCompany?._id || data.insuranceCompany || '',
           tpa: data.tpa?._id || data.tpa || '',
@@ -424,6 +434,20 @@ const ClaimForm = () => {
                 )}
               </div>
             )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Claim Process By</label>
+              {/* Self-learning: type a new name and pick "Add …" — it's saved on
+                  the claim and shows up as a suggestion on the next claim. */}
+              <SearchableSelect
+                options={processByValues.map(v => ({ value: v, label: v }))}
+                value={form.claimProcessBy}
+                onChange={val => set('claimProcessBy', val)}
+                placeholder="Select or type a name"
+                searchPlaceholder="Search or add name..."
+                allowCustom
+                allowClear
+              />
+            </div>
           </div>
         </div>
 

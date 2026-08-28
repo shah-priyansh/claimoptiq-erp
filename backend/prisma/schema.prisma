@@ -690,6 +690,7 @@ model Claim {
   patientMobile             String               @default("") @map("patient_mobile")
   patientAddress            String               @default("") @map("patient_address")
   doctorName                String               @default("") @map("doctor_name")
+  claimProcessBy            String               @default("") @map("claim_process_by")
   claimType                 String               @map("claim_type")
   insuranceCompanyId        String?              @map("insurance_company_id")
   tpaId                     String?              @map("tpa_id")

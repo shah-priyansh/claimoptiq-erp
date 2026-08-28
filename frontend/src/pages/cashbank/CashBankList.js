@@ -34,6 +34,7 @@ const BUCKETS = [
 
 // Human counterparty/label for a transaction row.
 const txnName = (e) => {
+  if (e.source === 'journal') return e.notes || e.accountName || `Journal ${e.refNumber || ''}`.trim();
   if (e.invoice) return e.invoice.hospital?.name || e.invoice.invoiceNumber || 'Invoice';
   if (e.expense) return e.expense.category?.label || 'Expense';
   return e.hospital?.name || e.notes || '—';
@@ -41,6 +42,16 @@ const txnName = (e) => {
 
 // The invoice/expense this entry is linked to, as a clickable chip.
 const LinkedCell = ({ e }) => {
+  if (e.source === 'journal') {
+    return (
+      <Link to="/account-entries" title={`Journal ${e.refNumber || ''}`}
+        className="inline-flex items-center gap-1 max-w-[200px] text-xs font-medium text-purple-700 hover:text-purple-800 hover:underline">
+        <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 shrink-0">Journal</span>
+        <span className="truncate">{e.refNumber || 'Entry'}</span>
+        <HiOutlineExternalLink className="w-3.5 h-3.5 shrink-0 opacity-60" />
+      </Link>
+    );
+  }
   if (e.invoice) {
     const label = e.invoice.invoiceNumber || e.invoice.hospital?.name || 'Invoice';
     return (
@@ -278,13 +289,20 @@ const CashBankList = () => {
                   {items.map((e) => {
                     const Icon = MODE_ICONS[e.mode] || HiOutlineCash;
                     const sub = e.utrNumber || e.chequeNumber || null;
+                    const isJournal = e.source === 'journal';
                     return (
                       <tr key={e._id} className="hover:bg-gray-50">
                         <td className="py-3 px-3 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${e.direction === 'in' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                              {e.direction === 'in' ? 'Payment-In' : 'Payment-Out'}
-                            </span>
+                            {isJournal ? (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded bg-purple-50 text-purple-700">
+                                Journal-{e.direction === 'in' ? 'In' : 'Out'}
+                              </span>
+                            ) : (
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded ${e.direction === 'in' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                {e.direction === 'in' ? 'Payment-In' : 'Payment-Out'}
+                              </span>
+                            )}
                             <span className="inline-flex items-center gap-1 text-[11px] text-gray-400" title={e.mode.toUpperCase()}>
                               <Icon className="w-3.5 h-3.5" />{e.mode.toUpperCase()}
                             </span>
@@ -301,17 +319,26 @@ const CashBankList = () => {
                         </td>
                         <td className="py-3 px-3 text-right">
                           <div className="flex justify-end gap-1">
-                            {canEdit && (
-                              <button onClick={() => setModal({ open: true, item: e })}
-                                className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
-                                <HiOutlinePencil className="w-4 h-4" />
-                              </button>
-                            )}
-                            {canDelete && (
-                              <button onClick={() => handleDelete(e)}
-                                className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                                <HiOutlineTrash className="w-4 h-4" />
-                              </button>
+                            {isJournal ? (
+                              <Link to="/account-entries" title="Edit in Account Entries"
+                                className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded">
+                                <HiOutlineExternalLink className="w-4 h-4" />
+                              </Link>
+                            ) : (
+                              <>
+                                {canEdit && (
+                                  <button onClick={() => setModal({ open: true, item: e })}
+                                    className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded">
+                                    <HiOutlinePencil className="w-4 h-4" />
+                                  </button>
+                                )}
+                                {canDelete && (
+                                  <button onClick={() => handleDelete(e)}
+                                    className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
+                                    <HiOutlineTrash className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         </td>

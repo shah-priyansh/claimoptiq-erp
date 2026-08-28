@@ -127,6 +127,30 @@ const buildEntryData = async (body) => {
   };
 };
 
+// A journal line that debits/credits cash or bank is money moving through those
+// accounts, so it belongs in the Cash/Bank list next to Payment-In/Out entries
+// (the balances endpoint already folds these in — this keeps the list in sync).
+// A debit to the asset is money in (+), a credit is money out (−). Read-only
+// here: journal entries are edited from the Account Entries module.
+const journalLineToRow = (l) => {
+  const isIn = (l.debit || 0) > 0;
+  return {
+    _id: `journal:${l.id}`,
+    source: 'journal',
+    journalEntryId: l.entry.id,
+    refNumber: l.entry.refNumber,
+    direction: isIn ? 'in' : 'out',
+    mode: l.accountKind === 'cash' ? 'cash' : 'bank',
+    amount: isIn ? (l.debit || 0) : (l.credit || 0),
+    date: l.entry.date,
+    createdAt: l.entry.createdAt,
+    notes: l.entry.description || '',
+    accountName: l.accountName || '',
+    invoice: null, expense: null, hospital: null, bankAccount: null,
+    utrNumber: '', chequeNumber: '',
+  };
+};
+
 exports.list = async (req, res) => {
   try {
     const { from, to, direction, mode, hospitalId, invoiceId, expenseId, bankAccountId, q, page, limit = 25 } = req.query;
@@ -139,34 +163,84 @@ exports.list = async (req, res) => {
     if (bankAccountId) where.bankAccountId = bankAccountId;
     const fromD = parseDate(from);
     const toD = parseDate(to);
-    if (fromD || toD) {
+    let toDInclusive = null;
+    if (toD) { toDInclusive = new Date(toD); toDInclusive.setUTCHours(23, 59, 59, 999); }
+    if (fromD || toDInclusive) {
       where.date = {};
       if (fromD) where.date.gte = fromD;
-      if (toD) {
-        const inclusive = new Date(toD);
-        inclusive.setUTCHours(23, 59, 59, 999);
-        where.date.lte = inclusive;
-      }
+      if (toDInclusive) where.date.lte = toDInclusive;
     }
-    if (q && q.trim()) {
+    const qq = q && q.trim() ? q.trim() : '';
+    if (qq) {
       where.OR = [
-        { notes: { contains: q.trim(), mode: 'insensitive' } },
-        { utrNumber: { contains: q.trim(), mode: 'insensitive' } },
-        { chequeNumber: { contains: q.trim(), mode: 'insensitive' } },
+        { notes: { contains: qq, mode: 'insensitive' } },
+        { utrNumber: { contains: qq, mode: 'insensitive' } },
+        { chequeNumber: { contains: qq, mode: 'insensitive' } },
       ];
     }
 
     const take = Math.min(Number(limit) || 25, 200);
     const skip = page ? (Number(page) - 1) * take : 0;
-    const [items, total] = await Promise.all([
+
+    // Journal lines don't carry invoice/expense/hospital links and never touch
+    // the UPI bucket, so only fold them in when none of those narrowing filters
+    // are active. Otherwise fall back to the plain, SQL-paginated entry list.
+    const includeJournal = !invoiceId && !expenseId && !hospitalId && mode !== 'upi';
+    if (!includeJournal) {
+      const [items, total] = await Promise.all([
+        prisma.cashBankEntry.findMany({
+          where, include: cashBankInclude,
+          orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+          skip, take,
+        }),
+        prisma.cashBankEntry.count({ where }),
+      ]);
+      return res.json({ entries: toResponse(items), total, pages: Math.ceil(total / take) });
+    }
+
+    // Build the parallel filter for journal cash/bank lines.
+    const journalWhere = {};
+    if (mode === 'cash') journalWhere.accountKind = 'cash';
+    else if (mode === 'bank') journalWhere.accountKind = 'bank';
+    else journalWhere.accountKind = { in: ['cash', 'bank'] };
+    if (bankAccountId) { journalWhere.accountKind = 'bank'; journalWhere.accountId = bankAccountId; }
+    if (direction === 'in') journalWhere.debit = { gt: 0 };
+    else if (direction === 'out') journalWhere.credit = { gt: 0 };
+    const entryFilter = {};
+    if (fromD || toDInclusive) {
+      entryFilter.date = {};
+      if (fromD) entryFilter.date.gte = fromD;
+      if (toDInclusive) entryFilter.date.lte = toDInclusive;
+    }
+    if (Object.keys(entryFilter).length) journalWhere.entry = entryFilter;
+    if (qq) {
+      journalWhere.OR = [
+        { accountName: { contains: qq, mode: 'insensitive' } },
+        { entry: { is: { description: { contains: qq, mode: 'insensitive' } } } },
+        { entry: { is: { refNumber: { contains: qq, mode: 'insensitive' } } } },
+      ];
+    }
+
+    // Merge path: pull all matching entries + journal lines, combine, sort by
+    // date, then paginate the unified list. Single-tenant scale keeps this cheap.
+    const [cbAll, jLines] = await Promise.all([
       prisma.cashBankEntry.findMany({
         where, include: cashBankInclude,
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-        skip, take,
       }),
-      prisma.cashBankEntry.count({ where }),
+      prisma.journalLine.findMany({
+        where: journalWhere,
+        include: { entry: { select: { id: true, refNumber: true, date: true, description: true, createdAt: true } } },
+      }),
     ]);
-    res.json({ entries: toResponse(items), total, pages: Math.ceil(total / take) });
+
+    const merged = [...toResponse(cbAll), ...jLines.map(journalLineToRow)].sort((a, b) => {
+      const d = new Date(b.date) - new Date(a.date);
+      if (d) return d;
+      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+    });
+    const total = merged.length;
+    res.json({ entries: merged.slice(skip, skip + take), total, pages: Math.ceil(total / take) });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -499,6 +573,119 @@ exports.bulkReceipt = async (req, res) => {
       }
       return created;
     });
+
+    res.status(201).json({ entries: toResponse(entries) });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ message: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Allocate ONE party payment across several of that party's open transactions —
+// invoices for direction 'in' (money received), expenses for 'out' (money paid).
+// Each allocation becomes its own cash/bank entry so per-invoice/expense paid
+// rollups stay correct. Mirrors bulkReceipt but party-scoped and dual-direction.
+exports.allocatePartyPayment = async (req, res) => {
+  try {
+    const { partyId, direction, date, mode, bankAccountId, utrNumber, chequeNumber, notes, allocations } = req.body;
+
+    if (!partyId) throw { status: 400, message: 'partyId is required' };
+    if (direction !== 'in' && direction !== 'out') throw { status: 400, message: "direction must be 'in' or 'out'" };
+    if (!Array.isArray(allocations) || !allocations.length) throw { status: 400, message: 'At least one allocation is required' };
+
+    const parsedDate = parseDate(date);
+    if (!parsedDate) throw { status: 400, message: 'Valid date is required' };
+    if (!VALID_MODES.includes(mode)) throw { status: 400, message: `mode must be one of: ${VALID_MODES.join(', ')}` };
+
+    const party = await prisma.party.findUnique({ where: { id: partyId }, select: { id: true } });
+    if (!party) throw { status: 404, message: 'Party not found' };
+
+    const normalised = allocations
+      .map((a) => ({ refId: String(a?.refId || ''), amount: Math.round(Number(a?.amount) || 0) }))
+      .filter((a) => a.refId);
+    if (!normalised.length) throw { status: 400, message: 'Allocations missing refId' };
+    for (const a of normalised) {
+      if (a.amount <= 0) throw { status: 400, message: 'Each allocation amount must be greater than zero' };
+    }
+    const refIds = normalised.map((a) => a.refId);
+    if (new Set(refIds).size !== refIds.length) throw { status: 400, message: 'Duplicate transaction in allocations' };
+
+    // Bank account resolution — mirrors bulkReceipt / buildEntryData.
+    let resolvedBankAccountId = bankAccountId || null;
+    if (mode === 'bank' || mode === 'upi') {
+      if (!resolvedBankAccountId) {
+        const def = await prisma.bankAccount.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
+        resolvedBankAccountId = def?.id || null;
+      }
+      if (!resolvedBankAccountId) throw { status: 400, message: 'Bank / UPI entries need a bank account. Add one in Site Settings → Bank Accounts.' };
+      const acct = await prisma.bankAccount.findUnique({ where: { id: resolvedBankAccountId }, select: { id: true, isActive: true } });
+      if (!acct) throw { status: 400, message: 'Bank account not found' };
+      if (!acct.isActive) throw { status: 400, message: 'Bank account is inactive' };
+    } else {
+      resolvedBankAccountId = null;
+    }
+
+    const shared = {
+      date: parsedDate,
+      mode,
+      bankAccountId: resolvedBankAccountId,
+      utrNumber: String(utrNumber || '').slice(0, 60),
+      chequeNumber: String(chequeNumber || '').slice(0, 60),
+      notes: String(notes || '').slice(0, 1000),
+    };
+
+    let entries;
+    if (direction === 'in') {
+      const invoices = await prisma.invoice.findMany({
+        where: { id: { in: refIds } },
+        select: { id: true, partyId: true, status: true, amountPending: true, hospitalId: true },
+      });
+      if (invoices.length !== refIds.length) throw { status: 400, message: 'One or more invoices not found' };
+      const byId = new Map(invoices.map((i) => [i.id, i]));
+      for (const a of normalised) {
+        const inv = byId.get(a.refId);
+        if (inv.partyId !== partyId) throw { status: 400, message: 'All invoices must belong to this party' };
+        if (inv.status === 'draft') throw { status: 400, message: 'Cannot record payment against a draft invoice. Issue it first.' };
+        if (inv.status === 'void') throw { status: 400, message: 'Cannot record payment against a voided invoice.' };
+        if (a.amount > Math.round(inv.amountPending || 0)) throw { status: 400, message: 'Allocation exceeds the invoice pending amount' };
+      }
+      entries = await prisma.$transaction(async (tx) => {
+        const created = [];
+        for (const a of normalised) {
+          const inv = byId.get(a.refId);
+          created.push(await tx.cashBankEntry.create({
+            data: { ...shared, direction: 'in', amount: a.amount, invoiceId: a.refId, expenseId: null, hospitalId: inv.hospitalId || null, createdById: req.user?.id || null },
+            include: cashBankInclude,
+          }));
+        }
+        for (const a of normalised) await recomputeInvoicePaidStatus(tx, a.refId);
+        return created;
+      });
+    } else {
+      const expenses = await prisma.expense.findMany({
+        where: { id: { in: refIds } },
+        select: { id: true, partyId: true, amount: true, payments: { select: { direction: true, amount: true } } },
+      });
+      if (expenses.length !== refIds.length) throw { status: 400, message: 'One or more expenses not found' };
+      const byId = new Map(expenses.map((e) => [e.id, e]));
+      const paidOf = (payments = []) => Math.round(payments.reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0));
+      for (const a of normalised) {
+        const exp = byId.get(a.refId);
+        if (exp.partyId !== partyId) throw { status: 400, message: 'All expenses must belong to this party' };
+        const pending = Math.round((exp.amount || 0) - paidOf(exp.payments));
+        if (a.amount > pending) throw { status: 400, message: 'Allocation exceeds the expense pending amount' };
+      }
+      entries = await prisma.$transaction(async (tx) => {
+        const created = [];
+        for (const a of normalised) {
+          created.push(await tx.cashBankEntry.create({
+            data: { ...shared, direction: 'out', amount: a.amount, expenseId: a.refId, invoiceId: null, createdById: req.user?.id || null },
+            include: cashBankInclude,
+          }));
+        }
+        return created;
+      });
+    }
 
     res.status(201).json({ entries: toResponse(entries) });
   } catch (error) {
