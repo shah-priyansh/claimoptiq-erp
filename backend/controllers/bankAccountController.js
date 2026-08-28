@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { getJournalNetByAccount } = require('../services/journalBalances');
 
 const VALID_FIELDS = ['bankName', 'accountHolder', 'accountNumber', 'ifsc', 'upiId', 'isDefault', 'isActive', 'order'];
 
@@ -43,19 +44,33 @@ exports.list = async (req, res) => {
 };
 
 // Per-account running balance = Σ(money-in) − Σ(money-out) across that account's
-// cash/bank entries (bank + UPI modes; cash entries carry no bankAccountId).
-// Returns a plain map { [bankAccountId]: balanceInRupees }.
+// cash/bank entries (bank + UPI modes; cash entries carry no bankAccountId)
+// PLUS any Journal Entry lines that hit the account. Returns a plain map
+// { [bankAccountId]: balanceInRupees }. Kept consistent with the Cash/Bank
+// module's balances endpoint, which also folds journal lines in.
 exports.balances = async (req, res) => {
   try {
-    const rows = await prisma.cashBankEntry.groupBy({
-      by: ['bankAccountId', 'direction'],
-      where: { bankAccountId: { not: null } },
-      _sum: { amount: true },
-    });
+    const [rows, jnet] = await Promise.all([
+      prisma.cashBankEntry.groupBy({
+        by: ['bankAccountId', 'direction'],
+        where: { bankAccountId: { not: null } },
+        _sum: { amount: true },
+      }),
+      getJournalNetByAccount(prisma),
+    ]);
     const map = {};
     for (const r of rows) {
       const sign = r.direction === 'in' ? 1 : -1;
       map[r.bankAccountId] = (map[r.bankAccountId] || 0) + sign * (r._sum.amount || 0);
+    }
+    // A journal line on a bank account carries accountKind 'bank' and
+    // accountId = the bank account's id. Net (Dr − Cr): a debit adds, a credit
+    // subtracts — same sign convention as an asset balance.
+    for (const [key, val] of jnet) {
+      if (key.startsWith('bank:')) {
+        const id = key.slice('bank:'.length);
+        if (id) map[id] = (map[id] || 0) + val;
+      }
     }
     for (const k of Object.keys(map)) map[k] = Math.round(map[k]);
     res.json(map);
