@@ -28,6 +28,8 @@ import BankAccountsPage from './pages/bankaccounts/BankAccountsPage';
 import PartiesPage from './pages/parties/PartiesPage';
 import ChartOfAccounts from './pages/accounts/ChartOfAccounts';
 import AccountEntryList from './pages/accountentries/AccountEntryList';
+import LoansPage from './pages/loans/LoansPage';
+import LoanDetail from './pages/loans/LoanDetail';
 import UserList from './pages/users/UserList';
 import ClaimList from './pages/claims/ClaimList';
 import ClaimForm from './pages/claims/ClaimForm';
@@ -97,6 +99,8 @@ function App() {
             <Route path="/bank-accounts" element={<ProtectedRoute module="cash_bank"><BankAccountsPage /></ProtectedRoute>} />
             <Route path="/account-entries" element={<ProtectedRoute module="account_entries"><AccountEntryList /></ProtectedRoute>} />
             <Route path="/chart-of-accounts" element={<ProtectedRoute module="chart_of_accounts"><ChartOfAccounts /></ProtectedRoute>} />
+            <Route path="/loans" element={<ProtectedRoute module="loans"><LoansPage /></ProtectedRoute>} />
+            <Route path="/loans/:id" element={<ProtectedRoute module="loans"><LoanDetail /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute module="reports"><ReportsHub /></ProtectedRoute>} />
             <Route path="/reports/claims" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
             <Route path="/reports/claim-settlement" element={<ProtectedRoute module="reports"><Reports settlement /></ProtectedRoute>} />

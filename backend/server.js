@@ -52,6 +52,7 @@ app.use('/api/settings', require('./routes/siteSettingRoutes'));
 app.use('/api/bank-accounts', require('./routes/bankAccountRoutes'));
 app.use('/api/backup', require('./routes/backupRoutes'));
 app.use('/api/journal-entries', require('./routes/journalEntryRoutes'));
+app.use('/api/loans', require('./routes/loanRoutes'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'ClaimOptiq API is running' });

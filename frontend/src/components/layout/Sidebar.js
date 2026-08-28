@@ -33,6 +33,7 @@ const billingItems = [
   { to: '/bank-accounts',    label: 'Bank Accounts',   icon: HiOutlineCreditCard,     module: 'cash_bank' },
   { to: '/account-entries',  label: 'Account Entries', icon: HiOutlineLibrary,        module: 'account_entries' },
   { to: '/chart-of-accounts', label: 'Chart of Accounts', icon: HiOutlineCollection,  module: 'chart_of_accounts' },
+  { to: '/loans',            label: 'Loans',           icon: HiOutlineCalculator,     module: 'loans' },
   { to: '/reports',          label: 'Reports',         icon: HiOutlineDocumentReport, module: 'reports' },
 ];
 

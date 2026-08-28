@@ -7,7 +7,7 @@ import Loader from '../../components/ui/Loader';
 
 const MODULE_GROUPS = [
   { label: null,             keys: ['dashboard', 'claims'] },
-  { label: 'Billing & Finance', keys: ['invoices', 'expenses', 'cash_bank', 'account_entries', 'chart_of_accounts', 'tds_rates', 'expense_categories', 'references', 'parties'] },
+  { label: 'Billing & Finance', keys: ['invoices', 'expenses', 'cash_bank', 'account_entries', 'chart_of_accounts', 'loans', 'tds_rates', 'expense_categories', 'references', 'parties'] },
   { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'billing_service_names', 'users', 'roles', 'settings', 'claim_statuses', 'claim_document_types'] },
   { label: 'Documents',      keys: ['document_submissions'] },
   { label: null,             keys: ['reports'] },
