@@ -111,7 +111,7 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
 // hospital, claims, and priorOpen and reads from the passed maps instead.
 // This collapses O(N × 4) roundtrips into O(4) for N-hospital selections
 // (the N=23 case that dominated the 2.5-3s wall-clock on WAN links).
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false, preloadedTpl = null, bulkContext = null } = {}) => {
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false, includeFixedServices = true, preloadedTpl = null, bulkContext = null } = {}) => {
   const hasClaimIds = Array.isArray(claimIds) && claimIds.length > 0;
   // Parent/branch scope: when `hospitalId` is a parent hospital, its branches'
   // claims are billable on this (the parent's) invoice too. Branch hospitals
@@ -319,9 +319,11 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       };
     });
 
-  // 2. Fixed services
-  const fixedMonthly = services.filter((s) => s.billingType === 'fixed_monthly');
-  const fixedOnetime = services.filter((s) => s.billingType === 'fixed_onetime');
+  // 2. Fixed services. `includeFixedServices=false` (operator toggle in the
+  // bulk wizard) skips the whole section — no monthly/one-time lines, and we
+  // avoid the prior-onetime gate query entirely.
+  const fixedMonthly = includeFixedServices ? services.filter((s) => s.billingType === 'fixed_monthly') : [];
+  const fixedOnetime = includeFixedServices ? services.filter((s) => s.billingType === 'fixed_onetime') : [];
 
   // Gate fixed_onetime: once a fixed one-time line has been added to ANY
   // non-void invoice in the SAME stream, it must not repeat on future
@@ -459,10 +461,10 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
 
 exports.preview = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, adjustments, tdsRateId, gstRate, claimIds, discount } = req.body;
+    const { hospitalId, month: rawMonth, adjustments, tdsRateId, gstRate, claimIds, discount, includeFixedServices } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, includeFixedServices: includeFixedServices !== false });
     res.json({
       hospital: toResponse(built.hospital),
       month,
@@ -482,7 +484,8 @@ exports.preview = async (req, res) => {
 // selection produces before committing.
 exports.previewBulk = async (req, res) => {
   try {
-    const { claimIds, tdsRateId, gstRate } = req.body;
+    const { claimIds, tdsRateId, gstRate, includeFixedServices } = req.body;
+    const includeFixed = includeFixedServices !== false;
     if (!Array.isArray(claimIds) || !claimIds.length) {
       return res.status(400).json({ message: 'claimIds (non-empty array) is required' });
     }
@@ -695,7 +698,7 @@ exports.previewBulk = async (req, res) => {
     const hospitalPreviewTasks = [...groups.values()].map(async (g) => {
       const existingKey = `${g.hospitalId}|${new Date(g.month).toISOString()}|reg`;
       const built = await buildInvoiceLines(g.hospitalId, g.month, {
-        tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, preloadedTpl, bulkContext,
+        tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, includeFixedServices: includeFixed, preloadedTpl, bulkContext,
       });
       const existing = existingByKey.get(existingKey) || null;
       return {
@@ -735,7 +738,7 @@ exports.previewBulk = async (req, res) => {
         };
       }
       const built = await buildInvoiceLines(suggested, g.month, {
-        tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, isDirectPatient: true, preloadedTpl, bulkContext,
+        tdsRateId, gstRateOverride: gstRate, claimIds: g.claimIds, isDirectPatient: true, includeFixedServices: includeFixed, preloadedTpl, bulkContext,
       });
       // Per-claim "already invoiced?" — direct-patient groups are single-claim
       // now, so we just check whether that one claim already appears on a live
@@ -807,7 +810,7 @@ exports.previewDirectPatient = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems, isDirectPatient, invoiceDate } = req.body;
+    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems, isDirectPatient, invoiceDate, includeFixedServices } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
@@ -845,7 +848,7 @@ exports.create = async (req, res) => {
       }
     }
 
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, isDirectPatient: isDirectPatientInvoice });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, isDirectPatient: isDirectPatientInvoice, includeFixedServices: includeFixedServices !== false });
     if (!built.lines.length && !normalisedManual.length) {
       return res.status(400).json({ message: 'No claims or fixed services found for this month. Add at least one manual item.' });
     }
