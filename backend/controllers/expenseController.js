@@ -55,11 +55,11 @@ const resolvePayment = async (body) => {
   return { mode, bankAccountId };
 };
 
-// Shape the linked cashBankEntry for an expense. cashBankEntry.amount must be
-// positive, so a negative expense (a reversal) becomes an IN of the absolute
-// amount instead of an OUT.
-const paymentEntryFields = (expense, payment, category) => {
-  const amt = Math.round(Number(expense.amount) || 0);
+// Shape the linked cashBankEntry for an expense, recording `payAmt` (the amount
+// actually paid). cashBankEntry.amount must be positive, so a negative pay
+// amount (a reversal) becomes an IN of the absolute amount instead of an OUT.
+const paymentEntryFields = (expense, payment, category, payAmt) => {
+  const amt = Math.round(Number(payAmt) || 0);
   return {
     date: expense.date,
     direction: amt < 0 ? 'in' : 'out',
@@ -68,6 +68,31 @@ const paymentEntryFields = (expense, payment, category) => {
     bankAccountId: payment.bankAccountId,
     notes: `[Expense] ${expense.partyName || category?.label || ''}`.trim().slice(0, 1000),
   };
+};
+
+// How much of an expense is paid up-front, from the form's `paidAmount`.
+// Returns null when the field is ABSENT (legacy callers / bulk import) so the
+// caller can fall back to the old "auto-pay the full amount" behaviour. When
+// present (the expense form always sends it — 0 for Unpaid) it's clamped to
+// [0, |amount|] so a partial payment can never exceed the expense total.
+const resolvePaidAmount = (body, amount) => {
+  if (body.paidAmount === undefined) return null;
+  if (body.paidAmount === null || body.paidAmount === '') return 0;
+  const n = Math.round(Number(body.paidAmount) || 0);
+  if (!Number.isFinite(n)) return 0;
+  const max = Math.abs(Math.round(Number(amount) || 0));
+  return Math.max(0, Math.min(n, max));
+};
+
+// The signed amount to mirror into the cashbook for an expense:
+//  - reversal (negative expense) → the full negative amount (recorded as an IN)
+//  - legacy caller (paidReq === null) → the full expense amount (auto-paid)
+//  - otherwise → exactly what was paid (0 = Unpaid, partial, or full)
+const payAmountFor = (expenseAmount, paidReq) => {
+  const full = Math.round(Number(expenseAmount) || 0);
+  if (full < 0) return full;
+  if (paidReq === null) return full;
+  return paidReq;
 };
 
 const parseDate = (input) => {
@@ -335,15 +360,18 @@ exports.create = async (req, res) => {
     if (!category.isActive) return res.status(400).json({ message: 'Category is inactive' });
 
     const payment = await resolvePayment(req.body);
+    const paidReq = resolvePaidAmount(req.body, data.amount);
 
     const item = await prisma.$transaction(async (tx) => {
       const partyId = await resolvePartyId(tx, data);
       const created = await tx.expense.create({ data: { ...data, partyId, createdById: req.user?.id || null } });
-      // Mirror the outflow into the cashbook so Total On Hand drops. Skip a
-      // zero-amount expense (nothing to move) and honour paymentMode 'none'.
-      if (payment && Math.round(created.amount) !== 0) {
+      // Mirror the paid portion into the cashbook so Total On Hand drops. When
+      // Paid is 0 (Unpaid) nothing is recorded and the expense reads Unpaid;
+      // a partial pays only that much. Honour paymentMode 'none'.
+      const payAmt = payAmountFor(created.amount, paidReq);
+      if (payment && payAmt !== 0) {
         await tx.cashBankEntry.create({
-          data: { ...paymentEntryFields(created, payment, category), expenseId: created.id, createdById: req.user?.id || null },
+          data: { ...paymentEntryFields(created, payment, category, payAmt), expenseId: created.id, createdById: req.user?.id || null },
         });
       }
       return tx.expense.findUnique({ where: { id: created.id }, include: expenseInclude });
@@ -462,7 +490,13 @@ exports.bulkImport = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const existing = await prisma.expense.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.expense.findUnique({
+      where: { id: req.params.id },
+      include: {
+        category: true,
+        payments: { select: { id: true, mode: true, bankAccountId: true, direction: true, amount: true } },
+      },
+    });
     if (!existing) return res.status(404).json({ message: 'Not found' });
     const data = pickFields(req.body);
     // Re-attribute the party only when a party-related field was edited, so an
@@ -474,10 +508,43 @@ exports.update = async (req, res) => {
         partyName: data.partyName !== undefined ? data.partyName : existing.partyName,
       });
     }
-    const item = await prisma.expense.update({
-      where: { id: req.params.id },
-      data: { ...data, updatedById: req.user?.id || null },
-      include: expenseInclude,
+
+    // Payment reconciliation. Only when the form sent a paid amount (paidReq
+    // !== null); resolvePayment validates the mode/bank up-front (may throw 400).
+    const newAmount = data.amount !== undefined ? data.amount : existing.amount;
+    const paidReq = resolvePaidAmount(req.body, newAmount);
+    const payment = paidReq !== null ? await resolvePayment(req.body) : null;
+
+    const item = await prisma.$transaction(async (tx) => {
+      const updated = await tx.expense.update({
+        where: { id: req.params.id },
+        data: { ...data, updatedById: req.user?.id || null },
+        include: expenseInclude,
+      });
+
+      if (paidReq !== null) {
+        const payAmt = payAmountFor(updated.amount, paidReq);
+        const cur = existing.payments || [];
+        const curPaid = cur.reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0);
+        const only = cur.length === 1 ? cur[0] : null;
+        // Skip when nothing changed, so unrelated edits (and any externally
+        // recorded payments) are left alone. When it did change, rewrite the
+        // expense's payment as a single entry for the new paid amount.
+        const unchanged =
+          Math.round(curPaid) === Math.round(payAmt) &&
+          (payAmt === 0
+            ? cur.length === 0
+            : !!only && only.mode === payment.mode && (only.bankAccountId || null) === (payment.bankAccountId || null));
+        if (!unchanged) {
+          if (cur.length) await tx.cashBankEntry.deleteMany({ where: { expenseId: updated.id } });
+          if (payment && payAmt !== 0) {
+            await tx.cashBankEntry.create({
+              data: { ...paymentEntryFields(updated, payment, existing.category, payAmt), expenseId: updated.id, createdById: req.user?.id || null },
+            });
+          }
+        }
+      }
+      return tx.expense.findUnique({ where: { id: updated.id }, include: expenseInclude });
     });
     res.json(toResponse(item));
   } catch (error) {
