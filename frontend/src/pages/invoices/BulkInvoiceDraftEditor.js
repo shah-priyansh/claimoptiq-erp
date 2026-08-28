@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   HiOutlinePlus, HiOutlineTrash, HiChevronRight, HiChevronDown,
 } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
+import { getHospitalAPI } from '../../services/api';
 import {
   formatINR, baseServiceName, LINE_TYPE_LABEL, TYPE_PILL, computeTotals,
 } from './bulkInvoiceUtils';
@@ -14,6 +15,18 @@ import {
 // `onChange({ editLines?, settings? })`.
 const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) => {
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  // Billing services for the line-item description combobox (dropdown + search
+  // + free-text). Loaded here so the bulk editor matches the single-invoice one.
+  const [serviceNames, setServiceNames] = useState([]);
+  useEffect(() => {
+    if (!draft.hospitalId) { setServiceNames([]); return; }
+    getHospitalAPI(draft.hospitalId)
+      .then(({ data }) => setServiceNames(
+        (data.billingServices || []).filter((s) => s.isActive !== false).map((s) => s.serviceName).filter(Boolean),
+      ))
+      .catch(() => setServiceNames([]));
+  }, [draft.hospitalId]);
+  const serviceOptions = useMemo(() => serviceNames.map((name) => ({ value: name, label: name })), [serviceNames]);
   const toggleGroup = (key) =>
     setExpandedGroups((s) => {
       const next = new Set(s);
@@ -190,10 +203,10 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                   <tr key={`row-${idx}`} className="hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-400 text-xs">{idx + 1}</td>
                     <td className="py-3 px-4">
-                      <input value={row.description}
-                        onChange={(e) => updateLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                        placeholder="Description"
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                      <SearchableSelect value={row.description} options={serviceOptions} allowCustom allowClear
+                        onChange={(v) => updateLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: v } : r))}
+                        placeholder="Select or type a service"
+                        searchPlaceholder="Search services..." />
                       {row.sourceHospitalName && (
                         <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium">Branch: {row.sourceHospitalName}</span>
                       )}
@@ -247,10 +260,10 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
                     <tr key={`row-${idx}`} className="bg-white">
                       <td className="py-2 px-4 text-gray-400 text-xs pl-10">{idx + 1}</td>
                       <td className="py-2 px-4">
-                        <input value={row.description}
-                          onChange={(e) => updateLines((arr) => arr.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                          placeholder="Description"
-                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                        <SearchableSelect value={row.description} options={serviceOptions} allowCustom allowClear
+                          onChange={(v) => updateLines((arr) => arr.map((r, i) => i === idx ? { ...r, description: v } : r))}
+                          placeholder="Select or type a service"
+                          searchPlaceholder="Search services..." />
                         {row.sourceHospitalName && (
                           <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium">Branch: {row.sourceHospitalName}</span>
                         )}

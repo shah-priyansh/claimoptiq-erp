@@ -6,7 +6,7 @@ import {
   HiChevronRight, HiChevronDown,
 } from 'react-icons/hi';
 import {
-  getHospitalsAPI, previewInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getTdsRatesAPI,
+  getHospitalsAPI, getHospitalAPI, previewInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getTdsRatesAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
@@ -46,6 +46,8 @@ const InvoiceWizard = () => {
   const navigate = useNavigate();
   const [hospitals, setHospitals] = useState([]);
   const [tdsRates, setTdsRates] = useState([]);
+  const [serviceNames, setServiceNames] = useState([]);
+  const serviceOptions = useMemo(() => serviceNames.map((name) => ({ value: name, label: name })), [serviceNames]);
   const [loadingHospitals, setLoadingHospitals] = useState(true);
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
   const [hospitalId, setHospitalId] = useState('');
@@ -100,6 +102,16 @@ const InvoiceWizard = () => {
       .catch(() => setTdsRates([]))
       .finally(() => setLoadingTdsRates(false));
   }, []);
+
+  // Line-item service dropdown lists the SELECTED hospital's configured services.
+  useEffect(() => {
+    if (!hospitalId) { setServiceNames([]); return; }
+    getHospitalAPI(hospitalId)
+      .then(({ data }) => setServiceNames(
+        (data.billingServices || []).filter((s) => s.isActive !== false).map((s) => s.serviceName).filter(Boolean),
+      ))
+      .catch(() => setServiceNames([]));
+  }, [hospitalId]);
 
   const runPreview = async () => {
     if (!hospitalId || !month) {
@@ -366,10 +378,10 @@ const InvoiceWizard = () => {
                       <tr key={`row-${idx}`} className="hover:bg-gray-50">
                         <td className="py-3 px-4 text-gray-400 text-xs">{idx + 1}</td>
                         <td className="py-3 px-4">
-                          <input value={row.description}
-                            onChange={(e) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                            placeholder="Description"
-                            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          <SearchableSelect value={row.description} options={serviceOptions} allowCustom allowClear
+                            onChange={(v) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: v } : r))}
+                            placeholder="Select or type a service"
+                            searchPlaceholder="Search services..." />
                         </td>
                         <td className="py-3 px-4">
                           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TYPE_PILL(row.lineType)}`}>
@@ -426,10 +438,10 @@ const InvoiceWizard = () => {
                         <tr key={`row-${idx}`} className="bg-white">
                           <td className="py-2 px-4 text-gray-400 text-xs pl-10">{idx + 1}</td>
                           <td className="py-2 px-4">
-                            <input value={row.description}
-                              onChange={(e) => setEditLines((arr) => arr.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                              placeholder="Description"
-                              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                            <SearchableSelect value={row.description} options={serviceOptions} allowCustom allowClear
+                              onChange={(v) => setEditLines((arr) => arr.map((r, i) => i === idx ? { ...r, description: v } : r))}
+                              placeholder="Select or type a service"
+                              searchPlaceholder="Search services..." />
                             {row.sourceHospitalName && (
                               <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium">Branch: {row.sourceHospitalName}</span>
                             )}
