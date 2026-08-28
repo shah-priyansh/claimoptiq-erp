@@ -226,6 +226,7 @@ export const getCashBankBalancesAPI = () => API.get('/cash-bank/balances');
 export const getCashBankSummaryAPI  = (params) => API.get('/cash-bank/summary', { params });
 export const getCashBankEntryAPI    = (id) => API.get(`/cash-bank/${id}`);
 export const createCashBankAPI      = (data) => API.post('/cash-bank', data);
+export const createCashBankSplitAPI  = (data) => API.post('/cash-bank/split', data);
 export const importCashBankAPI      = (rows) => API.post('/cash-bank/import', { rows });
 export const updateCashBankAPI      = (id, data) => API.patch(`/cash-bank/${id}`, data);
 export const deleteCashBankAPI      = (id) => API.delete(`/cash-bank/${id}`);

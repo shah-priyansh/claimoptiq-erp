@@ -26,12 +26,16 @@ const blank = {
 // ledger page, where the operator freely picks IN or OUT.
 // `defaults` pre-fills a NEW entry (ignored when editing) — used by the Bank
 // Accounts page's Deposit/Withdraw to preset mode/direction/bankAccountId.
-const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, lockDirection = null, allowSplit = false, onClose, onSave }) => {
+const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses, bankAccounts = [], loadingInvoices = false, loadingExpenses = false, loadingBankAccounts = false, lockDirection = null, allowSplit = false, allowMultiLink = false, onClose, onSave }) => {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
-  // Extra allocations for the "unused" amount when the entered amount exceeds the
-  // linked bill's pending. Each: { id, amount }. Only used when allowSplit.
+  // Extra allocations. With allowSplit these hold the "unused" amount when the
+  // entered amount exceeds the linked bill's pending. With allowMultiLink they
+  // are additional bills the operator links to one payment. Each: { id, amount }.
   const [extras, setExtras] = useState([]);
+  // allowMultiLink: the primary bill's own allocation amount (the entry Amount
+  // then becomes the sum of the primary + every extra).
+  const [primaryAmount, setPrimaryAmount] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -71,8 +75,8 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
     }
   }, [form.mode, form.bankAccountId, bankAccounts, open]);
 
-  // Reset the excess allocations whenever the primary link changes.
-  useEffect(() => { setExtras([]); }, [form.link, form.invoiceId, form.expenseId]);
+  // Reset the extra allocations whenever the primary link changes.
+  useEffect(() => { setExtras([]); setPrimaryAmount(''); }, [form.link, form.invoiceId, form.expenseId]);
 
   if (!open) return null;
 
@@ -106,6 +110,29 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
   const setExtra = (idx, patch) => setExtras((prev) => prev.map((x, i) => (i === idx ? { ...x, ...patch } : x)));
   const addExtra = () => setExtras((prev) => [...prev, { id: '', amount: '' }]);
   const removeExtra = (idx) => setExtras((prev) => prev.filter((_, i) => i !== idx));
+
+  // ── Multi-link (allowMultiLink): link ONE payment to several bills. Each
+  // becomes its own entry on save (see submit → allocations). Create-only. ──
+  const isEditing = !!(initial && initial._id);
+  const canMultiLink = allowMultiLink && !isEditing && (linkType === 'invoice' || linkType === 'expense') && !!primaryId;
+  const multi = canMultiLink && extras.length > 0;
+  const primaryAmt = Math.round(Number(primaryAmount) || 0);
+  const multiTotal = primaryAmt + sumExtras;
+  // First "+ Link another": seed the primary's own amount from its pending, then
+  // open a second row.
+  const openMulti = () => {
+    if (primaryAmount === '') setPrimaryAmount(String(primaryPending || enteredAmount || ''));
+    addExtra();
+  };
+  // Selecting a bill in an extra row auto-fills its amount from that bill's
+  // pending (unless the operator already typed one).
+  const selectExtra = (idx, v) => {
+    const it = items.find((i) => i._id === v);
+    const cur = extras[idx];
+    const patch = { id: v || '' };
+    if (v && (!cur.amount || Math.round(Number(cur.amount)) === 0)) patch.amount = it ? pendingOf(it) : '';
+    setExtra(idx, patch);
+  };
   const autoFillExtras = () => {
     let remaining = enteredAmount - primaryPending;
     const out = [];
@@ -122,8 +149,9 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
 
   const submit = async (e) => {
     e.preventDefault();
-    if (enteredAmount <= 0) return;
-    const activeExtras = allowSplit ? extras.filter((x) => x.id && Math.round(Number(x.amount)) > 0) : [];
+    const activeExtras = (allowSplit || allowMultiLink) ? extras.filter((x) => x.id && Math.round(Number(x.amount)) > 0) : [];
+    const total = multi ? multiTotal : enteredAmount;
+    if (total <= 0) return;
     setSaving(true);
     try {
       const shared = {
@@ -135,7 +163,21 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
         utrNumber: form.utrNumber,
         chequeNumber: form.chequeNumber,
       };
-      if (canSplit && activeExtras.length) {
+      if (multi) {
+        // One entry per linked bill: the primary + every extra with an amount.
+        const allocations = [
+          { id: primaryId, amount: primaryAmt },
+          ...activeExtras.map((x) => ({ id: x.id, amount: Math.round(Number(x.amount)) })),
+        ]
+          .filter((r) => r.id && r.amount > 0)
+          .map((r) => ({
+            invoiceId: linkType === 'invoice' ? r.id : null,
+            expenseId: linkType === 'expense' ? r.id : null,
+            amount: r.amount,
+          }));
+        if (!allocations.length) { setSaving(false); return; }
+        await onSave({ ...shared, allocations });
+      } else if (canSplit && activeExtras.length) {
         // One entry per linked bill: the primary (capped at its pending) + extras.
         const allocations = [
           { invoiceId: linkType === 'invoice' ? primaryId : null, expenseId: linkType === 'expense' ? primaryId : null, amount: primaryAlloc },
@@ -218,9 +260,15 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Amount (₹) *</label>
-              <input type="number" min="1" required value={form.amount}
-                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              {multi ? (
+                <input type="number" readOnly value={multiTotal}
+                  title="Sum of the linked bills"
+                  className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-sm text-gray-700 cursor-not-allowed" />
+              ) : (
+                <input type="number" min="1" required value={form.amount}
+                  onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              )}
             </div>
           </div>
 
@@ -357,6 +405,62 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
             </div>
           )}
 
+          {/* Multi-link (new entries only): link ONE payment to several bills.
+              Each becomes its own entry on save; Amount above = the sum. */}
+          {canMultiLink && (extras.length === 0 ? (
+            <button type="button" onClick={openMulti}
+              className="text-xs font-semibold text-primary-700 hover:text-primary-800">
+              + Link another {linkType}
+            </button>
+          ) : (
+            <div className="rounded-lg border border-primary-200 bg-primary-50/60 p-3 space-y-2">
+              <p className="text-xs font-medium text-primary-800">
+                One payment linked to {1 + extras.length} {linkType === 'invoice' ? 'invoices' : 'expenses'} — saved as one entry each.
+              </p>
+              {/* Primary bill row */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0 text-sm text-gray-700 truncate" title={primaryItem ? itemLabel(primaryItem) : ''}>
+                  {primaryItem ? itemLabel(primaryItem) : '—'}
+                </div>
+                <input type="number" min="0" value={primaryAmount}
+                  onChange={(e) => setPrimaryAmount(e.target.value)}
+                  placeholder="0"
+                  className="w-28 px-2 py-2 border border-gray-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                <span className="w-6 shrink-0" />
+              </div>
+              {/* Extra bills */}
+              {extras.map((x, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <SearchableSelect
+                      value={x.id}
+                      onChange={(v) => selectExtra(idx, v)}
+                      placeholder={`Select ${linkType}`}
+                      searchPlaceholder="Search…"
+                      allowClear
+                      options={rowOptions(x.id)}
+                    />
+                  </div>
+                  <input type="number" min="0" value={x.amount}
+                    onChange={(e) => setExtra(idx, { amount: e.target.value })}
+                    placeholder="0"
+                    className="w-28 px-2 py-2 border border-gray-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                  <button type="button" onClick={() => removeExtra(idx)} className="p-1.5 text-gray-400 hover:text-red-600 shrink-0">
+                    <HiOutlineX className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex items-center justify-between pt-1">
+                <button type="button" onClick={addExtra} className="text-xs font-semibold text-primary-700 hover:text-primary-800">
+                  + Link another {linkType}
+                </button>
+                <span className="text-xs font-semibold text-gray-700">
+                  Total ₹{multiTotal.toLocaleString('en-IN')}
+                </span>
+              </div>
+            </div>
+          ))}
+
           <div className="grid grid-cols-2 gap-4">
             {showUtr && (
               <div>
@@ -385,7 +489,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-            <button type="submit" disabled={saving || Number(form.amount) <= 0}
+            <button type="submit" disabled={saving || (multi ? multiTotal <= 0 : Number(form.amount) <= 0)}
               className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 rounded-lg">
               {saving ? 'Saving...' : 'Save'}
             </button>
