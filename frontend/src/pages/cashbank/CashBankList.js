@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Loader from '../../components/ui/Loader';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
   HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCash, HiOutlineCreditCard,
@@ -98,7 +98,21 @@ const CashBankList = () => {
   const [page, setPage] = usePersistedFilters('cashbank:page', 1);
   const [pageSize, setPageSize] = usePersistedFilters('cashbank:pageSize', 25);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = usePersistedFilters('cashbank:filters', { direction: '', mode: '', from: '', to: '', q: '' });
+  // Drill-down from the Chart of Accounts: ?mode=bank|cash preselects that
+  // bucket. Seed it into the INITIAL filter so the very first fetch is already
+  // filtered. (Applying it in a post-mount effect instead fired a second fetch
+  // that raced with the default unfiltered mount fetch — the unfiltered one
+  // could resolve last and overwrite the filtered list.)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialMode = searchParams.get('mode');
+  const [filters, setFilters] = usePersistedFilters('cashbank:filters', {
+    direction: '', mode: BUCKETS.some((b) => b.mode === initialMode) ? initialMode : '', from: '', to: '', q: '',
+  });
+  // Tidy the URL after seeding (doesn't touch filters, so no refetch).
+  useEffect(() => {
+    if (searchParams.get('mode')) setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const activeBucket = BUCKETS.find((b) => b.mode === filters.mode) || BUCKETS[0];

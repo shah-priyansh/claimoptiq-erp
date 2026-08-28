@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import Loader from '../../components/ui/Loader';
 import { toast } from 'react-toastify';
@@ -185,6 +186,13 @@ const PartiesPage = () => {
   // Recording a payment writes a cash/bank entry, so it needs that permission.
   const canRecordPayment = can('cash_bank', 'create');
 
+  // Drill-down filter from the Chart of Accounts: ?balance=payable shows only
+  // parties you owe (Sundry Creditors), receivable shows parties who owe you
+  // (Sundry Debtors). Balance sign: >0 = to collect, <0 = to pay.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const balanceFilter = searchParams.get('balance');
+  const clearBalanceFilter = () => setSearchParams({}, { replace: true });
+
   const [parties, setParties] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState('');
@@ -257,10 +265,21 @@ const PartiesPage = () => {
   };
 
   const visible = useMemo(() => {
-    if (!search.trim()) return parties;
+    let list = parties;
+    if (balanceFilter === 'payable') list = list.filter((p) => (p.balance || 0) < 0);
+    else if (balanceFilter === 'receivable') list = list.filter((p) => (p.balance || 0) > 0);
+    if (!search.trim()) return list;
     const q = search.trim().toLowerCase();
-    return parties.filter((p) => (p.name || '').toLowerCase().includes(q) || String(p.balance ?? '').includes(q));
-  }, [parties, search]);
+    return list.filter((p) => (p.name || '').toLowerCase().includes(q) || String(p.balance ?? '').includes(q));
+  }, [parties, search, balanceFilter]);
+
+  // When arriving with a balance filter, make sure the selected party (whose
+  // ledger shows on the right) is one that's actually visible in the list.
+  useEffect(() => {
+    if (!visible.length) return;
+    if (!visible.some((p) => p._id === selectedId)) setSelectedId(visible[0]._id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balanceFilter, parties]);
 
   const onSaved = (saved) => {
     setModal({ open: false, initial: null });
@@ -293,6 +312,16 @@ const PartiesPage = () => {
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by party / amount"
                 className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm" />
             </div>
+            {balanceFilter && (
+              <div className="mt-2 flex items-center">
+                <span className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-primary-50 text-primary-700 text-xs font-medium">
+                  {balanceFilter === 'payable' ? 'Sundry Creditors (To pay)' : 'Sundry Debtors (To collect)'}
+                  <button onClick={clearBalanceFilter} title="Clear filter" className="p-0.5 rounded-full hover:bg-primary-100">
+                    <HiOutlineX className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              </div>
+            )}
           </div>
           <div className="divide-y divide-gray-100 flex-1 min-h-0 overflow-y-auto">
             {visible.length === 0 ? (
