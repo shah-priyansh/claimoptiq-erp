@@ -544,7 +544,7 @@ const ExpenseList = () => {
                                 </td>
                               )}
                               <td className="py-3 px-4 text-gray-600">{e.reference?.name || <span className="text-gray-300">—</span>}</td>
-                              <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{e.partyName || <span className="text-gray-300">—</span>}</td>
+                              <td className="py-3 px-4 text-gray-600 align-top"><div className="max-w-[18rem] break-words">{e.partyName || <span className="text-gray-300">—</span>}</div></td>
                               <td className="py-3 px-4 text-gray-600 max-w-xs truncate" title={e.notes || ''}>
                                 {merged
                                   ? <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[11px] font-medium">{e.notes}</span>
@@ -606,7 +606,7 @@ const ExpenseList = () => {
                                           {breakdown.map((row) => (
                                             <tr key={row._id} className="hover:bg-gray-50">
                                               <td className="py-1.5 px-3 text-gray-600 whitespace-nowrap">{formatDate(row.date)}</td>
-                                              <td className="py-1.5 px-3 text-gray-600 whitespace-nowrap">{row.partyName || <span className="text-gray-300">—</span>}</td>
+                                              <td className="py-1.5 px-3 text-gray-600 align-top"><div className="max-w-[18rem] break-words">{row.partyName || <span className="text-gray-300">—</span>}</div></td>
                                               <td className="py-1.5 px-3 text-gray-600 max-w-md truncate" title={row.notes || ''}>{row.notes || <span className="text-gray-300">—</span>}</td>
                                               <td className={`py-1.5 px-3 text-right font-medium ${row.amount < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(row.amount)}</td>
                                               <td className="py-1.5 px-3 text-right">
@@ -728,12 +728,16 @@ const ExpenseList = () => {
                 className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                 <HiOutlinePrinter className="w-4 h-4 text-primary-600" /> Print
               </button>
-              <div className="my-1 border-t border-gray-100" />
-              <button
-                onClick={() => { setActionMenu(null); payExpense(e); }}
-                className="w-full text-left px-3 py-2 text-sm text-green-700 hover:bg-green-50 flex items-center gap-2">
-                <HiOutlineCash className="w-4 h-4" /> Make Payment
-              </button>
+              {e.paymentStatus !== 'paid' && (
+                <>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button
+                    onClick={() => { setActionMenu(null); payExpense(e); }}
+                    className="w-full text-left px-3 py-2 text-sm text-green-700 hover:bg-green-50 flex items-center gap-2">
+                    <HiOutlineCash className="w-4 h-4" /> Make Payment
+                  </button>
+                </>
+              )}
             </div>
           );
         })(),
