@@ -130,7 +130,8 @@ const BankAccountsPage = () => {
   useEffect(() => {
     loadAccounts();
     // Pickers for the Deposit/Withdraw modal's optional invoice/expense link.
-    getInvoicesAPI({ limit: 200 }).then(({ data }) => setInvoices((data.invoices || []).filter((i) => i.status === 'issued' || i.status === 'partially_paid'))).catch(() => {});
+    // '__open' = every still-owed invoice, so the picker can find any of them.
+    getInvoicesAPI({ status: '__open', limit: 5000 }).then(({ data }) => setInvoices(data.invoices || [])).catch(() => {});
     getExpensesAPI({ limit: 200, unlinkedOnly: 'true' }).then(({ data }) => setExpenses(data.expenses || [])).catch(() => {});
   }, []);
 

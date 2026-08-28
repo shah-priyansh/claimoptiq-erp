@@ -143,8 +143,10 @@ const CashBankList = () => {
   };
 
   useEffect(() => {
-    // Load invoice/expense pickers (best-effort)
-    getInvoicesAPI({ limit: 200 }).then(({ data }) => setInvoices((data.invoices || []).filter((i) => i.status === 'issued' || i.status === 'partially_paid'))).catch(() => {}).finally(() => setLoadingInvoices(false));
+    // Load invoice/expense pickers (best-effort). Fetch EVERY still-owed invoice
+    // ('__open' = issued/partially_paid with a pending balance) — the picker's
+    // search filters client-side, so an unfetched invoice can never be found.
+    getInvoicesAPI({ status: '__open', limit: 5000 }).then(({ data }) => setInvoices(data.invoices || [])).catch(() => {}).finally(() => setLoadingInvoices(false));
     // Only offer expenses not already paid by a cash/bank entry (avoids linking
     // the same expense twice). The entry being edited re-adds its own linked
     // expense on the client (see CashBankFormModal) so it stays selectable.
