@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { list, getOne, create, recordPayment, remove } = require('../controllers/loanController');
+const { list, getOne, create, update, recordPayment, remove } = require('../controllers/loanController');
 const { protect, checkPermission } = require('../middleware/auth');
 
 router.use(protect);
@@ -13,6 +13,7 @@ router.post('/installments/:installmentId/pay', checkPermission('loans', 'edit')
 
 router.route('/:id')
   .get(checkPermission('loans', 'view'), getOne)
+  .put(checkPermission('loans', 'edit'), update)
   .delete(checkPermission('loans', 'delete'), remove);
 
 module.exports = router;

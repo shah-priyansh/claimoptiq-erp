@@ -115,6 +115,7 @@ export const deleteAccountAPI  = (id) => API.delete(`/accounts/${id}`);
 export const getLoansAPI = (params) => API.get('/loans', { params });
 export const getLoanAPI = (id) => API.get(`/loans/${id}`);
 export const createLoanAPI = (data) => API.post('/loans', data);
+export const updateLoanAPI = (id, data) => API.put(`/loans/${id}`, data);
 export const deleteLoanAPI = (id) => API.delete(`/loans/${id}`);
 export const recordLoanPaymentAPI = (installmentId, data) => API.post(`/loans/installments/${installmentId}/pay`, data);
 

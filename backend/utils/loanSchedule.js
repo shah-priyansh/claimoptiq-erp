@@ -3,11 +3,30 @@
 //   EMI = P·r·(1+r)^n / ((1+r)^n − 1)   (or P/n when r == 0)
 // Each month: interest = outstanding·r, principal = EMI − interest. The final
 // installment absorbs any rounding so the outstanding lands exactly on 0.
+//
+// Tenure 0 = a lump-sum (bullet) loan: one installment for the full principal,
+// due on the start date, with no monthly EMI / interest breakdown.
 const round = (n) => Math.round(Number(n) || 0);
 
 function buildSchedule({ principal, annualInterestRate, tenureMonths, startDate }) {
   const P = round(principal);
-  const n = Math.max(1, Math.round(Number(tenureMonths) || 0));
+  const n = Math.max(0, Math.round(Number(tenureMonths) || 0));
+  const start = new Date(startDate);
+
+  if (n === 0) {
+    return {
+      emi: P,
+      rows: [{
+        installmentNo: 1,
+        dueDate: new Date(start.getFullYear(), start.getMonth(), start.getDate()),
+        emiAmount: P,
+        principalComponent: P,
+        interestComponent: 0,
+        outstandingAfter: 0,
+      }],
+    };
+  }
+
   const r = (Number(annualInterestRate) || 0) / 12 / 100;
   const emi = r === 0
     ? Math.round(P / n)
@@ -15,7 +34,6 @@ function buildSchedule({ principal, annualInterestRate, tenureMonths, startDate 
 
   const rows = [];
   let outstanding = P;
-  const start = new Date(startDate);
   for (let i = 1; i <= n; i++) {
     const interest = round(outstanding * r);
     let principalComp = emi - interest;

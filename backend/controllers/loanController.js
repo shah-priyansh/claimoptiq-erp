@@ -73,7 +73,15 @@ exports.getOne = async (req, res) => {
   try {
     const loan = await prisma.loan.findUnique({ where: { id: req.params.id }, include: loanInclude });
     if (!loan) return res.status(404).json({ message: 'Loan not found' });
-    res.json(shape(loan));
+    const out = shape(loan);
+    // Surface the disbursement's cash mode / bank so the edit form can prefill it
+    // (the mode lives on the linked cashbook entry, not the loan row).
+    if (loan.disburseEntryId) {
+      const entry = await prisma.cashBankEntry.findUnique({ where: { id: loan.disburseEntryId }, select: { mode: true, bankAccountId: true } });
+      out.disburseMode = entry?.mode || 'cash';
+      out.disburseBankAccountId = entry?.bankAccountId || null;
+    }
+    res.json(out);
   } catch (e) {
     res.status(500).json({ message: 'Server error', error: e.message });
   }
@@ -87,7 +95,7 @@ exports.create = async (req, res) => {
     const tenureMonths = Math.round(Number(b.tenureMonths) || 0);
     const annualInterestRate = Number(b.annualInterestRate) || 0;
     if (!(principal > 0)) return res.status(400).json({ message: 'Principal must be greater than 0' });
-    if (!(tenureMonths > 0)) return res.status(400).json({ message: 'Tenure (months) must be greater than 0' });
+    if (tenureMonths < 0) return res.status(400).json({ message: 'Tenure (months) cannot be negative' });
     if (!b.startDate) return res.status(400).json({ message: 'Start date is required' });
 
     const employeeId = b.employeeId || null;
@@ -132,6 +140,79 @@ exports.create = async (req, res) => {
       return tx.loan.findUnique({ where: { id: created.id }, include: loanInclude });
     });
     res.status(201).json(shape(loan));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ message: e.message });
+    res.status(500).json({ message: 'Server error', error: e.message });
+  }
+};
+
+// Edit a loan — only while nothing has been repaid (same guard as delete), so we
+// can safely rebuild the whole installment schedule. Keeps the disbursement
+// cashbook entry in sync: updates it in place, creates it if newly disbursed, or
+// removes it if disbursement was turned off.
+exports.update = async (req, res) => {
+  try {
+    const existing = await prisma.loan.findUnique({ where: { id: req.params.id }, include: { installments: true } });
+    if (!existing) return res.status(404).json({ message: 'Loan not found' });
+    if (existing.installments.some((i) => i.status === 'paid')) {
+      return res.status(400).json({ message: 'Cannot edit a loan with recorded EMI payments. Reverse the payments first.' });
+    }
+
+    const b = req.body;
+    const direction = b.direction === 'taken' ? 'taken' : 'given';
+    const principal = round(b.principal);
+    const tenureMonths = Math.round(Number(b.tenureMonths) || 0);
+    const annualInterestRate = Number(b.annualInterestRate) || 0;
+    if (!(principal > 0)) return res.status(400).json({ message: 'Principal must be greater than 0' });
+    if (tenureMonths < 0) return res.status(400).json({ message: 'Tenure (months) cannot be negative' });
+    if (!b.startDate) return res.status(400).json({ message: 'Start date is required' });
+
+    const employeeId = b.employeeId || null;
+    const partyId = employeeId ? null : (b.partyId || null);
+    const repaymentSource = (employeeId && direction === 'given' && b.repaymentSource === 'salary') ? 'salary' : 'manual';
+
+    const { emi, rows } = buildSchedule({ principal, annualInterestRate, tenureMonths, startDate: b.startDate });
+
+    const disburse = b.disburse !== false && b.disburse !== 'false';
+    const payment = disburse ? await resolveCashMode(b) : null;
+
+    const loan = await prisma.$transaction(async (tx) => {
+      await tx.loan.update({
+        where: { id: existing.id },
+        data: {
+          direction, principal, annualInterestRate, tenureMonths,
+          startDate: new Date(b.startDate), emiAmount: emi, repaymentSource,
+          employeeId, partyId, counterpartyName: String(b.counterpartyName || '').slice(0, 200),
+          notes: String(b.notes || '').slice(0, 1000),
+        },
+      });
+      // Nothing is paid, so rebuild the schedule from scratch.
+      await tx.loanInstallment.deleteMany({ where: { loanId: existing.id } });
+      await tx.loanInstallment.createMany({ data: rows.map((r) => ({ ...r, loanId: existing.id })) });
+
+      const full = await tx.loan.findUnique({ where: { id: existing.id }, include: { employee: true, party: true } });
+      const name = counterpartyLabel(full);
+      if (payment) {
+        const entryData = {
+          date: new Date(b.startDate),
+          direction: direction === 'given' ? 'out' : 'in',
+          mode: payment.mode, amount: principal, bankAccountId: payment.bankAccountId,
+          notes: `[Loan] ${direction === 'given' ? 'Disbursed to' : 'Received from'} ${name}`.slice(0, 1000),
+        };
+        if (existing.disburseEntryId) {
+          await tx.cashBankEntry.update({ where: { id: existing.disburseEntryId }, data: entryData });
+        } else {
+          const entry = await tx.cashBankEntry.create({ data: { ...entryData, createdById: req.user?.id || null } });
+          await tx.loan.update({ where: { id: existing.id }, data: { disbursedAt: new Date(b.startDate), disburseEntryId: entry.id } });
+        }
+      } else if (existing.disburseEntryId) {
+        // Disbursement turned off — remove its cashbook footprint.
+        await tx.cashBankEntry.deleteMany({ where: { id: existing.disburseEntryId } });
+        await tx.loan.update({ where: { id: existing.id }, data: { disbursedAt: null, disburseEntryId: null } });
+      }
+      return tx.loan.findUnique({ where: { id: existing.id }, include: loanInclude });
+    });
+    res.json(shape(loan));
   } catch (e) {
     if (e.status) return res.status(e.status).json({ message: e.message });
     res.status(500).json({ message: 'Server error', error: e.message });

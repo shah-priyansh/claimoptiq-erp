@@ -1,24 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineTrash, HiOutlineChevronRight, HiOutlineX } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineChevronRight, HiOutlineX } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { formatINR } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import Loader from '../../components/ui/Loader';
 import {
-  getLoansAPI, createLoanAPI, deleteLoanAPI, getEmployeesAPI, getPartiesAPI, getBankAccountsAPI,
+  getLoansAPI, getLoanAPI, createLoanAPI, updateLoanAPI, deleteLoanAPI, getEmployeesAPI, getPartiesAPI, getBankAccountsAPI,
 } from '../../services/api';
 
 const rs = (n) => '₹' + formatINR(Math.round(Number(n) || 0));
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 // Client-side reducing-balance EMI (mirrors backend utils/loanSchedule) for a
-// live preview in the Add modal.
+// live preview in the Add modal. Tenure 0 = lump sum → the full amount at once.
 const previewEmi = (principal, annualRate, tenure) => {
   const P = Math.round(Number(principal) || 0);
-  const n = Math.max(1, Math.round(Number(tenure) || 0));
+  const n = Math.max(0, Math.round(Number(tenure) || 0));
+  if (n === 0) return P;
   const r = (Number(annualRate) || 0) / 12 / 100;
   const emi = r === 0 ? P / n : (P * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
   return Math.round(emi || 0);
@@ -32,42 +33,64 @@ const blankForm = {
   repaymentSource: 'manual', disburse: true, mode: 'cash', bankAccountId: '', notes: '',
 };
 
-const AddLoanModal = ({ open, onClose, onCreated, employees, parties, bankAccounts }) => {
+// Map a full loan (from getLoanAPI) onto the modal form for editing.
+const formFromLoan = (l) => ({
+  direction: l.direction || 'given',
+  counterKind: l.employeeId ? 'staff' : (l.partyId ? 'party' : 'other'),
+  employeeId: l.employeeId || '',
+  partyId: l.partyId || '',
+  counterpartyName: l.counterpartyName || '',
+  principal: l.principal != null ? String(l.principal) : '',
+  annualInterestRate: l.annualInterestRate != null ? String(l.annualInterestRate) : '',
+  tenureMonths: l.tenureMonths != null ? String(l.tenureMonths) : '',
+  startDate: (l.startDate || '').slice(0, 10) || todayIso(),
+  repaymentSource: l.repaymentSource || 'manual',
+  disburse: !!l.disburseEntryId,
+  mode: l.disburseMode || 'cash',
+  bankAccountId: l.disburseBankAccountId || '',
+  notes: l.notes || '',
+});
+
+const LoanModal = ({ open, loan, onClose, onSaved, employees, parties, bankAccounts }) => {
+  const isEdit = !!loan;
   const [form, setForm] = useState(blankForm);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (open) setForm(blankForm); }, [open]);
+  useEffect(() => { if (open) setForm(loan ? formFromLoan(loan) : blankForm); }, [open, loan]);
   if (!open) return null;
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const emi = previewEmi(form.principal, form.annualInterestRate, form.tenureMonths);
-  const totalPay = emi * (Math.round(Number(form.tenureMonths) || 0));
+  const tenureN = Math.max(0, Math.round(Number(form.tenureMonths) || 0));
+  const isLumpSum = tenureN === 0;
+  const emi = previewEmi(form.principal, form.annualInterestRate, tenureN);
+  const totalPay = emi * tenureN;
   const isStaffGiven = form.counterKind === 'staff' && form.direction === 'given';
   const needsBank = form.disburse && (form.mode === 'bank' || form.mode === 'upi');
 
   const submit = async (e) => {
     e.preventDefault();
     if (!(Number(form.principal) > 0)) { toast.error('Enter a principal amount'); return; }
-    if (!(Number(form.tenureMonths) > 0)) { toast.error('Enter tenure in months'); return; }
+    if (Number(form.tenureMonths) < 0) { toast.error('Tenure cannot be negative'); return; }
     if (form.counterKind === 'staff' && !form.employeeId) { toast.error('Pick a staff member'); return; }
     if (form.counterKind === 'party' && !form.partyId) { toast.error('Pick a party'); return; }
     if (form.counterKind === 'other' && !form.counterpartyName.trim()) { toast.error('Enter a name'); return; }
     setSaving(true);
+    const payload = {
+      direction: form.direction,
+      employeeId: form.counterKind === 'staff' ? form.employeeId : null,
+      partyId: form.counterKind === 'party' ? form.partyId : null,
+      counterpartyName: form.counterKind === 'other' ? form.counterpartyName : '',
+      principal: Number(form.principal), annualInterestRate: Number(form.annualInterestRate) || 0,
+      tenureMonths: Number(form.tenureMonths), startDate: form.startDate,
+      repaymentSource: isStaffGiven ? form.repaymentSource : 'manual',
+      disburse: form.disburse, mode: form.mode, bankAccountId: needsBank ? form.bankAccountId : null,
+      notes: form.notes,
+    };
     try {
-      await createLoanAPI({
-        direction: form.direction,
-        employeeId: form.counterKind === 'staff' ? form.employeeId : null,
-        partyId: form.counterKind === 'party' ? form.partyId : null,
-        counterpartyName: form.counterKind === 'other' ? form.counterpartyName : '',
-        principal: Number(form.principal), annualInterestRate: Number(form.annualInterestRate) || 0,
-        tenureMonths: Number(form.tenureMonths), startDate: form.startDate,
-        repaymentSource: isStaffGiven ? form.repaymentSource : 'manual',
-        disburse: form.disburse, mode: form.mode, bankAccountId: needsBank ? form.bankAccountId : null,
-        notes: form.notes,
-      });
-      toast.success('Loan added');
-      onCreated();
+      if (isEdit) { await updateLoanAPI(loan._id, payload); toast.success('Loan updated'); }
+      else { await createLoanAPI(payload); toast.success('Loan added'); }
+      onSaved();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to add loan');
+      toast.error(err.response?.data?.message || `Failed to ${isEdit ? 'update' : 'add'} loan`);
     } finally { setSaving(false); }
   };
 
@@ -79,7 +102,7 @@ const AddLoanModal = ({ open, onClose, onCreated, employees, parties, bankAccoun
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white">
-          <h3 className="text-lg font-semibold text-gray-800">Add Loan</h3>
+          <h3 className="text-lg font-semibold text-gray-800">{isEdit ? 'Edit Loan' : 'Add Loan'}</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><HiOutlineX className="w-5 h-5 text-gray-500" /></button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">
@@ -115,7 +138,7 @@ const AddLoanModal = ({ open, onClose, onCreated, employees, parties, bankAccoun
           <div className="grid grid-cols-2 gap-4">
             <div><label className={label}>Principal (₹) *</label><input type="number" min="0" className={input} value={form.principal} onChange={(e) => set('principal', e.target.value)} /></div>
             <div><label className={label}>Interest Rate (% / year)</label><input type="number" min="0" step="0.01" className={input} value={form.annualInterestRate} onChange={(e) => set('annualInterestRate', e.target.value)} placeholder="0" /></div>
-            <div><label className={label}>Tenure (months) *</label><input type="number" min="1" className={input} value={form.tenureMonths} onChange={(e) => set('tenureMonths', e.target.value)} /></div>
+            <div><label className={label}>Tenure (months)</label><input type="number" min="0" className={input} value={form.tenureMonths} onChange={(e) => set('tenureMonths', e.target.value)} placeholder="0 = lump sum (no EMI)" /></div>
             <div><label className={label}>Start Date *</label><input type="date" className={input} value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></div>
           </div>
 
@@ -150,14 +173,16 @@ const AddLoanModal = ({ open, onClose, onCreated, employees, parties, bankAccoun
           <div><label className={label}>Notes</label><textarea rows={2} className={input} value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
 
           <div className="flex items-center justify-between rounded-lg bg-primary-50 px-4 py-3">
-            <span className="text-sm text-primary-700 font-medium">Monthly EMI</span>
+            <span className="text-sm text-primary-700 font-medium">{isLumpSum ? 'Total (lump sum)' : 'Monthly EMI'}</span>
             <span className="text-lg font-bold text-primary-700">{rs(emi)}</span>
           </div>
-          {emi > 0 && <p className="text-xs text-gray-400 -mt-2">Total payable over {form.tenureMonths || 0} months ≈ {rs(totalPay)} (reducing balance).</p>}
+          {isLumpSum
+            ? (emi > 0 && <p className="text-xs text-gray-400 -mt-2">One-time repayment — no EMI schedule. Set a tenure above 0 to split into monthly EMIs.</p>)
+            : (emi > 0 && <p className="text-xs text-gray-400 -mt-2">Total payable over {form.tenureMonths || 0} months ≈ {rs(totalPay)} (reducing balance).</p>)}
 
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 rounded-lg">{saving ? 'Saving…' : 'Add Loan'}</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 rounded-lg">{saving ? 'Saving…' : (isEdit ? 'Save Changes' : 'Add Loan')}</button>
           </div>
         </form>
       </div>
@@ -170,12 +195,14 @@ const LoansPage = () => {
   const confirm = useConfirm();
   const navigate = useNavigate();
   const canCreate = can('loans', 'create');
+  const canEdit = can('loans', 'edit');
   const canDelete = can('loans', 'delete');
 
   const [loans, setLoans] = useState([]);
   const [totals, setTotals] = useState({ given: 0, taken: 0, count: 0 });
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [editLoan, setEditLoan] = useState(null);
   const [filter, setFilter] = useState({ direction: '', status: '' });
   const [employees, setEmployees] = useState([]);
   const [parties, setParties] = useState([]);
@@ -202,6 +229,12 @@ const LoansPage = () => {
     if (!(await confirm(`Delete the ${rs(loan.principal)} loan for ${loan.counterparty}?`, { title: 'Delete Loan', confirmLabel: 'Delete' }))) return;
     try { await deleteLoanAPI(loan._id); toast.success('Loan deleted'); load(); }
     catch (e) { toast.error(e.response?.data?.message || 'Failed to delete'); }
+  };
+
+  // Fetch full loan details (incl. disburse mode/bank) before opening the editor.
+  const openEdit = async (loan) => {
+    try { const { data } = await getLoanAPI(loan._id); setEditLoan(data); }
+    catch (e) { toast.error(e.response?.data?.message || 'Failed to load loan'); }
   };
 
   const fCls = (active) => `px-3 py-1.5 rounded-lg text-sm font-medium border ${active ? 'bg-primary-50 border-primary-300 text-primary-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`;
@@ -259,6 +292,9 @@ const LoansPage = () => {
                     <td className="py-3 px-4 text-center text-xs text-gray-500">{l.paidInstallments}/{l.totalInstallments}</td>
                     <td className="py-3 px-4"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_CLS[l.status] || ''}`}>{(l.status || '').toUpperCase()}</span></td>
                     <td className="py-3 px-4 text-right whitespace-nowrap">
+                      {canEdit && l.paidInstallments === 0 && (
+                        <button onClick={(e) => { e.stopPropagation(); openEdit(l); }} title="Edit" className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded"><HiOutlinePencil className="w-4 h-4" /></button>
+                      )}
                       {canDelete && l.paidInstallments === 0 && (
                         <button onClick={(e) => { e.stopPropagation(); del(l); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"><HiOutlineTrash className="w-4 h-4" /></button>
                       )}
@@ -272,7 +308,9 @@ const LoansPage = () => {
         </div>
       )}
 
-      <AddLoanModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => { setAddOpen(false); load(); }}
+      <LoanModal open={addOpen || !!editLoan} loan={editLoan}
+        onClose={() => { setAddOpen(false); setEditLoan(null); }}
+        onSaved={() => { setAddOpen(false); setEditLoan(null); load(); }}
         employees={employees} parties={parties} bankAccounts={bankAccounts} />
     </div>
   );
