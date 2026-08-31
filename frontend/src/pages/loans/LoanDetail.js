@@ -8,7 +8,7 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 import Loader from '../../components/ui/Loader';
 import { getLoanAPI, recordLoanPaymentAPI, getBankAccountsAPI } from '../../services/api';
 
-const rs = (n) => '₹' + formatINR(Math.round(Number(n) || 0));
+const rs = (n) => '₹' + formatINR(Number(n) || 0);
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const PayModal = ({ open, installment, loan, bankAccounts, onClose, onPaid }) => {

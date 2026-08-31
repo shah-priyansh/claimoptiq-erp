@@ -4,7 +4,7 @@ import { toast } from 'react-toastify';
 import { bulkReceivePaymentAPI } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
-const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatMonth = (d) => {
   if (!d) return '-';
   const dt = new Date(d);

@@ -213,10 +213,10 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
             <div className="flex items-center justify-between mt-3 text-sm">
               <span className="text-gray-500">Balance</span>
               <span className={`font-semibold ${balance < 0 ? 'text-red-600' : balance === 0 ? 'text-green-600' : 'text-gray-800'}`}>
-                ₹{Math.abs(balance).toLocaleString('en-IN')}{balance < 0 ? ' over' : ''}
+                ₹{Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{balance < 0 ? ' over' : ''}
               </span>
             </div>
-            {balance < 0 && <p className="text-xs text-red-600 mt-1">Paid exceeds the amount — it will be capped to ₹{amountNum.toLocaleString('en-IN')}.</p>}
+            {balance < 0 && <p className="text-xs text-red-600 mt-1">Paid exceeds the amount — it will be capped to ₹{amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.</p>}
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

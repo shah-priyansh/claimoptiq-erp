@@ -19,7 +19,7 @@ import { cashBankImportConfig } from '../../components/import/transactionImportC
 import { formatDateTime } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 
-const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const MODE_ICONS = { cash: HiOutlineCash, bank: HiOutlineCreditCard, upi: HiOutlineQrcode };
 

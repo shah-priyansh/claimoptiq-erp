@@ -1,7 +1,7 @@
 import { createInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI } from '../../services/api';
 
 export const formatINR = (n) =>
-  '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+  '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const monthLabel = (m) => {
   if (!m) return '-';

@@ -11,7 +11,7 @@ import {
   getLoansAPI, getLoanAPI, createLoanAPI, updateLoanAPI, deleteLoanAPI, getEmployeesAPI, getPartiesAPI, getBankAccountsAPI,
 } from '../../services/api';
 
-const rs = (n) => '₹' + formatINR(Math.round(Number(n) || 0));
+const rs = (n) => '₹' + formatINR(Number(n) || 0);
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 // Client-side reducing-balance EMI (mirrors backend utils/loanSchedule) for a

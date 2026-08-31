@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { HiOutlineSearch, HiCheck, HiSelector, HiChevronRight, HiOutlinePlusCircle } from 'react-icons/hi';
 
-const formatINR = (n) => '₹' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const optValue = (a) => `${a.kind}:${a.id ?? ''}`;
 
 // Searchable, grouped account picker for Journal Entry lines. Renders the

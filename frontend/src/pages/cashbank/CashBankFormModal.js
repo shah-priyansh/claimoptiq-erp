@@ -103,9 +103,9 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
       const num = it.invoiceNumber || `Draft-${(it._id || '').slice(0, 8)}`;
       const dstr = it.invoiceDate ? `${formatDate(it.invoiceDate)} - ` : '';
       const nm = invoiceDisplayName(it);
-      return `${dstr}${num}${nm ? ` • ${nm}` : ''} — ₹${pendingOf(it).toLocaleString('en-IN')}`;
+      return `${dstr}${num}${nm ? ` • ${nm}` : ''} — ₹${pendingOf(it).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
-    return `${it.category?.label || 'Expense'} — ₹${pendingOf(it).toLocaleString('en-IN')}`;
+    return `${it.category?.label || 'Expense'} — ₹${pendingOf(it).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
   const usedIds = new Set([primaryId, ...extras.map((x) => x.id)].filter(Boolean));
   const rowOptions = (ownId) => items
@@ -231,7 +231,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
     const name = invoiceDisplayName(i);
     const num = i.invoiceNumber || `Draft-${(i._id || '').slice(0, 8)}`;
     const dstr = i.invoiceDate ? `${formatDate(i.invoiceDate)} - ` : '';
-    const bal = `₹${Math.round(i.amountPending || 0).toLocaleString('en-IN')}`;
+    const bal = `₹${(i.amountPending || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     return `${dstr}${num}${name ? ` • ${name}` : ''} — ${bal}`;
   };
   const invoiceOptions = invoices
@@ -378,7 +378,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
             <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-medium text-amber-800">
-                  ₹{primaryPending.toLocaleString('en-IN')} applied here · link the remaining ₹{(enteredAmount - primaryPending).toLocaleString('en-IN')}
+                  ₹{primaryPending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} applied here · link the remaining ₹{(enteredAmount - primaryPending).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
                 <button type="button" onClick={autoFillExtras}
                   className="text-xs font-semibold text-primary-700 border border-primary-300 rounded px-2 py-1 hover:bg-primary-50 shrink-0">
@@ -411,7 +411,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                   + Link another {linkType}
                 </button>
                 <span className={`text-xs font-semibold ${unused > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-                  Unused ₹{unused.toLocaleString('en-IN')}
+                  Unused ₹{unused.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
@@ -467,7 +467,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                   + Link another {linkType}
                 </button>
                 <span className="text-xs font-semibold text-gray-700">
-                  Total ₹{multiTotal.toLocaleString('en-IN')}
+                  Total ₹{multiTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
             </div>

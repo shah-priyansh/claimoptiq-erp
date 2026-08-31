@@ -1,6 +1,6 @@
 export const formatINR = (amount) => {
   const num = Number(amount) || 0;
-  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(num);
+  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
 };
 
 // All timestamps in the app render in IST regardless of the browser's

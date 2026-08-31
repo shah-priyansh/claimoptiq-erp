@@ -14,7 +14,7 @@ import {
 } from '../../services/api';
 import { formatDateTime } from '../../utils/format';
 
-const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const TYPE_LABELS = {
   invoice: 'Invoice', expense: 'Expense', payment_in: 'Payment-In', payment_out: 'Payment-Out',

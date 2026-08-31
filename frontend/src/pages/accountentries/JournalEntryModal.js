@@ -7,7 +7,7 @@ import AddAccountModal from '../accounts/AddAccountModal';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-const formatINR = (n) => '₹' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const emptyLine = () => ({ accountKind: '', accountId: null, debit: '', credit: '' });
 
 // A flat option value encodes kind + id so the <select> stays a single string.

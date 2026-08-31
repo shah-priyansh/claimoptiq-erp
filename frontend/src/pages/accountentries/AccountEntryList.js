@@ -15,7 +15,7 @@ import { journalEntryImportConfig } from '../../components/import/transactionImp
 import { formatDate as _formatDate } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 
-const formatINR = (n) => '₹' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatDate = (d) => _formatDate(d);
 
 const lineSummary = (lines = []) => lines.map((l) =>

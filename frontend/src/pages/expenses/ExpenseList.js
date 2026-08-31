@@ -27,7 +27,7 @@ import Loader from '../../components/ui/Loader';
 
 const buildExpenseVoucherHtml = (e) => {
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-  const amt = '₹' + Math.round(Number(e.amount) || 0).toLocaleString('en-IN');
+  const amt = '₹' + (Number(e.amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
   return `
     <div style="max-width:560px;margin:0 auto;padding:32px;font-family:'Helvetica Neue',Arial,sans-serif;color:#111827;">
@@ -69,7 +69,7 @@ const printExpense = (e) => {
   w.document.close();
 };
 
-const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatDate = (d) => _formatDate(d);
 
 // Payment status badge styles (derived from each expense's linked payments).

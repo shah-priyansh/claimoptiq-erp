@@ -16,7 +16,7 @@ import {
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import { formatDateTime } from '../../utils/format';
 
-const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Human label + counterparty for a cash/bank entry row.
 const txnName = (e) => {

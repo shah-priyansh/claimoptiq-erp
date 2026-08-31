@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getChartOfAccountsAPI, getAccountsAPI } from '../../services/api';
 import AddAccountModal from './AddAccountModal';
 
-const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Chart rows whose `kind` is one of these are backed by an editable ledger
 // Account (row.id === Account uuid). Bank/cash/party/expense rows are not.

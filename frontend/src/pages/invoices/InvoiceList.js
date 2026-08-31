@@ -34,7 +34,7 @@ const STATUS_COLORS = {
   void:           'bg-red-50 text-red-700',
 };
 
-const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatMonth = (d) => {
   if (!d) return '-';
   const dt = new Date(d);

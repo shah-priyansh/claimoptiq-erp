@@ -1,7 +1,7 @@
 // Shared helpers for the Phase 2.6 report pages.
 import * as XLSX from 'xlsx';
 
-export const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+export const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const todayIso = () => new Date().toISOString().slice(0, 10);
 

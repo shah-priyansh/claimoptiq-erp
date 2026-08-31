@@ -421,10 +421,8 @@ const ClaimList = () => {
 
   const formatDate = (d) => _formatDate(d);
   const formatAmount = (a) => a ? formatCurrency(a) : '-';
-  // PDF amount formatter: round to whole rupees so large ₹ figures (TDS,
-  // settlement, grand totals) don't carry ".2"/".17" decimals that wrap the
-  // already-narrow amount columns onto 2-3 lines.
-  const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(Math.round(v)) : (v || '-');
+  // PDF amount formatter — shows ₹ with 2 decimals (matches the on-screen values).
+  const fmtAmt = (v) => (typeof v === 'number' && v > 0) ? formatCurrency(v) : (v || '-');
 
   // ── Status change ─────────────────────────────────────────────────────────
 

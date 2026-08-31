@@ -35,7 +35,7 @@ const LINE_TYPE_LABEL = {
   manual: 'Manual',
 };
 
-const formatINR = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatMonth = (d) => d ? new Date(d).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '-';
 const formatDate = (d) => _formatDate(d);
 // Seed the native <input type="date"/"month"> controls from a stored ISO date.
@@ -291,7 +291,7 @@ const InvoiceDetail = () => {
       const { data } = await issueInvoiceAPI(id);
       const flow = data?.commissionAutoFlow;
       if (flow && !flow.skipped && flow.rowsCreated > 0) {
-        toast.success(`Invoice issued. ${flow.rowsCreated} commission ${flow.rowsCreated === 1 ? 'entry' : 'entries'} (₹${(flow.totalAmount || 0).toLocaleString('en-IN')}) auto-created.`);
+        toast.success(`Invoice issued. ${flow.rowsCreated} commission ${flow.rowsCreated === 1 ? 'entry' : 'entries'} (₹${(flow.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) auto-created.`);
       } else {
         toast.success('Invoice issued');
       }
