@@ -8,6 +8,23 @@ const { getInvoiceTemplate } = require('./siteSettingController');
 const { writeReferenceCommissionFlow, clearReferenceCommissionFlow, SOURCE_TYPE: COMMISSION_SOURCE_TYPE } = require('../utils/referenceCommissionFlow');
 const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
 
+// Resolve a Party for a free-text party-bill name, so imported direct-patient /
+// "Party" invoices attach to the party ledger the way hospital invoices do via
+// their hospital's party. Reuse an existing party of the same name — a standalone
+// one first, else a reference's party (a referrer who is also billed directly is
+// the same entity) — before creating a new standalone. Hospital-linked parties
+// are skipped to avoid conflating a patient bill with a hospital of the same
+// name. Returns null for an empty name.
+const resolvePartyIdByName = async (name) => {
+  const n = (name || '').trim();
+  if (!n) return null;
+  const standalone = await prisma.party.findFirst({ where: { name: n, hospitalId: null, referenceId: null }, select: { id: true } });
+  if (standalone) return standalone.id;
+  const referenceLinked = await prisma.party.findFirst({ where: { name: n, hospitalId: null, referenceId: { not: null } }, select: { id: true } });
+  if (referenceLinked) return referenceLinked.id;
+  return (await prisma.party.create({ data: { name: n } })).id;
+};
+
 // Rejected claims stay billable — the operator wants them on the hospital's
 // invoice with whatever amount they resolve to (often ₹0 when finalApproval is 0)
 // so the bill reflects work done regardless of outcome. Only 'cancelled' claims
@@ -1174,6 +1191,12 @@ exports.bulkImport = async (req, res) => {
         order,
         meta: { imported: true },
       }));
+      // Party bills carry no hospital, so link them to the party ledger by their
+      // free-text name (find-or-create), the same way hospital bills link via
+      // their hospital's party. Without this the invoice's partyId stays null and
+      // the party's ledger/balance never reflects it.
+      const partyId = isParty ? await resolvePartyIdByName(partyName) : null;
+
       // Fields (re)set on both create and update so the invoice cleanly reflects
       // the imported rows. GST/TDS follow normal-creation logic: added / deducted
       // on top of the taxable line total.
@@ -1182,6 +1205,7 @@ exports.bulkImport = async (req, res) => {
         hospitalId,
         isDirectPatient: isParty,
         partyName,
+        partyId,
         month: first.month,
         status,
         issuedAt: status === 'draft' ? null : first.month,

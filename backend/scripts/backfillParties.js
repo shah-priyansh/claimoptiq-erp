@@ -51,7 +51,30 @@ async function main() {
     expLinked += (await prisma.expense.updateMany({ where: { id: { in: ids } }, data: { partyId: party.id } })).count;
   }
 
-  console.log(`Parties created — references: ${refParties}, hospitals: ${hospParties}, expense names: ${nameParties}`);
+  // 4) Free-text invoice party names (direct-patient / "Party" bills that carry
+  //    a partyName but no hospital) -> standalone parties, then link them. These
+  //    reuse the same name-keyed standalone party as matching expense names.
+  const invOrphans = await prisma.invoice.findMany({
+    where: { partyId: null, partyName: { not: null } },
+    select: { id: true, partyName: true },
+  });
+  const invByName = new Map();
+  for (const inv of invOrphans) {
+    const key = (inv.partyName || '').trim();
+    if (!key) continue;
+    if (!invByName.has(key)) invByName.set(key, []);
+    invByName.get(key).push(inv.id);
+  }
+  for (const [name, ids] of invByName) {
+    // Reuse a standalone party first, else a reference's party of the same name
+    // (a referrer billed directly is the same entity), else create a standalone.
+    let party = await prisma.party.findFirst({ where: { name, hospitalId: null, referenceId: null } })
+      || await prisma.party.findFirst({ where: { name, hospitalId: null, referenceId: { not: null } } });
+    if (!party) { party = await prisma.party.create({ data: { name } }); nameParties++; }
+    invLinked += (await prisma.invoice.updateMany({ where: { id: { in: ids } }, data: { partyId: party.id } })).count;
+  }
+
+  console.log(`Parties created — references: ${refParties}, hospitals: ${hospParties}, expense/invoice names: ${nameParties}`);
   console.log(`Linked — expenses: ${expLinked}, invoices: ${invLinked}`);
 }
 
