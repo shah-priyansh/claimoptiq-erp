@@ -279,6 +279,10 @@ const ClaimDetail = () => {
   const [settlementForm, setSettlementForm] = useState({});
   const [filePriceManual, setFilePriceManual] = useState(false);
   const [savingFilePrice, setSavingFilePrice] = useState(false);
+  // Last value persisted to the DB — lets us flag an edited-but-unsaved file
+  // price so the operator can't silently lose a manual override (the File Price
+  // field has its own Save button, separate from the rest of the claim).
+  const [savedFilePrice, setSavedFilePrice] = useState({ filePrice: 0, filePriceOverridden: false });
 
   useEffect(() => {
     setDischargeForm(prev => ({
@@ -415,6 +419,7 @@ const ClaimDetail = () => {
         rejectedReason: data.rejectedReason || '',
       });
       setFilePriceManual(!!data.filePriceOverridden);
+      setSavedFilePrice({ filePrice: data.filePrice || 0, filePriceOverridden: !!data.filePriceOverridden });
     } catch {
       toast.error('Claim not found');
       navigate('/claims');
@@ -661,12 +666,30 @@ const ClaimDetail = () => {
         filePrice: settlementForm.filePrice,
         filePriceOverridden: settlementForm.filePriceOverridden,
       });
+      setSavedFilePrice({ filePrice: settlementForm.filePrice, filePriceOverridden: settlementForm.filePriceOverridden });
       toast.success('File price saved');
       await fetchClaim(true);
     } catch {
       toast.error('Failed to save file price');
     } finally { setSavingFilePrice(false); }
   };
+
+  // The file-price field is dirty when its override intent, or the overridden
+  // amount, differs from what's persisted. A non-overridden claim is never
+  // "dirty" — its price is auto-computed live, so there's nothing to save.
+  const filePriceDirty =
+    (!!settlementForm.filePriceOverridden !== !!savedFilePrice.filePriceOverridden) ||
+    (!!settlementForm.filePriceOverridden &&
+      Math.round(settlementForm.filePrice || 0) !== Math.round(savedFilePrice.filePrice || 0));
+
+  // Guard the browser tab against a hard close/refresh while a manual file
+  // price is unsaved. (SPA navigation still relies on the loud in-page cue.)
+  useEffect(() => {
+    if (!filePriceDirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [filePriceDirty]);
 
   const handleSaveOtherDocs = async () => {
     if (!pendingFiles.other.length) return;
@@ -914,17 +937,27 @@ const ClaimDetail = () => {
                     <AmountInput
                       value={settlementForm.filePrice || 0}
                       onChange={v => { setFilePriceManual(true); setSettlementForm(sf => ({ ...sf, filePrice: v, filePriceOverridden: true })); }}
-                      className={`w-full px-2.5 py-1.5 border rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white ${filePriceManual ? 'border-amber-300' : 'border-gray-200'}`}
+                      className={`w-full px-2.5 py-1.5 border rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white ${filePriceDirty ? 'border-amber-400 ring-1 ring-amber-300' : filePriceManual ? 'border-amber-200' : 'border-gray-200'}`}
                     />
                   </div>
                   <button
                     onClick={handleSaveFilePrice}
-                    disabled={savingFilePrice}
-                    className="flex-shrink-0 h-[34px] px-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors inline-flex items-center justify-center">
-                    {savingFilePrice ? <Spinner sm /> : 'Save'}
+                    disabled={savingFilePrice || !filePriceDirty}
+                    title={filePriceDirty ? 'Save this file price' : 'File price is saved'}
+                    className={`flex-shrink-0 h-[34px] px-3 rounded-lg text-xs font-semibold transition-colors inline-flex items-center justify-center ${
+                      filePriceDirty
+                        ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-sm ring-2 ring-amber-200'
+                        : 'bg-gray-100 text-gray-400 cursor-default'
+                    }`}>
+                    {savingFilePrice ? <Spinner sm /> : (filePriceDirty ? 'Save' : '✓ Saved')}
                   </button>
                 </div>
-                {filePriceManual ? (
+                {filePriceDirty ? (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+                    <span className="text-[10px] font-bold text-amber-600">Unsaved — click Save to apply</span>
+                  </div>
+                ) : filePriceManual ? (
                   <div className="flex items-center gap-1.5 mt-1">
                     <span className="text-[10px] font-semibold text-amber-600">Manually edited</span>
                     <span className="text-gray-300">·</span>
