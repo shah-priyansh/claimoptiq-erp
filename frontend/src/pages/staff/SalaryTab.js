@@ -54,6 +54,69 @@ const computeBreakdown = (r, otMults = DEFAULT_OT_MULTS) => {
 
 const fmtMult = (n) => `×${Number(n).toFixed(1)}`;
 
+// Read-only salary breakdown shown inside an expanded row — shared by the
+// admin view and the employee self-view so both see identical detail.
+const SalaryDetailBody = ({ r, otMults }) => {
+  const bd = computeBreakdown(r, otMults);
+  return (
+    <>
+      {/* Salary breakdown */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mb-4">
+        <div><span className="text-gray-500">Basic Salary:</span> <span className="font-semibold">{formatCurrency(r.basicSalary)}</span></div>
+        <div><span className="text-gray-500">Calendar Days:</span> <span className="font-semibold">{r.calendarDays}</span></div>
+        <div><span className="text-gray-500">Per Day Rate:</span> <span className="font-semibold">{formatCurrency(r.basicSalary / r.calendarDays)}</span></div>
+        <div><span className="text-gray-500">Earned Basic:</span> <span className="font-semibold">{formatCurrency(bd.earnedBasic)}</span></div>
+        <div><span className="text-gray-500">Fixed Allow:</span> <span className="font-semibold">{formatCurrency(bd.fixedAllow)}</span></div>
+        <div><span className="text-gray-500">Extra Allow:</span> <span className="font-semibold">{formatCurrency(bd.extraAllow)}</span></div>
+        <div><span className="text-gray-500">Hourly Rate:</span> <span className="font-semibold">{formatCurrency(r.basicSalary / (r.calendarDays * r.employee.standardHours))}</span></div>
+        <div><span className="text-gray-500">OT Total:</span> <span className="font-semibold text-green-600">{formatCurrency(bd.totalOt)}</span></div>
+      </div>
+
+      {/* Overtime detail panel — shows if worked extra/sunday/holiday and at what rate */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Overtime Detail</p>
+          {bd.totalOt > 0
+            ? <span className="text-[10px] text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full font-semibold">{formatCurrency(bd.totalOt)} earned</span>
+            : <span className="text-[10px] text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full font-medium">No OT this month</span>}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className={`rounded-md px-3 py-2 border ${r.dailyOtMinutes > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-gray-700">Daily OT</span>
+              <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.dailyMultiplier)}</span>
+            </div>
+            <div className="text-[11px] text-gray-500 mt-1">
+              {r.dailyOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.dailyOtMinutes)}</span> on weekdays</> : <span className="italic">Not worked</span>}
+            </div>
+            <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.dailyOtAmt)}</div>
+          </div>
+          <div className={`rounded-md px-3 py-2 border ${r.sundayOtMinutes > 0 ? 'bg-purple-50 border-purple-200' : 'bg-gray-50 border-gray-200'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-gray-700">Sunday OT</span>
+              <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.sundayMultiplier)}</span>
+            </div>
+            <div className="text-[11px] text-gray-500 mt-1">
+              {r.sundayOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.sundayOtMinutes)}</span> on Sundays</> : <span className="italic">Not worked</span>}
+            </div>
+            <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.sundayOtAmt)}</div>
+          </div>
+          <div className={`rounded-md px-3 py-2 border ${r.holidayOtMinutes > 0 ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-gray-700">Holiday OT</span>
+              <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.holidayMultiplier)}</span>
+            </div>
+            <div className="text-[11px] text-gray-500 mt-1">
+              {r.holidayOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.holidayOtMinutes)}</span> on holidays</> : <span className="italic">Not worked</span>}
+            </div>
+            <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.holidayOtAmt)}</div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
 const ExtraAllowanceEditor = ({ record, onUpdate }) => {
   const [items, setItems] = useState(record.extraAllowances || []);
   const [saving, setSaving] = useState(false);
@@ -212,58 +275,8 @@ const SalaryRow = ({ r, canEdit, onUpdate, onFinalize, otMults }) => {
       {expanded && (
         <tr className="bg-blue-50/40">
           <td colSpan={10} className="px-6 py-4">
-            {/* Salary breakdown */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mb-4">
-              <div><span className="text-gray-500">Basic Salary:</span> <span className="font-semibold">{formatCurrency(r.basicSalary)}</span></div>
-              <div><span className="text-gray-500">Calendar Days:</span> <span className="font-semibold">{r.calendarDays}</span></div>
-              <div><span className="text-gray-500">Per Day Rate:</span> <span className="font-semibold">{formatCurrency(r.basicSalary / r.calendarDays)}</span></div>
-              <div><span className="text-gray-500">Earned Basic:</span> <span className="font-semibold">{formatCurrency(bd.earnedBasic)}</span></div>
-              <div><span className="text-gray-500">Fixed Allow:</span> <span className="font-semibold">{formatCurrency(bd.fixedAllow)}</span></div>
-              <div><span className="text-gray-500">Extra Allow:</span> <span className="font-semibold">{formatCurrency(bd.extraAllow)}</span></div>
-              <div><span className="text-gray-500">Hourly Rate:</span> <span className="font-semibold">{formatCurrency(r.basicSalary / (r.calendarDays * r.employee.standardHours))}</span></div>
-              <div><span className="text-gray-500">OT Total:</span> <span className="font-semibold text-green-600">{formatCurrency(bd.totalOt)}</span></div>
-            </div>
-
-            {/* Overtime detail panel — helps admin see if employee worked extra/sunday/holiday and at what rate */}
-            <div className="bg-white border border-gray-200 rounded-lg p-3 mb-3">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Overtime Detail</p>
-                {bd.totalOt > 0
-                  ? <span className="text-[10px] text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full font-semibold">{formatCurrency(bd.totalOt)} earned</span>
-                  : <span className="text-[10px] text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full font-medium">No OT this month</span>}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div className={`rounded-md px-3 py-2 border ${r.dailyOtMinutes > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-gray-700">Daily OT</span>
-                    <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.dailyMultiplier)}</span>
-                  </div>
-                  <div className="text-[11px] text-gray-500 mt-1">
-                    {r.dailyOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.dailyOtMinutes)}</span> on weekdays</> : <span className="italic">Not worked</span>}
-                  </div>
-                  <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.dailyOtAmt)}</div>
-                </div>
-                <div className={`rounded-md px-3 py-2 border ${r.sundayOtMinutes > 0 ? 'bg-purple-50 border-purple-200' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-gray-700">Sunday OT</span>
-                    <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.sundayMultiplier)}</span>
-                  </div>
-                  <div className="text-[11px] text-gray-500 mt-1">
-                    {r.sundayOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.sundayOtMinutes)}</span> on Sundays</> : <span className="italic">Not worked</span>}
-                  </div>
-                  <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.sundayOtAmt)}</div>
-                </div>
-                <div className={`rounded-md px-3 py-2 border ${r.holidayOtMinutes > 0 ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-gray-700">Holiday OT</span>
-                    <span className="text-[10px] text-gray-500 font-medium">{fmtMult(otMults.holidayMultiplier)}</span>
-                  </div>
-                  <div className="text-[11px] text-gray-500 mt-1">
-                    {r.holidayOtMinutes > 0 ? <><span className="text-gray-700 font-semibold">{fmtMin(r.holidayOtMinutes)}</span> on holidays</> : <span className="italic">Not worked</span>}
-                  </div>
-                  <div className="text-sm font-bold text-gray-800 mt-0.5">{formatCurrency(bd.holidayOtAmt)}</div>
-                </div>
-              </div>
+            <div className="mb-3">
+              <SalaryDetailBody r={r} otMults={otMults} />
             </div>
 
             {canEdit && !r.isFinalized && (
@@ -527,13 +540,67 @@ const AdminSalaryView = ({ canEdit }) => {
   );
 };
 
+const MySalaryRow = ({ r, otMults }) => {
+  const [expanded, setExpanded] = useState(false);
+  const bd = computeBreakdown(r, otMults);
+  const m = new Date(r.month);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  return (
+    <>
+      <tr
+        className={`cursor-pointer transition-colors ${expanded ? 'bg-blue-50/40' : 'hover:bg-gray-50'}`}
+        onClick={() => setExpanded(e => !e)}
+      >
+        <td className="py-3 px-4 font-medium text-gray-800">
+          <div className="flex items-center gap-2">
+            <HiChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            <span>{months[m.getMonth()]} {m.getFullYear()}</span>
+          </div>
+        </td>
+        <td className="py-3 px-4 text-gray-600">
+          <div className="tabular-nums">{r.presentDays}<span className="text-gray-400">/{r.calendarDays}</span></div>
+          <div className="flex flex-wrap gap-1 mt-1">
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.sundayPresentDays > 0 ? 'bg-purple-100 border-purple-300 text-purple-800' : 'bg-purple-50 border-purple-200 text-purple-600'}`}>
+              {r.sundayPresentDays > 0 ? `${r.sundayPresentDays}/` : ''}{sundaysInRecord(r)} Sun
+            </span>
+            {(r.holidayCount > 0 || r.holidayPresentDays > 0) && (
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.holidayPresentDays > 0 ? 'bg-orange-100 border-orange-300 text-orange-800' : 'bg-orange-50 border-orange-200 text-orange-600'}`}>
+                {r.holidayPresentDays > 0 ? `${r.holidayPresentDays}/` : ''}{r.holidayCount || 0} Hol
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.earnedBasic)}</td>
+        <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.fixedAllow + bd.extraAllow)}</td>
+        <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.totalOt)}</td>
+        <td className="py-3 px-4 font-bold text-gray-900">{formatCurrency(r.totalAmount)}</td>
+      </tr>
+      {expanded && (
+        <tr className="bg-blue-50/40">
+          <td colSpan={6} className="px-6 py-4">
+            <SalaryDetailBody r={r} otMults={otMults} />
+            {r.extraAllowances?.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-semibold text-gray-600 mb-1">Extra Allowances</p>
+                {r.extraAllowances.map((a, i) => (
+                  <div key={i} className="text-xs text-gray-600">{a.name}: {formatCurrency(a.amount)}</div>
+                ))}
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+};
+
 const MySalaryView = () => {
   const [records, setRecords] = useState([]);
   // 'loading' → fetching · 'loaded' → data (may be empty) · 'unlinked' → no
   // employee record tied to this account (404) · 'error' → server failure.
   const [state, setState] = useState('loading');
   const [otMults, setOtMults] = useState(DEFAULT_OT_MULTS);
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   useEffect(() => {
     getMySalaryAPI()
@@ -579,32 +646,9 @@ const MySalaryView = () => {
                 <p className="font-medium text-gray-600">No salary generated yet</p>
                 <p className="text-xs text-gray-400 mt-1">Your salary will appear here once payroll is processed for a month you’ve worked.</p>
               </td></tr>
-            ) : records.map(r => {
-              const bd = computeBreakdown(r, otMults);
-              const m = new Date(r.month);
-              return (
-                <tr key={r.id} className="hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-gray-800">{months[m.getMonth()]} {m.getFullYear()}</td>
-                  <td className="py-3 px-4 text-gray-600">
-                    <div className="tabular-nums">{r.presentDays}<span className="text-gray-400">/{r.calendarDays}</span></div>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.sundayPresentDays > 0 ? 'bg-purple-100 border-purple-300 text-purple-800' : 'bg-purple-50 border-purple-200 text-purple-600'}`}>
-                        {r.sundayPresentDays > 0 ? `${r.sundayPresentDays}/` : ''}{sundaysInRecord(r)} Sun
-                      </span>
-                      {(r.holidayCount > 0 || r.holidayPresentDays > 0) && (
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.holidayPresentDays > 0 ? 'bg-orange-100 border-orange-300 text-orange-800' : 'bg-orange-50 border-orange-200 text-orange-600'}`}>
-                          {r.holidayPresentDays > 0 ? `${r.holidayPresentDays}/` : ''}{r.holidayCount || 0} Hol
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.earnedBasic)}</td>
-                  <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.fixedAllow + bd.extraAllow)}</td>
-                  <td className="py-3 px-4 text-gray-600">{formatCurrency(bd.totalOt)}</td>
-                  <td className="py-3 px-4 font-bold text-gray-900">{formatCurrency(r.totalAmount)}</td>
-                </tr>
-              );
-            })}
+            ) : records.map(r => (
+              <MySalaryRow key={r.id} r={r} otMults={otMults} />
+            ))}
           </tbody>
         </table>
       </div>
