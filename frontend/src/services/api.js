@@ -118,6 +118,8 @@ export const createLoanAPI = (data) => API.post('/loans', data);
 export const updateLoanAPI = (id, data) => API.put(`/loans/${id}`, data);
 export const deleteLoanAPI = (id) => API.delete(`/loans/${id}`);
 export const recordLoanPaymentAPI = (installmentId, data) => API.post(`/loans/installments/${installmentId}/pay`, data);
+export const recordLoanInterestAPI = (id, data) => API.post(`/loans/${id}/interest`, data);
+export const recordLoanPrincipalAPI = (id, data) => API.post(`/loans/${id}/principal`, data);
 
 // Invoices
 export const previewInvoiceAPI = (data) => API.post('/invoices/preview', data);

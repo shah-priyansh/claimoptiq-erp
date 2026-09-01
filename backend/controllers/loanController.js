@@ -1,6 +1,9 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
-const { buildSchedule, outstandingPrincipal, round } = require('../utils/loanSchedule');
+const { buildSchedule, outstandingPrincipal, round, isOpenLoan, monthlyInterest } = require('../utils/loanSchedule');
+
+// Average month length in ms, for pro-rata interest accrual on open loans.
+const MS_PER_MONTH = 1000 * 60 * 60 * 24 * 30.4375;
 
 const loanInclude = {
   employee: { select: { id: true, name: true, empNumber: true } },
@@ -34,11 +37,31 @@ const resolveCashMode = async (body) => {
 const counterpartyLabel = (loan) =>
   loan.employee?.name || loan.party?.name || loan.counterpartyName || (loan.direction === 'given' ? 'Borrower' : 'Lender');
 
-// Shape a loan for the API: attach computed outstanding + progress.
+// Shape a loan for the API: attach computed outstanding + progress. Open loans
+// also carry live interest figures (monthly interest + interest accrued since the
+// last collection) so the UI can show what's owed right now.
 const shape = (loan) => {
   const outstanding = outstandingPrincipal(loan);
   const paidCount = (loan.installments || []).filter((i) => i.status === 'paid').length;
   const totalInterest = (loan.installments || []).reduce((s, i) => s + (i.interestComponent || 0), 0);
+  const open = isOpenLoan(loan);
+
+  let monthly = 0, interestAccrued = 0, lastInterestDate = null;
+  if (open) {
+    monthly = monthlyInterest(outstanding, loan.annualInterestRate);
+    // Interest movements: paid rows that carry interest but move no principal.
+    const interestMoves = (loan.installments || [])
+      .filter((i) => i.status === 'paid' && (i.principalComponent || 0) === 0 && (i.interestComponent || 0) > 0);
+    const lastPaid = interestMoves
+      .map((i) => i.paidDate).filter(Boolean)
+      .sort((a, b) => new Date(b) - new Date(a))[0];
+    lastInterestDate = lastPaid || loan.disbursedAt || loan.startDate;
+    const from = new Date(lastInterestDate);
+    const now = new Date();
+    const months = now > from ? (now - from) / MS_PER_MONTH : 0;
+    interestAccrued = round(outstanding * (Number(loan.annualInterestRate) || 0) / 1200 * months);
+  }
+
   return {
     ...toResponse(loan),
     counterparty: counterpartyLabel(loan),
@@ -47,7 +70,18 @@ const shape = (loan) => {
     totalInstallments: (loan.installments || []).length,
     totalInterest: round(totalInterest),
     totalPayable: round(loan.principal) + round(totalInterest),
+    isOpen: open,
+    monthlyInterest: monthly,
+    interestAccrued,
+    interestCollected: round(totalInterest),
+    lastInterestDate,
   };
+};
+
+// Next installment number for a loan (open-loan movements are appended in order).
+const nextInstallmentNo = async (tx, loanId) => {
+  const agg = await tx.loanInstallment.aggregate({ where: { loanId }, _max: { installmentNo: true } });
+  return (agg._max.installmentNo || 0) + 1;
 };
 
 exports.list = async (req, res) => {
@@ -252,6 +286,95 @@ exports.recordPayment = async (req, res) => {
       });
       const remaining = await tx.loanInstallment.count({ where: { loanId: loan.id, status: { not: 'paid' } } });
       if (remaining === 0) await tx.loan.update({ where: { id: loan.id }, data: { status: 'closed' } });
+      return tx.loan.findUnique({ where: { id: loan.id }, include: loanInclude });
+    });
+    res.json(shape(updated));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ message: e.message });
+    res.status(500).json({ message: 'Server error', error: e.message });
+  }
+};
+
+// Record an interest collection on an OPEN (interest-bearing, no-tenure) loan.
+// Principal is untouched; a 'given' loan's interest comes IN, a 'taken' loan's
+// goes OUT. Stored as a paid installment carrying only an interest component.
+exports.recordInterest = async (req, res) => {
+  try {
+    const loan = await prisma.loan.findUnique({ where: { id: req.params.id }, include: { employee: true, party: true, installments: true } });
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+    if (!isOpenLoan(loan)) return res.status(400).json({ message: 'Interest can only be recorded on an open interest loan (no tenure, rate > 0).' });
+    const amount = round(req.body.amount);
+    if (!(amount > 0)) return res.status(400).json({ message: 'Enter an interest amount greater than 0' });
+
+    const payment = await resolveCashMode(req.body);
+    const name = counterpartyLabel(loan);
+    const date = req.body.date ? new Date(req.body.date) : new Date();
+    const outstanding = outstandingPrincipal(loan);
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const entry = await tx.cashBankEntry.create({
+        data: {
+          date,
+          direction: loan.direction === 'given' ? 'in' : 'out',
+          mode: payment.mode, amount, bankAccountId: payment.bankAccountId,
+          notes: `[Loan Interest] ${loan.direction === 'given' ? 'from' : 'to'} ${name}`.slice(0, 1000),
+          createdById: req.user?.id || null,
+        },
+      });
+      const installmentNo = await nextInstallmentNo(tx, loan.id);
+      await tx.loanInstallment.create({
+        data: {
+          loanId: loan.id, installmentNo, dueDate: date, emiAmount: amount,
+          principalComponent: 0, interestComponent: amount, outstandingAfter: outstanding,
+          status: 'paid', paidAmount: amount, paidDate: date, cashBankEntryId: entry.id,
+        },
+      });
+      return tx.loan.findUnique({ where: { id: loan.id }, include: loanInclude });
+    });
+    res.json(shape(updated));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ message: e.message });
+    res.status(500).json({ message: 'Server error', error: e.message });
+  }
+};
+
+// Record a principal repayment on an OPEN loan. Reduces the outstanding principal;
+// a 'given' loan's principal comes back IN, a 'taken' loan's goes OUT. Closes the
+// loan once the principal is fully repaid.
+exports.recordPrincipal = async (req, res) => {
+  try {
+    const loan = await prisma.loan.findUnique({ where: { id: req.params.id }, include: { employee: true, party: true, installments: true } });
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+    if (!isOpenLoan(loan)) return res.status(400).json({ message: 'Principal repayment applies to open interest loans (no tenure, rate > 0).' });
+    const outstanding = outstandingPrincipal(loan);
+    const amount = round(req.body.amount);
+    if (!(amount > 0)) return res.status(400).json({ message: 'Enter a repayment amount greater than 0' });
+    if (amount > outstanding) return res.status(400).json({ message: `Repayment exceeds the outstanding principal (₹${outstanding}).` });
+
+    const payment = await resolveCashMode(req.body);
+    const name = counterpartyLabel(loan);
+    const date = req.body.date ? new Date(req.body.date) : new Date();
+    const after = round(outstanding - amount);
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const entry = await tx.cashBankEntry.create({
+        data: {
+          date,
+          direction: loan.direction === 'given' ? 'in' : 'out',
+          mode: payment.mode, amount, bankAccountId: payment.bankAccountId,
+          notes: `[Loan Principal] ${loan.direction === 'given' ? 'from' : 'to'} ${name}`.slice(0, 1000),
+          createdById: req.user?.id || null,
+        },
+      });
+      const installmentNo = await nextInstallmentNo(tx, loan.id);
+      await tx.loanInstallment.create({
+        data: {
+          loanId: loan.id, installmentNo, dueDate: date, emiAmount: amount,
+          principalComponent: amount, interestComponent: 0, outstandingAfter: Math.max(0, after),
+          status: 'paid', paidAmount: amount, paidDate: date, cashBankEntryId: entry.id,
+        },
+      });
+      if (after <= 0) await tx.loan.update({ where: { id: loan.id }, data: { status: 'closed' } });
       return tx.loan.findUnique({ where: { id: loan.id }, include: loanInclude });
     });
     res.json(shape(updated));

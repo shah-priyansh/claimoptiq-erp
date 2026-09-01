@@ -60,8 +60,13 @@ const LoanModal = ({ open, loan, onClose, onSaved, employees, parties, bankAccou
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const tenureN = Math.max(0, Math.round(Number(form.tenureMonths) || 0));
-  const isLumpSum = tenureN === 0;
+  const rateN = Number(form.annualInterestRate) || 0;
+  // Tenure 0 + a rate = an open interest loan (principal repaid on demand); tenure
+  // 0 + no rate = a plain lump sum. Otherwise a normal reducing-balance EMI loan.
+  const isOpen = tenureN === 0 && rateN > 0;
+  const isLumpSum = tenureN === 0 && !isOpen;
   const emi = previewEmi(form.principal, form.annualInterestRate, tenureN);
+  const monthlyInt = Math.round((Number(form.principal) || 0) * rateN / 1200);
   const totalPay = emi * tenureN;
   const isStaffGiven = form.counterKind === 'staff' && form.direction === 'given';
   const needsBank = form.disburse && (form.mode === 'bank' || form.mode === 'upi');
@@ -173,12 +178,14 @@ const LoanModal = ({ open, loan, onClose, onSaved, employees, parties, bankAccou
           <div><label className={label}>Notes</label><textarea rows={2} className={input} value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
 
           <div className="flex items-center justify-between rounded-lg bg-primary-50 px-4 py-3">
-            <span className="text-sm text-primary-700 font-medium">{isLumpSum ? 'Total (lump sum)' : 'Monthly EMI'}</span>
-            <span className="text-lg font-bold text-primary-700">{rs(emi)}</span>
+            <span className="text-sm text-primary-700 font-medium">{isOpen ? 'Interest / month' : (isLumpSum ? 'Total (lump sum)' : 'Monthly EMI')}</span>
+            <span className="text-lg font-bold text-primary-700">{rs(isOpen ? monthlyInt : emi)}</span>
           </div>
-          {isLumpSum
-            ? (emi > 0 && <p className="text-xs text-gray-400 -mt-2">One-time repayment — no EMI schedule. Set a tenure above 0 to split into monthly EMIs.</p>)
-            : (emi > 0 && <p className="text-xs text-gray-400 -mt-2">Total payable over {form.tenureMonths || 0} months ≈ {rs(totalPay)} (reducing balance).</p>)}
+          {isOpen
+            ? <p className="text-xs text-gray-400 -mt-2">Open interest loan — interest at {rateN}%/yr accrues on the outstanding principal ({rs(monthlyInt)}/month to start). Record interest and repay principal any time; no fixed EMI schedule.</p>
+            : isLumpSum
+              ? (emi > 0 && <p className="text-xs text-gray-400 -mt-2">One-time repayment — no EMI schedule. Add an interest rate for an open interest loan, or a tenure for monthly EMIs.</p>)
+              : (emi > 0 && <p className="text-xs text-gray-400 -mt-2">Total payable over {form.tenureMonths || 0} months ≈ {rs(totalPay)} (reducing balance).</p>)}
 
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
@@ -287,9 +294,9 @@ const LoansPage = () => {
                     <td className="py-3 px-4"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.direction === 'given' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{l.direction === 'given' ? 'GIVEN' : 'TAKEN'}</span></td>
                     <td className="py-3 px-4 text-right tabular-nums">{rs(l.principal)}</td>
                     <td className="py-3 px-4 text-right tabular-nums text-gray-500">{l.annualInterestRate || 0}%</td>
-                    <td className="py-3 px-4 text-right tabular-nums">{rs(l.emiAmount)}</td>
+                    <td className="py-3 px-4 text-right tabular-nums">{l.isOpen ? <span>{rs(l.monthlyInterest)}<span className="text-[10px] text-gray-400"> /mo</span></span> : rs(l.emiAmount)}</td>
                     <td className="py-3 px-4 text-right tabular-nums font-medium">{rs(l.outstanding)}</td>
-                    <td className="py-3 px-4 text-center text-xs text-gray-500">{l.paidInstallments}/{l.totalInstallments}</td>
+                    <td className="py-3 px-4 text-center text-xs text-gray-500">{l.isOpen ? <span className="text-purple-600 font-medium">Open</span> : `${l.paidInstallments}/${l.totalInstallments}`}</td>
                     <td className="py-3 px-4"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_CLS[l.status] || ''}`}>{(l.status || '').toUpperCase()}</span></td>
                     <td className="py-3 px-4 text-right whitespace-nowrap">
                       {canEdit && l.paidInstallments === 0 && (
