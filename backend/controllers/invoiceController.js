@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const calculateFilePrice = require('../utils/calculateFilePrice');
+const { loadServiceClaimTypesMap, attachClaimTypes } = require('../utils/billingServiceClaimTypes');
 const calculateInvoiceTotals = require('../utils/calculateInvoiceTotals');
 const { reserveNextInvoiceNumber } = require('../utils/invoiceSequence');
 const renderInvoicePdf = require('../utils/renderInvoicePdf');
@@ -234,9 +235,20 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   // claim. `services` here is the BILLING-TARGET's own active services and
   // still drives the fixed_monthly / fixed_onetime section + prior balance.
   const activeOf = (list) => (list || []).filter((s) => s.isActive);
+  // Claim-type applicability lives on the BillingServiceName master (keyed by
+  // name), not on the per-hospital service row. Attach it so calculateFilePrice
+  // can skip services that don't apply to a claim's type — matching how the
+  // claims report / claim detail price a claim. Without this a cashless claim
+  // also picks up REIMBURSEMENT/GRIEVANCE services and the file price inflates
+  // (e.g. ₹3,500 → ₹41,628). Direct-patient services carry no claimTypes, so
+  // their pricing is unaffected.
+  const svcClaimTypeMap = isDirectPatient
+    ? {}
+    : (bulkContext?.svcClaimTypeMap || await loadServiceClaimTypesMap());
+  const withClaimTypes = (list) => attachClaimTypes(activeOf(list), svcClaimTypeMap);
   const services = isDirectPatient
     ? directPatientServices.filter((s) => s.isActive)
-    : activeOf(hospital.billingServices);
+    : withClaimTypes(hospital.billingServices);
 
   // Active services + display name keyed by hospital id, across the billing
   // target and every branch that can contribute a claim.
@@ -246,7 +258,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     servicesByHospital.set(hospitalId, services);
     hospitalNameById.set(hospitalId, hospital.name);
     for (const b of branchHospitals) {
-      servicesByHospital.set(b.id, activeOf(b.billingServices));
+      servicesByHospital.set(b.id, withClaimTypes(b.billingServices));
       hospitalNameById.set(b.id, b.name);
     }
   }
@@ -299,10 +311,16 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       const cUseDefault = cSvc.length === 0;
       const amount = c.filePriceOverridden
         ? c.filePrice
-        : calculateFilePrice(cSvc, c.hospitalFinalBill, c.finalApprovalAmount);
-      // First slab/percentage service of the claim's own hospital drives the
-      // line's billing-service metadata (most setups have one).
-      const svc = cSvc.find((s) => s.billingType === 'per_claim_slab' || s.billingType === 'percentage');
+        : calculateFilePrice(cSvc, c.hospitalFinalBill, c.finalApprovalAmount, c.claimType);
+      // The slab/percentage service that drives the line's billing-service
+      // metadata. Prefer one that actually applies to this claim's type (empty
+      // claimTypes = universal), so the stored billingServiceNameId matches the
+      // service that priced the amount; fall back to the first slab/percentage
+      // service otherwise.
+      const isSlabOrPct = (s) => s.billingType === 'per_claim_slab' || s.billingType === 'percentage';
+      const appliesToClaim = (s) =>
+        !c.claimType || !(Array.isArray(s.claimTypes) && s.claimTypes.length) || s.claimTypes.includes(c.claimType);
+      const svc = cSvc.find((s) => isSlabOrPct(s) && appliesToClaim(s)) || cSvc.find(isSlabOrPct);
       const fallback = cUseDefault ? pickFallbackForClaim(c.claimType) : null;
       const prefix = cUseDefault
         ? (fallback?.name || 'TPA DESK SERVICE - CASHLESS')
@@ -636,7 +654,7 @@ exports.previewBulk = async (req, res) => {
       .map((g) => ({ hospitalId: g.hospitalId, month: g.month, isDirectPatient: false }));
     const allDirectClaimIds = [...directGroups.values()].flatMap((g) => g.claimIds);
 
-    const [preloadedTpl, hospitalRows, priorOpenRows, existingInvoiceRows, existingDirectLines] = await Promise.all([
+    const [preloadedTpl, hospitalRows, priorOpenRows, existingInvoiceRows, existingDirectLines, svcClaimTypeMap] = await Promise.all([
       getInvoiceTemplate(),
       allHospitalIds.length
         ? prisma.hospital.findMany({
@@ -671,6 +689,10 @@ exports.previewBulk = async (req, res) => {
             },
           })
         : Promise.resolve([]),
+      // Claim-type applicability per service name — loaded once and shared with
+      // every group's buildInvoiceLines so per-claim file pricing filters
+      // services by claim type without an extra query per group.
+      loadServiceClaimTypesMap(),
     ]);
 
     const hospitalsById = new Map(hospitalRows.map((h) => [h.id, h]));
@@ -706,6 +728,7 @@ exports.previewBulk = async (req, res) => {
       hospitals: hospitalsById,
       priorOpen: priorOpenByStream,
       claimsById,
+      svcClaimTypeMap,
       tdsCache: new Map(),
     };
 
