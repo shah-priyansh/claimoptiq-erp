@@ -94,6 +94,11 @@ export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, 
     const validBases = ['hospital_final_bill', 'final_approval'];
     if (!validBases.includes(svc.calculationBasis)) continue;
     const basis = svc.calculationBasis === 'hospital_final_bill' ? hospitalFinalBill : finalApprovalAmount;
+    // Skip when the basis is unset / zero, matching backend calculateFilePrice.
+    // Otherwise a 0 basis matches the first `rangeStart: 0` slab and auto-fills
+    // a price (e.g. ₹1,000) for rejected / no-bill claims. Operator overrides
+    // manually in that case.
+    if (!basis || basis <= 0) continue;
     if (svc.billingType === 'per_claim_slab') {
       const mode = svc.slabMode || 'slab_wise';
       const slabs = [...(svc.slabs || [])].sort((a, b) => a.rangeStart - b.rangeStart);
