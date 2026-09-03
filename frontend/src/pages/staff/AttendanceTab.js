@@ -245,6 +245,10 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  // Employment window (date-only) so days before joining / after last day are
+  // never flagged absent — the person simply wasn't employed then.
+  const joinDs = employee.joiningDate ? employee.joiningDate.slice(0, 10) : null;
+  const lastDs = employee.lastDate ? employee.lastDate.slice(0, 10) : null;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -274,12 +278,18 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
             {!loading && rows.map((row, idx) => {
               const isToday = row.ds === todayStr;
               const isFuture = row.date > today;
+              // A past working day (not Sun/holiday) with no clock-in, inside the
+              // employment window, is an absence — docks basic and is flagged red.
+              const inWindow = (!joinDs || row.ds >= joinDs) && (!lastDs || row.ds <= lastDs);
+              const isAbsent = row.ds < todayStr && inWindow && !row.isSunday && !row.isHoliday && !row.inTime;
               const bg = row.isSunday
                 ? 'bg-purple-50 hover:bg-purple-100/60'
                 : row.isHoliday
                 ? 'bg-orange-50 hover:bg-orange-100/60'
                 : isToday
                 ? 'bg-blue-50 hover:bg-blue-100/60'
+                : isAbsent
+                ? 'bg-red-50 hover:bg-red-100/60'
                 : 'hover:bg-gray-50';
               const badge = row.otType !== 'none' && row.inTime ? OT_BADGE[row.otType] : null;
 
@@ -290,6 +300,7 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
                     {row.date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                     {isToday && <span className="ml-1.5 text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-semibold">TODAY</span>}
                     {row.isHoliday && <div className="text-[10px] text-orange-600 font-medium mt-0.5">{row.holidayName}</div>}
+                    {isAbsent && <div className="text-[10px] text-red-600 font-semibold mt-0.5">Absent</div>}
                     {row.status === 'pending' && <div className="text-[10px] text-amber-600 font-semibold mt-0.5">⏳ Pending approval</div>}
                     {row.status === 'rejected' && <div className="text-[10px] text-red-500 font-semibold mt-0.5">✕ Rejected</div>}
                   </td>
@@ -359,6 +370,7 @@ const MonthGrid = ({ employee, month, year, holidays, fetchFn, saveFn, deleteFn 
       <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 flex items-center gap-4 text-xs text-gray-400">
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-purple-100 border border-purple-200 inline-block" /> Sunday</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 border border-orange-200 inline-block" /> Holiday</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-100 border border-red-200 inline-block" /> Absent</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-200 inline-block" /> Today</span>
         <span className="flex items-center gap-1.5"><div className="w-2 h-2 bg-yellow-400 rounded-full" /> Unsaved</span>
         <span className="flex items-center gap-1.5"><HiOutlineCheck className="w-3.5 h-3.5 text-green-500" /> Saved</span>

@@ -42,7 +42,10 @@ const DEFAULT_OT_MULTS = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayM
 
 const computeBreakdown = (r, otMults = DEFAULT_OT_MULTS) => {
   const basicPerDay = r.basicSalary / r.calendarDays;
-  const earnedBasic = basicPerDay * r.presentDays;
+  // Basic is paid on PAID days (Sundays/holidays always paid; only working-day
+  // absences dock). Fall back to presentDays for legacy records without paidDays.
+  const paidDays = r.paidDays != null ? r.paidDays : r.presentDays;
+  const earnedBasic = basicPerDay * paidDays;
   const hourlyRate = r.basicSalary / (r.calendarDays * r.employee.standardHours);
   const dailyOtAmt = (r.dailyOtMinutes / 60) * hourlyRate * otMults.dailyMultiplier;
   const sundayOtAmt = (r.sundayOtMinutes / 60) * hourlyRate * otMults.sundayMultiplier;
@@ -186,8 +189,18 @@ const SalaryRow = ({ r, canEdit, onUpdate, onFinalize, otMults }) => {
         </td>
         <td className="py-3 px-4 align-middle font-medium text-gray-800">{r.employee.name}</td>
         <td className="py-3 px-4 align-middle">
-          <div className="text-gray-700 font-medium tabular-nums">{r.presentDays}<span className="text-gray-400">/{r.calendarDays}</span></div>
+          <div className="text-gray-700 font-medium tabular-nums" title="Paid days (Sundays & holidays always paid) / calendar days">
+            {r.paidDays != null ? r.paidDays : r.presentDays}<span className="text-gray-400">/{r.calendarDays}</span>
+          </div>
           <div className="flex flex-wrap gap-1 mt-1">
+            {r.absentDays > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-red-100 border-red-300 text-red-800"
+                title={`${r.absentDays} working day(s) absent — basic docked`}
+              >
+                {r.absentDays} Absent
+              </span>
+            )}
             <span
               className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
                 r.sundayPresentDays > 0
@@ -356,13 +369,15 @@ const AdminSalaryView = ({ canEdit }) => {
   const exportExcel = () => {
     const monthLabel = `${months[selMonth - 1]} ${selYear}`;
     const wb = XLSX.utils.book_new();
-    const headers = ['EMP No', 'Name', 'Basic Salary', 'Calendar Days', 'Sundays', 'Present Days', 'Earned Basic',
+    const headers = ['EMP No', 'Name', 'Basic Salary', 'Calendar Days', 'Sundays', 'Present Days', 'Paid Days', 'Absent Days', 'Earned Basic',
       'Fixed Allow', 'Extra Allow', 'Daily OT Min', 'Sunday OT Min', 'Holiday OT Min', 'OT Amount', 'Total Salary', 'Status'];
 
     const r2 = (v) => Math.round(v * 100) / 100;
     const rows = records.map(r => {
       const bd = computeBreakdown(r, otMults);
+      const paidDays = r.paidDays != null ? r.paidDays : r.presentDays;
       return [r.employee.empNumber, r.employee.name, r2(r.basicSalary), r.calendarDays, sundaysInRecord(r), r.presentDays,
+        paidDays, r.absentDays || 0,
         r2(bd.earnedBasic), r2(bd.fixedAllow), r2(bd.extraAllow), r.dailyOtMinutes, r.sundayOtMinutes, r.holidayOtMinutes,
         r2(bd.totalOt), r2(r.totalAmount), r.isFinalized ? 'Finalized' : 'Draft'];
     });
@@ -381,7 +396,7 @@ const AdminSalaryView = ({ canEdit }) => {
       return acc;
     }, { earnedBasic: 0, fixedAllow: 0, extraAllow: 0, dailyOtMin: 0, sundayOtMin: 0, holidayOtMin: 0, totalOt: 0, totalAmount: 0 });
 
-    const totalsRow = ['', 'TOTAL', '', '', '', '',
+    const totalsRow = ['', 'TOTAL', '', '', '', '', '', '',
       Math.round(tot.earnedBasic * 100) / 100,
       Math.round(tot.fixedAllow * 100) / 100,
       Math.round(tot.extraAllow * 100) / 100,
@@ -418,7 +433,7 @@ const AdminSalaryView = ({ canEdit }) => {
       head: [['EMP', 'Name', 'Days', 'Sundays', 'Earned Basic', 'Allowances', 'Daily OT', 'Sun OT', 'Hol OT', 'OT Amt', 'Total', 'Status']],
       body: records.map(r => {
         const bd = computeBreakdown(r, otMults);
-        return [r.employee.empNumber, r.employee.name, `${r.presentDays}/${r.calendarDays}`,
+        return [r.employee.empNumber, r.employee.name, `${r.paidDays != null ? r.paidDays : r.presentDays}/${r.calendarDays}`,
           sundaysInRecord(r),
           formatCurrency(bd.earnedBasic), formatCurrency(bd.fixedAllow + bd.extraAllow),
           fmtMin(r.dailyOtMinutes), fmtMin(r.sundayOtMinutes), fmtMin(r.holidayOtMinutes),
@@ -506,8 +521,9 @@ const AdminSalaryView = ({ canEdit }) => {
           <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 text-xs text-blue-900 flex items-start gap-2">
             <HiOutlineInformationCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-600" />
             <div>
-              OT is auto-classified by date: <span className="font-semibold">Sundays</span> and <span className="font-semibold">holidays</span> count every worked minute as OT;
-              other weekdays count only hours beyond the standard duty. After changing holidays or OT multipliers, click
+              <span className="font-semibold">Sundays</span> and <span className="font-semibold">holidays</span> are always paid — only working-day
+              absences (a weekday with no attendance) reduce the basic. Worked minutes on Sundays/holidays count fully as OT;
+              other weekdays count only hours beyond the standard duty. After changing attendance, holidays or OT multipliers, click
               <span className="font-semibold"> "Compute Salary"</span> to refresh draft records.
             </div>
           </div>
@@ -559,8 +575,15 @@ const MySalaryRow = ({ r, otMults }) => {
           </div>
         </td>
         <td className="py-3 px-4 text-gray-600">
-          <div className="tabular-nums">{r.presentDays}<span className="text-gray-400">/{r.calendarDays}</span></div>
+          <div className="tabular-nums" title="Paid days (Sundays & holidays always paid) / calendar days">
+            {r.paidDays != null ? r.paidDays : r.presentDays}<span className="text-gray-400">/{r.calendarDays}</span>
+          </div>
           <div className="flex flex-wrap gap-1 mt-1">
+            {r.absentDays > 0 && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-red-100 border-red-300 text-red-800" title={`${r.absentDays} working day(s) absent`}>
+                {r.absentDays} Absent
+              </span>
+            )}
             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.sundayPresentDays > 0 ? 'bg-purple-100 border-purple-300 text-purple-800' : 'bg-purple-50 border-purple-200 text-purple-600'}`}>
               {r.sundayPresentDays > 0 ? `${r.sundayPresentDays}/` : ''}{sundaysInRecord(r)} Sun
             </span>

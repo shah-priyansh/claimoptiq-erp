@@ -8,10 +8,47 @@ const isoDateUTC = (d) => {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 };
 
+// Walk every day of the month and classify it for BASIC pay:
+//   • Sunday / holiday  → always paid, never absent (worked → OT, handled elsewhere)
+//   • working day, present (approved attendance with out-time) → paid
+//   • working day, no attendance → absent (the only thing that docks basic)
+// Days outside the employment window (before joining / after last day) are
+// neither paid nor absent — the person simply wasn't employed then.
+const computeDayCounts = (employee, attendance, calendarDays, monthStart, holidaySet) => {
+  const joinMs = employee.joiningDate ? new Date(employee.joiningDate).getTime() : null;
+  const lastMs = employee.lastDate ? new Date(employee.lastDate).getTime() : null;
+  const inWindow = (d) => {
+    const t = new Date(d).getTime();
+    if (joinMs !== null && t < joinMs) return false;
+    if (lastMs !== null && t > lastMs) return false;
+    return true;
+  };
+  const presentSet = new Set(
+    attendance
+      .filter(a => a.outTime && a.status === 'approved' && inWindow(a.date))
+      .map(a => isoDateUTC(a.date))
+  );
+  const y = monthStart.getUTCFullYear();
+  const mo = monthStart.getUTCMonth();
+  let paidDays = 0, absentDays = 0;
+  for (let d = 1; d <= calendarDays; d++) {
+    const dayDate = new Date(Date.UTC(y, mo, d));
+    if (!inWindow(dayDate)) continue;
+    const iso = isoDateUTC(dayDate);
+    const isSun = dayDate.getUTCDay() === 0;
+    const isHol = holidaySet.has(iso);
+    if (isSun || isHol) { paidDays += 1; continue; }
+    if (presentSet.has(iso)) paidDays += 1;
+    else absentDays += 1;
+  }
+  return { paidDays, absentDays, presentDays: presentSet.size };
+};
+
 const computeSalary = (
   employee,
   attendance,
   calendarDays,
+  monthStart,
   extraAllowances = [],
   otMults = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayMultiplier: 2.0 },
   holidaySet = new Set(),
@@ -49,9 +86,13 @@ const computeSalary = (
   const sundayOtMinutes  = classified.filter(a => a._otType === 'sunday').reduce((s, a) => s + a._otMinutes, 0);
   const holidayOtMinutes = classified.filter(a => a._otType === 'holiday').reduce((s, a) => s + a._otMinutes, 0);
 
+  // Basic pay is driven by PAID days, not present days: Sundays and holidays
+  // are always paid, and only genuine working-day absences dock the basic.
+  const { paidDays, absentDays } = computeDayCounts(employee, attendance, calendarDays, monthStart, holidaySet);
+
   const basicSalary = employee.basicSalary;
   const perDayBasic = basicSalary / calendarDays;
-  const earnedBasic = perDayBasic * presentDays;
+  const earnedBasic = perDayBasic * paidDays;
 
   const hourlyRate = basicSalary / (calendarDays * employee.standardHours);
   const dailyOtAmt = (dailyOtMinutes / 60) * hourlyRate * otMults.dailyMultiplier;
@@ -66,6 +107,8 @@ const computeSalary = (
 
   return {
     presentDays,
+    paidDays,
+    absentDays,
     dailyOtMinutes,
     sundayOtMinutes,
     holidayOtMinutes,
@@ -147,7 +190,7 @@ exports.computeSalary = async (req, res) => {
 
       const attendance = attendanceByEmp[emp.id] || [];
       const extraAllowances = existing?.extraAllowances || [];
-      const calc = computeSalary(emp, attendance, calDays, extraAllowances, otMults, holidaySet);
+      const calc = computeSalary(emp, attendance, calDays, monthStart, extraAllowances, otMults, holidaySet);
 
       const record = await prisma.salaryRecord.upsert({
         where: { employeeId_month: { employeeId: emp.id, month: monthStart } },
@@ -213,7 +256,8 @@ exports.getSalaryRecords = async (req, res) => {
         if (d.getUTCDay() === 0) sundayPresentDays += 1;
         else if (holidaySet.has(isoDateUTC(a.date))) holidayPresentDays += 1;
       }
-      return { ...r, sundayPresentDays, holidayPresentDays, holidayCount: holidays.length };
+      const { paidDays, absentDays } = computeDayCounts(r.employee, attendance, r.calendarDays, mStart, holidaySet);
+      return { ...r, sundayPresentDays, holidayPresentDays, holidayCount: holidays.length, paidDays, absentDays };
     }));
 
     res.json(withCounts);
@@ -253,7 +297,8 @@ exports.getMySalary = async (req, res) => {
         if (d.getUTCDay() === 0) sundayPresentDays += 1;
         else if (holidaySet.has(isoDateUTC(a.date))) holidayPresentDays += 1;
       }
-      return { ...r, sundayPresentDays, holidayPresentDays, holidayCount: holidays.length };
+      const { paidDays, absentDays } = computeDayCounts(r.employee, attendance, r.calendarDays, mStart, holidaySet);
+      return { ...r, sundayPresentDays, holidayPresentDays, holidayCount: holidays.length, paidDays, absentDays };
     }));
 
     res.json(withCounts);
@@ -292,7 +337,7 @@ exports.updateSalaryRecord = async (req, res) => {
         }),
       ]);
       const holidaySet = new Set(holidays.map(h => isoDateUTC(h.date)));
-      const calc = computeSalary(record.employee, attendance, record.calendarDays, extraAllowances, otMults, holidaySet);
+      const calc = computeSalary(record.employee, attendance, record.calendarDays, rMonthStart, extraAllowances, otMults, holidaySet);
       data.totalAmount = calc.totalAmount;
     }
     if (isFinalized !== undefined) data.isFinalized = isFinalized;
@@ -307,3 +352,6 @@ exports.updateSalaryRecord = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+// Exported for unit testing of the day-classification logic.
+exports._computeDayCounts = computeDayCounts;
