@@ -8,13 +8,23 @@ const isoDateUTC = (d) => {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 };
 
+// Current calendar date in IST (attendance dates are keyed to the IST day),
+// as a YYYY-MM-DD string for date-only comparisons.
+const istTodayIso = () => {
+  const d = new Date(Date.now() + 330 * 60 * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+};
+
 // Walk every day of the month and classify it for BASIC pay:
-//   • Sunday / holiday  → always paid, never absent (worked → OT, handled elsewhere)
-//   • working day, present (approved attendance with out-time) → paid
-//   • working day, no attendance → absent (the only thing that docks basic)
+//   • Sunday / holiday                       → always paid, never absent (worked → OT)
+//   • working day, present (approved attend.) → paid
+//   • working day, no attendance, in the PAST → absent (the only thing that docks basic)
+//   • working day, no attendance, today/future→ paid (not yet an absence — a day that
+//                                                hasn't happened can't be a leave, so a
+//                                                fully-attended month stays full)
 // Days outside the employment window (before joining / after last day) are
 // neither paid nor absent — the person simply wasn't employed then.
-const computeDayCounts = (employee, attendance, calendarDays, monthStart, holidaySet) => {
+const computeDayCounts = (employee, attendance, calendarDays, monthStart, holidaySet, todayIso = istTodayIso()) => {
   const joinMs = employee.joiningDate ? new Date(employee.joiningDate).getTime() : null;
   const lastMs = employee.lastDate ? new Date(employee.lastDate).getTime() : null;
   const inWindow = (d) => {
@@ -38,8 +48,11 @@ const computeDayCounts = (employee, attendance, calendarDays, monthStart, holida
     const isSun = dayDate.getUTCDay() === 0;
     const isHol = holidaySet.has(iso);
     if (isSun || isHol) { paidDays += 1; continue; }
-    if (presentSet.has(iso)) paidDays += 1;
-    else absentDays += 1;
+    if (presentSet.has(iso)) { paidDays += 1; continue; }
+    // working day with no attendance: only a day that has already passed is a
+    // genuine absence; today and future days are assumed paid until they lapse.
+    if (iso < todayIso) absentDays += 1;
+    else paidDays += 1;
   }
   return { paidDays, absentDays, presentDays: presentSet.size };
 };
