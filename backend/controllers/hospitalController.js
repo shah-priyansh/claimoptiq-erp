@@ -62,12 +62,24 @@ const validateHospitalFields = (body) => {
 };
 
 const buildHospitalData = async (body) => {
-  const referenceId =
+  let referenceId =
     body.referenceId === '' || body.referenceId === null
       ? null
       : body.referenceId === undefined
         ? undefined
         : body.referenceId;
+  // When a caller (e.g. the hospital CSV import) supplies only free-text
+  // `referenceBy` and no explicit referenceId, resolve the text to the Reference
+  // master by name and link the FK. Without this the referenceId stays null and
+  // the reference-commission engine skips the hospital entirely. Text that
+  // matches no master leaves the FK null (free-text only, as before).
+  if (referenceId === undefined && typeof body.referenceBy === 'string' && body.referenceBy.trim()) {
+    const match = await prisma.reference.findFirst({
+      where: { name: { equals: body.referenceBy.trim(), mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (match) referenceId = match.id;
+  }
   let referenceByFromRef;
   if (referenceId) {
     const ref = await prisma.reference.findUnique({ where: { id: referenceId }, select: { name: true } });
