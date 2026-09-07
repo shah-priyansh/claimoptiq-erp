@@ -1872,10 +1872,13 @@ const ClaimList = () => {
         <div className="sticker-print-portal fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
           <style>{`
             @media print {
-              /* margin:0 is what gets Chrome/Edge to drop the page header (date,
-                 title) and footer (URL, page numbers). Inner padding on the
-                 print container restores the visible whitespace. */
-              @page { size: A4 portrait; margin: 0; }
+              /* Real @page margins so the whitespace repeats on EVERY printed
+                 page — a container padding only pads page 1, which left stickers
+                 flowing onto page 2 flush against the paper's top edge. Trade-off:
+                 with a non-zero @page margin Chrome may print its own header/footer
+                 (date/URL/page number) IF the print dialog's "Headers and footers"
+                 box is ticked; that's a one-time toggle the user controls. */
+              @page { size: A4 portrait; margin: 10mm; }
               html, body {
                 margin: 0 !important;
                 padding: 0 !important;
@@ -1922,14 +1925,24 @@ const ClaimList = () => {
               #courier-stickers-print {
                 display: block !important;
                 width: 100% !important;
-                /* No padding-bottom — trailing 10mm was spilling onto a fresh
-                   blank page when the last sticker landed near the page edge. */
-                padding: 10mm 10mm 0 10mm !important;
+                /* On screen this is a bounded scroll box (flex-1 inside
+                   max-h-[90vh] + overflow-y-auto). If it stays a bounded /
+                   overflow scroll container in print, Chrome's preview carries
+                   that layout over and CLIPS every sticker below the scroll
+                   viewport — the 2nd sticker onward got cut off. Force it back
+                   to an auto-height, non-clipping block so all cards paginate
+                   by content. */
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+                flex: none !important;
+                /* No padding — all page margins come from @page so the whitespace
+                   repeats on continuation pages, not just page 1. */
+                padding: 0 !important;
                 background: white !important;
               }
-              /* Block layout (not flex/gap) so Chrome can pack as many cards on
-                 one page as fit. Flex column + gap was kicking each card to its
-                 own page. margin-bottom paginates cleanly. */
+              /* Block layout (not flex/gap) so Chrome packs as many cards on one
+                 page as fit. Flex column + gap kicked each card to its own page. */
               #courier-stickers-print .sticker-stack {
                 display: block !important;
                 gap: 0 !important;
@@ -1943,6 +1956,10 @@ const ClaimList = () => {
                 margin: 0 0 6mm 0 !important;
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
+                /* Card carries overflow-hidden on screen; reset it so a tall
+                   sticker (many claim rows) that must fragment across pages
+                   isn't clipped at the page edge. */
+                overflow: visible !important;
                 box-shadow: none !important;
                 border: 2px solid #111 !important;
                 border-radius: 4px !important;

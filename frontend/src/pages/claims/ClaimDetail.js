@@ -2020,11 +2020,19 @@ const ClaimDetail = () => {
                   left: 0 !important; top: 0 !important;
                   width: 100% !important;
                   padding: 0 !important;
+                  /* On screen this is a bounded scroll box (flex-1 in
+                     max-h-[90vh] + overflow-y-auto). Reset it so print never
+                     clips a tall sticker to the scroll viewport. */
+                  height: auto !important;
+                  max-height: none !important;
+                  overflow: visible !important;
+                  flex: none !important;
                   background: white !important;
                 }
                 #courier-sticker-print .sticker-card {
                   width: 100% !important;
                   box-sizing: border-box !important;
+                  overflow: visible !important;
                   box-shadow: none !important;
                   border: 2px solid #111 !important;
                   border-radius: 4px !important;
