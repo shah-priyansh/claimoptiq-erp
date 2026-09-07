@@ -23,6 +23,8 @@ const NativeSelect = ({ value, onChange, children }) => (
 );
 
 const fmtMin = (m) => { const h = Math.floor(m / 60); const mn = m % 60; return `${h}h ${String(mn).padStart(2, '0')}m`; };
+// Signed h/m, safe for negatives (net balance can go either way).
+const fmtSigned = (m) => { const a = Math.abs(m); return `${m < 0 ? '−' : '+'}${Math.floor(a / 60)}h ${String(a % 60).padStart(2, '0')}m`; };
 
 const countSundays = (year, monthIdx0) => {
   const days = new Date(year, monthIdx0 + 1, 0).getDate();
@@ -116,6 +118,41 @@ const SalaryDetailBody = ({ r, otMults }) => {
           </div>
         </div>
       </div>
+
+      {/* Hours summary — Gross OT vs weekday short hours, and the net balance.
+          Tracking only: pay is on Gross OT above; short hours are shown so the
+          admin can decide whether to offset them (Sunday/holiday OT often pays a
+          higher rate than a weekday shortfall would claw back). */}
+      {(() => {
+        const grossOt = (r.dailyOtMinutes || 0) + (r.sundayOtMinutes || 0) + (r.holidayOtMinutes || 0);
+        const shortMin = r.shortMinutes || 0;
+        const net = grossOt - shortMin;
+        return (
+          <div className="bg-white border border-gray-200 rounded-lg p-3 mt-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Hours Summary</p>
+              <span className="text-[10px] text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full font-medium">tracking · not deducted from pay</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-md px-3 py-2 border bg-green-50 border-green-200">
+                <div className="text-[11px] font-semibold text-gray-700">Gross OT</div>
+                <div className="text-sm font-bold text-green-700 mt-0.5">{fmtMin(grossOt)}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">Daily + Sunday + Holiday</div>
+              </div>
+              <div className={`rounded-md px-3 py-2 border ${shortMin > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                <div className="text-[11px] font-semibold text-gray-700">Short Hours</div>
+                <div className={`text-sm font-bold mt-0.5 ${shortMin > 0 ? 'text-red-600' : 'text-gray-700'}`}>{shortMin > 0 ? `−${fmtMin(shortMin)}` : fmtMin(0)}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">Weekday shortfall vs {r.employee.standardHours}h</div>
+              </div>
+              <div className="rounded-md px-3 py-2 border bg-gray-50 border-gray-300">
+                <div className="text-[11px] font-semibold text-gray-700">Net Balance</div>
+                <div className={`text-sm font-bold mt-0.5 ${net < 0 ? 'text-red-600' : 'text-green-700'}`}>{fmtSigned(net)}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">Gross OT − Short Hours</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 };

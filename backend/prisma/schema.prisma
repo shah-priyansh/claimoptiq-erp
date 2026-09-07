@@ -910,6 +910,7 @@ model SalaryRecord {
   dailyOtMinutes   Int      @default(0) @map("daily_ot_minutes")
   sundayOtMinutes  Int      @default(0) @map("sunday_ot_minutes")
   holidayOtMinutes Int      @default(0) @map("holiday_ot_minutes")
+  shortMinutes     Int      @default(0) @map("short_minutes")
   extraAllowances  Json     @default("[]") @map("extra_allowances")
   totalAmount      Float    @default(0) @map("total_amount")
   isFinalized      Boolean  @default(false) @map("is_finalized")

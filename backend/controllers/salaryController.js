@@ -87,17 +87,30 @@ const computeSalary = (
     const isSun = new Date(a.date).getUTCDay() === 0;
     const isHol = holidaySet.has(isoDateUTC(a.date));
     const total = a.totalMinutes || 0;
-    let type, mins;
+    let type, mins, short = 0;
     if (isSun)      { type = 'sunday';  mins = total; }
     else if (isHol) { type = 'holiday'; mins = total; }
-    else            { type = 'daily';   mins = dailyOtEnabled ? Math.max(0, total - stdMin) : 0; }
-    return { ...a, _otType: type, _otMinutes: mins };
+    else {
+      type = 'daily';
+      mins = dailyOtEnabled ? Math.max(0, total - stdMin) : 0;
+      // Short hours: how far a worked weekday fell below the standard duty.
+      // Tracked for every daily present day regardless of the daily-OT toggle —
+      // it's an informational figure, never auto-deducted from pay.
+      short = Math.max(0, stdMin - total);
+    }
+    return { ...a, _otType: type, _otMinutes: mins, _shortMinutes: short };
   });
 
   const presentDays = classified.length;
   const dailyOtMinutes   = classified.filter(a => a._otType === 'daily').reduce((s, a) => s + a._otMinutes, 0);
   const sundayOtMinutes  = classified.filter(a => a._otType === 'sunday').reduce((s, a) => s + a._otMinutes, 0);
   const holidayOtMinutes = classified.filter(a => a._otType === 'holiday').reduce((s, a) => s + a._otMinutes, 0);
+  // Total shortfall across worked weekdays. Kept separate from OT pay — the admin
+  // decides whether/how to offset it, since Sunday/holiday OT often pays a higher
+  // rate than a weekday shortfall would claw back.
+  const shortMinutes      = classified.reduce((s, a) => s + a._shortMinutes, 0);
+  const grossOtMinutes    = dailyOtMinutes + sundayOtMinutes + holidayOtMinutes;
+  const netBalanceMinutes = grossOtMinutes - shortMinutes;
 
   // Basic pay is driven by PAID days, not present days: Sundays and holidays
   // are always paid, and only genuine working-day absences dock the basic.
@@ -125,6 +138,9 @@ const computeSalary = (
     dailyOtMinutes,
     sundayOtMinutes,
     holidayOtMinutes,
+    shortMinutes,
+    grossOtMinutes,
+    netBalanceMinutes,
     totalAmount: Math.round(totalAmount * 100) / 100,
     breakdown: {
       earnedBasic: Math.round(earnedBasic * 100) / 100,
@@ -211,13 +227,15 @@ exports.computeSalary = async (req, res) => {
           basicSalary: emp.basicSalary, calendarDays: calDays,
           presentDays: calc.presentDays, dailyOtMinutes: calc.dailyOtMinutes,
           sundayOtMinutes: calc.sundayOtMinutes, holidayOtMinutes: calc.holidayOtMinutes,
+          shortMinutes: calc.shortMinutes,
           totalAmount: calc.totalAmount,
         },
         create: {
           employeeId: emp.id, month: monthStart, basicSalary: emp.basicSalary,
           calendarDays: calDays, presentDays: calc.presentDays,
           dailyOtMinutes: calc.dailyOtMinutes, sundayOtMinutes: calc.sundayOtMinutes,
-          holidayOtMinutes: calc.holidayOtMinutes, extraAllowances: [],
+          holidayOtMinutes: calc.holidayOtMinutes, shortMinutes: calc.shortMinutes,
+          extraAllowances: [],
           totalAmount: calc.totalAmount,
         },
         include: { employee: { include: { allowances: true } } },
@@ -368,3 +386,5 @@ exports.updateSalaryRecord = async (req, res) => {
 
 // Exported for unit testing of the day-classification logic.
 exports._computeDayCounts = computeDayCounts;
+// Exported for unit testing of the OT / short-hours / net-balance calculation.
+exports._computeSalary = computeSalary;
