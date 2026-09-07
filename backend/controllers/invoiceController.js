@@ -26,6 +26,20 @@ const resolvePartyIdByName = async (name) => {
   return (await prisma.party.create({ data: { name: n } })).id;
 };
 
+// Resolve (find-or-create) the Party that represents a hospital, so hospital
+// bills attach to the party ledger. Mirrors the single-create path (exports.create)
+// — without this, bulk-imported hospital invoices kept partyId = null and never
+// showed in the hospital's party ledger/balance. Returns null for a missing id.
+const resolvePartyIdByHospital = async (hospitalId) => {
+  if (!hospitalId) return null;
+  let party = await prisma.party.findUnique({ where: { hospitalId }, select: { id: true } });
+  if (!party) {
+    const h = await prisma.hospital.findUnique({ where: { id: hospitalId }, select: { name: true, phone: true, email: true, address: true, state: true, isActive: true } });
+    if (h) party = await prisma.party.create({ data: { name: h.name, phone: h.phone || '', email: h.email || '', billingAddress: h.address || '', state: h.state || '', hospitalId, isActive: h.isActive } });
+  }
+  return party?.id || null;
+};
+
 // Rejected claims stay billable — the operator wants them on the hospital's
 // invoice with whatever amount they resolve to (often ₹0 when finalApproval is 0)
 // so the bill reflects work done regardless of outcome. Only 'cancelled' claims
@@ -1214,11 +1228,13 @@ exports.bulkImport = async (req, res) => {
         order,
         meta: { imported: true },
       }));
-      // Party bills carry no hospital, so link them to the party ledger by their
-      // free-text name (find-or-create), the same way hospital bills link via
-      // their hospital's party. Without this the invoice's partyId stays null and
-      // the party's ledger/balance never reflects it.
-      const partyId = isParty ? await resolvePartyIdByName(partyName) : null;
+      // Link every imported invoice to the party ledger: party bills by their
+      // free-text name, hospital bills by their hospital's party (find-or-create
+      // both). Without this the invoice's partyId stayed null and the party's
+      // ledger/balance never reflected it.
+      const partyId = isParty
+        ? await resolvePartyIdByName(partyName)
+        : await resolvePartyIdByHospital(hospitalId);
 
       // Fields (re)set on both create and update so the invoice cleanly reflects
       // the imported rows. GST/TDS follow normal-creation logic: added / deducted
