@@ -723,7 +723,10 @@ const Reports = ({ settlement = false }) => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const AVAILABLE = pageWidth - MARGIN_X * 2;
-    const scale = rawSum > AVAILABLE ? AVAILABLE / rawSum : 1;
+    // Fill the page width: shrink when columns overflow, and stretch (capped at
+    // 1.5x) to use the whole page when a narrow column set would otherwise leave
+    // a big empty margin on the right. Mirrors the Claims Export in ClaimList.js.
+    const scale = Math.min(AVAILABLE / rawSum, 1.5);
     const COL_WIDTHS = rawWidths.map(w => w * scale);
     const TABLE_WIDTH = COL_WIDTHS.reduce((s, w) => s + w, 0);
     const columnStyles = COL_WIDTHS.reduce((acc, w, i) => { acc[i] = { cellWidth: w }; return acc; }, {});
