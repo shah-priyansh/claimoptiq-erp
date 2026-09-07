@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI, getPublicStatsAPI } from '../../services/api';
+import { getClaimsAPI, getHospitalsAPI, getClaimStatusesAPI, bulkBillAPI, getReferencesAPI, getPublicStatsAPI, updateSiteSettingsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -63,8 +63,11 @@ const BASE_FIELD_DEFS = [
   { key: 'filePrice',                 label: 'FILE PRICE',             width: 12, pdfW: 22, defaultOn: true,  superAdminOnly: true, isAmount: true, getValue: null },
 ];
 
-const DEFAULT_SELECTED    = BASE_FIELD_DEFS.filter(f => f.defaultOn && !f.superAdminOnly).map(f => f.key);
-const DEFAULT_SELECTED_SA = BASE_FIELD_DEFS.filter(f => f.defaultOn).map(f => f.key);
+// Export columns are stored on the server (report_export_columns) and loaded on
+// mount — no hardcoded default set, so the picker shows exactly what the operator
+// last saved (empty until they choose their columns the first time).
+const parseExportCols = (raw) => String(raw || '').split(',').map(s => s.trim())
+  .filter(k => BASE_FIELD_DEFS.some(f => f.key === k));
 
 // ─── Table column definitions ─────────────────────────────────────────────────
 // Keyed by the same field keys saved by ClaimSummaryColumnsModal so the gear
@@ -216,7 +219,19 @@ const Reports = ({ settlement = false }) => {
   // Field selection modal
   const [fieldModal, setFieldModal] = useState({ open: false, pendingAction: null });
   const [fieldSearch, setFieldSearch] = useState('');
-  const [selectedFields, setSelectedFields] = useState(isSuperAdmin ? DEFAULT_SELECTED_SA : DEFAULT_SELECTED);
+  const [selectedFields, setSelectedFields] = useState([]);
+
+  // Load the operator's saved export columns from the server once on mount.
+  // Loaded separately from the summaryCols effect so re-opening the column
+  // gears doesn't clobber an in-progress selection.
+  useEffect(() => {
+    getPublicStatsAPI()
+      .then(({ data }) => {
+        const saved = parseExportCols(data?.report_export_columns);
+        if (saved.length) setSelectedFields(saved);
+      })
+      .catch(() => { /* leave empty — operator picks their columns */ });
+  }, []);
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -942,6 +957,10 @@ const Reports = ({ settlement = false }) => {
     const fields = activeFieldDefs;
     const action = fieldModal.pendingAction.replace(/-(excel|pdf)$/, `-${format}`);
     setFieldModal({ open: false, pendingAction: null });
+    // Persist the chosen columns to the server so they sync across devices and
+    // survive reloads. Best-effort — never block the export (a user without
+    // settings-edit permission still gets their file).
+    updateSiteSettingsAPI({ report_export_columns: selectedFields.join(',') }).catch(() => {});
     await runExport(action, fields);
   };
 

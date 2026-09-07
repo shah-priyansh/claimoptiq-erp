@@ -45,6 +45,11 @@ const DEFAULTS = {
   // table and the invoice PDF summary can show different fields. Deliberately
   // NOT prefixed `invoice_` so getInvoiceTemplate() never picks it up.
   report_table_columns:           'patientName,hospital,claimType,hospitalFinalBill,finalApprovalAmount,settlementAmount,tds,bankTransferAmount,status',
+  // Comma-separated column keys for the Reports page PDF/Excel EXPORT (the
+  // "Select Export Fields" picker). Server-stored so the operator's choice syncs
+  // across devices. Empty default on purpose — no hardcoded default column set;
+  // the export uses whatever the operator last saved.
+  report_export_columns:          '',
 };
 
 // Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them
