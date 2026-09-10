@@ -34,7 +34,6 @@ const billingItems = [
   { to: '/account-entries',  label: 'Account Entries', icon: HiOutlineLibrary,        module: 'account_entries' },
   { to: '/chart-of-accounts', label: 'Chart of Accounts', icon: HiOutlineCollection,  module: 'chart_of_accounts' },
   { to: '/loans',            label: 'Loans',           icon: HiOutlineCalculator,     module: 'loans' },
-  { to: '/reports',          label: 'Reports',         icon: HiOutlineDocumentReport, module: 'reports' },
 ];
 
 // Sub-nav items grouped under "Masters" (entities the operator manages day to day).
@@ -139,6 +138,7 @@ const SectionLabel = ({ children, collapsed }) => (
 
 const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
   const { canViewModule, canManageModule, user, roleSlug } = useAuth();
+  const location = useLocation();
   const isSuperAdmin = roleSlug === 'super_admin';
 
   // Only show a section heading when at least one item under it is visible —
@@ -146,7 +146,14 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
   // orphaned "WORKSPACE" / "SYSTEM" label with nothing beneath it. Each check
   // mirrors the viewCheck the section's CollapsibleSection uses.
   const hasWorkspace =
-    billingItems.some((it) => canViewModule(it.module)) || canViewModule('staff');
+    billingItems.some((it) => canViewModule(it.module)) || canViewModule('staff') || canViewModule('reports');
+
+  // Reports is a top-level item (below Staff), not part of the Billing group.
+  // The Claims Report opened from the Invoice listing (…/reports/claims?select=1)
+  // belongs to the invoicing flow, so don't highlight Reports there.
+  const invoiceSelectFlow =
+    location.pathname === '/reports/claims' &&
+    new URLSearchParams(location.search).get('select') === '1';
   const hasSystem =
     masterItems.some((it) => canManageModule(it.module)) ||
     accessItems.some((it) => canManageModule(it.module)) ||
@@ -246,6 +253,14 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
               className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineUserGroup className="w-5 h-5 flex-shrink-0" />
               <span className={collapsed ? 'lg:hidden' : ''}>Staff</span>
+            </NavLink>
+          )}
+
+          {canViewModule('reports') && (
+            <NavLink to="/reports" onClick={onClose} data-tip={collapsed ? 'Reports' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive: isActive && !invoiceSelectFlow })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
+              <HiOutlineDocumentReport className="w-5 h-5 flex-shrink-0" />
+              <span className={collapsed ? 'lg:hidden' : ''}>Reports</span>
             </NavLink>
           )}
 
