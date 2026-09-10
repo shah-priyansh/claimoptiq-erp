@@ -34,7 +34,7 @@ const AnnouncementBar = ({ className = '' }) => {
   );
 
   return (
-    <div className={`ao-marquee relative overflow-hidden rounded-xl bg-primary-600 text-white shadow-sm ${className}`}>
+    <div className={`ao-marquee relative overflow-hidden bg-primary-600 text-white shadow-sm ${className}`}>
       <style>{`
         @keyframes ao-marquee-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
         .ao-marquee-track { animation: ao-marquee-scroll 30s linear infinite; }

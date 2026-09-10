@@ -35,9 +35,10 @@ const Layout = () => {
     <div className="min-h-screen bg-gray-50">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={collapsed} onCollapse={toggleCollapsed} />
       <div className={`transition-[margin] duration-200 ease-in-out ${collapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
+        {/* Full-width announcement strip pinned above the header, shown on every page. */}
+        <AnnouncementBar />
         <Header onMenuClick={() => setSidebarOpen(true)} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
         <main className="p-4 lg:p-6 pb-24 lg:pb-6">
-          <AnnouncementBar className="mb-6" />
           <Outlet />
         </main>
       </div>
