@@ -91,14 +91,15 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 flex-shrink-0">
           <h3 className="text-lg font-semibold text-gray-800">{isEdit ? 'Edit Expense' : isDuplicate ? 'Duplicate Expense' : 'Add Expense'}</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
             <HiOutlineX className="w-5 h-5 text-gray-500" />
           </button>
         </div>
-        <form onSubmit={submit} className="p-5 space-y-4">
+        <form onSubmit={submit} className="flex flex-col min-h-0 flex-1">
+          <div className="p-5 space-y-4 overflow-y-auto">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
@@ -224,7 +225,9 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
             {balance < 0 && <p className="text-xs text-red-600 mt-1">Paid exceeds the amount — it will be capped to ₹{amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.</p>}
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          </div>
+
+          <div className="flex justify-end gap-2 p-5 pt-3 border-t border-gray-100 flex-shrink-0">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
             <button type="submit" disabled={saving || !form.categoryId}
               className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 rounded-lg">
