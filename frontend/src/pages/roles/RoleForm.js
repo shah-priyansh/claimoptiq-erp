@@ -10,8 +10,9 @@ const MODULE_GROUPS = [
   { label: 'Billing & Finance', keys: ['invoices', 'expenses', 'cash_bank', 'account_entries', 'chart_of_accounts', 'loans', 'tds_rates', 'expense_categories', 'references', 'parties'] },
   { label: 'Administration', keys: ['hospitals', 'insurance', 'tpa', 'billing_service_names', 'users', 'roles', 'settings', 'claim_statuses', 'claim_document_types'] },
   { label: 'Documents',      keys: ['document_submissions'] },
-  { label: null,             keys: ['reports'] },
   { label: 'Staff',          keys: ['staff'] },
+  // Reports is its own top-level item below Staff — mirrors the sidebar order.
+  { label: null,             keys: ['reports'] },
 ];
 
 const RoleForm = () => {
