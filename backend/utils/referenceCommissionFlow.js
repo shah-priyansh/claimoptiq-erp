@@ -14,6 +14,8 @@
 //   one_time   : `value`, only on the first ever invoice for this
 //                (reference, billingServiceName) combo
 
+const { round2 } = require('./money');
+
 const SUPPORTED_LINE_TYPES = new Set(['claim_tpa_desk', 'service_fixed', 'service_percentage']);
 const SOURCE_TYPE = 'invoice_commission';
 
@@ -59,7 +61,7 @@ const computeCommissionRows = (invoice, reference, onetimeAlreadyUsed = new Set(
       // paper trail in the Reference Commission ledger (the UI groups them
       // into a monthly roll-up anyway).
       for (const line of matching) {
-        const amount = Math.round((Number(line.amount) || 0) * value / 100);
+        const amount = round2((Number(line.amount) || 0) * value / 100);
         if (amount <= 0) continue;
         rows.push({
           dedupeKey: line.id,
@@ -71,7 +73,7 @@ const computeCommissionRows = (invoice, reference, onetimeAlreadyUsed = new Set(
     }
 
     if (type === 'fixed') {
-      const amount = Math.round(value);
+      const amount = round2(value);
       if (amount <= 0) continue;
       rows.push({
         dedupeKey: `${invoice.id}:fixed:${entry.id}`,
@@ -86,7 +88,7 @@ const computeCommissionRows = (invoice, reference, onetimeAlreadyUsed = new Set(
       // don't represent individual claims.
       const claimCount = matching.filter((l) => l.lineType === 'claim_tpa_desk').length;
       if (claimCount <= 0) continue;
-      const amount = Math.round(value * claimCount);
+      const amount = round2(value * claimCount);
       if (amount <= 0) continue;
       rows.push({
         dedupeKey: `${invoice.id}:per_claim:${entry.id}`,
@@ -98,7 +100,7 @@ const computeCommissionRows = (invoice, reference, onetimeAlreadyUsed = new Set(
 
     if (type === 'one_time') {
       if (onetimeAlreadyUsed.has(entry.billingServiceNameId)) continue;
-      const amount = Math.round(value);
+      const amount = round2(value);
       if (amount <= 0) continue;
       rows.push({
         dedupeKey: `${invoice.id}:one_time:${entry.id}`,

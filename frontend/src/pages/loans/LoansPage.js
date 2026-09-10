@@ -4,7 +4,7 @@ import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineChevronRight, HiOutlineX } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
-import { formatINR } from '../../utils/format';
+import { formatINR, round2 } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import Loader from '../../components/ui/Loader';
 import {
@@ -17,12 +17,12 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 // Client-side reducing-balance EMI (mirrors backend utils/loanSchedule) for a
 // live preview in the Add modal. Tenure 0 = lump sum → the full amount at once.
 const previewEmi = (principal, annualRate, tenure) => {
-  const P = Math.round(Number(principal) || 0);
+  const P = round2(Number(principal) || 0);
   const n = Math.max(0, Math.round(Number(tenure) || 0));
   if (n === 0) return P;
   const r = (Number(annualRate) || 0) / 12 / 100;
   const emi = r === 0 ? P / n : (P * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
-  return Math.round(emi || 0);
+  return round2(emi || 0);
 };
 
 const STATUS_CLS = { active: 'bg-amber-50 text-amber-700', closed: 'bg-green-50 text-green-700' };
@@ -66,7 +66,7 @@ const LoanModal = ({ open, loan, onClose, onSaved, employees, parties, bankAccou
   const isOpen = tenureN === 0 && rateN > 0;
   const isLumpSum = tenureN === 0 && !isOpen;
   const emi = previewEmi(form.principal, form.annualInterestRate, tenureN);
-  const monthlyInt = Math.round((Number(form.principal) || 0) * rateN / 1200);
+  const monthlyInt = round2((Number(form.principal) || 0) * rateN / 1200);
   const totalPay = emi * tenureN;
   const isStaffGiven = form.counterKind === 'staff' && form.direction === 'given';
   const needsBank = form.disburse && (form.mode === 'bank' || form.mode === 'upi');
@@ -141,7 +141,7 @@ const LoanModal = ({ open, loan, onClose, onSaved, employees, parties, bankAccou
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div><label className={label}>Principal (₹) *</label><input type="number" min="0" className={input} value={form.principal} onChange={(e) => set('principal', e.target.value)} /></div>
+            <div><label className={label}>Principal (₹) *</label><input type="number" min="0" step="0.01" className={input} value={form.principal} onChange={(e) => set('principal', e.target.value)} /></div>
             <div><label className={label}>Interest Rate (% / year)</label><input type="number" min="0" step="0.01" className={input} value={form.annualInterestRate} onChange={(e) => set('annualInterestRate', e.target.value)} placeholder="0" /></div>
             <div><label className={label}>Tenure (months)</label><input type="number" min="0" className={input} value={form.tenureMonths} onChange={(e) => set('tenureMonths', e.target.value)} placeholder="0 = lump sum (no EMI)" /></div>
             <div><label className={label}>Start Date *</label><input type="date" className={input} value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></div>

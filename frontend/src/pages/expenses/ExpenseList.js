@@ -70,6 +70,9 @@ const printExpense = (e) => {
 };
 
 const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Keep paisa when computing a pending balance to pay — rounding to whole rupees
+// left the last paisa of a bill (e.g. ₹0.37 of ₹899.37) impossible to settle.
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const formatDate = (d) => _formatDate(d);
 
 // Payment status badge styles (derived from each expense's linked payments).
@@ -139,7 +142,7 @@ const ExpenseList = () => {
   // Open the payment modal; if the expense has a party, load its other open
   // expenses so an over-payment can be split across them.
   const payExpense = async (e) => {
-    const pending = Math.max(0, Math.round(e.amountPending != null ? e.amountPending : (e.amount || 0) - (e.amountPaid || 0)));
+    const pending = Math.max(0, round2(e.amountPending != null ? e.amountPending : (e.amount || 0) - (e.amountPaid || 0)));
     let openList = [{ _id: e._id, category: e.category, amount: pending, amountPending: pending, date: e.date }];
     if (e.partyId) {
       try {
@@ -777,7 +780,7 @@ const ExpenseList = () => {
         initial={paymentExpense ? {
           direction: 'out',
           mode: 'cash',
-          amount: Math.max(0, Math.round(paymentExpense.amountPending != null ? paymentExpense.amountPending : (paymentExpense.amount || 0) - (paymentExpense.amountPaid || 0))),
+          amount: Math.max(0, round2(paymentExpense.amountPending != null ? paymentExpense.amountPending : (paymentExpense.amount || 0) - (paymentExpense.amountPaid || 0))),
           expense: { _id: paymentExpense._id },
           notes: paymentExpense.notes || '',
         } : null}

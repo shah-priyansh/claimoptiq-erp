@@ -2,6 +2,8 @@
 // `claimTypes` (resolved from the billing-service-name master). A service only
 // counts when its claimTypes is empty (universal) or includes the claim's type.
 // Without a claimType argument, no filtering happens (legacy callers unchanged).
+const { round2 } = require('./money');
+
 const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0, claimType = null) => {
   let total = 0;
   for (const svc of billingServices) {
@@ -35,10 +37,10 @@ const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalAp
         }
       }
     } else if (svc.billingType === 'percentage') {
-      total += Math.round(basis * (svc.percentageRate || 0) / 100);
+      total += round2(basis * (svc.percentageRate || 0) / 100);
     }
   }
-  return Math.round(total);
+  return round2(total);
 };
 
 module.exports = calculateFilePrice;

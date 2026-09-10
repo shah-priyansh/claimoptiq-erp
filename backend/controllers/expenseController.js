@@ -1,6 +1,11 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 
+// Expense amounts carry paisa (a ₹899.37 petrol bill), so round to 2 decimals —
+// never to whole rupees, which silently dropped the paisa on save and made a
+// fully-paid expense still read a ₹0.37 balance.
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 const expenseInclude = {
   category: { select: { id: true, slug: true, label: true, isSystem: true, nature: true } },
   reference: { select: { id: true, name: true } },
@@ -16,11 +21,11 @@ const expenseInclude = {
 // invoice paid/pending/status model, but computed on the fly since Expense has
 // no stored paid columns. Status: paid (fully settled) / partial / pending.
 const rollupPayment = (amount, payments = []) => {
-  const total = Math.round(Number(amount) || 0);
-  const amountPaid = Math.round(
+  const total = round2(Number(amount) || 0);
+  const amountPaid = round2(
     payments.reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0)
   );
-  const amountPending = total - amountPaid;
+  const amountPending = round2(total - amountPaid);
   let paymentStatus;
   if (amountPaid === 0) paymentStatus = total === 0 ? 'paid' : 'pending';
   else if (amountPending <= 0) paymentStatus = 'paid';
@@ -59,7 +64,7 @@ const resolvePayment = async (body) => {
 // actually paid). cashBankEntry.amount must be positive, so a negative pay
 // amount (a reversal) becomes an IN of the absolute amount instead of an OUT.
 const paymentEntryFields = (expense, payment, category, payAmt) => {
-  const amt = Math.round(Number(payAmt) || 0);
+  const amt = round2(Number(payAmt) || 0);
   return {
     date: expense.date,
     direction: amt < 0 ? 'in' : 'out',
@@ -78,9 +83,9 @@ const paymentEntryFields = (expense, payment, category, payAmt) => {
 const resolvePaidAmount = (body, amount) => {
   if (body.paidAmount === undefined) return null;
   if (body.paidAmount === null || body.paidAmount === '') return 0;
-  const n = Math.round(Number(body.paidAmount) || 0);
+  const n = round2(Number(body.paidAmount) || 0);
   if (!Number.isFinite(n)) return 0;
-  const max = Math.abs(Math.round(Number(amount) || 0));
+  const max = Math.abs(round2(Number(amount) || 0));
   return Math.max(0, Math.min(n, max));
 };
 
@@ -89,7 +94,7 @@ const resolvePaidAmount = (body, amount) => {
 //  - legacy caller (paidReq === null) → the full expense amount (auto-paid)
 //  - otherwise → exactly what was paid (0 = Unpaid, partial, or full)
 const payAmountFor = (expenseAmount, paidReq) => {
-  const full = Math.round(Number(expenseAmount) || 0);
+  const full = round2(Number(expenseAmount) || 0);
   if (full < 0) return full;
   if (paidReq === null) return full;
   return paidReq;
@@ -154,7 +159,7 @@ const pickFields = (body) => {
       err.status = 400;
       throw err;
     }
-    data.amount = Math.round(n);
+    data.amount = round2(n);
   }
   if (body.notes !== undefined) data.notes = String(body.notes || '').slice(0, 1000);
   if (body.partyName !== undefined) data.partyName = String(body.partyName || '').slice(0, 200);
@@ -256,7 +261,7 @@ exports.list = async (req, res) => {
       const merged = [...buckets.values()]
         .map((b) => ({
           ...b,
-          amount: Math.round(b.amount),
+          amount: round2(b.amount),
           notes: `${b.mergedCount} entr${b.mergedCount === 1 ? 'y' : 'ies'} merged`,
         }))
         .sort((a, b) => b.date - a.date);
@@ -265,7 +270,7 @@ exports.list = async (req, res) => {
         expenses: toResponse(merged.slice(start, start + take)),
         total: merged.length,
         pages: Math.ceil(merged.length / take),
-        sumAmount: Math.round(merged.reduce((s, m) => s + m.amount, 0)),
+        sumAmount: round2(merged.reduce((s, m) => s + m.amount, 0)),
         merged: true,
       });
     }
@@ -283,8 +288,8 @@ exports.list = async (req, res) => {
       prisma.cashBankEntry.groupBy({ by: ['direction'], where: { expenseId: { not: null }, expense: where }, _sum: { amount: true } }),
     ]);
     const expenses = toResponse(items).map((e) => ({ ...e, ...rollupPayment(e.amount, e.payments) }));
-    const sumAmount = Math.round(agg._sum.amount || 0);
-    const sumPaid = Math.round(
+    const sumAmount = round2(agg._sum.amount || 0);
+    const sumPaid = round2(
       payAgg.reduce((s, r) => s + (r.direction === 'in' ? -1 : 1) * (r._sum.amount || 0), 0)
     );
     res.json({
@@ -293,7 +298,7 @@ exports.list = async (req, res) => {
       pages: Math.ceil(total / take),
       sumAmount,
       sumPaid,
-      sumPending: sumAmount - sumPaid,
+      sumPending: round2(sumAmount - sumPaid),
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -327,11 +332,11 @@ exports.summary = async (req, res) => {
         slug: c.slug,
         label: c.label,
         isSystem: c.isSystem,
-        amount: Math.round(g?._sum.amount || 0),
+        amount: round2(g?._sum.amount || 0),
         count: g?._count._all || 0,
       };
     });
-    const grandTotal = rows.reduce((acc, r) => acc + r.amount, 0);
+    const grandTotal = round2(rows.reduce((acc, r) => acc + r.amount, 0));
     res.json({ rows, grandTotal });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -452,7 +457,7 @@ exports.bulkImport = async (req, res) => {
         data: {
           date: dateVal,
           categoryId: category.id,
-          amount: Math.round(amt),
+          amount: round2(amt),
           notes: String(row.notes ?? '').slice(0, 1000),
           partyName: String(row.partyName ?? '').slice(0, 200),
           referenceId,
@@ -531,7 +536,7 @@ exports.update = async (req, res) => {
         // recorded payments) are left alone. When it did change, rewrite the
         // expense's payment as a single entry for the new paid amount.
         const unchanged =
-          Math.round(curPaid) === Math.round(payAmt) &&
+          round2(curPaid) === round2(payAmt) &&
           (payAmt === 0
             ? cur.length === 0
             : !!only && only.mode === payment.mode && (only.bankAccountId || null) === (payment.bankAccountId || null));

@@ -23,6 +23,7 @@ import { invoiceImportConfig } from '../../components/import/transactionImportCo
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import BulkReceivePaymentModal from './BulkReceivePaymentModal';
 import { invoiceFilename } from './bulkInvoiceUtils';
+import { round2 } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 import { patientNameForInvoice } from '../../utils/invoice';
 
@@ -198,7 +199,7 @@ const InvoiceList = () => {
   // tweak the mode / amount / reference number before saving — replaces the
   // old "instantly record full cash payment" behaviour.
   const markPaid = async (inv) => {
-    const pending = Math.max(0, Math.round(inv.amountPending || 0));
+    const pending = Math.max(0, round2(inv.amountPending || 0));
     if (pending <= 0) {
       toast.info('Invoice is already fully paid');
       return;
@@ -812,7 +813,7 @@ const InvoiceList = () => {
         initial={paymentInvoice ? {
           direction: 'in',
           mode: 'cash',
-          amount: Math.max(0, Math.round(paymentInvoice.amountPending || 0)),
+          amount: Math.max(0, round2(paymentInvoice.amountPending || 0)),
           date: new Date().toISOString().slice(0, 10),
           notes: '',
           invoice: { _id: paymentInvoice._id },

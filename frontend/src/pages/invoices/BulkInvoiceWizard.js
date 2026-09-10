@@ -17,6 +17,7 @@ import {
   formatINR, monthLabel, computeTotals, commitDraft, invoiceFilename,
 } from './bulkInvoiceUtils';
 import BulkInvoiceDraftEditor from './BulkInvoiceDraftEditor';
+import { round2 } from '../../utils/format';
 
 // Local date (not UTC) → "YYYY-MM-DD" for the Invoice Creation Date default.
 const todayIso = () => {
@@ -329,7 +330,7 @@ const BulkInvoiceWizard = () => {
         ...(draft.settings.gstRate !== '' ? { gstRate: Number(draft.settings.gstRate) || 0 } : {}),
         ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
         roundOff: Number(draft.settings.roundOff) || 0,
-        discount: Math.max(0, Math.round(Number(draft.settings.discount) || 0)),
+        discount: Math.max(0, round2(Number(draft.settings.discount) || 0)),
         notes: draft.settings.notes || '',
       });
       const url = URL.createObjectURL(data);

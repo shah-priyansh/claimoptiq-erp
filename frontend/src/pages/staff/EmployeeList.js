@@ -76,7 +76,7 @@ const EmployeeForm = ({ emp, users, loadingUsers, onSave, onClose }) => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Basic Salary (₹) *</label>
-              <input required type="number" min="0" value={form.basicSalary} onChange={e => set('basicSalary', e.target.value)}
+              <input required type="number" min="0" step="0.01" value={form.basicSalary} onChange={e => set('basicSalary', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
             </div>
             <div>
@@ -139,7 +139,7 @@ const EmployeeForm = ({ emp, users, loadingUsers, onSave, onClose }) => {
                 <div key={i} className="flex gap-2 items-center">
                   <input placeholder="Name (e.g. HRA)" value={a.name} onChange={e => setAllowance(i, 'name', e.target.value)}
                     className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-primary-500" />
-                  <input placeholder="₹ Amount" type="number" min="0" value={a.amount} onChange={e => setAllowance(i, 'amount', e.target.value)}
+                  <input placeholder="₹ Amount" type="number" min="0" step="0.01" value={a.amount} onChange={e => setAllowance(i, 'amount', e.target.value)}
                     className="w-28 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-primary-500" />
                   <button type="button" onClick={() => removeAllowance(i)} className="text-red-400 hover:text-red-600">
                     <HiOutlineTrash className="w-4 h-4" />

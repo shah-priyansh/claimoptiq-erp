@@ -5,6 +5,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const amountInWords = require('./amountInWords');
+const { round2 } = require('./money');
 const { parseSelected, resolveColumns } = require('./invoiceSummaryFields');
 
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
@@ -26,9 +27,9 @@ const COLORS = {
 };
 
 const formatINR = (n) => {
-  const v = Math.round(Number(n) || 0);
+  const v = round2(Number(n) || 0);
   const sign = v < 0 ? '- ' : '';
-  return sign + 'Rs. ' + Math.abs(v).toLocaleString('en-IN') + '.00';
+  return sign + 'Rs. ' + Math.abs(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 const formatDate = (d) => {
@@ -70,7 +71,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
   const { claimsById = new Map() } = opts;
   const upiId = template.invoice_upi_id || '';
   const upiPayload = upiId
-    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(template.invoice_company_name || '')}&am=${Math.round(invoice.amountPending || invoice.grandTotal || 0)}&cu=INR`
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(template.invoice_company_name || '')}&am=${round2(invoice.amountPending || invoice.grandTotal || 0)}&cu=INR`
     : null;
   const [logoBuf, qrDataUrl] = await Promise.all([
     template.invoice_logo_url ? fetchBuffer(template.invoice_logo_url) : Promise.resolve(null),

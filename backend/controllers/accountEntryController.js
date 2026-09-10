@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { round2 } = require('../utils/money');
 
 const VALID_MODES = ['cash', 'bank', 'upi'];
 const VALID_TYPES = ['general', 'contra'];
@@ -75,8 +76,8 @@ const buildEntryData = (body) => {
     const credit = Number(body.credit) || 0;
     if (debit < 0 || credit < 0) throw { status: 400, message: 'Debit/Credit must be non-negative (use the opposite column for reversals)' };
     if (debit === 0 && credit === 0) throw { status: 400, message: 'At least one of Debit/Credit must be greater than zero' };
-    data.debit = Math.round(debit);
-    data.credit = Math.round(credit);
+    data.debit = round2(debit);
+    data.credit = round2(credit);
   } else {
     // contra
     const amount = Number(body.amount) || 0;
@@ -89,7 +90,7 @@ const buildEntryData = (body) => {
     if (fromMode === toMode) throw { status: 400, message: 'fromMode and toMode must be different' };
     data.fromMode = fromMode;
     data.toMode = toMode;
-    data.amount = Math.round(amount);
+    data.amount = round2(amount);
   }
 
   return data;
@@ -145,8 +146,8 @@ exports.summary = async (req, res) => {
       prisma.accountEntry.count({ where: { ...where, entryType: 'contra' } }),
     ]);
     res.json({
-      generalDebit: Math.round(general._sum.debit || 0),
-      generalCredit: Math.round(general._sum.credit || 0),
+      generalDebit: round2(general._sum.debit || 0),
+      generalCredit: round2(general._sum.credit || 0),
       contraCount,
     });
   } catch (error) {

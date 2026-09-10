@@ -1,3 +1,5 @@
+const { round2 } = require('./money');
+
 const sum = (rows) => (rows || []).reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
 
 const calculateInvoiceTotals = ({
@@ -9,22 +11,22 @@ const calculateInvoiceTotals = ({
   previousBalance = 0,
   discount = 0,
 }) => {
-  const subtotalTpaDesk = Math.round(sum(tpaDeskLines));
-  const subtotalServices = Math.round(sum(fixedServiceLines));
-  const subtotalAdjust = Math.round(sum(adjustmentLines));
-  const gross = subtotalTpaDesk + subtotalServices + subtotalAdjust;
+  const subtotalTpaDesk = round2(sum(tpaDeskLines));
+  const subtotalServices = round2(sum(fixedServiceLines));
+  const subtotalAdjust = round2(sum(adjustmentLines));
+  const gross = round2(subtotalTpaDesk + subtotalServices + subtotalAdjust);
   // Pre-tax discount: reduces the taxable value before GST/TDS. Clamped to
   // [0, gross] so a typo can't flip the invoice negative or add a phantom credit.
-  const discountAmt = Math.min(Math.max(0, Math.round(Number(discount) || 0)), gross);
-  const taxable = gross - discountAmt;
-  const gstAmount = Math.round((taxable * (Number(gstRate) || 0)) / 100);
+  const discountAmt = Math.min(Math.max(0, round2(Number(discount) || 0)), gross);
+  const taxable = round2(gross - discountAmt);
+  const gstAmount = round2((taxable * (Number(gstRate) || 0)) / 100);
   // TDS is deducted on the GST-inclusive value (taxable + GST), not on the
   // bare SubTotal — when GST applies it must be summed in first.
-  const tdsBase = taxable + gstAmount;
-  const tdsAmount = Math.round((tdsBase * (Number(tdsRate) || 0)) / 100);
-  const netTotal = taxable + gstAmount - tdsAmount;
-  const prev = Math.round(Number(previousBalance) || 0);
-  const grandTotal = netTotal + prev;
+  const tdsBase = round2(taxable + gstAmount);
+  const tdsAmount = round2((tdsBase * (Number(tdsRate) || 0)) / 100);
+  const netTotal = round2(taxable + gstAmount - tdsAmount);
+  const prev = round2(Number(previousBalance) || 0);
+  const grandTotal = round2(netTotal + prev);
   return {
     subtotalTpaDesk,
     subtotalServices,

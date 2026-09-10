@@ -4,6 +4,7 @@ const fs = require('fs');
 const archiver = require('archiver');
 const { toResponse } = require('../utils/toResponse');
 const calculateFilePrice = require('../utils/calculateFilePrice');
+const { round2 } = require('../utils/money');
 const { loadServiceClaimTypesMap, attachClaimTypes } = require('../utils/billingServiceClaimTypes');
 const { streamFileToResponse, resolveFileStream } = require('../services/fileRetrieval');
 const backupService = require('../services/backupService');
@@ -2090,7 +2091,7 @@ exports.getDashboardStats = async (req, res) => {
       label: c.patientName,
       sub: c.hospital?.name || null,
       date: c.settlementDate,
-      amount: Math.round(c.finalApprovalAmount || 0),
+      amount: round2(c.finalApprovalAmount || 0),
     }));
 
     let totalFilePrice = 0;

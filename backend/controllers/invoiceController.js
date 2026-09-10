@@ -8,6 +8,7 @@ const renderInvoicePdf = require('../utils/renderInvoicePdf');
 const { getInvoiceTemplate } = require('./siteSettingController');
 const { writeReferenceCommissionFlow, clearReferenceCommissionFlow, SOURCE_TYPE: COMMISSION_SOURCE_TYPE } = require('../utils/referenceCommissionFlow');
 const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
+const { round2 } = require('../utils/money');
 
 // Resolve a Party for a free-text party-bill name, so imported direct-patient /
 // "Party" invoices attach to the party ledger the way hospital invoices do via
@@ -446,7 +447,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     .map((a) => ({
       lineType: 'adjustment',
       description: String(a.description).slice(0, 200),
-      amount: Math.round(Number(a.amount) || 0),
+      amount: round2(Number(a.amount) || 0),
       order: order++,
       claimId: null,
       billingServiceId: null,
@@ -887,7 +888,7 @@ exports.create = async (req, res) => {
     const normalisedManual = (Array.isArray(manualItems) ? manualItems : [])
       .map((m) => ({
         description: String(m?.description || '').slice(0, 300).trim(),
-        amount: Math.round(Number(m?.amount) || 0),
+        amount: round2(Number(m?.amount) || 0),
       }))
       .filter((m) => m.description);
 
@@ -1200,10 +1201,10 @@ exports.bulkImport = async (req, res) => {
       // across the merged invoice's rows, then applied with the same arithmetic
       // as normal creation (see utils/calculateInvoiceTotals): GST adds on the
       // taxable total, TDS deducts on (taxable + GST), grandTotal = gross+GST−TDS.
-      const gross = Math.round(members.reduce((a, m) => a + m.amount, 0));
-      const gstAmount = Math.round(members.reduce((a, m) => a + m.gstAmount, 0));
-      const tdsAmount = Math.round(members.reduce((a, m) => a + m.tdsAmount, 0));
-      const netTotal = gross + gstAmount - tdsAmount;
+      const gross = round2(members.reduce((a, m) => a + m.amount, 0));
+      const gstAmount = round2(members.reduce((a, m) => a + m.gstAmount, 0));
+      const tdsAmount = round2(members.reduce((a, m) => a + m.tdsAmount, 0));
+      const netTotal = round2(gross + gstAmount - tdsAmount);
       const grand = netTotal;
       // Back-compute the effective rates from the amounts so the stored invoice
       // shows a GST %/TDS % consistent with a normally-created invoice.
@@ -1211,7 +1212,7 @@ exports.bulkImport = async (req, res) => {
       const tdsBase = gross + gstAmount;
       const tdsRate = tdsBase > 0 ? Math.round((tdsAmount / tdsBase) * 10000) / 100 : 0;
 
-      const paid = Math.round(members.reduce((a, m) => a + m.amountPaid, 0));
+      const paid = round2(members.reduce((a, m) => a + m.amountPaid, 0));
       if (paid > grand) {
         errors.push({ row: first.rowNum, name: label, errors: ['Amount Paid cannot exceed the invoice total (taxable + GST − TDS)'] });
         continue;
@@ -1224,7 +1225,7 @@ exports.bulkImport = async (req, res) => {
       const lineItems = members.map((m, order) => ({
         lineType: 'manual',
         description: (m.description || 'Imported opening balance').slice(0, 300),
-        amount: Math.round(m.amount),
+        amount: round2(m.amount),
         order,
         meta: { imported: true },
       }));
@@ -1261,7 +1262,7 @@ exports.bulkImport = async (req, res) => {
         grandTotal: grand,
         previousBalance: 0,
         amountPaid: paid,
-        amountPending: grand - paid,
+        amountPending: round2(grand - paid),
       };
 
       try {
@@ -1334,7 +1335,7 @@ exports.openHospitals = async (req, res) => {
         _id: g.hospitalId,
         name: byId.get(g.hospitalId)?.name || 'Unknown',
         openCount: g._count._all,
-        totalPending: Math.round(g._sum.amountPending || 0),
+        totalPending: round2(g._sum.amountPending || 0),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     res.json({ hospitals: out });
@@ -1463,22 +1464,22 @@ const recomputeInvoiceFromLines = async (tx, invoiceId) => {
   const tpa = sumBy('claim_tpa_desk') + sumBy('service_percentage');
   const services = sumBy('service_fixed') + sumBy('manual');
   const adjust = sumBy('adjustment');
-  const gross = Math.round(tpa + services + adjust);
+  const gross = round2(tpa + services + adjust);
   // Clamp discount to [0, gross] — see calculateInvoiceTotals for rationale.
-  const discount = Math.min(Math.max(0, Math.round(Number(inv.discount) || 0)), gross);
-  const taxable = gross - discount;
-  const gstAmount = Math.round((taxable * (inv.gstRate || 0)) / 100);
+  const discount = Math.min(Math.max(0, round2(Number(inv.discount) || 0)), gross);
+  const taxable = round2(gross - discount);
+  const gstAmount = round2((taxable * (inv.gstRate || 0)) / 100);
   // TDS base = taxable + GST (matches `calculateInvoiceTotals`).
-  const tdsAmount = Math.round(((taxable + gstAmount) * (inv.tdsRate || 0)) / 100);
-  const netTotal = taxable + gstAmount - tdsAmount;
-  const grandTotal = netTotal + (inv.previousBalance || 0) + (inv.roundOff || 0);
-  const amountPending = Math.round(grandTotal - (inv.amountPaid || 0));
+  const tdsAmount = round2(((taxable + gstAmount) * (inv.tdsRate || 0)) / 100);
+  const netTotal = round2(taxable + gstAmount - tdsAmount);
+  const grandTotal = round2(netTotal + (inv.previousBalance || 0) + (inv.roundOff || 0));
+  const amountPending = round2(grandTotal - (inv.amountPaid || 0));
   await tx.invoice.update({
     where: { id: invoiceId },
     data: {
-      subtotalTpaDesk: Math.round(tpa),
-      subtotalServices: Math.round(services),
-      subtotalAdjust: Math.round(adjust),
+      subtotalTpaDesk: round2(tpa),
+      subtotalServices: round2(services),
+      subtotalAdjust: round2(adjust),
       gross,
       discount,
       gstAmount,
@@ -1535,7 +1536,7 @@ exports.update = async (req, res) => {
     const fullRebuild = Array.isArray(adjustments);
     const tdsResolvedId = tdsChanged ? (tdsRateId || null) : invoice.tdsRateId;
     const gstResolved = gstChanged ? (Math.max(0, Number(gstRate) || 0)) : invoice.gstRate;
-    const discountResolved = discountChanged ? Math.max(0, Math.round(Number(discount) || 0)) : invoice.discount;
+    const discountResolved = discountChanged ? Math.max(0, round2(Number(discount) || 0)) : invoice.discount;
 
     const hasAnyChange =
       fullRebuild ||
@@ -1562,7 +1563,7 @@ exports.update = async (req, res) => {
           data: {
             ...dateData,
             ...(notes !== undefined ? { notes: String(notes || '') } : {}),
-            ...(roundOff !== undefined ? { roundOff: Math.round(Number(roundOff) || 0) } : {}),
+            ...(roundOff !== undefined ? { roundOff: round2(Number(roundOff) || 0) } : {}),
             subtotalTpaDesk: built.totals.subtotalTpaDesk,
             subtotalServices: built.totals.subtotalServices,
             subtotalAdjust: built.totals.subtotalAdjust,
@@ -1606,7 +1607,7 @@ exports.update = async (req, res) => {
           const data = {};
           if (edit.description !== undefined) data.description = String(edit.description).slice(0, 300);
           if (edit.amount !== undefined) {
-            const n = Math.round(Number(edit.amount));
+            const n = round2(Number(edit.amount));
             if (Number.isFinite(n)) data.amount = n;
           }
           if (Object.keys(data).length) {
@@ -1620,7 +1621,7 @@ exports.update = async (req, res) => {
           const m = manualItems[i];
           if (!m) continue;
           const description = String(m.description || '').slice(0, 300).trim();
-          const amount = Math.round(Number(m.amount) || 0);
+          const amount = round2(Number(m.amount) || 0);
           if (!description) continue;
           await tx.invoiceLineItem.create({
             data: {
@@ -1639,7 +1640,7 @@ exports.update = async (req, res) => {
       //    recomputeInvoiceFromLines uses the updated value.
       const settingsData = {};
       if (notes !== undefined) settingsData.notes = String(notes || '');
-      if (roundOff !== undefined) settingsData.roundOff = Math.round(Number(roundOff) || 0);
+      if (roundOff !== undefined) settingsData.roundOff = round2(Number(roundOff) || 0);
       if (gstChanged) settingsData.gstRate = gstResolved;
       if (discountChanged) settingsData.discount = discountResolved;
       if (tdsChanged) {
@@ -2023,7 +2024,7 @@ exports.previewPdf = async (req, res) => {
     const normalize = (l, idx) => ({
       lineType: l.lineType || 'manual',
       description: l.description || '',
-      amount: Math.round(Number(l.amount) || 0),
+      amount: round2(Number(l.amount) || 0),
       order: idx,
       claimId: l.claimId || null,
     });
@@ -2038,8 +2039,8 @@ exports.previewPdf = async (req, res) => {
       discount,
     });
 
-    const roundOffI = Math.round(Number(roundOff) || 0);
-    const grandTotalWithRound = totals.grandTotal + roundOffI;
+    const roundOffI = round2(Number(roundOff) || 0);
+    const grandTotalWithRound = round2(totals.grandTotal + roundOffI);
     const amountPending = grandTotalWithRound;
 
     // Shape an in-memory invoice object that matches what renderInvoicePdf reads.

@@ -2,6 +2,7 @@ const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const { getJournalNetByAccount, journalKey, drSide } = require('../services/journalBalances');
 const partyCtrl = require('./partyController');
+const { round2 } = require('../utils/money');
 
 // Account types that live in the new `accounts` table (Bank/Cash/Party/Expense
 // are rolled into the chart from their own tables).
@@ -107,13 +108,13 @@ exports.chart = async (req, res) => {
       const sign = r.direction === 'in' ? 1 : -1;
       bankBal.set(r.bankAccountId, (bankBal.get(r.bankAccountId) || 0) + sign * (r._sum.amount || 0));
     }
-    const cashBalance = Math.round(cashRows.reduce((s, r) => s + (r.direction === 'in' ? 1 : -1) * (r._sum.amount || 0), 0));
-    const receivable = Math.round(invAgg._sum.amountPending || 0);
-    const payable = Math.round((expTotAgg._sum.amount || 0) - Number(expPaidRows[0]?.paid || 0));
-    const catTotalMap = new Map(catTotals.map((c) => [c.categoryId, Math.round(c._sum.amount || 0)]));
+    const cashBalance = round2(cashRows.reduce((s, r) => s + (r.direction === 'in' ? 1 : -1) * (r._sum.amount || 0), 0));
+    const receivable = round2(invAgg._sum.amountPending || 0);
+    const payable = round2((expTotAgg._sum.amount || 0) - Number(expPaidRows[0]?.paid || 0));
+    const catTotalMap = new Map(catTotals.map((c) => [c.categoryId, round2(c._sum.amount || 0)]));
     const partyJournalNet = [...jnet].filter(([k]) => k.startsWith('party:')).reduce((s, [, v]) => s + v, 0);
 
-    const round = (n) => Math.round(Number(n) || 0);
+    const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
     const accountsOfType = (t) => accounts.filter((a) => a.accountType === t)
       .map((a) => ({ id: a.id, kind: t, name: a.name, code: a.accountCode || '', balance: round(a.openingBalance) + j('ledger_account', a.id) }));
 

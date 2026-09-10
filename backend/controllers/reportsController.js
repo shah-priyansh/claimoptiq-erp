@@ -9,6 +9,7 @@ const prisma = require('../config/prisma');
 const { getJournalNetByAccount, journalKey } = require('../services/journalBalances');
 const { computeCommissionRows } = require('../utils/referenceCommissionFlow');
 const { loanTotals } = require('./loanController');
+const { round2 } = require('../utils/money');
 
 const ACTIVE_INVOICE_STATUSES = ['issued', 'partially_paid', 'paid'];
 
@@ -104,14 +105,14 @@ exports.sales = async (req, res) => {
     }
 
     const rows = Array.from(rowsMap.values())
-      .map((r) => ({ ...r, value: Math.round(r.value), paid: r.paid !== undefined ? Math.round(r.paid) : undefined }))
+      .map((r) => ({ ...r, value: round2(r.value), paid: r.paid !== undefined ? round2(r.paid) : undefined }))
       .sort((a, b) => groupBy === 'month' ? a.key.localeCompare(b.key) : b.value - a.value);
 
     res.json({
       filters: { ...filtersOut, groupBy, hospitalId: req.query.hospitalId || null },
       totals: {
         sales: sum(rows, 'value'),
-        paid: Math.round(invoices.reduce((a, i) => a + (i.amountPaid || 0), 0)),
+        paid: round2(invoices.reduce((a, i) => a + (i.amountPaid || 0), 0)),
         invoiceCount: invoices.length,
         rowCount: rows.length,
       },
@@ -161,7 +162,7 @@ exports.expenses = async (req, res) => {
     }
 
     const rows = Array.from(rowsMap.values())
-      .map((r) => ({ ...r, value: Math.round(r.value) }))
+      .map((r) => ({ ...r, value: round2(r.value) }))
       .sort((a, b) => groupBy === 'month' ? a.key.localeCompare(b.key) : b.value - a.value);
 
     res.json({
@@ -206,9 +207,9 @@ exports.profit = async (req, res) => {
       .map((r) => ({
         key: r.key,
         label: r.label,
-        sales: Math.round(r.sales),
-        expense: Math.round(r.expense),
-        value: Math.round(r.sales - r.expense),
+        sales: round2(r.sales),
+        expense: round2(r.expense),
+        value: round2(r.sales - r.expense),
       }))
       .sort((a, b) => a.key.localeCompare(b.key));
 
@@ -368,13 +369,13 @@ exports.references = async (req, res) => {
     const paidByRef = new Map(paidRows.map((r) => [r.referenceId, r._sum.amount || 0]));
 
     const rows = references.map((ref) => {
-      const business = Math.round(businessByRef.get(ref.id) || 0);
-      const paid = Math.round(paidByRef.get(ref.id) || 0);
+      const business = round2(businessByRef.get(ref.id) || 0);
+      const paid = round2(paidByRef.get(ref.id) || 0);
       // Per-service commission = id-matched engine + name-matched manual lines.
       // Fall back to the legacy flat rate only when that yields nothing (no
       // service config, or lines that match no configured service).
-      const perService = Math.round((expectedByRef.get(ref.id) || 0) + (nameMatchByRef.get(ref.id) || 0));
-      const flatExpected = Math.round(business * (Number(ref.commissionRate) || 0) / 100);
+      const perService = round2((expectedByRef.get(ref.id) || 0) + (nameMatchByRef.get(ref.id) || 0));
+      const flatExpected = round2(business * (Number(ref.commissionRate) || 0) / 100);
       const expected = perService > 0 ? perService : flatExpected;
       // Effective blended rate (1-decimal) shown in the Rate column.
       const rate = business > 0
@@ -454,7 +455,7 @@ exports.cashBank = async (req, res) => {
     }
 
     const rows = Array.from(rowsMap.values())
-      .map((r) => ({ ...r, in: Math.round(r.in), out: Math.round(r.out), value: Math.round(r.in - r.out) }))
+      .map((r) => ({ ...r, in: round2(r.in), out: round2(r.out), value: round2(r.in - r.out) }))
       .sort((a, b) => groupBy === 'mode' ? b.value - a.value : a.key.localeCompare(b.key));
 
     res.json({
@@ -523,10 +524,10 @@ exports.taxesDiscount = async (req, res) => {
         }
       }
       const finalize = (m, sortKey) => Array.from(m.values())
-        .map((r) => ({ ...r, value: Math.round(r.value) }))
+        .map((r) => ({ ...r, value: round2(r.value) }))
         .sort((a, b) => sortKey === 'month' ? a.key.localeCompare(b.key) : b.value - a.value);
       return {
-        total: Math.round(total),
+        total: round2(total),
         count,
         byMonth: finalize(byMonth, 'month'),
         byHospital: finalize(byHospital),
@@ -714,11 +715,11 @@ exports.balanceSheet = async (req, res) => {
     }
 
     const bankRows = bankAccounts
-      .map((ba) => ({ key: ba.id, label: ba.bankName, value: Math.round(bankByAccount.get(ba.id) || 0) }))
+      .map((ba) => ({ key: ba.id, label: ba.bankName, value: round2(bankByAccount.get(ba.id) || 0) }))
       .filter((r) => r.value !== 0);
     const bankTotal = bankRows.reduce((a, r) => a + r.value, 0);
-    const cashTotal = Math.round(cashBucket.cash);
-    const upiTotal = Math.round(cashBucket.upi);
+    const cashTotal = round2(cashBucket.cash);
+    const upiTotal = round2(cashBucket.upi);
 
     // --- Sundry Debtors (per hospital, outstanding > 0) ---
     // Direct-patient invoices have no hospital; their debtor is the free-text
@@ -741,7 +742,7 @@ exports.balanceSheet = async (req, res) => {
       debtorMap.set(key, cur);
     }
     const debtorRows = Array.from(debtorMap.values())
-      .map((r) => ({ ...r, value: Math.round(r.value) }))
+      .map((r) => ({ ...r, value: round2(r.value) }))
       .filter((r) => r.value !== 0)
       .sort((a, b) => b.value - a.value);
     const debtorsTotal = debtorRows.reduce((a, r) => a + r.value, 0);
@@ -751,8 +752,8 @@ exports.balanceSheet = async (req, res) => {
     const loanAgg = await loanTotals();
 
     // --- Tax pools ---
-    const tdsReceivable = Math.round(issuedAgg._sum.tdsAmount || 0);
-    const gstPayable = Math.round(issuedAgg._sum.gstAmount || 0);
+    const tdsReceivable = round2(issuedAgg._sum.tdsAmount || 0);
+    const gstPayable = round2(issuedAgg._sum.gstAmount || 0);
 
     // --- Equity ---
     // Retained Earnings is scoped to the [from, to] window when `from` is set;
@@ -763,16 +764,16 @@ exports.balanceSheet = async (req, res) => {
     // Loan interest realised on paid EMIs: income on loans we gave, expense on
     // loans we took. Keeps the sheet balanced against the net cash the interest
     // portion of each EMI moved.
-    const retainedEarnings = Math.round(periodIncome - periodExpense + loanAgg.interestIncome - loanAgg.interestExpense);
+    const retainedEarnings = round2(periodIncome - periodExpense + loanAgg.interestIncome - loanAgg.interestExpense);
 
     // --- Chart-of-Accounts lines (Phase 3b) ---
     // Fixed Assets = capitalised fixed-asset spend + fixed-asset account openings.
     // Loans / explicit Capital come from Account rows grouped by their side.
-    const fixedAssetPurchases = Math.round(fixedAssetExpenseAgg._sum.amount || 0);
+    const fixedAssetPurchases = round2(fixedAssetExpenseAgg._sum.amount || 0);
     const acctByGroup = { assets: 0, liabilities: 0, equity: 0 };
     const acctItems = { assets: [], liabilities: [], equity: [] };
     for (const a of coaAccounts) {
-      const v = Math.round(a.openingBalance || 0);
+      const v = round2(a.openingBalance || 0);
       const grp = ['assets', 'liabilities', 'equity'].includes(a.group) ? a.group : 'assets';
       acctByGroup[grp] += v;
       if (v !== 0) acctItems[grp].push({ key: a.id, label: a.name, value: v });
@@ -813,10 +814,10 @@ exports.balanceSheet = async (req, res) => {
           retainedEarnings,
           explicitCapital,
           capitalItems: acctItems.equity,
-          periodIncome: Math.round(periodIncome),
-          periodExpense: Math.round(periodExpense),
-          lifetimeIncome: Math.round(issuedAgg._sum.netTotal || 0),
-          lifetimeExpense: Math.round(expenseAgg._sum.amount || 0),
+          periodIncome: round2(periodIncome),
+          periodExpense: round2(periodExpense),
+          lifetimeIncome: round2(issuedAgg._sum.netTotal || 0),
+          lifetimeExpense: round2(expenseAgg._sum.amount || 0),
           total: ownersCapital + retainedEarnings + explicitCapital,
         },
         loans: {
@@ -914,11 +915,11 @@ exports.dashboard = async (req, res) => {
     // Record lists behind the Sales / Expenses tiles — power the dashboard's
     // click-through breakdown. Capped so the payload stays small.
     const salesList = monthInvoices
-      .map((i) => ({ label: i.hospital?.name || i.partyName || 'Invoice', date: i.invoiceDate, amount: Math.round(i.netTotal || 0) }))
+      .map((i) => ({ label: i.hospital?.name || i.partyName || 'Invoice', date: i.invoiceDate, amount: round2(i.netTotal || 0) }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 50);
     const expenseList = monthExpenses
-      .map((e) => ({ label: e.category?.label || 'Expense', date: e.date, amount: Math.round(e.amount || 0) }))
+      .map((e) => ({ label: e.category?.label || 'Expense', date: e.date, amount: round2(e.amount || 0) }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 50);
 
@@ -938,34 +939,34 @@ exports.dashboard = async (req, res) => {
     let topHospital = null;
     if (topHospitalRow.length) {
       const h = await prisma.hospital.findUnique({ where: { id: topHospitalRow[0].hospitalId }, select: { id: true, name: true } });
-      topHospital = h ? { id: h.id, name: h.name, value: Math.round(topHospitalRow[0]._sum.netTotal || 0) } : null;
+      topHospital = h ? { id: h.id, name: h.name, value: round2(topHospitalRow[0]._sum.netTotal || 0) } : null;
     }
     let topReference = null;
     if (topRefCommissionRow.length) {
       const r = await prisma.reference.findUnique({ where: { id: topRefCommissionRow[0].referenceId }, select: { id: true, name: true } });
-      topReference = r ? { id: r.id, name: r.name, value: Math.round(topRefCommissionRow[0]._sum.amount || 0) } : null;
+      topReference = r ? { id: r.id, name: r.name, value: round2(topRefCommissionRow[0]._sum.amount || 0) } : null;
     }
 
     res.json({
       filters: { month: monthKey(mStart), monthLabel: monthLabel(mStart) },
       thisMonth: {
-        sales: Math.round(sales),
-        expense: Math.round(expense),
-        profit: Math.round(profit),
+        sales: round2(sales),
+        expense: round2(expense),
+        profit: round2(profit),
         invoiceCount: monthInvoices.length,
         expenseCount: monthExpenses.length,
         salesList,
         expenseList,
       },
       cashBank: {
-        cash: Math.round(cashByMode.cash),
-        bank: Math.round(cashByMode.bank),
-        upi:  Math.round(cashByMode.upi),
-        total: Math.round(cashTotal),
-        paymentsReceivedThisMonth: Math.round(paidThisMonthAgg._sum.amount || 0),
+        cash: round2(cashByMode.cash),
+        bank: round2(cashByMode.bank),
+        upi:  round2(cashByMode.upi),
+        total: round2(cashTotal),
+        paymentsReceivedThisMonth: round2(paidThisMonthAgg._sum.amount || 0),
       },
       receivables: {
-        outstandingTotal: Math.round(pendingTotalAgg._sum.amountPending || 0),
+        outstandingTotal: round2(pendingTotalAgg._sum.amountPending || 0),
       },
       topHospital,
       topReference,

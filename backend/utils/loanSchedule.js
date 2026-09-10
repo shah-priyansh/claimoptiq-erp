@@ -10,7 +10,9 @@
 //   • rate > 0 → an OPEN (interest-bearing) loan: the principal stays outstanding
 //     and interest accrues at the rate. No fixed schedule — interest collections
 //     and principal repayments are recorded ad hoc (see loanController).
-const round = (n) => Math.round(Number(n) || 0);
+// EMI, interest, and principal components carry paise. Round to 2 decimals; the
+// final installment still absorbs the residue so the outstanding lands on 0.
+const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 // An open loan carries interest but no tenure: principal is repaid on demand and
 // interest is collected periodically. Distinguished from a plain bullet loan
@@ -47,8 +49,8 @@ function buildSchedule({ principal, annualInterestRate, tenureMonths, startDate 
 
   const r = rate / 12 / 100;
   const emi = r === 0
-    ? Math.round(P / n)
-    : Math.round((P * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1));
+    ? round(P / n)
+    : round((P * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1));
 
   const rows = [];
   let outstanding = P;

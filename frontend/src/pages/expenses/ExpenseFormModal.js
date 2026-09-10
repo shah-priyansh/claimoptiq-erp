@@ -4,6 +4,11 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+// Money is stored to the paisa (e.g. a ₹899.37 petrol bill), so round to 2
+// decimals — never to whole rupees, which would drop the paisa and leave a
+// stale Balance (₹899.37 paid on a ₹899.37 bill must read ₹0.00, not ₹0.37).
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 const blank = { date: todayIso(), categoryId: '', amount: 0, notes: '', partyName: '', referenceId: '', partyId: '', paymentMode: 'cash', bankAccountId: '', paidAmount: '' };
 
 const PAYMENT_MODES = [{ value: 'cash', label: 'Cash' }, { value: 'bank', label: 'Bank' }, { value: 'upi', label: 'UPI' }];
@@ -52,9 +57,9 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
 
   if (!open) return null;
 
-  const amountNum = Math.round(Number(form.amount) || 0);
-  const paidNum = form.paidAmount === '' ? 0 : Math.round(Number(form.paidAmount) || 0);
-  const balance = amountNum - paidNum;
+  const amountNum = round2(form.amount);
+  const paidNum = form.paidAmount === '' ? 0 : round2(form.paidAmount);
+  const balance = round2(amountNum - paidNum);
   const needsBank = form.paymentMode === 'bank' || form.paymentMode === 'upi';
 
   const submit = async (e) => {
@@ -103,7 +108,7 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Amount (₹) *</label>
-              <input type="number" required value={form.amount}
+              <input type="number" step="0.01" required value={form.amount}
                 onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
                 placeholder="Negative for reversals"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
@@ -185,10 +190,10 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-sm font-medium text-gray-700">Paid (₹)</label>
                   <button type="button"
-                    onClick={() => setForm((f) => ({ ...f, paidAmount: String(Math.abs(Math.round(Number(f.amount) || 0))) }))}
+                    onClick={() => setForm((f) => ({ ...f, paidAmount: String(Math.abs(round2(f.amount))) }))}
                     className="text-xs font-medium text-primary-600 hover:text-primary-700">Full</button>
                 </div>
-                <input type="number" min="0" value={form.paidAmount}
+                <input type="number" min="0" step="0.01" value={form.paidAmount}
                   onChange={(e) => setForm((f) => ({ ...f, paidAmount: e.target.value }))}
                   placeholder="0 — leave blank for Unpaid"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />

@@ -3,7 +3,7 @@ import { HiOutlineX, HiOutlineCash, HiOutlineLink, HiChevronRight } from 'react-
 import { toast } from 'react-toastify';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { allocatePartyPaymentAPI } from '../../services/api';
-import { formatDateTime } from '../../utils/format';
+import { formatDateTime, round2 } from '../../utils/format';
 
 const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateOnly = (d) => (d ? formatDateTime(d).split(',')[0] : '-');
@@ -34,7 +34,7 @@ const PartyPaymentAllocateModal = ({ open, partyId, partyName, direction, rows =
     // Opened from a specific row → pre-fill the amount with that item's balance
     // and auto-link it, so the common "pay this one bill in full" case is one click.
     const focus = focusRefId ? rows.find((r) => r.refId === focusRefId) : null;
-    const focusBal = focus ? Math.max(0, Math.round(focus.balance || 0)) : 0;
+    const focusBal = focus ? Math.max(0, round2(focus.balance || 0)) : 0;
     setLump(focus ? String(focusBal) : '');
     setAllocations(rows.map((r) => ({
       refId: r.refId,
@@ -55,21 +55,21 @@ const PartyPaymentAllocateModal = ({ open, partyId, partyName, direction, rows =
     }
   }, [mode, bankAccounts, bankAccountId, open]);
 
-  const totalPending = useMemo(() => rows.reduce((s, r) => s + Math.max(0, Math.round(r.balance || 0)), 0), [rows]);
+  const totalPending = useMemo(() => rows.reduce((s, r) => s + Math.max(0, round2(r.balance || 0)), 0), [rows]);
   const totalAllocated = useMemo(() => allocations.reduce((s, a) => s + (Number(a.amount) || 0), 0), [allocations]);
   const linkedCount = allocations.filter((a) => Number(a.amount) > 0).length;
-  const unused = Math.round((Number(lump) || 0) - totalAllocated);
+  const unused = round2((Number(lump) || 0) - totalAllocated);
 
   const updateAlloc = (refId, amount) => setAllocations((prev) => prev.map((a) => (a.refId === refId ? { ...a, amount } : a)));
 
   // Spread the entered amount across rows, oldest first, up to each balance.
   const autoLink = () => {
-    let remaining = Math.round(Number(lump) || 0);
+    let remaining = round2(Number(lump) || 0);
     if (remaining <= 0) { toast.error(`Enter the amount ${isIn ? 'received' : 'paid'} first`); return; }
     const sorted = [...allocations].sort((a, b) => new Date(a.row.date) - new Date(b.row.date));
     const map = new Map();
     for (const a of sorted) {
-      const pending = Math.max(0, Math.round(a.row.balance || 0));
+      const pending = Math.max(0, round2(a.row.balance || 0));
       const give = Math.max(0, Math.min(remaining, pending));
       map.set(a.refId, give);
       remaining -= give;
@@ -82,7 +82,7 @@ const PartyPaymentAllocateModal = ({ open, partyId, partyName, direction, rows =
     const positive = allocations.filter((a) => Number(a.amount) > 0);
     if (!positive.length) { toast.error('Link the payment to at least one transaction'); return; }
     for (const a of positive) {
-      if (Number(a.amount) > Math.round(a.row.balance || 0)) {
+      if (Number(a.amount) > round2(a.row.balance || 0)) {
         toast.error(`Allocation for ${a.row.number || a.row.name} exceeds its balance`);
         return;
       }
@@ -142,7 +142,7 @@ const PartyPaymentAllocateModal = ({ open, partyId, partyName, direction, rows =
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">{isIn ? 'Amount received' : 'Amount paid'}</label>
-                <input type="number" min="0" value={lump} onChange={(e) => setLump(e.target.value)} placeholder="0"
+                <input type="number" min="0" step="0.01" value={lump} onChange={(e) => setLump(e.target.value)} placeholder="0"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               </div>
               <div>
@@ -280,14 +280,14 @@ const PartyPaymentAllocateModal = ({ open, partyId, partyName, direction, rows =
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {allocations.map((a) => {
-                    const pending = Math.max(0, Math.round(a.row.balance || 0));
+                    const pending = Math.max(0, round2(a.row.balance || 0));
                     return (
                       <tr key={a.refId}>
                         <td className="py-2 px-4 text-gray-600 whitespace-nowrap">{dateOnly(a.row.date)}</td>
                         <td className="py-2 px-4 text-gray-800 font-medium truncate max-w-[220px]">{a.row.number || a.row.name || '—'}</td>
                         <td className="py-2 px-4 text-right text-gray-600">{formatINR(pending)}</td>
                         <td className="py-2 px-4 text-right">
-                          <input type="number" min="0" max={pending} value={a.amount}
+                          <input type="number" min="0" step="0.01" max={pending} value={a.amount}
                             onChange={(e) => updateAlloc(a.refId, e.target.value)}
                             className="w-32 px-2 py-1 text-right border border-gray-300 rounded focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
                         </td>

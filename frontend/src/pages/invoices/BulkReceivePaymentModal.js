@@ -3,6 +3,7 @@ import { HiOutlineX, HiOutlineCash } from 'react-icons/hi';
 import { toast } from 'react-toastify';
 import { bulkReceivePaymentAPI } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import { round2 } from '../../utils/format';
 
 const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatMonth = (d) => {
@@ -22,7 +23,7 @@ const ownPending = (inv) => {
     ? Number(inv.netTotal)
     : (Number(inv.grandTotal || 0) - Number(inv.previousBalance || 0));
   const paid = Number(inv.amountPaid || 0);
-  return Math.max(0, Math.round(netTotal - paid));
+  return Math.max(0, round2(netTotal - paid));
 };
 
 // Receives one payment from a hospital and splits it across several of that
@@ -89,7 +90,7 @@ const BulkReceivePaymentModal = ({ open, invoices, bankAccounts, onClose, onSave
   // fill each invoice in turn.
   const [spreadAmount, setSpreadAmount] = useState('');
   const applySpread = () => {
-    let remaining = Math.max(0, Math.round(Number(spreadAmount) || 0));
+    let remaining = Math.max(0, round2(Number(spreadAmount) || 0));
     if (remaining <= 0) {
       toast.error('Enter an amount to distribute');
       return;
@@ -220,6 +221,7 @@ const BulkReceivePaymentModal = ({ open, invoices, bankAccounts, onClose, onSave
                 <input
                   type="number"
                   min="0"
+                  step="0.01"
                   placeholder="Distribute amount…"
                   value={spreadAmount}
                   onChange={(e) => setSpreadAmount(e.target.value)}
@@ -254,6 +256,7 @@ const BulkReceivePaymentModal = ({ open, invoices, bankAccounts, onClose, onSave
                         <input
                           type="number"
                           min="0"
+                          step="0.01"
                           max={pending}
                           value={a.amount}
                           onChange={(e) => updateAlloc(a.invoiceId, e.target.value)}

@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const { getJournalNetByAccount } = require('../services/journalBalances');
+const { round2 } = require('../utils/money');
 
 const VALID_FIELDS = ['bankName', 'accountHolder', 'accountNumber', 'ifsc', 'upiId', 'isDefault', 'isActive', 'order'];
 
@@ -72,7 +73,7 @@ exports.balances = async (req, res) => {
         if (id) map[id] = (map[id] || 0) + val;
       }
     }
-    for (const k of Object.keys(map)) map[k] = Math.round(map[k]);
+    for (const k of Object.keys(map)) map[k] = round2(map[k]);
     res.json(map);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

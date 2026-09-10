@@ -3,6 +3,11 @@ export const formatINR = (amount) => {
   return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
 };
 
+// Shared money rounding. Rupee amounts carry paise, so round to 2 decimals —
+// never to whole rupees, which silently dropped the paise. Use for every money
+// value; leave counts, minutes, percentages, and progress bars on Math.round.
+export const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 // All timestamps in the app render in IST regardless of the browser's
 // timezone. FCC operates entirely from Surat, so a claim created at
 // "12:32 IST" must read "12:32" for every user — a rep opening the app
@@ -115,20 +120,25 @@ export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, 
         }
       }
     } else if (svc.billingType === 'percentage') {
-      total += Math.round(basis * (svc.percentageRate || 0) / 100);
+      total += round2(basis * (svc.percentageRate || 0) / 100);
     }
   }
-  return Math.round(total);
+  return round2(total);
 };
 
 export const formatINRWords = (amount) => {
-  const num = Math.floor(Number(amount) || 0);
-  if (num === 0) return '';
+  const abs = Math.abs(Number(amount) || 0);
+  let num = Math.floor(abs);
+  let paise = Math.round((abs - num) * 100);
+  if (paise === 100) { num += 1; paise = 0; } // rounding carried into rupees
+  if (num === 0 && paise === 0) return '';
   const parts = [];
   let rem = num;
   if (rem >= 1_00_00_000) { parts.push(_threeDigits(Math.floor(rem / 1_00_00_000)) + ' Crore'); rem %= 1_00_00_000; }
   if (rem >= 1_00_000)    { parts.push(_threeDigits(Math.floor(rem / 1_00_000))    + ' Lakh');  rem %= 1_00_000; }
   if (rem >= 1_000)       { parts.push(_threeDigits(Math.floor(rem / 1_000))       + ' Thousand'); rem %= 1_000; }
   if (rem > 0)            { parts.push(_threeDigits(rem)); }
-  return parts.join(' ');
+  let words = parts.join(' ');
+  if (paise > 0) words += (words ? ' and ' : '') + _twoDigits(paise) + ' Paise';
+  return words;
 };

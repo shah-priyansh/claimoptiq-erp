@@ -180,7 +180,7 @@ const ExtraAllowanceEditor = ({ record, onUpdate }) => {
         <div key={i} className="flex gap-2 items-center">
           <input placeholder="Name (e.g. Bonus)" value={a.name} onChange={e => set(i, 'name', e.target.value)}
             className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-primary-500" />
-          <input placeholder="₹" type="number" value={a.amount} onChange={e => set(i, 'amount', e.target.value)}
+          <input placeholder="₹" type="number" step="0.01" value={a.amount} onChange={e => set(i, 'amount', e.target.value)}
             className="w-24 px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-primary-500" />
           <button onClick={() => remove(i)} className="text-red-400 hover:text-red-600"><HiOutlineTrash className="w-3.5 h-3.5" /></button>
         </div>

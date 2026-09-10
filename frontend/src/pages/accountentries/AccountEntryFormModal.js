@@ -97,13 +97,13 @@ const AccountEntryFormModal = ({ open, initial, onClose, onSave }) => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Debit (₹)</label>
-                <input type="number" min="0" value={form.debit}
+                <input type="number" min="0" step="0.01" value={form.debit}
                   onChange={(e) => setForm((f) => ({ ...f, debit: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Credit (₹)</label>
-                <input type="number" min="0" value={form.credit}
+                <input type="number" min="0" step="0.01" value={form.credit}
                   onChange={(e) => setForm((f) => ({ ...f, credit: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               </div>
@@ -133,7 +133,7 @@ const AccountEntryFormModal = ({ open, initial, onClose, onSave }) => {
               )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Amount (₹) *</label>
-                <input type="number" min="1" required value={form.amount}
+                <input type="number" min="0" step="0.01" required value={form.amount}
                   onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               </div>

@@ -1,11 +1,12 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { round2 } = require('../utils/money');
 
 const OPEN_INVOICE_STATUSES = ['issued', 'partially_paid'];
 
 // Net paid on an expense = money-out − money-in across its linked cash/bank entries.
 const expensePaidOf = (payments = []) =>
-  Math.round(payments.reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0));
+  round2(payments.reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0));
 
 // Opening balance as a signed receivable (+ they owe us, − we owe them).
 const openingSigned = (p) => (p.openingType === 'to_pay' ? -1 : 1) * (Number(p.openingBalance) || 0);
@@ -46,16 +47,16 @@ async function computeBalances() {
       WHERE e.party_id IS NOT NULL
       GROUP BY e.party_id`,
   ]);
-  const receivable = new Map(invAgg.map((r) => [r.partyId, Math.round(r._sum.amountPending || 0)]));
-  const expTotal = new Map(expAgg.map((r) => [r.partyId, Math.round(r._sum.amount || 0)]));
-  const expPaid = new Map(paidRows.map((r) => [r.partyId, Math.round(Number(r.paid) || 0)]));
+  const receivable = new Map(invAgg.map((r) => [r.partyId, round2(r._sum.amountPending || 0)]));
+  const expTotal = new Map(expAgg.map((r) => [r.partyId, round2(r._sum.amount || 0)]));
+  const expPaid = new Map(paidRows.map((r) => [r.partyId, round2(Number(r.paid) || 0)]));
   return { receivable, expTotal, expPaid };
 }
 
 const partyBalance = (p, b) => {
   const recv = b.receivable.get(p.id) || 0;
   const payable = (b.expTotal.get(p.id) || 0) - (b.expPaid.get(p.id) || 0);
-  return Math.round(openingSigned(p) + recv - payable);
+  return round2(openingSigned(p) + recv - payable);
 };
 
 exports.list = async (req, res) => {
@@ -116,21 +117,21 @@ exports.ledger = async (req, res) => {
     const rows = [];
     let receivable = 0;
     for (const inv of invoices) {
-      const pending = Math.round(inv.amountPending || 0);
+      const pending = round2(inv.amountPending || 0);
       if (OPEN_INVOICE_STATUSES.includes(inv.status)) receivable += pending;
       rows.push({
         type: 'invoice', refId: inv.id, name: inv.invoiceNumber || 'Invoice', number: inv.invoiceNumber || null,
-        date: inv.invoiceDate || inv.issuedAt || inv.createdAt, total: Math.round(inv.grandTotal || 0),
+        date: inv.invoiceDate || inv.issuedAt || inv.createdAt, total: round2(inv.grandTotal || 0),
         balance: pending, dueDate: inv.dueDate || null, status: inv.status,
       });
       for (const pay of inv.payments.filter((p) => p.direction === 'in')) {
-        rows.push({ type: 'payment_in', name: 'Payment-In', number: null, date: pay.date, total: Math.round(pay.amount || 0), balance: 0, dueDate: null, status: 'used' });
+        rows.push({ type: 'payment_in', name: 'Payment-In', number: null, date: pay.date, total: round2(pay.amount || 0), balance: 0, dueDate: null, status: 'used' });
       }
     }
 
     let payable = 0;
     for (const e of expenses) {
-      const total = Math.round(e.amount || 0);
+      const total = round2(e.amount || 0);
       const paid = expensePaidOf(e.payments);
       const pending = total - paid;
       payable += pending;
@@ -140,13 +141,13 @@ exports.ledger = async (req, res) => {
         notes: e.notes || '',
       });
       for (const pay of e.payments.filter((p) => p.direction === 'out')) {
-        rows.push({ type: 'payment_out', name: 'Payment-Out', number: null, date: pay.date, total: Math.round(pay.amount || 0), balance: 0, dueDate: null, status: 'used' });
+        rows.push({ type: 'payment_out', name: 'Payment-Out', number: null, date: pay.date, total: round2(pay.amount || 0), balance: 0, dueDate: null, status: 'used' });
       }
     }
 
     rows.sort((a, b) => new Date(b.date) - new Date(a.date));
-    const balance = Math.round(openingSigned(party) + receivable - payable);
-    res.json({ party: toResponse(party), balance, receivable: Math.round(receivable), payable: Math.round(payable), transactions: rows });
+    const balance = round2(openingSigned(party) + receivable - payable);
+    res.json({ party: toResponse(party), balance, receivable: round2(receivable), payable: round2(payable), transactions: rows });
   } catch (e) {
     res.status(500).json({ message: 'Server error', error: e.message });
   }

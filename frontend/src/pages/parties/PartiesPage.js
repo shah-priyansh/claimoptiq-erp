@@ -102,7 +102,7 @@ const PartyFormModal = ({ open, initial, onClose, onSaved }) => {
             <div className="md:col-span-3"><label className={label}>Shipping Address</label><textarea rows={2} value={form.shippingAddress} onChange={(e) => set('shippingAddress', e.target.value)} className={`${input} resize-y`} /></div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-gray-100">
-            <div><label className={label}>Opening Balance</label><input type="number" value={form.openingBalance} onChange={(e) => set('openingBalance', e.target.value)} placeholder="0" className={input} /></div>
+            <div><label className={label}>Opening Balance</label><input type="number" step="0.01" value={form.openingBalance} onChange={(e) => set('openingBalance', e.target.value)} placeholder="0" className={input} /></div>
             <div>
               <label className={label}>Balance Type</label>
               <select value={form.openingType} onChange={(e) => set('openingType', e.target.value)} className={input}>

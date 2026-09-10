@@ -153,7 +153,7 @@ const AddAccountModal = ({ open, onClose, onCreated, onSaved, account, defaultTy
               <div>
                 <label className={label}>Opening Balance</label>
                 <div className="flex gap-2">
-                  <input type="number" value={form.openingBalance} onChange={(e) => set('openingBalance', e.target.value)} placeholder="0" className={input} />
+                  <input type="number" step="0.01" value={form.openingBalance} onChange={(e) => set('openingBalance', e.target.value)} placeholder="0" className={input} />
                   {typeDef.route === 'account' && (
                     <select value={form.openingType} onChange={(e) => set('openingType', e.target.value)}
                       className="flex-shrink-0 pl-2.5 pr-7 py-2 border border-gray-300 rounded-lg text-sm bg-white">

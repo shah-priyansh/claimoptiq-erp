@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { HiOutlineX } from 'react-icons/hi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { invoiceDisplayName } from '../../utils/invoice';
-import { formatDate } from '../../utils/format';
+import { formatDate, round2 } from '../../utils/format';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const blank = {
@@ -83,7 +83,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
   // ── Split-on-excess bookkeeping ──
   const linkType = form.link; // 'invoice' | 'expense' | 'none'
   const items = linkType === 'invoice' ? (invoices || []) : linkType === 'expense' ? (expenses || []) : [];
-  const pendingOf = (it) => Math.max(0, Math.round(Number(it?.amountPending ?? it?.amount ?? 0)));
+  const pendingOf = (it) => Math.max(0, round2(Number(it?.amountPending ?? it?.amount ?? 0)));
   const primaryId = linkType === 'invoice' ? form.invoiceId : linkType === 'expense' ? form.expenseId : '';
   // Fall back to the entry's own linked bill when it's a now-paid invoice/expense
   // that's absent from the open pickers (edit mode), so its label still renders.
@@ -91,12 +91,12 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
   const primaryItem = items.find((it) => it._id === primaryId)
     || (linkedInitial && linkedInitial._id === primaryId ? linkedInitial : undefined);
   const primaryPending = primaryItem ? pendingOf(primaryItem) : 0;
-  const enteredAmount = Math.max(0, Math.round(Number(form.amount) || 0));
+  const enteredAmount = Math.max(0, round2(Number(form.amount) || 0));
   // Show the "link the excess" panel only when the amount is MORE than the
   // linked bill's pending — otherwise this is an ordinary single entry.
   const canSplit = allowSplit && !!primaryId && enteredAmount > primaryPending;
   const primaryAlloc = primaryId ? Math.min(enteredAmount, primaryPending) : enteredAmount;
-  const sumExtras = extras.reduce((s, x) => s + Math.max(0, Math.round(Number(x.amount) || 0)), 0);
+  const sumExtras = extras.reduce((s, x) => s + Math.max(0, round2(Number(x.amount) || 0)), 0);
   const unused = Math.max(0, enteredAmount - primaryAlloc - sumExtras);
   const itemLabel = (it) => {
     if (linkType === 'invoice') {
@@ -122,7 +122,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
   const isEditing = !!(initial && initial._id);
   const canMultiLink = allowMultiLink && !isEditing && (linkType === 'invoice' || linkType === 'expense') && !!primaryId;
   const multi = canMultiLink && extras.length > 0;
-  const primaryAmt = Math.round(Number(primaryAmount) || 0);
+  const primaryAmt = round2(Number(primaryAmount) || 0);
   const multiTotal = primaryAmt + sumExtras;
   // First "+ Link another": seed the primary's own amount. When editing, default
   // to this entry's current amount; otherwise the bill's pending balance.
@@ -136,7 +136,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
     const it = items.find((i) => i._id === v);
     const cur = extras[idx];
     const patch = { id: v || '' };
-    if (v && (!cur.amount || Math.round(Number(cur.amount)) === 0)) patch.amount = it ? pendingOf(it) : '';
+    if (v && (!cur.amount || round2(Number(cur.amount)) === 0)) patch.amount = it ? pendingOf(it) : '';
     setExtra(idx, patch);
   };
   const autoFillExtras = () => {
@@ -155,7 +155,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
 
   const submit = async (e) => {
     e.preventDefault();
-    const activeExtras = (allowSplit || allowMultiLink) ? extras.filter((x) => x.id && Math.round(Number(x.amount)) > 0) : [];
+    const activeExtras = (allowSplit || allowMultiLink) ? extras.filter((x) => x.id && round2(Number(x.amount)) > 0) : [];
     const total = multi ? multiTotal : enteredAmount;
     if (total <= 0) return;
     setSaving(true);
@@ -173,7 +173,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
         // One entry per linked bill: the primary + every extra with an amount.
         const allocations = [
           { id: primaryId, amount: primaryAmt },
-          ...activeExtras.map((x) => ({ id: x.id, amount: Math.round(Number(x.amount)) })),
+          ...activeExtras.map((x) => ({ id: x.id, amount: round2(Number(x.amount)) })),
         ]
           .filter((r) => r.id && r.amount > 0)
           .map((r) => ({
@@ -190,7 +190,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
           ...activeExtras.map((x) => ({
             invoiceId: linkType === 'invoice' ? x.id : null,
             expenseId: linkType === 'expense' ? x.id : null,
-            amount: Math.round(Number(x.amount)),
+            amount: round2(Number(x.amount)),
           })),
         ].filter((a) => a.amount > 0);
         await onSave({ ...shared, allocations });
@@ -288,7 +288,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                   title="Sum of the linked bills"
                   className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-sm text-gray-700 cursor-not-allowed" />
               ) : (
-                <input type="number" min="1" required value={form.amount}
+                <input type="number" min="0" step="0.01" required value={form.amount}
                   onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               )}
@@ -397,7 +397,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                       options={rowOptions(x.id)}
                     />
                   </div>
-                  <input type="number" min="0" value={x.amount}
+                  <input type="number" min="0" step="0.01" value={x.amount}
                     onChange={(e) => setExtra(idx, { amount: e.target.value })}
                     placeholder="0"
                     className="w-28 px-2 py-2 border border-gray-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
@@ -434,7 +434,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                 <div className="flex-1 min-w-0 text-sm text-gray-700 truncate" title={primaryItem ? itemLabel(primaryItem) : ''}>
                   {primaryItem ? itemLabel(primaryItem) : '—'}
                 </div>
-                <input type="number" min="0" value={primaryAmount}
+                <input type="number" min="0" step="0.01" value={primaryAmount}
                   onChange={(e) => setPrimaryAmount(e.target.value)}
                   placeholder="0"
                   className="w-28 px-2 py-2 border border-gray-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
@@ -453,7 +453,7 @@ const CashBankFormModal = ({ open, initial, defaults = null, invoices, expenses,
                       options={rowOptions(x.id)}
                     />
                   </div>
-                  <input type="number" min="0" value={x.amount}
+                  <input type="number" min="0" step="0.01" value={x.amount}
                     onChange={(e) => setExtra(idx, { amount: e.target.value })}
                     placeholder="0"
                     className="w-28 px-2 py-2 border border-gray-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />

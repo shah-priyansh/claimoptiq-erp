@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { round2 } = require('../utils/money');
 const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
 const { getJournalNetByAccount, journalKey } = require('../services/journalBalances');
 
@@ -116,7 +117,7 @@ const buildEntryData = async (body) => {
     date,
     direction,
     mode,
-    amount: Math.round(amount),
+    amount: round2(amount),
     notes: String(body.notes || '').slice(0, 1000),
     invoiceId,
     expenseId,
@@ -131,7 +132,7 @@ const buildEntryData = async (body) => {
 // it down, an 'in' refund adds back). Expense.payments IS the CashBankEntry[]
 // relation, so an expense has no stored paid field — it's derived here.
 const paidOnExpense = (payments = []) =>
-  Math.round((payments || []).reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0));
+  round2((payments || []).reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0));
 
 // ── Shared core for "split one payment into one entry per bill" ──────────────
 // bulkReceipt (hospital-scoped), allocatePartyPayment (party-scoped) and
@@ -157,7 +158,7 @@ const createAllocationEntries = async ({
   const normalised = allocations.map((a) => ({
     invoiceId: a?.invoiceId || null,
     expenseId: a?.expenseId || null,
-    amount: Math.round(Number(a?.amount) || 0),
+    amount: round2(Number(a?.amount) || 0),
   }));
   for (const a of normalised) {
     if (a.invoiceId && a.expenseId) throw { status: 400, message: 'An allocation links to at most one of invoice / expense' };
@@ -211,12 +212,12 @@ const createAllocationEntries = async ({
       if (inv.status === 'draft') throw { status: 400, message: 'Cannot record payment against a draft invoice. Issue it first.' };
       if (inv.status === 'void') throw { status: 400, message: 'Cannot record payment against a voided invoice.' };
       if (validateInvoice) validateInvoice(inv);
-      if (a.amount > Math.round(inv.amountPending || 0)) throw { status: 400, message: 'Allocation exceeds the invoice pending amount' };
+      if (a.amount > round2(inv.amountPending || 0)) throw { status: 400, message: 'Allocation exceeds the invoice pending amount' };
     } else {
       const exp = expById.get(a.expenseId);
       if (!exp) throw { status: 400, message: 'Expense not found' };
       if (validateExpense) validateExpense(exp);
-      const pending = Math.round((exp.amount || 0) - paidOnExpense(exp.payments));
+      const pending = round2((exp.amount || 0) - paidOnExpense(exp.payments));
       if (a.amount > pending) throw { status: 400, message: 'Allocation exceeds the expense pending amount' };
     }
   }
@@ -396,10 +397,10 @@ exports.balances = async (req, res) => {
     for (const [key, val] of jnet) { if (key.startsWith('bank:')) out.bank += val; }
     out.total = out.cash + out.bank + out.upi;
     res.json({
-      cash: Math.round(out.cash),
-      bank: Math.round(out.bank),
-      upi:  Math.round(out.upi),
-      total: Math.round(out.total),
+      cash: round2(out.cash),
+      bank: round2(out.bank),
+      upi:  round2(out.upi),
+      total: round2(out.total),
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -429,7 +430,7 @@ exports.summary = async (req, res) => {
     const out = { cash: shape(), bank: shape(), upi: shape() };
     for (const row of grouped) {
       if (!out[row.mode]) continue;
-      out[row.mode][row.direction] = Math.round(row._sum.amount || 0);
+      out[row.mode][row.direction] = round2(row._sum.amount || 0);
     }
     const totalIn = out.cash.in + out.bank.in + out.upi.in;
     const totalOut = out.cash.out + out.bank.out + out.upi.out;

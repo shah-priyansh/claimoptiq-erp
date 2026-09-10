@@ -17,7 +17,7 @@ import {
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
-import { formatDate as _formatDate } from '../../utils/format';
+import { formatDate as _formatDate, round2 } from '../../utils/format';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -146,23 +146,23 @@ const InvoiceDetail = () => {
     const tpaSum = sumBy(['claim_tpa_desk', 'service_percentage']);
     const servicesSum = sumBy(['service_fixed', 'manual']);
     const adjustSum = sumBy(['adjustment']);
-    const gross = Math.round(tpaSum + servicesSum + adjustSum);
-    const discountAmt = Math.min(Math.max(0, Math.round(Number(discount) || 0)), gross);
+    const gross = round2(tpaSum + servicesSum + adjustSum);
+    const discountAmt = Math.min(Math.max(0, round2(Number(discount) || 0)), gross);
     const taxable = gross - discountAmt;
     const effectiveGst = Number(gstRate) || 0;
-    const gstAmount = Math.round((taxable * effectiveGst) / 100);
+    const gstAmount = round2((taxable * effectiveGst) / 100);
     const selectedTds = tdsRateId ? tdsRates.find((r) => r._id === tdsRateId) : null;
     const effectiveTdsRate = selectedTds ? Number(selectedTds.rate) || 0 : (invoice?.tdsRate || 0);
     const effectiveTdsSection = selectedTds ? (selectedTds.section || '') : (invoice?.tdsSection || '');
-    const tdsAmount = Math.round(((taxable + gstAmount) * effectiveTdsRate) / 100);
+    const tdsAmount = round2(((taxable + gstAmount) * effectiveTdsRate) / 100);
     const netTotal = taxable + gstAmount - tdsAmount;
-    const roundOffI = Math.round(Number(roundOff) || 0);
+    const roundOffI = round2(Number(roundOff) || 0);
     const previousBalance = invoice?.previousBalance || 0;
     const amountPaid = invoice?.amountPaid || 0;
     const thisBalance = netTotal + roundOffI - amountPaid;
     const currentBalance = thisBalance + previousBalance;
     return {
-      tpa: Math.round(tpaSum), services: Math.round(servicesSum), adjust: Math.round(adjustSum),
+      tpa: round2(tpaSum), services: round2(servicesSum), adjust: round2(adjustSum),
       gross, discount: discountAmt, taxable, gstAmount, tdsAmount, netTotal,
       effectiveGst, tdsRate: effectiveTdsRate, tdsSection: effectiveTdsSection,
       roundOff: roundOffI, previousBalance, amountPaid, thisBalance, currentBalance,
@@ -244,7 +244,7 @@ const InvoiceDetail = () => {
           const orig = origById.get(row._origId);
           if (!orig) return;
           const descChanged = (row.description || '') !== (orig.description || '');
-          const amtChanged = Math.round(Number(row.amount) || 0) !== Math.round(Number(orig.amount) || 0);
+          const amtChanged = round2(Number(row.amount) || 0) !== round2(Number(orig.amount) || 0);
           if (descChanged || amtChanged) {
             lineEdits.push({ id: row._origId, description: row.description, amount: Number(row.amount) || 0 });
           }
@@ -257,8 +257,8 @@ const InvoiceDetail = () => {
       const payload = {
         notes,
         tdsRateId: tdsRateId || null,
-        roundOff: Math.round(Number(roundOff) || 0),
-        discount: Math.max(0, Math.round(Number(discount) || 0)),
+        roundOff: round2(Number(roundOff) || 0),
+        discount: Math.max(0, round2(Number(discount) || 0)),
         gstRate: Math.max(0, Number(gstRate) || 0),
       };
       if (lineEdits.length) payload.lineEdits = lineEdits;
@@ -350,7 +350,7 @@ const InvoiceDetail = () => {
   };
 
   const markAsPaid = () => {
-    const pending = Math.max(0, Math.round(invoice.amountPending || 0));
+    const pending = Math.max(0, round2(invoice.amountPending || 0));
     if (pending <= 0) {
       toast.info('Invoice is already fully paid');
       return;
@@ -723,7 +723,7 @@ const InvoiceDetail = () => {
                   Discount <span className="text-xs text-gray-400 font-normal">(max {formatINR(liveTotals.gross)})</span>
                 </label>
                 <input
-                  type="number" min="0" max={liveTotals.gross}
+                  type="number" min="0" step="0.01" max={liveTotals.gross}
                   value={discount}
                   onChange={(e) => {
                     const cap = liveTotals.gross;
@@ -738,7 +738,7 @@ const InvoiceDetail = () => {
                   Round Off <span className="text-xs text-gray-400 font-normal">(+/- on Grand Total)</span>
                 </label>
                 <input
-                  type="number"
+                  type="number" step="0.01"
                   value={roundOff}
                   onChange={(e) => setRoundOff(e.target.value)}
                   placeholder="0"
@@ -905,7 +905,7 @@ const InvoiceDetail = () => {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Amount</label>
-                <input type="number" min="1" required value={payForm.amount}
+                <input type="number" min="0" step="0.01" required value={payForm.amount}
                   onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))}
                   className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
               </div>
@@ -1039,7 +1039,7 @@ const InvoiceDetail = () => {
         initial={invoice ? {
           direction: 'in',
           mode: 'cash',
-          amount: Math.max(0, Math.round(invoice.amountPending || 0)),
+          amount: Math.max(0, round2(invoice.amountPending || 0)),
           date: new Date().toISOString().slice(0, 10),
           notes: '',
           invoice: { _id: invoice._id },

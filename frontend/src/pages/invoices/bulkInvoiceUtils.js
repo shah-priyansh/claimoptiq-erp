@@ -1,4 +1,5 @@
 import { createInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI } from '../../services/api';
+import { round2 } from '../../utils/format';
 
 export const formatINR = (n) =>
   '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -81,21 +82,21 @@ export const computeTotals = (editLines, settings, previewTotals, overrideTds) =
   const tpa = sumBy(['claim_tpa_desk', 'service_percentage']);
   const services = sumBy(['service_fixed', 'manual']);
   const adjust = sumBy(['adjustment']);
-  const gross = Math.round(tpa + services + adjust);
-  const discount = Math.min(Math.max(0, Math.round(Number(settings.discount) || 0)), gross);
+  const gross = round2(tpa + services + adjust);
+  const discount = Math.min(Math.max(0, round2(Number(settings.discount) || 0)), gross);
   const taxable = gross - discount;
   const effectiveGst = settings.gstRate === '' ? (previewTotals.gstRate || 0) : (Number(settings.gstRate) || 0);
-  const gstAmount = Math.round((taxable * effectiveGst) / 100);
+  const gstAmount = round2((taxable * effectiveGst) / 100);
   const effectiveTdsRate = overrideTds ? (overrideTds.rate || 0) : (previewTotals.tdsRate || 0);
   const effectiveTdsSection = overrideTds ? (overrideTds.section || '') : (previewTotals.tdsSection || '');
   // TDS base = Taxable + GST (matches backend `calculateInvoiceTotals`).
-  const tdsAmount = Math.round(((taxable + gstAmount) * effectiveTdsRate) / 100);
+  const tdsAmount = round2(((taxable + gstAmount) * effectiveTdsRate) / 100);
   const netTotal = taxable + gstAmount - tdsAmount;
-  const roundOff = Math.round(Number(settings.roundOff) || 0);
+  const roundOff = round2(Number(settings.roundOff) || 0);
   const previousBalance = previewTotals.previousBalance || 0;
   const grandTotal = netTotal + previousBalance + roundOff;
   return {
-    tpa: Math.round(tpa), services: Math.round(services), adjust: Math.round(adjust),
+    tpa: round2(tpa), services: round2(services), adjust: round2(adjust),
     gross, discount, taxable, gstAmount, tdsAmount, netTotal, roundOff, previousBalance, grandTotal,
     effectiveGst, tdsRate: effectiveTdsRate, tdsSection: effectiveTdsSection,
   };
@@ -149,8 +150,8 @@ export const commitDraft = async (draft, { autoIssue = false, includeFixedServic
       const id = queue?.shift();
       if (!id) return;
       const newDesc = row.description || '';
-      const newAmt = Math.round(Number(row.amount) || 0);
-      const origAmt = Math.round(Number((draft.previewLines.find((l) => l.description === origDesc) || {}).amount) || 0);
+      const newAmt = round2(Number(row.amount) || 0);
+      const origAmt = round2(Number((draft.previewLines.find((l) => l.description === origDesc) || {}).amount) || 0);
       if (newDesc !== origDesc || newAmt !== origAmt) {
         lineEdits.push({ id, description: newDesc, amount: newAmt });
       }
@@ -162,8 +163,8 @@ export const commitDraft = async (draft, { autoIssue = false, includeFixedServic
   const patchPayload = {};
   if (lineEdits.length) patchPayload.lineEdits = lineEdits;
   if (removedLineIds.length) patchPayload.removedLineIds = removedLineIds;
-  if (Number(draft.settings.roundOff) !== 0) patchPayload.roundOff = Math.round(Number(draft.settings.roundOff) || 0);
-  if (Number(draft.settings.discount) > 0) patchPayload.discount = Math.max(0, Math.round(Number(draft.settings.discount) || 0));
+  if (Number(draft.settings.roundOff) !== 0) patchPayload.roundOff = round2(Number(draft.settings.roundOff) || 0);
+  if (Number(draft.settings.discount) > 0) patchPayload.discount = Math.max(0, round2(Number(draft.settings.discount) || 0));
 
   if (Object.keys(patchPayload).length) {
     await updateInvoiceAPI(created._id, patchPayload);

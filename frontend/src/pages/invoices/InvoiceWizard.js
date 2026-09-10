@@ -10,6 +10,7 @@ import {
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
+import { round2 } from '../../utils/format';
 
 const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -154,23 +155,23 @@ const InvoiceWizard = () => {
     const tpa = sumBy(['claim_tpa_desk', 'service_percentage']);
     const services = sumBy(['service_fixed', 'manual']);
     const adjust = sumBy(['adjustment']);
-    const gross = Math.round(tpa + services + adjust);
+    const gross = round2(tpa + services + adjust);
     // Pre-tax discount: clamped to [0, gross] so a typo can't flip the invoice negative.
-    const discountAmt = Math.min(Math.max(0, Math.round(Number(discount) || 0)), gross);
+    const discountAmt = Math.min(Math.max(0, round2(Number(discount) || 0)), gross);
     const taxable = gross - discountAmt;
     const effectiveGst = gstRate === '' ? (preview.totals.gstRate || 0) : (Number(gstRate) || 0);
-    const gstAmount = Math.round((taxable * effectiveGst) / 100);
+    const gstAmount = round2((taxable * effectiveGst) / 100);
     // TDS base = Taxable + GST (matches backend `calculateInvoiceTotals`).
-    const tdsAmount = Math.round(((taxable + gstAmount) * (preview.totals.tdsRate || 0)) / 100);
+    const tdsAmount = round2(((taxable + gstAmount) * (preview.totals.tdsRate || 0)) / 100);
     const netTotal = taxable + gstAmount - tdsAmount;
-    const grandTotal = netTotal + (preview.totals.previousBalance || 0) + (Math.round(Number(roundOff) || 0));
+    const grandTotal = netTotal + (preview.totals.previousBalance || 0) + (round2(Number(roundOff) || 0));
     return {
-      tpa: Math.round(tpa),
-      services: Math.round(services),
-      adjust: Math.round(adjust),
+      tpa: round2(tpa),
+      services: round2(services),
+      adjust: round2(adjust),
       gross, discount: discountAmt, taxable, gstAmount, tdsAmount, netTotal,
       previousBalance: preview.totals.previousBalance || 0,
-      roundOff: Math.round(Number(roundOff) || 0),
+      roundOff: round2(Number(roundOff) || 0),
       grandTotal,
     };
   }, [editLines, preview, roundOff, discount, gstRate]);
@@ -223,8 +224,8 @@ const InvoiceWizard = () => {
           const id = queue?.shift();
           if (!id) return;
           const newDesc = row.description || '';
-          const newAmt = Math.round(Number(row.amount) || 0);
-          const origAmt = Math.round(Number((preview.lines.find((l) => l.description === origDesc) || {}).amount) || 0);
+          const newAmt = round2(Number(row.amount) || 0);
+          const origAmt = round2(Number((preview.lines.find((l) => l.description === origDesc) || {}).amount) || 0);
           if (newDesc !== origDesc || newAmt !== origAmt) {
             lineEdits.push({ id, description: newDesc, amount: newAmt });
           }
@@ -237,8 +238,8 @@ const InvoiceWizard = () => {
       const patchPayload = {};
       if (lineEdits.length) patchPayload.lineEdits = lineEdits;
       if (removedLineIds.length) patchPayload.removedLineIds = removedLineIds;
-      if (Number(roundOff) !== 0) patchPayload.roundOff = Math.round(Number(roundOff) || 0);
-      if (Number(discount) > 0) patchPayload.discount = Math.round(Number(discount) || 0);
+      if (Number(roundOff) !== 0) patchPayload.roundOff = round2(Number(roundOff) || 0);
+      if (Number(discount) > 0) patchPayload.discount = round2(Number(discount) || 0);
 
       if (Object.keys(patchPayload).length) {
         await updateInvoiceAPI(draft._id, patchPayload);
@@ -484,7 +485,7 @@ const InvoiceWizard = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Discount <span className="text-xs text-gray-400 font-normal">(max {formatINR(liveTotals?.gross || 0)})</span>
                 </label>
-                <input type="number" min="0" max={liveTotals?.gross || 0} value={discount}
+                <input type="number" min="0" step="0.01" max={liveTotals?.gross || 0} value={discount}
                   onChange={(e) => {
                     const cap = liveTotals?.gross || 0;
                     const v = Math.max(0, Math.min(Number(e.target.value) || 0, cap));
@@ -497,7 +498,7 @@ const InvoiceWizard = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Round Off <span className="text-xs text-gray-400 font-normal">(+/- on Grand Total)</span>
                 </label>
-                <input type="number" value={roundOff}
+                <input type="number" step="0.01" value={roundOff}
                   onChange={(e) => setRoundOff(e.target.value)}
                   placeholder="0"
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />

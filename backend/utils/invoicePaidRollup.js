@@ -7,6 +7,8 @@
 //   partially_paid                             when amountPaid > 0
 //   issued                                     otherwise  (never reverts to 'draft')
 //   void/draft                                 left untouched — those statuses own themselves
+const { round2 } = require('./money');
+
 const recomputeInvoicePaidStatus = async (tx, invoiceId) => {
   if (!invoiceId) return null;
   const invoice = await tx.invoice.findUnique({
@@ -20,8 +22,8 @@ const recomputeInvoicePaidStatus = async (tx, invoiceId) => {
     where: { invoiceId, direction: 'in' },
     _sum: { amount: true },
   });
-  const amountPaid = Math.round(agg._sum.amount || 0);
-  const amountPending = Math.round((invoice.grandTotal || 0) - amountPaid);
+  const amountPaid = round2(agg._sum.amount || 0);
+  const amountPending = round2((invoice.grandTotal || 0) - amountPaid);
 
   let status = invoice.status;
   if (status !== 'void' && status !== 'draft') {

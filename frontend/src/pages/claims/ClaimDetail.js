@@ -15,7 +15,7 @@ import {
   HiOutlineClipboardList, HiOutlinePrinter,
 } from 'react-icons/hi';
 import { statusBadgeStyle, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatDateTime as _formatDateTime } from '../../utils/format';
+import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatDateTime as _formatDateTime, round2 } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { isValidPhone, onPhoneInput } from '../../utils/validators';
@@ -319,7 +319,7 @@ const ClaimDetail = () => {
     if (!showTds) return;
     setSettlementForm(prev => ({
       ...prev,
-      tds: Math.round((prev.settlementAmount || 0) * 0.10),
+      tds: round2((prev.settlementAmount || 0) * 0.10),
     }));
   }, [settlementForm.settlementAmount, showTds]);
 
@@ -402,7 +402,7 @@ const ClaimDetail = () => {
         || ((data.finalApprovalAmount || 0) - (data.settlementAmountDeduction || 0) - (data.mouDiscountOnSettlement || 0))
         || 0;
       const initialTds = data.tds
-        || (['cashless', 'cashless_anywhere', 'grievance'].includes(data.claimType) ? Math.round(initialSettlementAmount * 0.10) : 0);
+        || (['cashless', 'cashless_anywhere', 'grievance'].includes(data.claimType) ? round2(initialSettlementAmount * 0.10) : 0);
       const initialBank = data.bankTransferAmount
         || Math.max(0, initialSettlementAmount - initialTds);
       setSettlementForm({
@@ -680,7 +680,7 @@ const ClaimDetail = () => {
   const filePriceDirty =
     (!!settlementForm.filePriceOverridden !== !!savedFilePrice.filePriceOverridden) ||
     (!!settlementForm.filePriceOverridden &&
-      Math.round(settlementForm.filePrice || 0) !== Math.round(savedFilePrice.filePrice || 0));
+      round2(settlementForm.filePrice || 0) !== round2(savedFilePrice.filePrice || 0));
 
   // Guard the browser tab against a hard close/refresh while a manual file
   // price is unsaved. (SPA navigation still relies on the loud in-page cue.)
