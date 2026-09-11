@@ -69,11 +69,29 @@ const persistResult = (result, failedSourceRows, fileName) => {
   } catch { /* quota exceeded — silently drop */ }
 };
 
+// The Claims export (ClaimList.js BASE_FIELD_DEFS) writes several headers with
+// different spellings than this import template — e.g. "D.O.A." vs "Date of
+// Admit". Map those export headers to the same field keys so a round-trip
+// (Export → re-Import) doesn't silently drop columns (previously DOA/DOD dates
+// vanished on import). Keyed by cleaned (lower-cased, '*'-stripped) header text.
+const HEADER_ALIASES = {
+  'sr': 'srNo',
+  'hospital': 'hospital',
+  'direct patient': 'isDirectPatient',
+  'company name': 'insuranceCompany',
+  'tpa name': 'tpa',
+  'd.o.a.': 'dateOfAdmit',
+  'd.o.d.': 'dateOfDischarge',
+  'hospital bill': 'hospitalFinalBill',
+  'courier company': 'courierCompanyName',
+  'mou disc on settlement': 'mouDiscountOnSettlement',
+};
+
 // Strip trailing '*' / spaces from header → use to match xlsx columns to data keys
 const labelToKey = (label) => {
   const cleaned = String(label || '').replace(/\*/g, '').trim().toLowerCase();
   const col = COLUMNS.find(c => c.label.replace(/\*/g, '').trim().toLowerCase() === cleaned);
-  return col?.key || null;
+  return col?.key || HEADER_ALIASES[cleaned] || null;
 };
 
 // ── Shared parsing/matching helpers (mirror backend so preview is honest) ──

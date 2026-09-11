@@ -1323,16 +1323,6 @@ const ClaimList = () => {
             searchPlaceholder="Search type..."
             allowClear
           />
-          {processByOptions.length > 0 && (
-            <SearchableSelect
-              options={processByOptions}
-              value={filters.claimProcessBy}
-              onChange={val => setFilters({ ...filters, claimProcessBy: val, page: 1 })}
-              placeholder="All Process By"
-              searchPlaceholder="Search process by..."
-              allowClear
-            />
-          )}
           <input
             type="date"
             value={filters.dateFrom}
@@ -1345,6 +1335,16 @@ const ClaimList = () => {
             onChange={e => setFilters({ ...filters, dateTo: e.target.value, page: 1 })}
             className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-700"
           />
+          {processByOptions.length > 0 && (
+            <SearchableSelect
+              options={processByOptions}
+              value={filters.claimProcessBy}
+              onChange={val => setFilters({ ...filters, claimProcessBy: val, page: 1 })}
+              placeholder="All Process By"
+              searchPlaceholder="Search process by..."
+              allowClear
+            />
+          )}
         </div>
       </div>
 
