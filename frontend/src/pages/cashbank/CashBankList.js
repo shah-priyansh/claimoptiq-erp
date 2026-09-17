@@ -175,6 +175,16 @@ const CashBankList = () => {
         toast.success('Entry added');
       }
       setModal({ open: false, item: null });
+
+      // ✅ Refresh balances immediately after save
+      try {
+        const balResponse = await getCashBankBalancesAPI();
+        setBalances(balResponse.data);
+      } catch (err) {
+        console.warn('Failed to refresh balances:', err);
+      }
+
+      // Then refresh the full list
       fetchAll();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to save');
@@ -187,6 +197,16 @@ const CashBankList = () => {
     try {
       await deleteCashBankAPI(item._id);
       toast.success('Deleted');
+
+      // ✅ Refresh balances immediately after delete
+      try {
+        const balResponse = await getCashBankBalancesAPI();
+        setBalances(balResponse.data);
+      } catch (err) {
+        console.warn('Failed to refresh balances:', err);
+      }
+
+      // Then refresh the full list
       fetchAll();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to delete');

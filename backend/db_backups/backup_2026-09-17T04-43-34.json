@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-09-17T04:43:34.846Z",
+  "database": "ClaimOptiq",
+  "tables": {
+    "users": "5",
+    "roles": "5",
+    "hospitals": "99",
+    "references": "4",
+    "parties": "135",
+    "invoices": "858",
+    "expenses": "903",
+    "cash_bank_entries": "1499",
+    "accounts": "18",
+    "journal_entries": "54",
+    "claim_status_history": "5377",
+    "claims": "4814"
+  },
+  "summary": {
+    "users": "5 records",
+    "roles": "5 records",
+    "hospitals": "99 records",
+    "references": "4 records",
+    "parties": "135 records",
+    "invoices": "858 records",
+    "expenses": "903 records",
+    "cash_bank_entries": "1499 records",
+    "accounts": "18 records",
+    "journal_entries": "54 records",
+    "claim_status_history": "5377 records",
+    "claims": "4814 records"
+  }
+}

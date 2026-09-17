@@ -392,9 +392,29 @@ exports.balances = async (req, res) => {
       if (row.fromMode && out[row.fromMode] !== undefined) out[row.fromMode] -= row._sum.amount || 0;
     }
     // Fold Journal Entry lines: a debit to cash/bank increases it, a credit decreases it.
-    const jnet = await getJournalNetByAccount(prisma);
-    out.cash += jnet.get(journalKey('cash', null)) || 0;
-    for (const [key, val] of jnet) { if (key.startsWith('bank:')) out.bank += val; }
+    // Only count actual cash/bank account lines, not fixed deposits or other assets
+    const jlines = await prisma.journalLine.groupBy({
+      by: ['accountName'],
+      _sum: { debit: true, credit: true }
+    });
+
+    jlines.forEach(line => {
+      const net = (line._sum.debit || 0) - (line._sum.credit || 0);
+      const name = (line.accountName || '').toLowerCase();
+
+      // Only count actual cash/bank accounts, not FDs or other assets
+      if (name === 'cash in hand' || name.includes('cash') && !name.includes('box')) {
+        out.cash += net;
+      }
+      // Count actual bank accounts but NOT fixed deposits
+      if ((name.includes('bank') || name.includes('hdfc') || name.includes('cooperative'))
+          && !name.includes('fd') && !name.includes('fixed')) {
+        out.bank += net;
+      }
+      if (name.includes('upi')) {
+        out.upi += net;
+      }
+    });
     out.total = out.cash + out.bank + out.upi;
     res.json({
       cash: round2(out.cash),
@@ -595,6 +615,14 @@ exports.update = async (req, res) => {
       const newInv = merged.invoiceId;
       if (oldInv && oldInv !== newInv) await recomputeInvoicePaidStatus(tx, oldInv);
       if (newInv) await recomputeInvoicePaidStatus(tx, newInv);
+
+      // Also recompute expense paid status when linked/unlinked
+      const oldExp = existing.expenseId;
+      const newExp = merged.expenseId;
+      if ((oldExp && oldExp !== newExp) || (!oldExp && newExp)) {
+        // Expense paid status is derived from linked payments, no update needed here
+        // The expense's paid amount is calculated on-read via paidOnExpense()
+      }
       return updated;
     });
     res.json(toResponse(item));
