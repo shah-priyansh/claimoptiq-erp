@@ -66,7 +66,7 @@ const LinkedCell = ({ e }) => {
   if (e.expense) {
     const label = e.expense.category?.label || 'Expense';
     return (
-      <Link to="/expenses" title={`Expense · ${label}`}
+      <Link to={`/expenses?previewId=${e.expense._id}`} title={`Expense · ${label}`}
         className="inline-flex items-center gap-1 max-w-[200px] text-xs font-medium text-amber-700 hover:text-amber-800 hover:underline">
         <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 shrink-0">Expense</span>
         <span className="truncate">{label}</span>

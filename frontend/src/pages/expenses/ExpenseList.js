@@ -12,7 +12,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import PaginationBar from '../../components/ui/PaginationBar';
 import {
-  getExpensesAPI, getExpenseSummaryAPI, getExpenseCategoriesAPI, createExpenseAPI,
+  getExpensesAPI, getExpenseAPI, getExpenseSummaryAPI, getExpenseCategoriesAPI, createExpenseAPI,
   updateExpenseAPI, deleteExpenseAPI, getReferencesAPI, getPartiesAPI, getBankAccountsAPI, createCashBankAPI,
   getPartyLedgerAPI,
 } from '../../services/api';
@@ -243,6 +243,20 @@ const ExpenseList = () => {
   // Tidy the URL after seeding (doesn't touch filters, so no refetch).
   useEffect(() => {
     if (searchParams.get('categoryId')) setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Deep link from Cash & Bank's "Expense" chip: ?previewId=<id> opens that
+  // exact bill's voucher preview directly (fetched by id, independent of the
+  // list's current filters/merge state — the reference-commission category
+  // merges rows monthly, so the bill wouldn't otherwise be a visible row).
+  useEffect(() => {
+    const previewId = searchParams.get('previewId');
+    if (!previewId) return;
+    setSearchParams({}, { replace: true });
+    getExpenseAPI(previewId)
+      .then(({ data }) => setPreviewExpense(data))
+      .catch(() => toast.error('That expense could not be found'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

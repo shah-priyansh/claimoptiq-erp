@@ -1366,14 +1366,44 @@ exports.partyNames = async (req, res) => {
 // from reaching arbitrary/nonexistent fields. `hospital` sorts by the related
 // hospital's name (direct-patient invoices have none, so the DB places them at
 // the null end).
+// invoiceNumber is handled separately (see sortInvoicesByNumber) — it's a text
+// column like "26/9", "26/89", "26/090", so a plain DB string sort puts "26/9"
+// after "26/090" instead of after "26/89".
 const INVOICE_SORT_FIELDS = {
-  invoiceNumber: (dir) => ({ invoiceNumber: dir }),
   hospital: (dir) => ({ hospital: { name: dir } }),
   month: (dir) => ({ month: dir }),
   status: (dir) => ({ status: dir }),
   grandTotal: (dir) => ({ grandTotal: dir }),
   amountPaid: (dir) => ({ amountPaid: dir }),
   amountPending: (dir) => ({ amountPending: dir }),
+};
+
+// Splits "26/092" into { base: "26/", num: 92 } so invoice numbers sort by
+// their numeric sequence rather than as text. Numbers without a trailing
+// digit run (shouldn't normally happen) sort by the raw string instead.
+const invoiceNumberSortKey = (raw) => {
+  const str = String(raw || '');
+  const m = str.match(/^(.*?)(\d+)$/);
+  return m ? { base: m[1], num: parseInt(m[2], 10) } : { base: str, num: null };
+};
+
+// Natural-sorts invoice rows (each needing at least an `invoiceNumber` field)
+// by numeric sequence. Invoices without a number (undissued drafts) always
+// sort to the end, regardless of direction.
+const sortInvoicesByNumber = (rows, direction) => {
+  const sign = direction === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    if (!a.invoiceNumber && !b.invoiceNumber) return 0;
+    if (!a.invoiceNumber) return 1;
+    if (!b.invoiceNumber) return -1;
+    const ak = invoiceNumberSortKey(a.invoiceNumber);
+    const bk = invoiceNumberSortKey(b.invoiceNumber);
+    if (ak.base !== bk.base) return ak.base < bk.base ? -sign : sign;
+    if (ak.num === null || bk.num === null) {
+      return ak.num === bk.num ? 0 : ak.num === null ? sign : -sign;
+    }
+    return (ak.num - bk.num) * sign;
+  });
 };
 
 exports.list = async (req, res) => {
@@ -1415,16 +1445,35 @@ exports.list = async (req, res) => {
     // filters what's loaded), so allow a much larger single fetch there.
     const take = Math.min(Number(limit) || 25, status === '__open' ? 5000 : 100);
     const skip = page ? (Number(page) - 1) * take : 0;
-    const [invoices, total] = await Promise.all([
-      prisma.invoice.findMany({
-        where,
-        include: invoiceListInclude,
-        orderBy,
-        skip,
-        take,
-      }),
-      prisma.invoice.count({ where }),
-    ]);
+
+    let invoices;
+    let total;
+    if (sort === 'invoiceNumber') {
+      // invoiceNumber is a text column ("26/9", "26/89", "26/090", ...) — a
+      // DB-level string sort orders it lexicographically. Sort numerically in
+      // JS instead: pull the (small) id/invoiceNumber pairs, sort, paginate
+      // the ids, then fetch full rows for just that page.
+      const all = await prisma.invoice.findMany({ where, select: { id: true, invoiceNumber: true } });
+      const sorted = sortInvoicesByNumber(all, direction);
+      total = sorted.length;
+      const pageIds = sorted.slice(skip, skip + take).map((r) => r.id);
+      const rows = pageIds.length
+        ? await prisma.invoice.findMany({ where: { id: { in: pageIds } }, include: invoiceListInclude })
+        : [];
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      invoices = pageIds.map((id) => byId.get(id)).filter(Boolean);
+    } else {
+      [invoices, total] = await Promise.all([
+        prisma.invoice.findMany({
+          where,
+          include: invoiceListInclude,
+          orderBy,
+          skip,
+          take,
+        }),
+        prisma.invoice.count({ where }),
+      ]);
+    }
     res.json({
       invoices: toResponse(invoices),
       total,
