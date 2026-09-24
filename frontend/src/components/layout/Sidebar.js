@@ -23,6 +23,8 @@ import {
   HiOutlineCalculator,
   HiOutlineReceiptTax,
   HiOutlineCollection,
+  HiOutlineDatabase,
+  HiOutlineClipboardCheck,
 } from 'react-icons/hi';
 
 // Sub-nav items grouped under "Billing & Accounts".
@@ -59,6 +61,7 @@ const configItems = [
   { to: '/settings/direct-patient-billing', label: 'Direct Patient Services', icon: HiOutlineCurrencyRupee, module: 'invoices' },
   { to: '/tds-rates',                   label: 'TDS Rates',              icon: HiOutlineCalculator,     module: 'tds_rates' },
   { to: '/expense-categories',          label: 'Expense Buckets',        icon: HiOutlineCollection,     module: 'expense_categories' },
+  { to: '/backup',                      label: 'Backup',                 icon: HiOutlineDatabase,       module: 'backup' },
 ];
 
 const linkClass = ({ isActive }) =>
@@ -218,6 +221,14 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
               className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineDocumentText className="w-5 h-5 flex-shrink-0" />
               <span className={collapsed ? 'lg:hidden' : ''}>Claims</span>
+            </NavLink>
+          )}
+
+          {canViewModule('claims') && (
+            <NavLink to="/hospital-final-bills" onClick={onClose} data-tip={collapsed ? 'Hospital Final Bills' : undefined}
+              className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
+              <HiOutlineClipboardCheck className="w-5 h-5 flex-shrink-0" />
+              <span className={collapsed ? 'lg:hidden' : ''}>Hospital Final Bills</span>
             </NavLink>
           )}
 

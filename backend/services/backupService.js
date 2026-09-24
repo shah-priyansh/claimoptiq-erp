@@ -16,6 +16,7 @@ const prisma = require('../config/prisma');
 const sftp = require('../utils/sftpProvider');
 const { loadConfig } = require('../utils/backupConfig');
 const { uploadsUsagePct, uploadsDir } = require('../utils/diskUsage');
+const fccPath = require('../utils/fccBackupPath');
 
 let isRunning = false;
 
@@ -31,11 +32,21 @@ const resolveLocalPath = (filePath, fileName) => {
   return filePath || byBase;
 };
 
-const remoteKeyFor = (sourceType, date, fileName) => {
-  const d = date instanceof Date ? date : new Date(date || Date.now());
+// Claim documents file into the same FCC filing tree the local upload path
+// and the Settled Claims Backup ZIP already use (Hospital -> Patient ->
+// category), so the SFTP server is human-browsable too. Everything else
+// (document submissions, or a claim document whose claim relation somehow
+// didn't load) keeps the flat sourceType/YYYY/MM/fileName scheme — those
+// don't carry the hospital/patient context the tree needs.
+const remoteKeyFor = (item) => {
+  if (item.sourceType === CLAIM_DOC && item.claim) {
+    const dir = fccPath.documentFolderPath(item.claim, item.category);
+    return `${dir}/${item.fileName}`;
+  }
+  const d = item.date instanceof Date ? item.date : new Date(item.date || Date.now());
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `${sourceType}/${yyyy}/${mm}/${fileName}`;
+  return `${item.sourceType}/${yyyy}/${mm}/${item.fileName}`;
 };
 
 const getEnabledServers = () =>
@@ -54,13 +65,25 @@ const listOffloadableFiles = async (fileFilter = null, limit = 1000) => {
     subWhere.claimId = fileFilter.claimId;
   }
   const [docs, subs] = await Promise.all([
-    prisma.claimDocument.findMany({ where: claimWhere, orderBy: { uploadedAt: 'asc' }, take: limit }),
+    prisma.claimDocument.findMany({
+      where: claimWhere, orderBy: { uploadedAt: 'asc' }, take: limit,
+      include: {
+        claim: {
+          select: {
+            claimType: true, isDirectPatient: true, patientName: true, srNo: true,
+            hospital: { select: { name: true } },
+            insuranceCompany: { select: { name: true } },
+            tpa: { select: { name: true } },
+          },
+        },
+      },
+    }),
     prisma.documentSubmission.findMany({ where: subWhere, orderBy: { createdAt: 'asc' }, take: limit }),
   ]);
   const items = [
     ...docs.map((d) => ({
       sourceType: CLAIM_DOC, id: d.id, fileName: d.fileName, filePath: d.filePath,
-      fileSize: d.fileSize, date: d.uploadedAt,
+      fileSize: d.fileSize, date: d.uploadedAt, claim: d.claim, category: d.category,
     })),
     ...subs.map((s) => ({
       sourceType: SUBMISSION, id: s.id, fileName: s.fileName, filePath: s.filePath,
@@ -83,7 +106,7 @@ const offloadOne = async (item, servers, primaryId, run, cfg, log) => {
     return { uploaded: false, deletedLocal: false, bytesFreed: 0 };
   }
   const localSize = fs.statSync(localPath).size;
-  const remoteKey = remoteKeyFor(item.sourceType, item.date, item.fileName);
+  const remoteKey = remoteKeyFor(item);
 
   let primaryVerified = false;
   for (const server of servers) {

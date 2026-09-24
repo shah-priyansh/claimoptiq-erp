@@ -34,6 +34,7 @@ import UserList from './pages/users/UserList';
 import ClaimList from './pages/claims/ClaimList';
 import ClaimForm from './pages/claims/ClaimForm';
 import ClaimDetail from './pages/claims/ClaimDetail';
+import HospitalFinalBillList from './pages/claims/HospitalFinalBillList';
 import Reports from './pages/reports/Reports';
 import ReportsHub from './pages/reports/ReportsHub';
 import SalesReport from './pages/reports/SalesReport';
@@ -85,6 +86,7 @@ function App() {
             <Route path="/claims/new" element={<ProtectedRoute module="claims"><ClaimForm /></ProtectedRoute>} />
             <Route path="/claims/:id/edit" element={<ProtectedRoute module="claims"><ClaimEditRedirect /></ProtectedRoute>} />
             <Route path="/claims/:id" element={<ProtectedRoute module="claims"><ClaimDetail /></ProtectedRoute>} />
+            <Route path="/hospital-final-bills" element={<ProtectedRoute module="claims"><HospitalFinalBillList /></ProtectedRoute>} />
             <Route path="/roles" element={<ProtectedRoute module="roles" requireManage><RoleList /></ProtectedRoute>} />
             <Route path="/roles/new" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />
             <Route path="/roles/:id/edit" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />

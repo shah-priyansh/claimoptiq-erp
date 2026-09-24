@@ -10,6 +10,7 @@ const STATIC_TITLES = {
   '/dashboard':              'Dashboard',
   '/claims':                 'Claims',
   '/claims/new':             'New Claim',
+  '/hospital-final-bills':   'Hospital Final Bills',
   '/hospitals':              'Hospitals',
   '/hospitals/new':          'New Hospital',
   '/insurance':              'Insurance',

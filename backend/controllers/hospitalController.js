@@ -104,6 +104,13 @@ const buildHospitalData = async (body) => {
     isActive: body.isActive !== undefined ? body.isActive : true,
     isDirect: body.isDirect !== undefined ? !!body.isDirect : false,
   };
+  // Digits only — see hospitalBillSequence.js (parseBillStart ignores
+  // anything else). Left untouched when the caller doesn't send it (e.g. the
+  // CSV import flow only ever supplies contact fields) so re-importing a
+  // hospital never silently wipes its configured bill-start number.
+  if (body.hospitalBillStartNo !== undefined) {
+    data.hospitalBillStartNo = /^\d*$/.test(body.hospitalBillStartNo) ? body.hospitalBillStartNo : '';
+  }
   // Per-hospital GST / TDS / invoicePrefix were retired 2026-06-16 — all
   // three are now single platform-wide settings in Site Settings → Invoice
   // Template. Any legacy clients still sending those fields are silently

@@ -257,8 +257,10 @@ const ClaimForm = () => {
       // Upload pending admission documents
       if (pendingAdmissionFiles.length) {
         const fd = new FormData();
-        pendingAdmissionFiles.forEach(f => fd.append('files', f.file));
+        // category before files — multer's destination callback needs
+        // req.body.category, which only populates in append order.
         fd.append('category', 'admission');
+        pendingAdmissionFiles.forEach(f => fd.append('files', f.file));
         await uploadDocumentsAPI(claimId, fd);
         pendingAdmissionFiles.forEach(f => URL.revokeObjectURL(f.previewUrl));
       }

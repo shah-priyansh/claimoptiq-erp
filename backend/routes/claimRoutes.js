@@ -5,9 +5,11 @@ const {
   uploadDocuments, deleteDocument, streamDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims, importClaims,
   deleteClaim, deleteAllClaims, fixBilledStatus,
   updateStatusHistory, deleteStatusHistory, downloadSettledBackup,
+  getRoomTypeValues, getHospitalFinalBill, upsertHospitalFinalBill, downloadHospitalFinalBillPdf, getNextHospitalBillNumber,
+  listHospitalFinalBills,
 } = require('../controllers/claimController');
 const { protect, checkPermission } = require('../middleware/auth');
-const upload = require('../middleware/upload');
+const claimDocumentUpload = require('../middleware/claimDocumentUpload');
 
 router.use(protect);
 
@@ -15,6 +17,12 @@ router.get('/dashboard', checkPermission('dashboard', 'view'), getDashboardStats
 // Distinct "Claim Process By" values for the self-learning form dropdown + list
 // filter. Must be declared before the '/:id' route so it isn't captured as an id.
 router.get('/process-by-values', checkPermission('claims', 'view'), getClaimProcessByValues);
+// Distinct Room Type values for the Hospital Final Bill's self-learning
+// dropdown. Same "declared before '/:id'" rule as process-by-values above.
+router.get('/room-type-values', checkPermission('claims', 'view'), getRoomTypeValues);
+// Hospital-wise list of every generated Hospital Final Bill. Same
+// "declared before '/:id'" rule as process-by-values above.
+router.get('/hospital-final-bills', checkPermission('claims', 'view'), listHospitalFinalBills);
 router.get('/export', checkPermission('claims', 'export'), exportClaims);
 // ZIP of all settled/billed claims' documents, arranged into the FCC filing tree.
 // Hit via a browser download link, so `protect` accepts the JWT via ?token=.
@@ -39,8 +47,13 @@ router.route('/:id')
 // Correct an accidental status change: edit or remove a Status Journey entry.
 router.put('/:id/status-history/:historyId', checkPermission('claims', 'edit'), updateStatusHistory);
 router.delete('/:id/status-history/:historyId', checkPermission('claims', 'edit'), deleteStatusHistory);
-router.post('/:id/documents', checkPermission('claims', 'view'), upload.array('files'), uploadDocuments);
+router.post('/:id/documents', checkPermission('claims', 'view'), claimDocumentUpload.array('files'), uploadDocuments);
 router.get('/:id/documents/:docId/file', checkPermission('claims', 'view'), streamDocument);
 router.delete('/:id/documents/:docId', checkPermission('claims', 'delete'), deleteDocument);
+
+router.get('/:id/hospital-final-bill', checkPermission('claims', 'view'), getHospitalFinalBill);
+router.put('/:id/hospital-final-bill', checkPermission('claims', 'edit'), upsertHospitalFinalBill);
+router.get('/:id/hospital-final-bill/pdf', checkPermission('claims', 'view'), downloadHospitalFinalBillPdf);
+router.get('/:id/hospital-final-bill/next-number', checkPermission('claims', 'view'), getNextHospitalBillNumber);
 
 module.exports = router;

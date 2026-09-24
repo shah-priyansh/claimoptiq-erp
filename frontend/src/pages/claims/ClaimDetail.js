@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { getClaimAPI, updateClaimAPI, updateClaimStatusHistoryAPI, deleteClaimStatusHistoryAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, getClaimProcessByValuesAPI, getClaimDocFileURL } from '../../services/api';
+import { getClaimAPI, updateClaimAPI, updateClaimStatusHistoryAPI, deleteClaimStatusHistoryAPI, uploadDocumentsAPI, deleteDocumentAPI, getClaimStatusesAPI, getClaimDocumentTypesAPI, getHospitalsAPI, getInsuranceAPI, getTPAAPI, getClaimProcessByValuesAPI, getClaimDocFileURL, getHospitalFinalBillPdfURL } from '../../services/api';
+import HospitalFinalBillModal from './HospitalFinalBillModal';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
@@ -273,6 +274,7 @@ const ClaimDetail = () => {
   const openSticker = () => { setStickerAddressEdits({}); setStickerEditMode(false); setStickerOpen(true); };
   const closeSticker = () => { setStickerOpen(false); setStickerEditMode(false); setStickerAddressEdits({}); };
   const [dischargeForm, setDischargeForm] = useState({});
+  const [billModalOpen, setBillModalOpen] = useState(false);
   const [admissionForm, setAdmissionForm] = useState({});
   const [mobileError, setMobileError] = useState('');
   const [fileForm, setFileForm] = useState({});
@@ -385,6 +387,7 @@ const ClaimDetail = () => {
         dateOfAdmit: data.dateOfAdmit?.slice(0, 10) || '',
         dateOfDischarge: data.dateOfDischarge?.slice(0, 10) || '',
         hospitalFinalBill: data.hospitalFinalBill || 0,
+        isHospitalBillGeneratedByUs: !!data.isHospitalBillGeneratedByUs,
         mouDiscount: data.mouDiscount || 0,
         deduction: data.deduction || 0,
         finalApprovalAmount: data.finalApprovalAmount || 0,
@@ -565,8 +568,12 @@ const ClaimDetail = () => {
   const uploadPendingFiles = async (category, currentPending) => {
     if (!currentPending.length) return;
     const fd = new FormData();
-    currentPending.forEach(e => fd.append('files', e.file));
+    // category must be appended BEFORE files — multer's disk-storage
+    // destination callback reads req.body.category to file the upload into
+    // the right claim subfolder, and multipart fields only populate
+    // req.body in the order they were appended to the stream.
     fd.append('category', category);
+    currentPending.forEach(e => fd.append('files', e.file));
     await uploadDocumentsAPI(id, fd);
     currentPending.forEach(e => URL.revokeObjectURL(e.previewUrl));
     setPendingFiles(p => ({ ...p, [category]: [] }));
@@ -707,8 +714,9 @@ const ClaimDetail = () => {
       }, {});
       for (const [cat, entries] of Object.entries(groups)) {
         const fd = new FormData();
-        entries.forEach(e => fd.append('files', e.file));
+        // category before files — see uploadPendingFiles above.
         fd.append('category', cat);
+        entries.forEach(e => fd.append('files', e.file));
         await uploadDocumentsAPI(id, fd);
         entries.forEach(e => URL.revokeObjectURL(e.previewUrl));
       }
@@ -1428,20 +1436,70 @@ const ClaimDetail = () => {
                   { label: 'Date of Admit',           name: 'dateOfAdmit',        type: 'date' },
                   { label: 'Date of Discharge',       name: 'dateOfDischarge',    type: 'date' },
                   { label: 'Final Approval Date',     name: 'finalApprovalDate',  type: 'date' },
-                  { label: 'Hospital Final Bill (₹)', name: 'hospitalFinalBill',  type: 'amount' },
+                  { label: 'Hospital Final Bill (₹)', name: 'hospitalFinalBill',  type: 'hospitalBill' },
                   { label: 'MOU Discount (₹)',        name: 'mouDiscount',        type: 'amount' },
                   { label: 'Deduction (₹)',           name: 'deduction',          type: 'amount' },
                 ].map(f => (
                   <div key={f.name}>
                     <label className={labelCls}>{f.label}</label>
-                    {f.type === 'amount'
-                      ? <AmountInput value={dischargeForm[f.name] || 0}
-                          onChange={v => setDischargeForm({ ...dischargeForm, [f.name]: v })}
-                          className={inputCls} />
-                      : <DateInput type="date" value={dischargeForm[f.name] || ''}
-                          onChange={e => setDischargeForm({ ...dischargeForm, [f.name]: e.target.value })}
-                          className={inputCls} />
-                    }
+                    {f.type === 'amount' ? (
+                      <AmountInput value={dischargeForm[f.name] || 0}
+                        onChange={v => setDischargeForm({ ...dischargeForm, [f.name]: v })}
+                        className={inputCls} />
+                    ) : f.type === 'hospitalBill' ? (
+                      <div>
+                        {/* Toggle only makes sense for a claim with a linked hospital — the
+                            bill is generated on that hospital's behalf. Direct-patient
+                            claims keep the plain manual field, unchanged. */}
+                        {claim.hospital && (
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-[11px] text-gray-400">Generated by us?</span>
+                            <div className="flex rounded-md border border-gray-200 overflow-hidden">
+                              {['No', 'Yes'].map(opt => {
+                                const active = dischargeForm.isHospitalBillGeneratedByUs === (opt === 'Yes');
+                                return (
+                                  <button key={opt} type="button"
+                                    onClick={() => setDischargeForm(d => ({ ...d, isHospitalBillGeneratedByUs: opt === 'Yes' }))}
+                                    className={`px-2.5 py-1 text-xs font-semibold transition-colors ${active ? 'bg-primary-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                                    {opt}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {claim.hospital && dischargeForm.isHospitalBillGeneratedByUs ? (
+                          claim.finalBill ? (
+                            <div className="flex items-center gap-2">
+                              <div className={`${inputCls} bg-gray-50 text-gray-700 flex-1`}>
+                                {formatCurrency(claim.finalBill.finalAmount)}
+                              </div>
+                              <a href={getHospitalFinalBillPdfURL(claim._id)} target="_blank" rel="noreferrer"
+                                className="flex items-center gap-1 px-3 py-2.5 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 whitespace-nowrap">
+                                <HiOutlineDownload className="w-3.5 h-3.5" /> Download
+                              </a>
+                              <button type="button" onClick={() => setBillModalOpen(true)}
+                                className="px-3 py-2.5 text-xs font-semibold text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 whitespace-nowrap">
+                                Edit Bill
+                              </button>
+                            </div>
+                          ) : (
+                            <button type="button" onClick={() => setBillModalOpen(true)}
+                              className="w-full px-3 py-2.5 text-sm font-medium text-primary-600 border border-dashed border-primary-300 rounded-lg hover:bg-primary-50">
+                              + Create Hospital Bill
+                            </button>
+                          )
+                        ) : (
+                          <AmountInput value={dischargeForm.hospitalFinalBill || 0}
+                            onChange={v => setDischargeForm({ ...dischargeForm, hospitalFinalBill: v })}
+                            className={inputCls} />
+                        )}
+                      </div>
+                    ) : (
+                      <DateInput type="date" value={dischargeForm[f.name] || ''}
+                        onChange={e => setDischargeForm({ ...dischargeForm, [f.name]: e.target.value })}
+                        className={inputCls} />
+                    )}
                   </div>
                 ))}
                 <div>
@@ -1457,7 +1515,12 @@ const ClaimDetail = () => {
                   ['Date of Admit',          formatDate(claim.dateOfAdmit)],
                   ['Date of Discharge',      formatDate(claim.dateOfDischarge)],
                   ['Final Approval Date',    formatDate(claim.finalApprovalDate)],
-                  ['Hospital Final Bill',    formatAmount(claim.hospitalFinalBill)],
+                  ['Hospital Final Bill',    claim.isHospitalBillGeneratedByUs && claim.finalBill
+                    ? <span>{formatAmount(claim.finalBill.finalAmount)}{' '}
+                        <a href={getHospitalFinalBillPdfURL(claim._id)} target="_blank" rel="noreferrer"
+                          className="text-primary-600 underline text-xs">PDF</a>
+                      </span>
+                    : formatAmount(claim.hospitalFinalBill)],
                   ['MOU Discount',           formatAmount(claim.mouDiscount)],
                   ['Deduction',              formatAmount(claim.deduction)],
                   ['Final Approval Amount',  formatAmount(claim.finalApprovalAmount)],
@@ -2134,6 +2197,16 @@ const ClaimDetail = () => {
           document.body
         );
       })()}
+
+      <HospitalFinalBillModal
+        open={billModalOpen}
+        claim={claim}
+        onClose={() => setBillModalOpen(false)}
+        onSaved={async () => {
+          setBillModalOpen(false);
+          await fetchClaim(true);
+        }}
+      />
     </div>
   );
 };

@@ -66,6 +66,7 @@ const HospitalForm = () => {
     name: '', contact: '', email: '', phone: '', address: '',
     city: '', state: '', pincode: '', referenceBy: '', referenceId: '',
     parentHospitalId: '',
+    hospitalBillStartNo: '',
     isActive: true,
     isDirect: false,
     doctors: [],
@@ -417,6 +418,16 @@ const HospitalForm = () => {
                 inputMode="numeric" maxLength={6}
                 className={inputCls(!!errors.pincode)} placeholder="e.g. 395001" />
               {errors.pincode && <p className="text-xs text-red-500 mt-1">{errors.pincode}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Final Bill Number Start</label>
+              <input name="hospitalBillStartNo" value={form.hospitalBillStartNo}
+                onChange={(e) => setForm(f => ({ ...f, hospitalBillStartNo: e.target.value.replace(/\D/g, '') }))}
+                inputMode="numeric" placeholder="e.g. 000"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <p className="text-xs text-gray-400 mt-1">
+                Starting number for this hospital's auto-generated Final Bill numbers — digit count sets the padding, e.g. "000" → 001, 002 … 010, 011…
+              </p>
             </div>
           </div>
         </div>

@@ -53,6 +53,11 @@ model Hospital {
   tdsRateId        String?                  @map("tds_rate_id")
   tdsRateMaster    TdsRate?                 @relation("HospitalDefaultTdsRate", fields: [tdsRateId], references: [id])
   invoicePrefix    String                   @default("FCC") @map("invoice_prefix")
+  // Starting number for this hospital's auto-generated Hospital Final Bill
+  // (see HospitalFinalBill). Digits typed here set BOTH the seed (next bill =
+  // seed + 1) and the zero-padding width, e.g. "000" -> "001", "002" ... A
+  // blank value starts at "1" with no padding. See hospitalBillSequence.js.
+  hospitalBillStartNo String                @default("") @map("hospital_bill_start_no")
   isActive         Boolean                  @default(true) @map("is_active")
   // Flags a hospital as "direct" — shown as a Direct label wherever it appears.
   isDirect         Boolean                  @default(false) @map("is_direct")
@@ -73,6 +78,7 @@ model Hospital {
   invoices         Invoice[]
   cashBankEntries  CashBankEntry[]
   party            Party?
+  finalBills       HospitalFinalBill[]
 
   @@index([parentHospitalId])
   @@map("hospitals")
@@ -602,6 +608,8 @@ model User {
   journalEntriesCreated    JournalEntry[]       @relation("JournalEntryCreatedBy")
   backupRunsTriggered      BackupRun[]          @relation("BackupRunTriggeredBy")
   loansCreated             Loan[]               @relation("LoanCreatedBy")
+  finalBillsCreated        HospitalFinalBill[]  @relation("HospitalFinalBillCreatedBy")
+  finalBillsUpdated        HospitalFinalBill[]  @relation("HospitalFinalBillUpdatedBy")
 
   @@index([phone])
   @@map("users")
@@ -702,6 +710,10 @@ model Claim {
   dateOfAdmit               DateTime?            @map("date_of_admit")
   dateOfDischarge           DateTime?            @map("date_of_discharge")
   hospitalFinalBill         Float                @default(0) @map("hospital_final_bill")
+  // When true, hospitalFinalBill is derived from `finalBill.finalAmount`
+  // (read-only on the Discharge form) instead of typed in manually — see
+  // HospitalFinalBill.
+  isHospitalBillGeneratedByUs Boolean            @default(false) @map("is_hospital_bill_generated_by_us")
   mouDiscount               Float                @default(0) @map("mou_discount")
   deduction                 Float                @default(0)
   finalApprovalAmount       Float                @default(0) @map("final_approval_amount")
@@ -739,6 +751,7 @@ model Claim {
   documents                 ClaimDocument[]
   submissions               DocumentSubmission[]
   statusHistory             ClaimStatusHistory[]
+  finalBill                 HospitalFinalBill?
 
   @@index([createdAt(sort: Desc)])
   @@index([hospitalId, createdAt(sort: Desc)])
@@ -762,6 +775,64 @@ model ClaimStatusHistory {
 
   @@index([claimId, changedAt])
   @@map("claim_status_history")
+}
+
+// An itemized IPD-style bill FCC generates on the hospital's behalf, shown
+// under Discharge Details when isHospitalBillGeneratedByUs is true. One per
+// claim; its finalAmount is mirrored into Claim.hospitalFinalBill on save so
+// downstream calculations (Final Approval Amount, reports) don't need to
+// change. Bill numbers auto-increment per hospital (see hospitalBillSequence.js).
+model HospitalFinalBill {
+  id              String    @id @default(uuid())
+  claimId         String    @unique @map("claim_id")
+  hospitalId      String    @map("hospital_id")
+  billNo          Int       @map("bill_no")
+  // Snapshot of the formatted number (with the padding width in effect at
+  // creation time) so it never reflows if the hospital's start-no setting
+  // changes later.
+  billNoFormatted String    @map("bill_no_formatted")
+  billDate        DateTime  @map("bill_date")
+  opdNo           String    @default("") @map("opd_no")
+  patientDob      DateTime? @map("patient_dob")
+  patientAge      Int?      @map("patient_age")
+  indoorNo        String    @default("") @map("indoor_no")
+  roomType        String    @default("") @map("room_type")
+  totalAmount     Float     @default(0) @map("total_amount")
+  discount        Float     @default(0)
+  finalAmount     Float     @default(0) @map("final_amount")
+  createdById     String?   @map("created_by_id")
+  updatedById     String?   @map("updated_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  claim     Claim                   @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  hospital  Hospital                @relation(fields: [hospitalId], references: [id])
+  createdBy User?                   @relation("HospitalFinalBillCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?                   @relation("HospitalFinalBillUpdatedBy", fields: [updatedById], references: [id])
+  items     HospitalFinalBillItem[]
+
+  @@unique([hospitalId, billNo])
+  @@map("hospital_final_bills")
+}
+
+model HospitalFinalBillItem {
+  id           String @id @default(uuid())
+  billId       String @map("bill_id")
+  srNo         Int    @map("sr_no")
+  particulars  String
+  rate         Float  @default(0)
+  // Exact text the operator typed ("2" or "50%") so the form can redisplay
+  // it unchanged; qtyIsPercent/qtyValue are the parsed form used to compute
+  // amount (rate * qtyValue, or rate * qtyValue / 100 when qtyIsPercent).
+  qtyRaw       String  @default("1") @map("qty_raw")
+  qtyIsPercent Boolean @default(false) @map("qty_is_percent")
+  qtyValue     Float   @default(1) @map("qty_value")
+  amount       Float   @default(0)
+
+  bill HospitalFinalBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@map("hospital_final_bill_items")
 }
 
 model ClaimDocument {

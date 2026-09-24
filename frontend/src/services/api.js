@@ -322,6 +322,19 @@ export const createClaimAPI = (data) => API.post('/claims', data);
 export const updateClaimAPI = (id, data) => API.put(`/claims/${id}`, data);
 export const updateClaimStatusHistoryAPI = (claimId, historyId, data) => API.put(`/claims/${claimId}/status-history/${historyId}`, data);
 export const deleteClaimStatusHistoryAPI = (claimId, historyId) => API.delete(`/claims/${claimId}/status-history/${historyId}`);
+
+// Hospital Final Bill (itemized IPD-style bill FCC generates on the hospital's
+// behalf, linked to a claim's Discharge Details).
+export const getRoomTypeValuesAPI = () => API.get('/claims/room-type-values');
+export const getHospitalFinalBillsAPI = (params) => API.get('/claims/hospital-final-bills', { params });
+export const getHospitalFinalBillAPI = (claimId) => API.get(`/claims/${claimId}/hospital-final-bill`);
+export const getNextHospitalBillNumberAPI = (claimId) => API.get(`/claims/${claimId}/hospital-final-bill/next-number`);
+export const saveHospitalFinalBillAPI = (claimId, data) => API.put(`/claims/${claimId}/hospital-final-bill`, data);
+export const getHospitalFinalBillPdfURL = (claimId) => {
+  const base = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+  const token = localStorage.getItem('token') || '';
+  return `${base}/claims/${claimId}/hospital-final-bill/pdf?token=${encodeURIComponent(token)}`;
+};
 export const bulkUpdateStatusAPI = (ids, status) => API.put('/claims/bulk-status', { ids, status });
 export const bulkBillAPI = (ids, isBilled = true) => API.put('/claims/bulk-bill', { ids, isBilled });
 export const uploadDocumentsAPI = (id, formData) => API.post(`/claims/${id}/documents`, formData, {

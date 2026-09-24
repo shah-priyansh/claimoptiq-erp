@@ -10,6 +10,9 @@ const { streamFileToResponse, resolveFileStream } = require('../services/fileRet
 const backupService = require('../services/backupService');
 const { loadConfig: loadBackupConfig } = require('../utils/backupConfig');
 const fccPath = require('../utils/fccBackupPath');
+const amountInWords = require('../utils/amountInWords');
+const { reserveNextHospitalBillNumber, peekNextHospitalBillNumber } = require('../utils/hospitalBillSequence');
+const renderHospitalFinalBillPdf = require('../utils/renderHospitalFinalBillPdf');
 
 const getUserHospitalId = (user) => {
   return user.hospitalId || user.hospital?.id || null;
@@ -110,6 +113,10 @@ const claimInclude = {
   tpa: { select: { id: true, name: true, address: true, mobile: true, statusAutomation: true } },
   createdBy: auditorSelect,
   updatedBy: auditorSelect,
+  // Lightweight summary of the linked Hospital Final Bill (if any) so the
+  // Discharge tab can render the read-only amount + a "View/Edit Bill" link
+  // without a separate round trip.
+  finalBill: { select: { id: true, billNoFormatted: true, finalAmount: true } },
 };
 
 // Lean include used for list views — keeps everything `claimInclude` did
@@ -508,7 +515,7 @@ exports.updateClaim = async (req, res) => {
     const dateFields = ['dateOfAdmit', 'dateOfDischarge', 'finalApprovalDate', 'fileReceivedDate', 'courierSubmitDate', 'onlineSubmitDate', 'settlementDate', 'month'];
     const allowed = [
       'status', 'patientName', 'patientMobile', 'patientAddress', 'doctorName', 'claimProcessBy', 'claimType',
-      'policyNo', 'clientId', 'ccnNo', 'hospitalFinalBill', 'mouDiscount',
+      'policyNo', 'clientId', 'ccnNo', 'hospitalFinalBill', 'isHospitalBillGeneratedByUs', 'mouDiscount',
       'deduction', 'finalApprovalAmount', 'fileReceivedDate', 'submitMode',
       'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber',
       'settlementAmount', 'settlementAmountDeduction', 'mouDiscountOnSettlement',
@@ -526,6 +533,13 @@ exports.updateClaim = async (req, res) => {
     }
     // dateOfAdmit is optional but must never persist a bogus pre-1970 epoch date.
     if (data.dateOfAdmit && data.dateOfAdmit.getFullYear() < 1970) data.dateOfAdmit = null;
+    // Once generated-by-us is on, hospitalFinalBill is derived from the linked
+    // HospitalFinalBill (only hospitalFinalBillController may set it then) —
+    // ignore any value sent through this generic endpoint to avoid clobbering it.
+    const willBeGeneratedByUs = data.isHospitalBillGeneratedByUs !== undefined
+      ? data.isHospitalBillGeneratedByUs
+      : claim.isHospitalBillGeneratedByUs;
+    if (willBeGeneratedByUs) delete data.hospitalFinalBill;
     if (req.body.insuranceCompany !== undefined) data.insuranceCompanyId = req.body.insuranceCompany || null;
     if (req.body.tpa !== undefined) data.tpaId = req.body.tpa || null;
     if (req.body.isDirectPatient !== undefined) {
@@ -1911,6 +1925,233 @@ exports.getClaimProcessByValues = async (req, res) => {
       orderBy: { claimProcessBy: 'asc' },
     });
     res.json(rows.map((r) => r.claimProcessBy).filter(Boolean));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ─── Hospital Final Bill ───────────────────────────────────────────────────
+// An itemized IPD-style bill FCC generates on the hospital's behalf, shown
+// under Discharge Details when isHospitalBillGeneratedByUs is on. One per
+// claim (unique on claimId); its finalAmount mirrors into
+// Claim.hospitalFinalBill on every save so Final Approval Amount / reports
+// keep working unchanged.
+
+// Distinct Room Type values across past bills, for the self-learning dropdown.
+exports.getRoomTypeValues = async (req, res) => {
+  try {
+    const rows = await prisma.hospitalFinalBill.findMany({
+      where: { roomType: { not: '' } },
+      distinct: ['roomType'],
+      select: { roomType: true },
+      orderBy: { roomType: 'asc' },
+    });
+    res.json(rows.map((r) => r.roomType).filter(Boolean));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Hospital-wise list of every generated Hospital Final Bill, with the claim
+// data the builder modal needs already embedded so "Edit" can reopen it
+// straight from a row — no second fetch. Scoped like getClaims: hospital
+// users see only their own hospital, reference users only theirs.
+exports.listHospitalFinalBills = async (req, res) => {
+  try {
+    const { hospital, search, page = 1, limit = 25 } = req.query;
+    const where = {};
+
+    const hospitalScope = await getUserHospitalScope(req.user);
+    if (hospitalScope) {
+      where.hospitalId = hospitalScope.length === 1 ? hospitalScope[0] : { in: hospitalScope };
+    } else if (hospital) {
+      where.hospitalId = hospital;
+    }
+
+    if (search) {
+      where.OR = [
+        { billNoFormatted: { contains: search, mode: 'insensitive' } },
+        { claim: { is: { patientName: { contains: search, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const claimSelect = {
+      id: true, patientName: true, doctorName: true, dateOfAdmit: true, dateOfDischarge: true,
+      hospital: { select: { id: true, name: true, address: true, phone: true } },
+      insuranceCompany: { select: { name: true } },
+      tpa: { select: { name: true } },
+    };
+    const [bills, total] = await Promise.all([
+      prisma.hospitalFinalBill.findMany({
+        where,
+        include: {
+          hospital: { select: { id: true, name: true } },
+          claim: { select: claimSelect },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.hospitalFinalBill.count({ where }),
+    ]);
+
+    res.json({ bills: toResponse(bills), total, pages: Math.ceil(total / parseInt(limit)) });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.getHospitalFinalBill = async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    if (!claim) return res.status(404).json({ message: 'Claim not found' });
+    if (await claimOutOfScope(req.user, claim)) {
+      return res.status(403).json({ message: "You can only view your own hospital's claims" });
+    }
+    const bill = await prisma.hospitalFinalBill.findUnique({
+      where: { claimId: req.params.id },
+      include: { items: { orderBy: { srNo: 'asc' } } },
+    });
+    if (!bill) return res.status(404).json({ message: 'No Hospital Final Bill for this claim yet' });
+    res.json({ ...toResponse(bill), finalAmountWords: amountInWords(bill.finalAmount) });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Preview of what "Bill No." will be if a new bill is saved now — no write,
+// so the bill builder can show the operator a number before they commit.
+// Meaningless once a bill already exists (its real billNoFormatted is final).
+exports.getNextHospitalBillNumber = async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id }, include: { hospital: true } });
+    if (!claim) return res.status(404).json({ message: 'Claim not found' });
+    if (await claimOutOfScope(req.user, claim)) {
+      return res.status(403).json({ message: "You can only view your own hospital's claims" });
+    }
+    if (!claim.hospitalId) return res.status(400).json({ message: 'Hospital Final Bill is not available for direct-patient claims' });
+    const preview = await peekNextHospitalBillNumber(prisma, claim.hospitalId, claim.hospital.hospitalBillStartNo);
+    res.json(preview);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// A single text field per line item doubles as rate multiplier or percentage:
+// "2" -> rate * 2 ; "50%" -> rate * 50 / 100. Blank/invalid numeric qty
+// defaults to 1 (a plain charge line); blank/invalid percent defaults to 0.
+const parseLineQty = (rawQty) => {
+  const qtyRaw = String(rawQty ?? '1').trim();
+  const isPercent = qtyRaw.includes('%');
+  const parsed = parseFloat(qtyRaw.replace('%', ''));
+  const qtyValue = Number.isFinite(parsed) ? parsed : (isPercent ? 0 : 1);
+  return { qtyRaw: qtyRaw || '1', qtyIsPercent: isPercent, qtyValue };
+};
+
+// Create or replace the claim's Hospital Final Bill. Totals are always
+// recomputed here from the submitted line items — never trusted from the
+// client. Bill number is reserved once, on first creation, from the
+// hospital's own sequence (hospitalBillSequence.js).
+exports.upsertHospitalFinalBill = async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id }, include: { hospital: true } });
+    if (!claim) return res.status(404).json({ message: 'Claim not found' });
+    if (await claimOutOfScope(req.user, claim)) {
+      return res.status(403).json({ message: "You can only update your own hospital's claims" });
+    }
+    if (!claim.hospitalId) {
+      return res.status(400).json({ message: 'Hospital Final Bill is not available for direct-patient claims' });
+    }
+
+    const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+    const items = rawItems
+      .map((it, idx) => {
+        const rate = round2(Number(it.rate) || 0);
+        const { qtyRaw, qtyIsPercent, qtyValue } = parseLineQty(it.qtyRaw ?? it.qty);
+        const amount = round2(qtyIsPercent ? (rate * qtyValue) / 100 : rate * qtyValue);
+        return { srNo: idx + 1, particulars: String(it.particulars || '').trim(), rate, qtyRaw, qtyIsPercent, qtyValue, amount };
+      })
+      .filter((it) => it.particulars);
+    if (!items.length) return res.status(400).json({ message: 'Add at least one bill item' });
+    // Re-number srNo after dropping blank rows so it stays a clean 1..N sequence.
+    items.forEach((it, idx) => { it.srNo = idx + 1; });
+
+    const totalAmount = round2(items.reduce((s, it) => s + it.amount, 0));
+    const discount = round2(Number(req.body.discount) || 0);
+    const finalAmount = round2(totalAmount - discount);
+
+    const billDate = req.body.billDate ? new Date(req.body.billDate) : new Date();
+    const patientDob = req.body.patientDob ? new Date(req.body.patientDob) : null;
+    const ageNum = parseInt(req.body.patientAge, 10);
+    const patientAge = Number.isFinite(ageNum) ? ageNum : null;
+
+    const existing = await prisma.hospitalFinalBill.findUnique({ where: { claimId: req.params.id } });
+
+    const result = await prisma.$transaction(async (tx) => {
+      let billNo = existing?.billNo;
+      let billNoFormatted = existing?.billNoFormatted;
+      if (!existing) {
+        const reserved = await reserveNextHospitalBillNumber(tx, claim.hospitalId, claim.hospital.hospitalBillStartNo);
+        billNo = reserved.billNo;
+        billNoFormatted = reserved.billNoFormatted;
+      }
+
+      const bill = await tx.hospitalFinalBill.upsert({
+        where: { claimId: req.params.id },
+        create: {
+          claimId: req.params.id, hospitalId: claim.hospitalId, billNo, billNoFormatted, billDate,
+          opdNo: req.body.opdNo || '', patientDob, patientAge,
+          indoorNo: req.body.indoorNo || '', roomType: req.body.roomType || '',
+          totalAmount, discount, finalAmount,
+          createdById: req.user.id, updatedById: req.user.id,
+          items: { create: items },
+        },
+        update: {
+          billDate, opdNo: req.body.opdNo || '', patientDob, patientAge,
+          indoorNo: req.body.indoorNo || '', roomType: req.body.roomType || '',
+          totalAmount, discount, finalAmount,
+          updatedById: req.user.id,
+          items: { deleteMany: {}, create: items },
+        },
+        include: { items: { orderBy: { srNo: 'asc' } } },
+      });
+
+      await tx.claim.update({
+        where: { id: req.params.id },
+        data: { hospitalFinalBill: finalAmount, isHospitalBillGeneratedByUs: true, updatedById: req.user.id },
+      });
+
+      return bill;
+    });
+
+    res.json({ ...toResponse(result), finalAmountWords: amountInWords(result.finalAmount) });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.downloadHospitalFinalBillPdf = async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({
+      where: { id: req.params.id },
+      include: {
+        hospital: true,
+        insuranceCompany: { select: { name: true } },
+        tpa: { select: { name: true } },
+        finalBill: { include: { items: { orderBy: { srNo: 'asc' } } } },
+      },
+    });
+    if (!claim) return res.status(404).json({ message: 'Claim not found' });
+    if (await claimOutOfScope(req.user, claim)) {
+      return res.status(403).json({ message: "You can only view your own hospital's claims" });
+    }
+    if (!claim.finalBill) return res.status(404).json({ message: 'No Hospital Final Bill for this claim yet' });
+
+    const buf = await renderHospitalFinalBillPdf(claim, claim.finalBill, claim.hospital);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="hospital-bill-${claim.finalBill.billNoFormatted}.pdf"`);
+    res.send(buf);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
