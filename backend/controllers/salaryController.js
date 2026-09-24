@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { getOtMultipliers } = require('./otSettingsController');
+const { writeSalaryExpenseFlow, clearSalaryExpenseFlow } = require('../utils/salaryExpenseFlow');
 
 const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
 
@@ -373,10 +374,20 @@ exports.updateSalaryRecord = async (req, res) => {
     }
     if (isFinalized !== undefined) data.isFinalized = isFinalized;
 
-    const updated = await prisma.salaryRecord.update({
-      where: { id: req.params.id },
-      data,
-      include: { employee: { include: { allowances: true } } },
+    const updated = await prisma.$transaction(async (tx) => {
+      const rec = await tx.salaryRecord.update({
+        where: { id: req.params.id },
+        data,
+        include: { employee: { include: { allowances: true } } },
+      });
+      // Booking into Expense is driven purely by the isFinalized transition —
+      // finalize writes the payroll expense, reverting to draft removes it.
+      if (isFinalized === true && !record.isFinalized) {
+        await writeSalaryExpenseFlow(tx, rec, req.user?.id);
+      } else if (isFinalized === false && record.isFinalized) {
+        await clearSalaryExpenseFlow(tx, rec.id);
+      }
+      return rec;
     });
     res.json(updated);
   } catch (error) {
