@@ -5,14 +5,14 @@
 //
 //   First Care Consultancy/
 //   └── Hospital TPA Desk/
-//       ├── Cashless Claim/                 <- cashless + cashless_anywhere
+//       ├── Cashless Claim/                          <- cashless + cashless_anywhere
 //       │   └── [Hospital]/
-//       │       └── [Patient] - [TPA]/      <- TPA name, else insurance company
-//       │           ├── Direct Admit DOC/   <- category: admission
-//       │           └── Discharge Folder/   <- everything else
-//       └── Reimbursement Claim/            <- reimbursement + grievance
+//       │       └── [Patient] - [TPA] - [Sr No]/      <- TPA name (first 2 words), else insurer
+//       │           ├── (admission docs sit directly here, no subfolder)
+//       │           └── Discharge/                    <- everything else
+//       └── Reimbursement Claim/                      <- reimbursement + grievance
 //           └── [Hospital]/
-//               └── [Patient] - [Insurer]/  <- insurance company, else TPA
+//               └── [Patient] - [Insurer] - [Sr No]/  <- insurer (first 2 words), else TPA
 //                   └── (all docs, no subfolders)
 //
 // Pure + I/O-free so it can be unit-tested in isolation (fccBackupPath.test.js).
@@ -59,21 +59,29 @@ const hospitalSegment = (claim) =>
     claim.isDirectPatient ? 'Direct Patient' : 'Unknown Hospital',
   );
 
-// "[Patient] - [Payer]" folder name (each part sanitized independently).
+// Trim a company name down to its first two words — the on-disk folder name
+// wants "Medi Assist", not the full "Medi Assist Insurance TPA Pvt. Ltd".
+const firstTwoWords = (value) =>
+  String(value || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).join(' ');
+
+// "[Patient] - [Payer first two words] - [Sr No]" folder name (each part
+// sanitized independently).
 const patientPayerSegment = (claim) => {
   const patient = sanitizeSegment(claim.patientName, 'Unknown Patient');
-  const payer = sanitizeSegment(payerNameForClaim(claim), 'Unknown Payer');
-  return `${patient} - ${payer}`;
+  const payer = sanitizeSegment(firstTwoWords(payerNameForClaim(claim)), 'Unknown Payer');
+  const srNo = sanitizeSegment(claim.srNo, '');
+  return srNo ? `${patient} - ${payer} - ${srNo}` : `${patient} - ${payer}`;
 };
 
 // The subfolder a document sits in under the patient folder. Only cashless
-// claims split into Direct Admit DOC vs Discharge Folder; reimbursement keeps
-// everything together ('' = no subfolder).
+// claims split admission docs (no subfolder — sit directly in the patient
+// folder) from everything else (Discharge); reimbursement keeps everything
+// together ('' = no subfolder).
 const subfolderForCategory = (claimType, category) => {
   if (groupForClaimType(claimType) !== GROUP_CASHLESS) return '';
   return String(category || '').toLowerCase() === 'admission'
-    ? 'Direct Admit DOC'
-    : 'Discharge Folder';
+    ? ''
+    : 'Discharge';
 };
 
 // Full POSIX folder path (no filename) for a document of `category` on `claim`.

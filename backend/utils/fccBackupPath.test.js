@@ -34,14 +34,25 @@ eq('no payer -> null',
   null);
 
 // ── subfolderForCategory ─────────────────────────────────────────────────────
-eq('cashless admission -> Direct Admit DOC', p.subfolderForCategory('cashless', 'admission'), 'Direct Admit DOC');
-eq('cashless discharge -> Discharge Folder', p.subfolderForCategory('cashless', 'discharge'), 'Discharge Folder');
-eq('cashless pod -> Discharge Folder', p.subfolderForCategory('cashless', 'pod'), 'Discharge Folder');
-eq('cashless settlement -> Discharge Folder', p.subfolderForCategory('cashless', 'settlement_proof'), 'Discharge Folder');
-eq('cashless other -> Discharge Folder', p.subfolderForCategory('cashless', 'other'), 'Discharge Folder');
-eq('cashless missing category -> Discharge Folder', p.subfolderForCategory('cashless', null), 'Discharge Folder');
+eq('cashless admission -> no subfolder', p.subfolderForCategory('cashless', 'admission'), '');
+eq('cashless discharge -> Discharge', p.subfolderForCategory('cashless', 'discharge'), 'Discharge');
+eq('cashless pod -> Discharge', p.subfolderForCategory('cashless', 'pod'), 'Discharge');
+eq('cashless settlement -> Discharge', p.subfolderForCategory('cashless', 'settlement_proof'), 'Discharge');
+eq('cashless other -> Discharge', p.subfolderForCategory('cashless', 'other'), 'Discharge');
+eq('cashless missing category -> Discharge', p.subfolderForCategory('cashless', null), 'Discharge');
 eq('reimbursement admission -> no subfolder', p.subfolderForCategory('reimbursement', 'admission'), '');
 eq('grievance discharge -> no subfolder', p.subfolderForCategory('grievance', 'discharge'), '');
+
+// ── patientPayerSegment (payer trimmed to first 2 words, + Sr No) ───────────
+eq('trims multi-word TPA to first 2 words + Sr No',
+  p.patientPayerSegment({ claimType: 'cashless', patientName: 'Jaimin Naykawala', tpa: { name: 'Medi Assist Insurance TPA Pvt. Ltd' }, insuranceCompany: null, srNo: 42 }),
+  'Jaimin Naykawala - Medi Assist - 42');
+eq('trims multi-word insurer to first 2 words + Sr No',
+  p.patientPayerSegment({ claimType: 'cashless', patientName: 'Purva Vankawala', tpa: null, insuranceCompany: { name: 'Bajaj General Insurance Co.Ltd' }, srNo: 17 }),
+  'Purva Vankawala - Bajaj General - 17');
+eq('no Sr No -> segment omitted',
+  p.patientPayerSegment({ claimType: 'cashless', patientName: 'Ramesh Patel', tpa: { name: 'MediAssist' }, insuranceCompany: null }),
+  'Ramesh Patel - MediAssist');
 
 // ── sanitizeSegment ──────────────────────────────────────────────────────────
 eq('strips slashes', p.sanitizeSegment('A/B\\C'), 'A B C');
@@ -59,13 +70,14 @@ const cashlessClaim = {
   hospital: { name: 'Sunshine Hospital' },
   tpa: { name: 'MediAssist' },
   insuranceCompany: { name: 'Star Health' },
+  srNo: 101,
 };
-eq('cashless admission full path',
+eq('cashless admission full path (no subfolder)',
   p.documentFolderPath(cashlessClaim, 'admission'),
-  'First Care Consultancy/Hospital TPA Desk/Cashless Claim/Sunshine Hospital/Ramesh Patel - MediAssist/Direct Admit DOC');
+  'First Care Consultancy/Hospital TPA Desk/Cashless Claim/Sunshine Hospital/Ramesh Patel - MediAssist - 101');
 eq('cashless discharge full path',
   p.documentFolderPath(cashlessClaim, 'settlement_proof'),
-  'First Care Consultancy/Hospital TPA Desk/Cashless Claim/Sunshine Hospital/Ramesh Patel - MediAssist/Discharge Folder');
+  'First Care Consultancy/Hospital TPA Desk/Cashless Claim/Sunshine Hospital/Ramesh Patel - MediAssist - 101/Discharge');
 
 const reimbClaim = {
   claimType: 'reimbursement',
@@ -73,10 +85,11 @@ const reimbClaim = {
   hospital: { name: 'City Care' },
   tpa: null,
   insuranceCompany: { name: 'HDFC Ergo' },
+  srNo: 205,
 };
 eq('reimbursement full path (no subfolder)',
   p.documentFolderPath(reimbClaim, 'discharge'),
-  'First Care Consultancy/Hospital TPA Desk/Reimbursement Claim/City Care/Sita Shah - HDFC Ergo');
+  'First Care Consultancy/Hospital TPA Desk/Reimbursement Claim/City Care/Sita Shah - HDFC Ergo - 205');
 
 const directPatientClaim = {
   claimType: 'grievance',
@@ -85,10 +98,11 @@ const directPatientClaim = {
   hospital: null,
   tpa: { name: 'Vidal' },
   insuranceCompany: null,
+  srNo: 7,
 };
 eq('direct patient with no hospital',
   p.documentFolderPath(directPatientClaim, 'other'),
-  'First Care Consultancy/Hospital TPA Desk/Reimbursement Claim/Direct Patient/Anon - Vidal');
+  'First Care Consultancy/Hospital TPA Desk/Reimbursement Claim/Direct Patient/Anon - Vidal - 7');
 
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILURE(S)'}`);
 process.exit(failures === 0 ? 0 : 1);
