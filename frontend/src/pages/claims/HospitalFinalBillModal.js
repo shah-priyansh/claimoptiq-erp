@@ -56,6 +56,8 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           roomType: data.roomType || '',
           patientDob: (data.patientDob || '').slice(0, 10) || '',
           patientAge: data.patientAge != null ? String(data.patientAge) : '',
+          admitTime: data.admitTime || '',
+          dischargeTime: data.dischargeTime || '',
           discount: data.discount || 0,
           items: (data.items || []).length
             ? data.items.map(it => ({ particulars: it.particulars, rate: it.rate, qtyRaw: it.qtyRaw }))
@@ -68,7 +70,8 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           setExistingBillNo('');
           setForm({
             billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '',
-            patientDob: '', patientAge: '', discount: 0, items: [blankItem()],
+            patientDob: '', patientAge: '', admitTime: '', dischargeTime: '',
+            discount: 0, items: [blankItem()],
           });
           getNextHospitalBillNumberAPI(claim._id)
             .then(({ data }) => { if (!cancelled) setNextBillPreview(data.billNoFormatted || ''); })
@@ -87,7 +90,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
   // overlay + safe fallback data (never rendered, since the overlay blocks
   // interaction) keeps size/position stable instead.
   const ready = !loading && !!form;
-  const f = form || { billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '', patientDob: '', patientAge: '', discount: 0, items: [blankItem()] };
+  const f = form || { billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '', patientDob: '', patientAge: '', admitTime: '', dischargeTime: '', discount: 0, items: [blankItem()] };
 
   const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const setItem = (idx, key, value) => setForm(prev => ({
@@ -115,6 +118,8 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
         roomType: form.roomType,
         patientDob: form.patientDob || null,
         patientAge: form.patientAge === '' ? null : form.patientAge,
+        admitTime: form.admitTime,
+        dischargeTime: form.dischargeTime,
         discount,
         items,
       });
@@ -195,8 +200,15 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
             </div>
             <div>
               <label className={labelCls}>D.O.A. / D.O.D.</label>
-              <div className={roInputCls}>
-                {(claim.dateOfAdmit || '').slice(0, 10) || '—'} → {(claim.dateOfDischarge || '').slice(0, 10) || '—'}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className={`${roInputCls} flex-1`}>{(claim.dateOfAdmit || '').slice(0, 10) || '—'}</span>
+                  <input type="time" value={f.admitTime} onChange={e => setField('admitTime', e.target.value)} className={`${inputCls} w-28`} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`${roInputCls} flex-1`}>{(claim.dateOfDischarge || '').slice(0, 10) || '—'}</span>
+                  <input type="time" value={f.dischargeTime} onChange={e => setField('dischargeTime', e.target.value)} className={`${inputCls} w-28`} />
+                </div>
               </div>
             </div>
             <div>

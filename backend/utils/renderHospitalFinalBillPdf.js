@@ -29,6 +29,24 @@ const formatDate = (d) => {
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
 };
 
+// "14:05" -> "2:05 PM". Blank/invalid time is dropped, leaving just the date.
+const formatTime = (hhmm) => {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(hhmm || '');
+  if (!m) return '';
+  const h = parseInt(m[1], 10);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m[2]} ${period}`;
+};
+
+// Date + optional time, as the paper bill always shows (e.g. "14-08-2024 08:40 PM").
+const formatDateTime = (d, hhmm) => {
+  const date = formatDate(d);
+  if (date === '-') return '-';
+  const time = formatTime(hhmm);
+  return time ? `${date} ${time}` : date;
+};
+
 const totalDays = (admit, discharge) => {
   if (!admit || !discharge) return '-';
   const a = new Date(admit), d = new Date(discharge);
@@ -112,9 +130,9 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
         ...(bill.opdNo ? [['OPD No.', bill.opdNo]] : []),
         ...(claim.doctorName ? [['Doctor Name', claim.doctorName]] : []),
         ...(bill.indoorNo ? [['Indoor No.', bill.indoorNo]] : []),
-        ...(claim.dateOfAdmit ? [['D.O.A.', formatDate(claim.dateOfAdmit)]] : []),
+        ...(claim.dateOfAdmit ? [['D.O.A.', formatDateTime(claim.dateOfAdmit, bill.admitTime)]] : []),
         ...(bill.roomType ? [['Room Type', bill.roomType]] : []),
-        ...(claim.dateOfDischarge ? [['D.O.D.', formatDate(claim.dateOfDischarge)]] : []),
+        ...(claim.dateOfDischarge ? [['D.O.D.', formatDateTime(claim.dateOfDischarge, bill.dischargeTime)]] : []),
         ...(bill.patientDob || bill.patientAge != null
           ? [['Birth Date / Age', `${bill.patientDob ? formatDate(bill.patientDob) : '-'} / ${bill.patientAge != null ? bill.patientAge : '-'}`]]
           : []),
@@ -123,29 +141,43 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
       const leftRows = allRows.filter((_, i) => i % 2 === 0);
       const rightRows = allRows.filter((_, i) => i % 2 === 1);
 
-      const META_ROW_H = 16;
+      const META_ROW_MIN_H = 16;
       const metaPadX = 16, metaPadTop = 14, metaPadBottom = 10;
-      const metaRowCount = Math.max(leftRows.length, rightRows.length);
-      const metaCardH = metaPadTop + metaRowCount * META_ROW_H + metaPadBottom;
+      const colW = contentW / 2 - metaPadX - 6;
+      const LABEL_W = 78;
+      const valueW = colW - LABEL_W;
+
+      // A long value ("IFFCO Tokio General Insurance Co. Ltd.") wraps to a
+      // second line — measure each row's real height BEFORE drawing so the
+      // next row (and the card background) never overlaps it.
+      const measureRowH = ([, value]) => {
+        doc.font('Helvetica-Bold').fontSize(9);
+        const h = doc.heightOfString(String(value), { width: valueW });
+        return Math.max(META_ROW_MIN_H, h + 6);
+      };
+      const leftHeights = leftRows.map(measureRowH);
+      const rightHeights = rightRows.map(measureRowH);
+      const leftTotalH = leftHeights.reduce((s, h) => s + h, 0);
+      const rightTotalH = rightHeights.reduce((s, h) => s + h, 0);
+
+      const metaCardH = metaPadTop + Math.max(leftTotalH, rightTotalH) + metaPadBottom;
       doc.roundedRect(PAD, y, contentW, metaCardH, 6).fillAndStroke(COLORS.alt, COLORS.border);
 
-      const colW = contentW / 2 - metaPadX - 6;
       const leftX = PAD + metaPadX;
       const rightX = PAD + contentW / 2 + 6;
       const metaStartY = y + metaPadTop;
 
-      const LABEL_W = 78;
-      const drawMetaRow = (x, w, label, value, rowY) => {
+      const drawMetaRow = (x, label, value, rowY, rowH) => {
         doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(7.5)
           .text(label.toUpperCase(), x, rowY + 1, { width: LABEL_W, characterSpacing: 0.3 });
         doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9)
-          .text(String(value), x + LABEL_W, rowY, { width: w - LABEL_W });
-        return rowY + META_ROW_H;
+          .text(String(value), x + LABEL_W, rowY, { width: valueW });
+        return rowY + rowH;
       };
 
       let ly = metaStartY, ry = metaStartY;
-      leftRows.forEach(([label, value]) => { ly = drawMetaRow(leftX, colW, label, value, ly); });
-      rightRows.forEach(([label, value]) => { ry = drawMetaRow(rightX, colW, label, value, ry); });
+      leftRows.forEach(([label, value], i) => { ly = drawMetaRow(leftX, label, value, ly, leftHeights[i]); });
+      rightRows.forEach(([label, value], i) => { ry = drawMetaRow(rightX, label, value, ry, rightHeights[i]); });
       y += metaCardH + 18;
 
       // ===== Line items table =====

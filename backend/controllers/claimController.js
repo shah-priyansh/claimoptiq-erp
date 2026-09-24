@@ -2085,6 +2085,10 @@ exports.upsertHospitalFinalBill = async (req, res) => {
     const patientDob = req.body.patientDob ? new Date(req.body.patientDob) : null;
     const ageNum = parseInt(req.body.patientAge, 10);
     const patientAge = Number.isFinite(ageNum) ? ageNum : null;
+    // "HH:MM" 24h, as produced by <input type="time">.
+    const timeOrBlank = (v) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(v || '') ? v : '');
+    const admitTime = timeOrBlank(req.body.admitTime);
+    const dischargeTime = timeOrBlank(req.body.dischargeTime);
 
     const existing = await prisma.hospitalFinalBill.findUnique({ where: { claimId: req.params.id } });
 
@@ -2103,6 +2107,7 @@ exports.upsertHospitalFinalBill = async (req, res) => {
           claimId: req.params.id, hospitalId: claim.hospitalId, billNo, billNoFormatted, billDate,
           opdNo: req.body.opdNo || '', patientDob, patientAge,
           indoorNo: req.body.indoorNo || '', roomType: req.body.roomType || '',
+          admitTime, dischargeTime,
           totalAmount, discount, finalAmount,
           createdById: req.user.id, updatedById: req.user.id,
           items: { create: items },
@@ -2110,6 +2115,7 @@ exports.upsertHospitalFinalBill = async (req, res) => {
         update: {
           billDate, opdNo: req.body.opdNo || '', patientDob, patientAge,
           indoorNo: req.body.indoorNo || '', roomType: req.body.roomType || '',
+          admitTime, dischargeTime,
           totalAmount, discount, finalAmount,
           updatedById: req.user.id,
           items: { deleteMany: {}, create: items },
