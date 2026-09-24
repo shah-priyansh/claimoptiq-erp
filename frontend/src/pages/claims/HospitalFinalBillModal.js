@@ -56,8 +56,10 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           roomType: data.roomType || '',
           patientDob: (data.patientDob || '').slice(0, 10) || '',
           patientAge: data.patientAge != null ? String(data.patientAge) : '',
+          gender: data.gender || '',
           admitTime: data.admitTime || '',
           dischargeTime: data.dischargeTime || '',
+          billTime: data.billTime || '',
           discount: data.discount || 0,
           items: (data.items || []).length
             ? data.items.map(it => ({ particulars: it.particulars, rate: it.rate, qtyRaw: it.qtyRaw }))
@@ -70,7 +72,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           setExistingBillNo('');
           setForm({
             billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '',
-            patientDob: '', patientAge: '', admitTime: '', dischargeTime: '',
+            patientDob: '', patientAge: '', gender: '', admitTime: '', dischargeTime: '', billTime: '',
             discount: 0, items: [blankItem()],
           });
           getNextHospitalBillNumberAPI(claim._id)
@@ -90,7 +92,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
   // overlay + safe fallback data (never rendered, since the overlay blocks
   // interaction) keeps size/position stable instead.
   const ready = !loading && !!form;
-  const f = form || { billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '', patientDob: '', patientAge: '', admitTime: '', dischargeTime: '', discount: 0, items: [blankItem()] };
+  const f = form || { billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '', patientDob: '', patientAge: '', gender: '', admitTime: '', dischargeTime: '', billTime: '', discount: 0, items: [blankItem()] };
 
   const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const setItem = (idx, key, value) => setForm(prev => ({
@@ -118,8 +120,10 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
         roomType: form.roomType,
         patientDob: form.patientDob || null,
         patientAge: form.patientAge === '' ? null : form.patientAge,
+        gender: form.gender,
         admitTime: form.admitTime,
         dischargeTime: form.dischargeTime,
+        billTime: form.billTime,
         discount,
         items,
       });
@@ -169,7 +173,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
               <div className={roInputCls}>{claim.patientName || '—'}</div>
             </div>
             <div>
-              <label className={labelCls}>Bill No.</label>
+              <label className={labelCls}>Bill Number</label>
               <div className={roInputCls}>
                 {existingBillNo || (nextBillPreview ? `${nextBillPreview} (assigned on save)` : '—')}
               </div>
@@ -179,8 +183,11 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
               <div className={roInputCls}>{claim.insuranceCompany?.name || '—'}</div>
             </div>
             <div>
-              <label className={labelCls}>Bill Date</label>
-              <DateInput type="date" value={f.billDate} onChange={e => setField('billDate', e.target.value)} className={inputCls} />
+              <label className={labelCls}>Bill Date &amp; Time</label>
+              <div className="flex items-center gap-1.5">
+                <DateInput type="date" value={f.billDate} onChange={e => setField('billDate', e.target.value)} className={inputCls} />
+                <input type="time" value={f.billTime} onChange={e => setField('billTime', e.target.value)} className={`${inputCls} w-28 flex-shrink-0`} />
+              </div>
             </div>
             <div>
               <label className={labelCls}>TPA</label>
@@ -199,16 +206,17 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
               <input value={f.indoorNo} onChange={e => setField('indoorNo', e.target.value)} className={inputCls} />
             </div>
             <div>
-              <label className={labelCls}>D.O.A. / D.O.D.</label>
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className={`${roInputCls} flex-1`}>{(claim.dateOfAdmit || '').slice(0, 10) || '—'}</span>
-                  <input type="time" value={f.admitTime} onChange={e => setField('admitTime', e.target.value)} className={`${inputCls} w-28`} />
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`${roInputCls} flex-1`}>{(claim.dateOfDischarge || '').slice(0, 10) || '—'}</span>
-                  <input type="time" value={f.dischargeTime} onChange={e => setField('dischargeTime', e.target.value)} className={`${inputCls} w-28`} />
-                </div>
+              <label className={labelCls}>Admission Date &amp; Time</label>
+              <div className="flex items-center gap-1.5">
+                <span className={`${roInputCls} flex-1`}>{(claim.dateOfAdmit || '').slice(0, 10) || '—'}</span>
+                <input type="time" value={f.admitTime} onChange={e => setField('admitTime', e.target.value)} className={`${inputCls} w-28 flex-shrink-0`} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Discharge Date &amp; Time</label>
+              <div className="flex items-center gap-1.5">
+                <span className={`${roInputCls} flex-1`}>{(claim.dateOfDischarge || '').slice(0, 10) || '—'}</span>
+                <input type="time" value={f.dischargeTime} onChange={e => setField('dischargeTime', e.target.value)} className={`${inputCls} w-28 flex-shrink-0`} />
               </div>
             </div>
             <div>
@@ -245,6 +253,14 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
             <div>
               <label className={labelCls}>Age</label>
               <input type="number" min="0" value={f.patientAge} onChange={e => setField('patientAge', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Gender</label>
+              <select value={f.gender} onChange={e => setField('gender', e.target.value)} className={inputCls}>
+                <option value="">— Select —</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
             </div>
           </div>
 

@@ -22,29 +22,23 @@ const formatINR = (n) => {
   return sign + 'Rs. ' + Math.abs(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+// DD/MM/YYYY, per spec.
 const formatDate = (d) => {
   if (!d) return '-';
   const dt = new Date(d);
   if (Number.isNaN(dt.getTime())) return '-';
-  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
-// "14:05" -> "2:05 PM". Blank/invalid time is dropped, leaving just the date.
-const formatTime = (hhmm) => {
-  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(hhmm || '');
-  if (!m) return '';
-  const h = parseInt(m[1], 10);
-  const period = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${m[2]} ${period}`;
-};
+// "14:05" -> "14:05" (validated passthrough, 24h). Blank/invalid drops the time.
+const formatTime = (hhmm) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm || '') ? hhmm : '');
 
-// Date + optional time, as the paper bill always shows (e.g. "14-08-2024 08:40 PM").
+// "DD/MM/YYYY | HH:MM", per spec. Falls back to just the date if no time is set.
 const formatDateTime = (d, hhmm) => {
   const date = formatDate(d);
   if (date === '-') return '-';
   const time = formatTime(hhmm);
-  return time ? `${date} ${time}` : date;
+  return time ? `${date} | ${time}` : date;
 };
 
 const totalDays = (admit, discharge) => {
@@ -58,7 +52,10 @@ const totalDays = (admit, discharge) => {
 const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
   new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: 'A4', margin: 0 });
+      // bufferPages so the footer (with a total page count) can be added to
+      // every page in one final pass, after all content — including any
+      // addPage() calls triggered by overflow — has already been laid out.
+      const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true });
       const chunks = [];
       doc.on('data', (c) => chunks.push(c));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -123,19 +120,20 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
       const days = totalDays(claim.dateOfAdmit, claim.dateOfDischarge);
       const allRows = [
         ['Patient Name', claim.patientName || '-'],
-        ['Bill No.', bill.billNoFormatted || '-'],
+        ['Bill Number', bill.billNoFormatted || '-'],
         ['Credit By', claim.insuranceCompany?.name || '-'],
-        ['Bill Date', formatDate(bill.billDate)],
+        ['Bill Date & Time', formatDateTime(bill.billDate, bill.billTime)],
         ...(claim.tpa?.name ? [['TPA', claim.tpa.name]] : []),
         ...(bill.opdNo ? [['OPD No.', bill.opdNo]] : []),
         ...(claim.doctorName ? [['Doctor Name', claim.doctorName]] : []),
         ...(bill.indoorNo ? [['Indoor No.', bill.indoorNo]] : []),
-        ...(claim.dateOfAdmit ? [['D.O.A.', formatDateTime(claim.dateOfAdmit, bill.admitTime)]] : []),
+        ...(claim.dateOfAdmit ? [['Admission Date & Time', formatDateTime(claim.dateOfAdmit, bill.admitTime)]] : []),
         ...(bill.roomType ? [['Room Type', bill.roomType]] : []),
-        ...(claim.dateOfDischarge ? [['D.O.D.', formatDateTime(claim.dateOfDischarge, bill.dischargeTime)]] : []),
+        ...(claim.dateOfDischarge ? [['Discharge Date & Time', formatDateTime(claim.dateOfDischarge, bill.dischargeTime)]] : []),
         ...(bill.patientDob || bill.patientAge != null
           ? [['Birth Date / Age', `${bill.patientDob ? formatDate(bill.patientDob) : '-'} / ${bill.patientAge != null ? bill.patientAge : '-'}`]]
           : []),
+        ...(bill.gender ? [['Gender', bill.gender]] : []),
         ...(days !== '-' ? [['Total Days', days]] : []),
       ];
       const leftRows = allRows.filter((_, i) => i % 2 === 0);
@@ -144,16 +142,18 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
       const META_ROW_MIN_H = 16;
       const metaPadX = 16, metaPadTop = 14, metaPadBottom = 10;
       const colW = contentW / 2 - metaPadX - 6;
-      const LABEL_W = 78;
+      const LABEL_W = 100;
       const valueW = colW - LABEL_W;
 
-      // A long value ("IFFCO Tokio General Insurance Co. Ltd.") wraps to a
-      // second line — measure each row's real height BEFORE drawing so the
-      // next row (and the card background) never overlaps it.
-      const measureRowH = ([, value]) => {
+      // A long label ("Discharge Date & Time") or value ("IFFCO Tokio General
+      // Insurance Co. Ltd.") can wrap to a second line — measure BOTH before
+      // drawing so the next row (and the card background) never overlaps it.
+      const measureRowH = ([label, value]) => {
+        doc.font('Helvetica-Bold').fontSize(7.5);
+        const labelH = doc.heightOfString(label.toUpperCase(), { width: LABEL_W, characterSpacing: 0.3 });
         doc.font('Helvetica-Bold').fontSize(9);
-        const h = doc.heightOfString(String(value), { width: valueW });
-        return Math.max(META_ROW_MIN_H, h + 6);
+        const valueH = doc.heightOfString(String(value), { width: valueW });
+        return Math.max(META_ROW_MIN_H, labelH + 6, valueH + 6);
       };
       const leftHeights = leftRows.map(measureRowH);
       const rightHeights = rightRows.map(measureRowH);
@@ -251,7 +251,9 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
       y += wordsCardH + 30;
 
       // ===== Signatory =====
-      if (y > H - 70) { doc.addPage(); y = 30; }
+      // Leaves clearance for the footer (added below, ~40pt tall) so the two
+      // never collide on a page where the signature block lands late.
+      if (y > H - 90) { doc.addPage(); y = 30; }
       doc.fillColor(COLORS.muted).font('Helvetica').fontSize(9)
         .text(`For ${hospital?.name || 'Hospital'}`, PAD, y, { width: contentW, align: 'right' });
       const sigLineY = y + 40;
@@ -259,6 +261,23 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
         .moveTo(RIGHT - 160, sigLineY).lineTo(RIGHT, sigLineY).stroke();
       doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9)
         .text('Authorised Signatory', RIGHT - 160, sigLineY + 4, { width: 160, align: 'center' });
+
+      // ===== Footer (every page) =====
+      // Added last, in one pass over every buffered page, so the "Page NN"
+      // count is correct even when item rows/totals overflowed onto extra
+      // pages earlier in this render.
+      const pageRange = doc.bufferedPageRange();
+      for (let i = 0; i < pageRange.count; i++) {
+        doc.switchToPage(i);
+        const footerY = H - 24;
+        doc.lineWidth(0.5).strokeColor(COLORS.border)
+          .moveTo(PAD, footerY - 8).lineTo(RIGHT, footerY - 8).stroke();
+        doc.fillColor(COLORS.faint).font('Helvetica-Oblique').fontSize(7.5)
+          .text('This is a computer-generated final bill and requires no physical signature.',
+            PAD, footerY - 4, { width: contentW, align: 'center' });
+        doc.font('Helvetica').fontSize(7.5)
+          .text(`Page ${String(i + 1).padStart(2, '0')}`, PAD, footerY - 4, { width: contentW, align: 'right' });
+      }
 
       doc.end();
     } catch (e) {

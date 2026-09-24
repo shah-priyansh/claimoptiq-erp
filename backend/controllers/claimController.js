@@ -2031,7 +2031,7 @@ exports.getNextHospitalBillNumber = async (req, res) => {
       return res.status(403).json({ message: "You can only view your own hospital's claims" });
     }
     if (!claim.hospitalId) return res.status(400).json({ message: 'Hospital Final Bill is not available for direct-patient claims' });
-    const preview = await peekNextHospitalBillNumber(prisma, claim.hospitalId, claim.hospital.hospitalBillStartNo);
+    const preview = await peekNextHospitalBillNumber(prisma, claim.hospitalId, claim.hospital.hospitalBillStartNo, new Date().getFullYear());
     res.json(preview);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -2089,6 +2089,8 @@ exports.upsertHospitalFinalBill = async (req, res) => {
     const timeOrBlank = (v) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(v || '') ? v : '');
     const admitTime = timeOrBlank(req.body.admitTime);
     const dischargeTime = timeOrBlank(req.body.dischargeTime);
+    const billTime = timeOrBlank(req.body.billTime);
+    const gender = ['Male', 'Female'].includes(req.body.gender) ? req.body.gender : '';
 
     const existing = await prisma.hospitalFinalBill.findUnique({ where: { claimId: req.params.id } });
 
@@ -2096,7 +2098,9 @@ exports.upsertHospitalFinalBill = async (req, res) => {
       let billNo = existing?.billNo;
       let billNoFormatted = existing?.billNoFormatted;
       if (!existing) {
-        const reserved = await reserveNextHospitalBillNumber(tx, claim.hospitalId, claim.hospital.hospitalBillStartNo);
+        const reserved = await reserveNextHospitalBillNumber(
+          tx, claim.hospitalId, claim.hospital.hospitalBillStartNo, billDate.getFullYear(),
+        );
         billNo = reserved.billNo;
         billNoFormatted = reserved.billNoFormatted;
       }
@@ -2105,17 +2109,17 @@ exports.upsertHospitalFinalBill = async (req, res) => {
         where: { claimId: req.params.id },
         create: {
           claimId: req.params.id, hospitalId: claim.hospitalId, billNo, billNoFormatted, billDate,
-          opdNo: req.body.opdNo || '', patientDob, patientAge,
+          opdNo: req.body.opdNo || '', patientDob, patientAge, gender,
           indoorNo: req.body.indoorNo || '', roomType: req.body.roomType || '',
-          admitTime, dischargeTime,
+          admitTime, dischargeTime, billTime,
           totalAmount, discount, finalAmount,
           createdById: req.user.id, updatedById: req.user.id,
           items: { create: items },
         },
         update: {
-          billDate, opdNo: req.body.opdNo || '', patientDob, patientAge,
+          billDate, opdNo: req.body.opdNo || '', patientDob, patientAge, gender,
           indoorNo: req.body.indoorNo || '', roomType: req.body.roomType || '',
-          admitTime, dischargeTime,
+          admitTime, dischargeTime, billTime,
           totalAmount, discount, finalAmount,
           updatedById: req.user.id,
           items: { deleteMany: {}, create: items },

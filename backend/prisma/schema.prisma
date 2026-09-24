@@ -802,6 +802,10 @@ model HospitalFinalBill {
   // the paper bill format always shows a time (e.g. "08:40 PM").
   admitTime       String    @default("") @map("admit_time")
   dischargeTime   String    @default("") @map("discharge_time")
+  // Time-of-day for billDate (24h "HH:MM") — billDate itself stays date-only
+  // semantically, same reasoning as admitTime/dischargeTime above.
+  billTime        String    @default("") @map("bill_time")
+  gender          String    @default("") @map("gender")
   totalAmount     Float     @default(0) @map("total_amount")
   discount        Float     @default(0)
   finalAmount     Float     @default(0) @map("final_amount")
