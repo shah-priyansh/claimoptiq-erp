@@ -4,7 +4,7 @@ import { toast } from 'react-toastify';
 import DateInput from '../../components/ui/DateInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
-import { getHospitalFinalBillAPI, saveHospitalFinalBillAPI, getRoomTypeValuesAPI, getHospitalFinalBillPdfURL, getNextHospitalBillNumberAPI } from '../../services/api';
+import { getHospitalFinalBillAPI, saveHospitalFinalBillAPI, getRoomTypeValuesAPI, getHospitalFinalBillPdfURL, getNextHospitalBillNumberAPI, updateClaimAPI } from '../../services/api';
 import { formatCurrency, formatINRWords, round2 } from '../../utils/format';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -57,7 +57,9 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           patientDob: (data.patientDob || '').slice(0, 10) || '',
           patientAge: data.patientAge != null ? String(data.patientAge) : '',
           gender: data.gender || '',
+          dateOfAdmit: (claim.dateOfAdmit || '').slice(0, 10) || '',
           admitTime: data.admitTime || '',
+          dateOfDischarge: (claim.dateOfDischarge || '').slice(0, 10) || '',
           dischargeTime: data.dischargeTime || '',
           billTime: data.billTime || '',
           discount: data.discount || 0,
@@ -72,7 +74,9 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           setExistingBillNo('');
           setForm({
             billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '',
-            patientDob: '', patientAge: '', gender: '', admitTime: '', dischargeTime: '', billTime: '',
+            patientDob: '', patientAge: '', gender: '',
+            dateOfAdmit: (claim.dateOfAdmit || '').slice(0, 10) || '', admitTime: '',
+            dateOfDischarge: (claim.dateOfDischarge || '').slice(0, 10) || '', dischargeTime: '', billTime: '',
             discount: 0, items: [blankItem()],
           });
           getNextHospitalBillNumberAPI(claim._id)
@@ -84,6 +88,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, claim?._id]);
 
   if (!open) return null;
@@ -92,7 +97,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
   // overlay + safe fallback data (never rendered, since the overlay blocks
   // interaction) keeps size/position stable instead.
   const ready = !loading && !!form;
-  const f = form || { billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '', patientDob: '', patientAge: '', gender: '', admitTime: '', dischargeTime: '', billTime: '', discount: 0, items: [blankItem()] };
+  const f = form || { billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '', patientDob: '', patientAge: '', gender: '', dateOfAdmit: '', admitTime: '', dateOfDischarge: '', dischargeTime: '', billTime: '', discount: 0, items: [blankItem()] };
 
   const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const setItem = (idx, key, value) => setForm(prev => ({
@@ -113,20 +118,26 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
     if (!items.length) { toast.error('Add at least one bill item'); return; }
     setSaving(true);
     try {
-      await saveHospitalFinalBillAPI(claim._id, {
-        billDate: form.billDate,
-        opdNo: form.opdNo,
-        indoorNo: form.indoorNo,
-        roomType: form.roomType,
-        patientDob: form.patientDob || null,
-        patientAge: form.patientAge === '' ? null : form.patientAge,
-        gender: form.gender,
-        admitTime: form.admitTime,
-        dischargeTime: form.dischargeTime,
-        billTime: form.billTime,
-        discount,
-        items,
-      });
+      await Promise.all([
+        saveHospitalFinalBillAPI(claim._id, {
+          billDate: form.billDate,
+          opdNo: form.opdNo,
+          indoorNo: form.indoorNo,
+          roomType: form.roomType,
+          patientDob: form.patientDob || null,
+          patientAge: form.patientAge === '' ? null : form.patientAge,
+          gender: form.gender,
+          admitTime: form.admitTime,
+          dischargeTime: form.dischargeTime,
+          billTime: form.billTime,
+          discount,
+          items,
+        }),
+        updateClaimAPI(claim._id, {
+          dateOfAdmit: form.dateOfAdmit || null,
+          dateOfDischarge: form.dateOfDischarge || null,
+        }),
+      ]);
       toast.success('Hospital Final Bill saved');
       await onSaved?.();
     } catch (err) {
@@ -185,8 +196,10 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
             <div>
               <label className={labelCls}>Bill Date &amp; Time</label>
               <div className="flex items-center gap-1.5">
-                <DateInput type="date" value={f.billDate} onChange={e => setField('billDate', e.target.value)} className={inputCls} />
-                <input type="time" value={f.billTime} onChange={e => setField('billTime', e.target.value)} className={`${inputCls} w-28 flex-shrink-0`} />
+                <div className="flex-1 min-w-0">
+                  <DateInput type="date" value={f.billDate} onChange={e => setField('billDate', e.target.value)} className={inputCls} />
+                </div>
+                <input type="time" value={f.billTime} onChange={e => setField('billTime', e.target.value)} className={`${inputCls} !w-28 flex-shrink-0`} />
               </div>
             </div>
             <div>
@@ -208,15 +221,19 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
             <div>
               <label className={labelCls}>Admission Date &amp; Time</label>
               <div className="flex items-center gap-1.5">
-                <span className={`${roInputCls} flex-1`}>{(claim.dateOfAdmit || '').slice(0, 10) || '—'}</span>
-                <input type="time" value={f.admitTime} onChange={e => setField('admitTime', e.target.value)} className={`${inputCls} w-28 flex-shrink-0`} />
+                <div className="flex-1 min-w-0">
+                  <DateInput type="date" value={f.dateOfAdmit} onChange={e => setField('dateOfAdmit', e.target.value)} className={inputCls} />
+                </div>
+                <input type="time" value={f.admitTime} onChange={e => setField('admitTime', e.target.value)} className={`${inputCls} !w-28 flex-shrink-0`} />
               </div>
             </div>
             <div>
               <label className={labelCls}>Discharge Date &amp; Time</label>
               <div className="flex items-center gap-1.5">
-                <span className={`${roInputCls} flex-1`}>{(claim.dateOfDischarge || '').slice(0, 10) || '—'}</span>
-                <input type="time" value={f.dischargeTime} onChange={e => setField('dischargeTime', e.target.value)} className={`${inputCls} w-28 flex-shrink-0`} />
+                <div className="flex-1 min-w-0">
+                  <DateInput type="date" value={f.dateOfDischarge} onChange={e => setField('dateOfDischarge', e.target.value)} className={inputCls} />
+                </div>
+                <input type="time" value={f.dischargeTime} onChange={e => setField('dischargeTime', e.target.value)} className={`${inputCls} !w-28 flex-shrink-0`} />
               </div>
             </div>
             <div>
