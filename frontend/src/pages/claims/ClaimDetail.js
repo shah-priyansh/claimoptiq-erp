@@ -13,7 +13,7 @@ import {
   HiOutlineX, HiOutlineChevronLeft, HiOutlineChevronRight,
   HiOutlineUser, HiOutlineCash, HiOutlineTruck,
   HiOutlineShieldCheck, HiOutlinePencil, HiOutlineCalendar,
-  HiOutlineClipboardList, HiOutlinePrinter,
+  HiOutlineClipboardList, HiOutlinePrinter, HiOutlineExclamationCircle,
 } from 'react-icons/hi';
 import { statusBadgeStyle, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatDateTime as _formatDateTime, round2 } from '../../utils/format';
@@ -216,7 +216,7 @@ const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const UploadLabel = ({ onChange, label }) => (
   <label className="inline-flex items-center gap-2 text-sm font-medium text-primary-600 border border-primary-200 hover:bg-primary-50 px-3 py-1.5 rounded-lg cursor-pointer transition-all">
     <HiOutlineUpload className="w-4 h-4" /> {label}
-    <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={onChange} />
+    <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.doc" className="hidden" onChange={onChange} />
   </label>
 );
 
@@ -565,7 +565,7 @@ const ClaimDetail = () => {
     });
   };
 
-  const uploadPendingFiles = async (category, currentPending) => {
+  const uploadPendingFiles = async (category, currentPending, overwrite = false) => {
     if (!currentPending.length) return;
     const fd = new FormData();
     // category must be appended BEFORE files — multer's disk-storage
@@ -573,6 +573,7 @@ const ClaimDetail = () => {
     // the right claim subfolder, and multipart fields only populate
     // req.body in the order they were appended to the stream.
     fd.append('category', category);
+    if (overwrite) fd.append('overwrite', 'true');
     currentPending.forEach(e => fd.append('files', e.file));
     await uploadDocumentsAPI(id, fd);
     currentPending.forEach(e => URL.revokeObjectURL(e.previewUrl));
@@ -607,7 +608,7 @@ const ClaimDetail = () => {
         delete payload.month;
       }
       await updateClaimAPI(id, payload);
-      await uploadPendingFiles('admission', pendingFiles.admission);
+      await uploadPendingFiles('admission', pendingFiles.admission, true);
       toast.success('Admission details saved');
       await fetchClaim(true);
     } catch (error) {
@@ -632,7 +633,7 @@ const ClaimDetail = () => {
         ? { ...dischargeForm }
         : { ...dischargeForm, status: 'discharged_submitted' };
       await updateClaimAPI(id, payload);
-      await uploadPendingFiles('discharge', pendingFiles.discharge);
+      await uploadPendingFiles('discharge', pendingFiles.discharge, true);
       toast.success('Discharge details saved');
       await fetchClaim(true);
     } catch (error) {
@@ -645,7 +646,7 @@ const ClaimDetail = () => {
     try {
       const status = fileForm.courierSubmitDate || fileForm.onlineSubmitDate ? 'file_submitted' : 'file_received';
       await updateClaimAPI(id, { ...fileForm, status });
-      await uploadPendingFiles('pod', pendingFiles.pod);
+      await uploadPendingFiles('pod', pendingFiles.pod, true);
       toast.success('File & submit details saved');
       await fetchClaim(true);
     } catch (error) {
@@ -814,38 +815,51 @@ const ClaimDetail = () => {
   const CLAIM_TYPES = ['cashless', 'cashless_anywhere', 'reimbursement', 'grievance'];
   const CLAIM_TYPE_LABELS = { cashless: 'Cashless', cashless_anywhere: 'Cashless Anywhere', reimbursement: 'Reimbursement', grievance: 'Grievance' };
 
-  // Shared documents subsection used in Discharge / File&Submit / Settlement tabs
-  const DocsSubsection = ({ category, pendingKey, uploadLabel }) => (
-    <div className="mt-6 pt-5 border-t border-gray-100">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Attachments</p>
+  // Shared documents subsection used in Discharge / File&Submit / Settlement tabs.
+  // `overwriteOnUpload` = Admit/Discharge/File & Submit always replace rather
+  // than append: re-uploading here is a correction, not a second document, so
+  // saving new pending files silently deletes whatever was already saved in
+  // that category first (server-side, see uploadDocuments in claimController).
+  const DocsSubsection = ({ category, pendingKey, uploadLabel, overwriteOnUpload }) => {
+    const existingDocs = docGroups[category] || [];
+    return (
+      <div className="mt-6 pt-5 border-t border-gray-100">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Attachments</p>
+          {canUpload && (
+            <UploadLabel label={uploadLabel} onChange={e => handleFileSelect(e, pendingKey)} />
+          )}
+        </div>
         {canUpload && (
-          <UploadLabel label={uploadLabel} onChange={e => handleFileSelect(e, pendingKey)} />
+          <p className="text-xs font-medium text-gray-600 mb-3">{MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG, XLSX, XLS, DOCX, DOC</p>
+        )}
+        {overwriteOnUpload && existingDocs.length > 0 && pendingFiles[pendingKey].length > 0 && (
+          <div className="mb-3 flex items-start gap-1.5 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
+            <HiOutlineExclamationCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>Saving will delete the {existingDocs.length} existing file{existingDocs.length !== 1 ? 's' : ''} here and replace with the new upload.</span>
+          </div>
+        )}
+        <PendingDocGrid
+          files={pendingFiles[pendingKey]}
+          onPreview={e => setPendingPreview({ url: e.previewUrl, name: e.file.name })}
+          onRemove={idx => removePendingFile(pendingKey, idx)}
+        />
+        <DocMiniGrid
+          docs={existingDocs}
+          onPreview={setPreviewIdx}
+          onDelete={handleDeleteDoc}
+          isEditable={isEditable}
+          deletingDocId={deletingDocId}
+        />
+        {(pendingFiles[pendingKey].length === 0 && existingDocs.length === 0) && (
+          <div className="text-center py-8 text-gray-300">
+            <HiOutlineDocumentText className="w-8 h-8 mx-auto mb-2" />
+            <p className="text-xs">No files attached yet</p>
+          </div>
         )}
       </div>
-      {canUpload && (
-        <p className="text-xs font-medium text-gray-600 mb-3">{MAX_FILE_SIZE_MB} MB max per file · PDF, JPG, PNG</p>
-      )}
-      <PendingDocGrid
-        files={pendingFiles[pendingKey]}
-        onPreview={e => setPendingPreview({ url: e.previewUrl, name: e.file.name })}
-        onRemove={idx => removePendingFile(pendingKey, idx)}
-      />
-      <DocMiniGrid
-        docs={docGroups[category] || []}
-        onPreview={setPreviewIdx}
-        onDelete={handleDeleteDoc}
-        isEditable={isEditable}
-        deletingDocId={deletingDocId}
-      />
-      {(pendingFiles[pendingKey].length === 0 && (docGroups[category] || []).length === 0) && (
-        <div className="text-center py-8 text-gray-300">
-          <HiOutlineDocumentText className="w-8 h-8 mx-auto mb-2" />
-          <p className="text-xs">No files attached yet</p>
-        </div>
-      )}
-    </div>
-  );
+    );
+  };
 
   // Shared save footer
   const SaveFooter = ({ onSave, label }) => isEditable ? (
@@ -945,6 +959,7 @@ const ClaimDetail = () => {
                     <AmountInput
                       value={settlementForm.filePrice || 0}
                       onChange={v => { setFilePriceManual(true); setSettlementForm(sf => ({ ...sf, filePrice: v, filePriceOverridden: true })); }}
+                      allowDecimal
                       className={`w-full px-2.5 py-1.5 border rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white ${filePriceDirty ? 'border-amber-400 ring-1 ring-amber-300' : filePriceManual ? 'border-amber-200' : 'border-gray-200'}`}
                     />
                   </div>
@@ -1420,7 +1435,7 @@ const ClaimDetail = () => {
               </div>
             )}
 
-            <DocsSubsection category="admission" pendingKey="admission" uploadLabel="Add Files" />
+            <DocsSubsection category="admission" pendingKey="admission" uploadLabel="Add Files" overwriteOnUpload />
             <SaveFooter onSave={handleSaveAdmission} label="Save Admission" />
           </div>
         )}
@@ -1445,6 +1460,7 @@ const ClaimDetail = () => {
                     {f.type === 'amount' ? (
                       <AmountInput value={dischargeForm[f.name] || 0}
                         onChange={v => setDischargeForm({ ...dischargeForm, [f.name]: v })}
+                        allowDecimal
                         className={inputCls} />
                     ) : f.type === 'hospitalBill' ? (
                       <div>
@@ -1492,6 +1508,7 @@ const ClaimDetail = () => {
                         ) : (
                           <AmountInput value={dischargeForm.hospitalFinalBill || 0}
                             onChange={v => setDischargeForm({ ...dischargeForm, hospitalFinalBill: v })}
+                            allowDecimal
                             className={inputCls} />
                         )}
                       </div>
@@ -1506,6 +1523,7 @@ const ClaimDetail = () => {
                   <label className={labelCls}>Final Approval Amount (₹) <span className="text-xs text-gray-400 font-normal">— auto-calculated</span></label>
                   <AmountInput value={dischargeForm.finalApprovalAmount || 0}
                     onChange={v => setDischargeForm(f => ({ ...f, finalApprovalAmount: v }))}
+                    allowDecimal
                     className={inputCls} />
                 </div>
               </div>
@@ -1528,7 +1546,7 @@ const ClaimDetail = () => {
               </div>
             )}
 
-            <DocsSubsection category="discharge" pendingKey="discharge" uploadLabel="Add Files" />
+            <DocsSubsection category="discharge" pendingKey="discharge" uploadLabel="Add Files" overwriteOnUpload />
             <SaveFooter onSave={handleSaveDischarge} label="Save Discharge" />
           </div>
         )}
@@ -1579,7 +1597,7 @@ const ClaimDetail = () => {
               </div>
             )}
 
-            <DocsSubsection category="pod" pendingKey="pod" uploadLabel="Add Files" />
+            <DocsSubsection category="pod" pendingKey="pod" uploadLabel="Add Files" overwriteOnUpload />
             <SaveFooter onSave={handleSaveFileReceive} label="Save File & Submit" />
           </div>
         )}
@@ -1605,6 +1623,7 @@ const ClaimDetail = () => {
                         <label className={labelCls}>Settlement Amount (₹) <span className="text-xs text-gray-400 font-normal">— auto-calculated</span></label>
                         <AmountInput value={settlementForm.settlementAmount || 0}
                           onChange={v => setSettlementForm(sf => ({ ...sf, settlementAmount: v }))}
+                          allowDecimal
                           className={inputCls} />
                       </div>
                     );
@@ -1616,6 +1635,7 @@ const ClaimDetail = () => {
                         ? <AmountInput value={settlementForm[f.name] || 0}
                             onChange={v => setSettlementForm({ ...settlementForm, [f.name]: v })}
                             allowNegative={f.allowNegative}
+                            allowDecimal
                             className={inputCls} />
                         : <input type={f.type} value={settlementForm[f.name] || ''}
                             onChange={e => setSettlementForm({ ...settlementForm, [f.name]: e.target.value })}
@@ -2075,14 +2095,19 @@ const ClaimDetail = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
             <style>{`
               @media print {
-                @page { size: A4 portrait; margin: 10mm; }
+                /* margin:0 is what gets Chrome/Edge to drop the page header
+                   (date, title) and footer (URL, page numbers) even when the
+                   print dialog's "Headers and footers" box is ticked — see
+                   the matching note in ClaimList.js's bulk sticker print. */
+                @page { size: A4 portrait; margin: 0; }
                 body * { visibility: hidden !important; }
                 #courier-sticker-print, #courier-sticker-print * { visibility: visible !important; }
                 #courier-sticker-print {
                   position: absolute !important;
                   left: 0 !important; top: 0 !important;
                   width: 100% !important;
-                  padding: 0 !important;
+                  /* @page margin is 0, so the whitespace comes from here. */
+                  padding: 10mm !important;
                   /* On screen this is a bounded scroll box (flex-1 in
                      max-h-[90vh] + overflow-y-auto). Reset it so print never
                      clips a tall sticker to the scroll viewport. */

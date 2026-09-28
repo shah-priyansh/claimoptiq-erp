@@ -638,6 +638,24 @@ exports.uploadDocuments = async (req, res) => {
     }
 
     const category = req.body.category || 'other';
+    const overwrite = req.body.overwrite === 'true' || req.body.overwrite === true;
+
+    // Overwrite = replace, not append: drop every existing document in this
+    // category (file on disk + any offloaded remote copy) before the new
+    // upload lands, same cleanup exports.deleteDocument does for a single doc.
+    if (overwrite) {
+      const existing = await prisma.claimDocument.findMany({
+        where: { claimId: req.params.id, category },
+      });
+      if (existing.length) {
+        for (const doc of existing) {
+          if (fs.existsSync(doc.filePath)) fs.unlinkSync(doc.filePath);
+          backupService.deleteRemoteCopies('claim_document', doc.id).catch(() => {});
+        }
+        await prisma.claimDocument.deleteMany({ where: { id: { in: existing.map((d) => d.id) } } });
+      }
+    }
+
     await prisma.claimDocument.createMany({
       data: req.files.map((file) => ({
         claimId: req.params.id,

@@ -51,13 +51,13 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowed = /pdf|jpg|jpeg|png|gif|webp/;
+  const allowed = /pdf|jpg|jpeg|png|gif|webp|xlsx|xls|docx|doc/;
   const extValid = allowed.test(path.extname(file.originalname).toLowerCase());
   const mimeValid = allowed.test(file.mimetype.split('/')[1]);
   if (extValid || mimeValid) {
     cb(null, true);
   } else {
-    cb(new Error('Only PDF and image files are allowed'), false);
+    cb(new Error('Only PDF, image, Excel, and Word files are allowed'), false);
   }
 };
 

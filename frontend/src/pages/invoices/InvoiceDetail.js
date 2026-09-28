@@ -4,7 +4,7 @@ import { toast } from 'react-toastify';
 import {
   HiOutlineArrowLeft, HiOutlinePlus, HiOutlineTrash,
   HiOutlinePrinter, HiOutlineBan, HiOutlineCheck, HiOutlineSave,
-  HiOutlineCheckCircle, HiOutlineExclamationCircle,
+  HiOutlineCheckCircle, HiOutlineExclamationCircle, HiOutlineChatAlt2,
   HiChevronRight, HiChevronDown,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
@@ -17,7 +17,9 @@ import {
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
+import ReminderModal from './ReminderModal';
 import { formatDate as _formatDate, round2 } from '../../utils/format';
+import { isInvoiceOverdue } from '../../utils/invoice';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -82,6 +84,8 @@ const InvoiceDetail = () => {
   // Controls the "Mark as Paid" Cash/Bank entry modal — opens pre-linked to
   // this invoice so the operator just confirms the mode/amount.
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  // Controls the "Copy Reminder" modal for an overdue invoice.
+  const [reminderOpen, setReminderOpen] = useState(false);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(true);
   // Master list of billing service names — powers the line-item description
@@ -489,12 +493,19 @@ const InvoiceDetail = () => {
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_COLORS[invoice.status]}`}>
               {invoice.status.replace('_', ' ').toUpperCase()}
             </span>
-            {(isIssued || invoice.status === 'partially_paid')
-              && (invoice.amountPending || 0) > 0
-              && invoice.dueDate && new Date(invoice.dueDate) < new Date() && (
-              <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-red-100 text-red-700">
-                <HiOutlineExclamationCircle className="w-3.5 h-3.5" /> OVERDUE
-              </span>
+            {isInvoiceOverdue(invoice) && (
+              <>
+                <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-red-100 text-red-700">
+                  <HiOutlineExclamationCircle className="w-3.5 h-3.5" /> OVERDUE
+                </span>
+                {canEdit && (
+                <button
+                  onClick={() => setReminderOpen(true)}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
+                  <HiOutlineChatAlt2 className="w-3.5 h-3.5" /> Copy Reminder
+                </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -1054,6 +1065,8 @@ const InvoiceDetail = () => {
         onClose={() => setMarkPaidOpen(false)}
         onSave={handleMarkPaidSave}
       />
+
+      <ReminderModal open={reminderOpen} invoice={invoice} onClose={() => setReminderOpen(false)} />
     </div>
   );
 };

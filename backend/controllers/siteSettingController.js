@@ -50,6 +50,13 @@ const DEFAULTS = {
   // across devices. Empty default on purpose — no hardcoded default column set;
   // the export uses whatever the operator last saved.
   report_export_columns:          '',
+  // WhatsApp-style payment reminder text for an overdue invoice — editable
+  // from Settings → Payment Reminder. Placeholders are substituted client-side
+  // (see frontend/src/utils/invoiceReminder.js) when the operator opens the
+  // "Copy Reminder" action on an overdue invoice; nothing is sent server-side,
+  // the operator pastes the copied text into WhatsApp themselves.
+  invoice_reminder_message:
+    'Dear {{hospitalName}},\n\nThis is a gentle reminder that invoice {{invoiceNumber}} dated {{invoiceDate}} for {{grandTotal}} was due on {{dueDate}}. The pending amount of {{amountPending}} is still outstanding.\n\nKindly clear the payment at the earliest.\n\nThank you,\n{{companyName}}',
 };
 
 // Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them

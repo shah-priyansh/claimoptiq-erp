@@ -66,6 +66,7 @@ const computeSalary = (
   extraAllowances = [],
   otMults = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayMultiplier: 2.0 },
   holidaySet = new Set(),
+  shortHoursDeducted = false,
 ) => {
   // Ignore any attendance that falls outside the employment window
   // (before joining / after last working day) so a partial month is only
@@ -130,7 +131,11 @@ const computeSalary = (
   const fixedAllowances = employee.allowances.reduce((s, a) => s + a.amount, 0);
   const extraAllowancesTotal = extraAllowances.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
 
-  const totalAmount = earnedBasic + fixedAllowances + extraAllowancesTotal + totalOtAmt;
+  // Rupee value of the weekday shortfall at the plain hourly rate (no OT
+  // multiplier). Only docked from pay when the admin has opted in for this
+  // record via shortHoursDeducted — otherwise it's tracking-only.
+  const shortAmt = (shortMinutes / 60) * hourlyRate;
+  const totalAmount = earnedBasic + fixedAllowances + extraAllowancesTotal + totalOtAmt - (shortHoursDeducted ? shortAmt : 0);
 
   return {
     presentDays,
@@ -142,6 +147,7 @@ const computeSalary = (
     shortMinutes,
     grossOtMinutes,
     netBalanceMinutes,
+    shortHoursDeducted,
     totalAmount: Math.round(totalAmount * 100) / 100,
     breakdown: {
       earnedBasic: Math.round(earnedBasic * 100) / 100,
@@ -152,6 +158,7 @@ const computeSalary = (
       holidayOtAmt: Math.round(holidayOtAmt * 100) / 100,
       totalOtAmt: Math.round(totalOtAmt * 100) / 100,
       hourlyRate: Math.round(hourlyRate * 100) / 100,
+      shortAmt: Math.round(shortAmt * 100) / 100,
     },
   };
 };
@@ -220,7 +227,8 @@ exports.computeSalary = async (req, res) => {
 
       const attendance = attendanceByEmp[emp.id] || [];
       const extraAllowances = existing?.extraAllowances || [];
-      const calc = computeSalary(emp, attendance, calDays, monthStart, extraAllowances, otMults, holidaySet);
+      const shortHoursDeducted = existing?.shortHoursDeducted || false;
+      const calc = computeSalary(emp, attendance, calDays, monthStart, extraAllowances, otMults, holidaySet, shortHoursDeducted);
 
       const record = await prisma.salaryRecord.upsert({
         where: { employeeId_month: { employeeId: emp.id, month: monthStart } },
@@ -341,7 +349,7 @@ exports.getMySalary = async (req, res) => {
 
 exports.updateSalaryRecord = async (req, res) => {
   try {
-    const { extraAllowances, isFinalized } = req.body;
+    const { extraAllowances, isFinalized, shortHoursDeducted } = req.body;
     const record = await prisma.salaryRecord.findUnique({
       where: { id: req.params.id },
       include: { employee: { include: { allowances: true } } },
@@ -352,8 +360,10 @@ exports.updateSalaryRecord = async (req, res) => {
     }
 
     const data = {};
-    if (extraAllowances !== undefined) {
-      data.extraAllowances = extraAllowances;
+    if (extraAllowances !== undefined) data.extraAllowances = extraAllowances;
+    if (shortHoursDeducted !== undefined) data.shortHoursDeducted = shortHoursDeducted;
+
+    if (extraAllowances !== undefined || shortHoursDeducted !== undefined) {
       // Recompute total
       const ry = record.month.getUTCFullYear(), rm = record.month.getUTCMonth() + 1;
       const rLastDay = new Date(Date.UTC(ry, rm, 0)).getUTCDate();
@@ -369,7 +379,9 @@ exports.updateSalaryRecord = async (req, res) => {
         }),
       ]);
       const holidaySet = new Set(holidays.map(h => isoDateUTC(h.date)));
-      const calc = computeSalary(record.employee, attendance, record.calendarDays, rMonthStart, extraAllowances, otMults, holidaySet);
+      const effExtraAllowances = extraAllowances !== undefined ? extraAllowances : record.extraAllowances;
+      const effShortHoursDeducted = shortHoursDeducted !== undefined ? shortHoursDeducted : record.shortHoursDeducted;
+      const calc = computeSalary(record.employee, attendance, record.calendarDays, rMonthStart, effExtraAllowances, otMults, holidaySet, effShortHoursDeducted);
       data.totalAmount = calc.totalAmount;
     }
     if (isFinalized !== undefined) data.isFinalized = isFinalized;

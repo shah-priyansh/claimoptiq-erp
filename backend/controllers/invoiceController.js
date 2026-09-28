@@ -1137,13 +1137,40 @@ exports.bulkImport = async (req, res) => {
         if (!Number.isFinite(tdsAmount) || tdsAmount < 0) errs.push(`TDS Amount must be a non-negative number: "${row.tdsAmount}"`);
       }
 
+      // Optional pre-tax Discount and final Round Off — same fields a normal
+      // invoice supports (see exports.create / calculateInvoiceTotals) but the
+      // legacy importer never set, so every imported invoice silently lost them.
+      let discount = 0;
+      const discountRaw = String(row.discount ?? '').replace(/,/g, '').trim();
+      if (discountRaw !== '') {
+        discount = Number(discountRaw);
+        if (!Number.isFinite(discount) || discount < 0) errs.push(`Discount must be a non-negative number: "${row.discount}"`);
+      }
+      let roundOff = 0;
+      const roundOffRaw = String(row.roundOff ?? '').replace(/,/g, '').trim();
+      if (roundOffRaw !== '') {
+        roundOff = Number(roundOffRaw);
+        if (!Number.isFinite(roundOff)) errs.push(`Round Off must be a number: "${row.roundOff}"`);
+      }
+
+      // Optional Due Date. Blank falls back to issuedAt + 15 days for a
+      // non-draft row (same 15-day rule exports.issue applies when a normal
+      // invoice is issued) so imported invoices still surface in overdue
+      // tracking instead of permanently carrying no due date.
+      let dueDate = null;
+      const dueDateRaw = row.dueDate;
+      if (dueDateRaw !== undefined && dueDateRaw !== null && String(dueDateRaw).trim() !== '') {
+        dueDate = parseImportDate(dueDateRaw);
+        if (!dueDate) errs.push(`Due Date invalid: "${row.dueDate}"`);
+      }
+
       const status = norm(row.status);
       if (status && !VALID_STATUSES.includes(status)) errs.push(`Status must be one of: ${VALID_STATUSES.join(', ')}`);
 
       const invNum = String(row.invoiceNumber ?? '').trim();
       const description = String(row.notes ?? '').trim();
 
-      return { rowNum, errs, isParty, hospital, hospRaw, month, rowInvDate, amount, amountPaid, gstAmount, tdsAmount, status, invNum, description };
+      return { rowNum, errs, isParty, hospital, hospRaw, month, rowInvDate, amount, amountPaid, gstAmount, tdsAmount, discount, roundOff, dueDate, status, invNum, description };
     });
 
     // ── Phase 2: group rows by invoice number. Rows sharing a (non-blank)
@@ -1197,30 +1224,43 @@ exports.bulkImport = async (req, res) => {
       // A matching invoice number updates that invoice in place; otherwise create.
       const existingId = invNumRaw ? existingByNumber.get(norm(invNumRaw)) : null;
 
-      // Gross = sum of the per-row taxable line amounts. GST/TDS are summed
-      // across the merged invoice's rows, then applied with the same arithmetic
-      // as normal creation (see utils/calculateInvoiceTotals): GST adds on the
-      // taxable total, TDS deducts on (taxable + GST), grandTotal = gross+GST−TDS.
+      // Gross = sum of the per-row taxable line amounts. Discount, GST, TDS and
+      // Round Off are all summed across the merged invoice's rows, then applied
+      // with the same arithmetic as normal creation (see
+      // utils/calculateInvoiceTotals): Discount reduces the pre-tax taxable
+      // value, GST adds on top of that, TDS deducts on (taxable + GST), and
+      // Round Off is the final adjustment — grandTotal = taxable+GST−TDS+roundOff.
       const gross = round2(members.reduce((a, m) => a + m.amount, 0));
       const gstAmount = round2(members.reduce((a, m) => a + m.gstAmount, 0));
       const tdsAmount = round2(members.reduce((a, m) => a + m.tdsAmount, 0));
-      const netTotal = round2(gross + gstAmount - tdsAmount);
-      const grand = netTotal;
+      // Clamped to [0, gross] so a typo can't flip the invoice negative — same
+      // safety clamp calculateInvoiceTotals applies for a normal invoice.
+      const discount = Math.min(Math.max(0, round2(members.reduce((a, m) => a + m.discount, 0))), gross);
+      const roundOff = round2(members.reduce((a, m) => a + m.roundOff, 0));
+      const taxable = round2(gross - discount);
+      const netTotal = round2(taxable + gstAmount - tdsAmount);
+      const grand = round2(netTotal + roundOff);
       // Back-compute the effective rates from the amounts so the stored invoice
       // shows a GST %/TDS % consistent with a normally-created invoice.
-      const gstRate = gross > 0 ? Math.round((gstAmount / gross) * 10000) / 100 : 0;
-      const tdsBase = gross + gstAmount;
+      const gstRate = taxable > 0 ? Math.round((gstAmount / taxable) * 10000) / 100 : 0;
+      const tdsBase = taxable + gstAmount;
       const tdsRate = tdsBase > 0 ? Math.round((tdsAmount / tdsBase) * 10000) / 100 : 0;
 
       const paid = round2(members.reduce((a, m) => a + m.amountPaid, 0));
       if (paid > grand) {
-        errors.push({ row: first.rowNum, name: label, errors: ['Amount Paid cannot exceed the invoice total (taxable + GST − TDS)'] });
+        errors.push({ row: first.rowNum, name: label, errors: ['Amount Paid cannot exceed the invoice total (taxable + GST − TDS + Round Off)'] });
         continue;
       }
       // Prefer an explicit status if any row set one; else derive from paid total.
       const status = members.find((m) => m.status)?.status
         || (paid <= 0 ? 'issued' : (paid >= grand ? 'paid' : 'partially_paid'));
       const invDate = first.rowInvDate || first.month;
+      const issuedAt = status === 'draft' ? null : first.month;
+      // Explicit Due Date column wins; otherwise mirror exports.issue's 15-day
+      // rule off issuedAt so an imported non-draft invoice still gets one
+      // instead of permanently showing no due date / never going "overdue".
+      const dueDate = members.map((m) => m.dueDate).find(Boolean)
+        || (issuedAt ? new Date(issuedAt.getTime() + 15 * 24 * 60 * 60 * 1000) : null);
 
       const lineItems = members.map((m, order) => ({
         lineType: 'manual',
@@ -1248,12 +1288,15 @@ exports.bulkImport = async (req, res) => {
         partyId,
         month: first.month,
         status,
-        issuedAt: status === 'draft' ? null : first.month,
+        issuedAt,
+        dueDate,
         invoiceDate: invDate,
         subtotalTpaDesk: 0,
         subtotalServices: gross,
         subtotalAdjust: 0,
         gross,
+        discount,
+        roundOff,
         gstRate,
         gstAmount,
         tdsRate,

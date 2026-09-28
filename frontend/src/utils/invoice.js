@@ -1,3 +1,5 @@
+import { formatDate, formatMonthLabel, formatCurrency } from './format';
+
 // Resolve the human name for a direct-patient / party invoice.
 // Hospital invoices return null (they render `hospital.name` instead).
 // Direct-patient bills carry the name on `partyName` (imported party bills)
@@ -23,3 +25,31 @@ export const patientNameForInvoice = (inv) => {
 // patient/party name for direct-patient invoices. Returns '' when unknown.
 export const invoiceDisplayName = (inv) =>
   inv?.hospital?.name || patientNameForInvoice(inv) || inv?.partyName || '';
+
+// Overdue = issued/partially-paid, still has money outstanding, and past its
+// due date. Same rule used everywhere an "OVERDUE" badge is shown — kept here
+// once so the reminder action and the badge can't drift apart.
+export const isInvoiceOverdue = (inv) =>
+  !!inv
+  && (inv.status === 'issued' || inv.status === 'partially_paid')
+  && (inv.amountPending || 0) > 0
+  && !!inv.dueDate
+  && new Date(inv.dueDate) < new Date();
+
+// Fills {{placeholder}} tokens in the admin-configured reminder template
+// (Settings → Payment Reminder) with this invoice's data. Unknown/blank
+// placeholders resolve to '' rather than being left in the text.
+export const buildReminderMessage = (template, inv, companyName) => {
+  const values = {
+    hospitalName: invoiceDisplayName(inv) || '—',
+    invoiceNumber: inv?.invoiceNumber || `Draft-${String(inv?._id || '').slice(0, 8)}`,
+    invoiceDate: formatDate(inv?.invoiceDate),
+    dueDate: formatDate(inv?.dueDate),
+    month: formatMonthLabel(inv?.month),
+    grandTotal: formatCurrency((inv?.grandTotal || 0) - (inv?.previousBalance || 0)),
+    amountPaid: formatCurrency(inv?.amountPaid || 0),
+    amountPending: formatCurrency(inv?.amountPending || 0),
+    companyName: companyName || 'First Care Consultancy',
+  };
+  return String(template || '').replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => (values[key] ?? ''));
+};

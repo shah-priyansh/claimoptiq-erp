@@ -3,6 +3,7 @@ import { getPublicStatsAPI, updateSiteSettingsAPI, uploadInvoiceLogoAPI, getTdsR
 import { toast } from 'react-toastify';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import BankAccountsSection from './BankAccountsSection';
+import { buildReminderMessage } from '../../utils/invoice';
 
 const STATIC_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
 const resolveLogoSrc = (url) => {
@@ -13,7 +14,35 @@ const resolveLogoSrc = (url) => {
 const TABS = [
   { id: 'login', label: 'Login Page' },
   { id: 'invoice', label: 'Invoice Template' },
+  { id: 'reminder', label: 'Payment Reminder' },
 ];
+
+// Placeholders buildReminderMessage (utils/invoice.js) substitutes — keep in
+// sync with the `values` map there.
+const REMINDER_PLACEHOLDERS = [
+  ['{{hospitalName}}', 'Hospital / party name'],
+  ['{{invoiceNumber}}', 'Invoice number'],
+  ['{{invoiceDate}}', 'Invoice date'],
+  ['{{dueDate}}', 'Due date'],
+  ['{{month}}', 'Billing month'],
+  ['{{grandTotal}}', 'Invoice total'],
+  ['{{amountPaid}}', 'Amount already paid'],
+  ['{{amountPending}}', 'Amount still pending'],
+  ['{{companyName}}', 'Your company name (from Invoice Template tab)'],
+];
+
+// Fake invoice for the live preview on this page — never sent anywhere.
+const PREVIEW_INVOICE = {
+  invoiceNumber: '26/0042',
+  hospital: { name: 'City Hospital' },
+  invoiceDate: '2026-09-01',
+  dueDate: '2026-09-16',
+  month: '2026-09-01',
+  grandTotal: 25000,
+  previousBalance: 0,
+  amountPaid: 10000,
+  amountPending: 15000,
+};
 
 const SiteSettings = () => {
   const [tab, setTab] = useState('login');
@@ -31,6 +60,7 @@ const SiteSettings = () => {
     invoice_default_gst_rate: '0',
     invoice_number_prefix: 'FCC',
     invoice_default_tds_rate_id: '',
+    invoice_reminder_message: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -292,6 +322,42 @@ const SiteSettings = () => {
             </div>
 
             <BankAccountsSection ref={bankSectionRef} />
+          </div>
+        )}
+
+        {tab === 'reminder' && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 max-w-3xl">
+            <h2 className="text-base font-semibold text-gray-700 mb-1">Payment Reminder Message</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Shown when an operator clicks "Copy Reminder" on an overdue invoice (Invoices list or an invoice's detail page).
+              They copy the filled-in text and paste it into WhatsApp themselves — nothing is sent automatically from here.
+            </p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Template</label>
+                <textarea
+                  rows={11}
+                  value={form.invoice_reminder_message}
+                  onChange={set('invoice_reminder_message')}
+                  className={`${inputCls} resize-y font-mono`}
+                />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {REMINDER_PLACEHOLDERS.map(([token, desc]) => (
+                    <span key={token} title={desc}
+                      className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 cursor-default">
+                      {token}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Preview</label>
+                <div className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 whitespace-pre-wrap min-h-[220px]">
+                  {buildReminderMessage(form.invoice_reminder_message, PREVIEW_INVOICE, form.invoice_company_name)}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Sample data — the real message uses the actual invoice's details.</p>
+              </div>
+            </div>
           </div>
         )}
 

@@ -54,15 +54,31 @@ const computeBreakdown = (r, otMults = DEFAULT_OT_MULTS) => {
   const holidayOtAmt = (r.holidayOtMinutes / 60) * hourlyRate * otMults.holidayMultiplier;
   const fixedAllow = r.employee.allowances.reduce((s, a) => s + a.amount, 0);
   const extraAllow = (r.extraAllowances || []).reduce((s, a) => s + parseFloat(a.amount || 0), 0);
-  return { earnedBasic, dailyOtAmt, sundayOtAmt, holidayOtAmt, fixedAllow, extraAllow, totalOt: dailyOtAmt + sundayOtAmt + holidayOtAmt };
+  const shortAmt = ((r.shortMinutes || 0) / 60) * hourlyRate;
+  return { earnedBasic, dailyOtAmt, sundayOtAmt, holidayOtAmt, fixedAllow, extraAllow, shortAmt, totalOt: dailyOtAmt + sundayOtAmt + holidayOtAmt };
 };
 
 const fmtMult = (n) => `×${Number(n).toFixed(1)}`;
 
 // Read-only salary breakdown shown inside an expanded row — shared by the
 // admin view and the employee self-view so both see identical detail.
-const SalaryDetailBody = ({ r, otMults }) => {
+const SalaryDetailBody = ({ r, otMults, canEdit, onUpdate }) => {
   const bd = computeBreakdown(r, otMults);
+  const [savingShort, setSavingShort] = useState(false);
+  const canToggleShort = canEdit && !r.isFinalized && typeof onUpdate === 'function';
+  const shortDeducted = !!r.shortHoursDeducted;
+
+  const toggleShortDeducted = async (val) => {
+    if (val === shortDeducted) return;
+    setSavingShort(true);
+    try {
+      const { data } = await updateSalaryRecordAPI(r.id, { shortHoursDeducted: val });
+      onUpdate(data);
+      toast.success(val ? 'Short hours will be deducted from pay' : 'Short hours are tracking-only again');
+    } catch { toast.error('Failed to update'); }
+    finally { setSavingShort(false); }
+  };
+
   return (
     <>
       {/* Salary breakdown */}
@@ -129,9 +145,35 @@ const SalaryDetailBody = ({ r, otMults }) => {
         const net = grossOt - shortMin;
         return (
           <div className="bg-white border border-gray-200 rounded-lg p-3 mt-3">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Hours Summary</p>
-              <span className="text-[10px] text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full font-medium">tracking · not deducted from pay</span>
+              {canToggleShort ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-gray-600">Deduct short hours from pay?</span>
+                  <div className="inline-flex rounded-full border border-gray-300 overflow-hidden">
+                    <button
+                      type="button"
+                      disabled={savingShort}
+                      onClick={() => toggleShortDeducted(true)}
+                      className={`px-2.5 py-0.5 text-[10px] font-semibold transition-colors disabled:opacity-50 ${shortDeducted ? 'bg-red-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingShort}
+                      onClick={() => toggleShortDeducted(false)}
+                      className={`px-2.5 py-0.5 text-[10px] font-semibold border-l border-gray-300 transition-colors disabled:opacity-50 ${!shortDeducted ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${shortDeducted ? 'text-red-700 bg-red-50 border-red-200' : 'text-gray-500 bg-gray-50 border-gray-200'}`}>
+                  {shortDeducted ? 'deducted from pay' : 'tracking · not deducted from pay'}
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-md px-3 py-2 border bg-green-50 border-green-200">
@@ -143,6 +185,9 @@ const SalaryDetailBody = ({ r, otMults }) => {
                 <div className="text-[11px] font-semibold text-gray-700">Short Hours</div>
                 <div className={`text-sm font-bold mt-0.5 ${shortMin > 0 ? 'text-red-600' : 'text-gray-700'}`}>{shortMin > 0 ? `−${fmtMin(shortMin)}` : fmtMin(0)}</div>
                 <div className="text-[10px] text-gray-500 mt-0.5">Weekday shortfall vs {r.employee.standardHours}h</div>
+                {shortDeducted && shortMin > 0 && (
+                  <div className="text-[10px] text-red-600 font-semibold mt-0.5">−{formatCurrency(bd.shortAmt)} deducted</div>
+                )}
               </div>
               <div className="rounded-md px-3 py-2 border bg-gray-50 border-gray-300">
                 <div className="text-[11px] font-semibold text-gray-700">Net Balance</div>
@@ -326,7 +371,7 @@ const SalaryRow = ({ r, canEdit, onUpdate, onFinalize, otMults }) => {
         <tr className="bg-blue-50/40">
           <td colSpan={10} className="px-6 py-4">
             <div className="mb-3">
-              <SalaryDetailBody r={r} otMults={otMults} />
+              <SalaryDetailBody r={r} otMults={otMults} canEdit={canEdit} onUpdate={onUpdate} />
             </div>
 
             {canEdit && !r.isFinalized && (

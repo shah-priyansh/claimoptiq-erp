@@ -27,7 +27,6 @@ export const expenseImportConfig = ({ categories = [], references = [] }) => {
     entityLabel: 'expense',
     sheetName: 'Expenses',
     templateName: 'expense-import-template.xlsx',
-    dateKeys: ['date'],
     columns: [
       { key: 'date', label: 'Date *', width: 14, required: true, note: 'YYYY-MM-DD or DD/MM/YYYY' },
       { key: 'category', label: 'Category *', width: 24, required: true, note: 'Must match a category (see Categories sheet)' },
@@ -83,7 +82,6 @@ export const cashBankImportConfig = ({ bankAccounts = [] }) => {
     entityLabel: 'entry',
     sheetName: 'CashBank',
     templateName: 'cashbank-import-template.xlsx',
-    dateKeys: ['date'],
     columns: [
       { key: 'date', label: 'Date *', width: 14, required: true, note: 'YYYY-MM-DD or DD/MM/YYYY' },
       { key: 'direction', label: 'Direction *', width: 12, required: true, note: 'in = money received, out = money paid' },
@@ -135,7 +133,6 @@ export const accountEntryImportConfig = () => ({
   entityLabel: 'entry',
   sheetName: 'AccountEntries',
   templateName: 'account-entries-import-template.xlsx',
-  dateKeys: ['date'],
   columns: [
     { key: 'date', label: 'Date *', width: 14, required: true, note: 'YYYY-MM-DD or DD/MM/YYYY' },
     { key: 'type', label: 'Type *', width: 12, required: true, note: 'general or contra' },
@@ -197,7 +194,6 @@ export const journalEntryImportConfig = ({ accounts = [] }) => {
     entityLabel: 'journal entry',
     sheetName: 'JournalEntries',
     templateName: 'journal-entries-import-template.xlsx',
-    dateKeys: ['date'],
     columns: [
       { key: 'date', label: 'Date *', width: 14, required: true, note: 'YYYY-MM-DD or DD/MM/YYYY' },
       { key: 'debitAccount', label: 'Debit Account *', width: 28, required: true, note: 'Account to debit — must match an account (see Accounts sheet)' },
@@ -249,7 +245,6 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
     sheetName: 'Invoices',
     templateName: 'invoice-import-template.xlsx',
     rowInstruction: 'One line item per row — rows that share an Invoice No are merged into a single invoice.',
-    dateKeys: ['invoiceDate'],
     columns: [
       { key: 'invoiceNumber', label: 'Invoice No', width: 16, aliases: ['Invoice No./Txn No.', 'Invoice No.', 'Txn No.', 'Bill No'], note: 'Optional. Rows sharing an invoice number are MERGED into one invoice. If the number already exists, that invoice is UPDATED.' },
       { key: 'type', label: 'Type', width: 10, aliases: ['Bill Type'], note: 'Optional — "party" (or "direct") for a direct-patient / party bill; blank or "hospital" for a hospital bill.' },
@@ -257,23 +252,27 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       { key: 'invoiceDate', label: 'Invoice Date *', width: 14, required: true, aliases: ['Date'], note: 'YYYY-MM-DD. The invoice date (also the creation date).' },
       { key: 'month', label: 'Month', width: 10, aliases: ['MONTH'], note: 'Optional — billing month (e.g. JULY); the year comes from the Invoice Date. Blank = the Invoice Date’s month.' },
       { key: 'status', label: 'Status', width: 14, note: 'issued / paid / partially_paid / draft. Blank = auto from Amount Paid.' },
-      { key: 'grandTotal', label: 'Taxable Amount *', width: 15, required: true, aliases: ['Grand Total', 'Amount', 'Amount (pre-tax)'], note: 'Per-row PRE-TAX line amount (numbers only). GST is added and TDS deducted on top — the invoice total = sum of rows + GST − TDS. A merged invoice’s taxable is the sum of its rows.' },
+      { key: 'grandTotal', label: 'Taxable Amount *', width: 15, required: true, aliases: ['Grand Total', 'Amount', 'Amount (pre-tax)'], note: 'Per-row PRE-TAX line amount (numbers only). Discount is subtracted and GST added and TDS deducted on top — the invoice total = (sum of rows − Discount) + GST − TDS + Round Off. A merged invoice’s taxable is the sum of its rows.' },
+      { key: 'discount', label: 'Discount', width: 12, aliases: ['Disc'], note: 'Optional — pre-tax discount subtracted from the taxable total (numbers only). Same field a normal invoice has. Summed across a merged invoice’s rows; clamped so it can’t exceed the taxable total.' },
       { key: 'gstAmount', label: 'GST Amount', width: 12, aliases: ['GST', 'GST Amt'], note: 'Optional — GST amount added on top (numbers only). Summed across a merged invoice’s rows.' },
       { key: 'tdsAmount', label: 'TDS Amount', width: 12, aliases: ['TDS', 'TDS Amt'], note: 'Optional — TDS amount deducted (numbers only). Summed across a merged invoice’s rows.' },
-      { key: 'amountPaid', label: 'Amount Paid', width: 14, note: 'Optional — default 0. Cannot exceed the invoice total (taxable + GST − TDS).' },
+      { key: 'roundOff', label: 'Round Off', width: 12, aliases: ['Round Off Amt'], note: 'Optional — final rounding adjustment (numbers only; can be negative). Same field a normal invoice has.' },
+      { key: 'amountPaid', label: 'Amount Paid', width: 14, note: 'Optional — default 0. Cannot exceed the invoice total (taxable − Discount + GST − TDS + Round Off).' },
+      { key: 'dueDate', label: 'Due Date', width: 14, aliases: ['Due'], note: 'Optional — YYYY-MM-DD. Blank = 15 days after the invoice is issued (same rule as clicking "Issue" on a normal invoice); left blank for draft-status rows.' },
       { key: 'notes', label: 'Notes', width: 28, aliases: ['Item Name', 'Description', 'Particulars'], note: 'Optional — becomes the line-item description' },
     ],
     sampleRows: [
       // INV-1001: two rows sharing an invoice number → MERGED into one invoice
       // with two line items (dated in April, billed for March). No GST/TDS.
-      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 90000, gstAmount: '', tdsAmount: '', amountPaid: 0, notes: 'TPA Desk — cashless files' },
-      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 55000, gstAmount: '', tdsAmount: '', amountPaid: 0, notes: 'TPA Desk — reimbursement files' },
-      // INV-1002: a single-line invoice WITH GST (18%) and TDS (1%). Taxable
-      // 62,000 → +GST 11,160 − TDS 620 = invoice total 72,540.
-      { invoiceNumber: 'INV-1002', type: '', hospital: exHosp2, invoiceDate: '2025-04-30', month: 'April', status: '', grandTotal: 62000, gstAmount: 11160, tdsAmount: 620, amountPaid: 0, notes: 'Opening balance (18% GST, 1% TDS)' },
+      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 90000, discount: '', gstAmount: '', tdsAmount: '', roundOff: '', amountPaid: 0, dueDate: '', notes: 'TPA Desk — cashless files' },
+      { invoiceNumber: 'INV-1001', type: '', hospital: exHosp, invoiceDate: '2025-04-03', month: 'March', status: '', grandTotal: 55000, discount: '', gstAmount: '', tdsAmount: '', roundOff: '', amountPaid: 0, dueDate: '', notes: 'TPA Desk — reimbursement files' },
+      // INV-1002: a single-line invoice WITH a discount, GST (18%), TDS (1%)
+      // and a round-off. Taxable 62,000 − 2,000 discount = 60,000 → +GST
+      // 10,800 − TDS 600 = 70,200, +5 round off = invoice total 70,205.
+      { invoiceNumber: 'INV-1002', type: '', hospital: exHosp2, invoiceDate: '2025-04-30', month: 'April', status: '', grandTotal: 62000, discount: 2000, gstAmount: 10800, tdsAmount: 600, roundOff: 5, amountPaid: 0, dueDate: '', notes: 'Opening balance (18% GST, 1% TDS)' },
       // INV-1003: a direct-patient / party bill — Type = party, so the Hospital
       // column holds the party name (NOT matched against the hospital master).
-      { invoiceNumber: 'INV-1003', type: 'party', hospital: 'Ramesh Patel', invoiceDate: '2025-04-15', month: 'April', status: '', grandTotal: 12000, gstAmount: '', tdsAmount: '', amountPaid: 0, notes: 'TPA Desk — reimbursement file' },
+      { invoiceNumber: 'INV-1003', type: 'party', hospital: 'Ramesh Patel', invoiceDate: '2025-04-15', month: 'April', status: '', grandTotal: 12000, discount: '', gstAmount: '', tdsAmount: '', roundOff: '', amountPaid: 0, dueDate: '', notes: 'TPA Desk — reimbursement file' },
     ],
     refSheets: [
       { name: 'Hospitals', header: 'Hospital Name (use this in the Hospital column)', values: hospitals.map((h) => h.name) },
@@ -285,9 +284,12 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       { key: 'invoiceDate', label: 'Invoice Date' },
       { key: 'month', label: 'Month' },
       { key: 'grandTotal', label: 'Taxable', align: 'right' },
+      { key: 'discount', label: 'Discount', align: 'right' },
       { key: 'gstAmount', label: 'GST', align: 'right' },
       { key: 'tdsAmount', label: 'TDS', align: 'right' },
+      { key: 'roundOff', label: 'Round Off', align: 'right' },
       { key: 'amountPaid', label: 'Amount Paid', align: 'right' },
+      { key: 'dueDate', label: 'Due Date' },
       { key: 'status', label: 'Status' },
     ],
     uploadAPI: (rows) => importInvoicesAPI(rows),
@@ -301,14 +303,22 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       const gt = cleanNum(r.grandTotal);
       if (gt === null) issues.push({ type: 'amount', label: 'Taxable Amount missing' });
       else if (Number.isNaN(gt) || gt < 0) issues.push({ type: 'amount', label: `Taxable Amount invalid: "${r.grandTotal}"` });
+      const discount = cleanNum(r.discount);
+      if (discount !== null && (Number.isNaN(discount) || discount < 0)) issues.push({ type: 'amount', label: `Discount invalid: "${r.discount}"` });
       const gst = cleanNum(r.gstAmount);
       if (gst !== null && (Number.isNaN(gst) || gst < 0)) issues.push({ type: 'amount', label: `GST Amount invalid: "${r.gstAmount}"` });
       const tds = cleanNum(r.tdsAmount);
       if (tds !== null && (Number.isNaN(tds) || tds < 0)) issues.push({ type: 'amount', label: `TDS Amount invalid: "${r.tdsAmount}"` });
-      // Final invoice total = taxable + GST − TDS (same as normal creation).
+      const roundOff = cleanNum(r.roundOff);
+      if (roundOff !== null && Number.isNaN(roundOff)) issues.push({ type: 'amount', label: `Round Off invalid: "${r.roundOff}"` });
+      // Final invoice total = (taxable − Discount) + GST − TDS + Round Off,
+      // same arithmetic as a normal invoice (see calculateInvoiceTotals).
       const validGt = gt !== null && !Number.isNaN(gt);
       const total = validGt
-        ? gt + (gst !== null && !Number.isNaN(gst) ? gst : 0) - (tds !== null && !Number.isNaN(tds) ? tds : 0)
+        ? Math.max(0, gt - (discount !== null && !Number.isNaN(discount) ? Math.min(discount, gt) : 0))
+          + (gst !== null && !Number.isNaN(gst) ? gst : 0)
+          - (tds !== null && !Number.isNaN(tds) ? tds : 0)
+          + (roundOff !== null && !Number.isNaN(roundOff) ? roundOff : 0)
         : null;
       const paid = cleanNum(r.amountPaid);
       if (paid !== null) {
@@ -320,6 +330,8 @@ export const invoiceImportConfig = ({ hospitals = [] }) => {
       const invD = String(r.invoiceDate ?? '').trim();
       if (!invD) issues.push({ type: 'date', label: 'Invoice Date missing' });
       else if (!parseDateLoose(invD)) issues.push({ type: 'date', label: `Invoice Date invalid: "${r.invoiceDate}"` });
+      const dueD = String(r.dueDate ?? '').trim();
+      if (dueD && !parseDateLoose(dueD)) issues.push({ type: 'date', label: `Due Date invalid: "${r.dueDate}"` });
       return issues;
     },
   };

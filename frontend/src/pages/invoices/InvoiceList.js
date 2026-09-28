@@ -7,7 +7,7 @@ import {
   HiOutlinePlus, HiOutlineTrash, HiOutlineEye, HiOutlineDownload,
   HiOutlineDotsVertical, HiOutlineCheckCircle, HiOutlinePrinter,
   HiOutlineChartBar, HiOutlinePencil, HiOutlineCash, HiOutlineBan, HiOutlineUpload,
-  HiChevronUp, HiChevronDown, HiSelector,
+  HiChevronUp, HiChevronDown, HiSelector, HiOutlineChatAlt2, HiOutlineClipboardCopy,
 } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -15,17 +15,18 @@ import PaginationBar from '../../components/ui/PaginationBar';
 import {
   getInvoicesAPI, deleteInvoiceAPI, deleteAllInvoicesAPI, voidInvoiceAPI,
   getHospitalsAPI, openInvoicePdf, previewInvoicePdf, printInvoicePdf, createCashBankAPI, getBankAccountsAPI,
-  getOpenInvoiceHospitalsAPI, getInvoicePartyNamesAPI, getPartyLedgerAPI,
+  getOpenInvoiceHospitalsAPI, getInvoicePartyNamesAPI, getPartyLedgerAPI, getPublicStatsAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import TransactionImportModal from '../../components/import/TransactionImportModal';
 import { invoiceImportConfig } from '../../components/import/transactionImportConfigs';
 import CashBankFormModal from '../cashbank/CashBankFormModal';
 import BulkReceivePaymentModal from './BulkReceivePaymentModal';
+import ReminderModal from './ReminderModal';
 import { invoiceFilename } from './bulkInvoiceUtils';
 import { round2 } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
-import { patientNameForInvoice } from '../../utils/invoice';
+import { patientNameForInvoice, isInvoiceOverdue, buildReminderMessage } from '../../utils/invoice';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -86,6 +87,12 @@ const InvoiceList = () => {
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
   const [actionMenu, setActionMenu] = useState(null); // { id, top?, bottom?, left }
   const [markingPaidId, setMarkingPaidId] = useState(null);
+  // The overdue invoice currently shown in the "Copy Reminder" modal, or null.
+  const [reminderInvoice, setReminderInvoice] = useState(null);
+  // Loaded once on mount so the one-click copy icon next to the "overdue"
+  // badge doesn't refetch settings on every click; { invoice_reminder_message,
+  // invoice_company_name }. Stays null (safe no-op) if the fetch fails.
+  const [reminderTemplate, setReminderTemplate] = useState(null);
   // When set, the Cash/Bank entry modal opens pre-filled to record a receipt
   // against this invoice. The user can adjust mode/amount/UTR before saving.
   const [paymentInvoice, setPaymentInvoice] = useState(null);
@@ -372,8 +379,32 @@ const InvoiceList = () => {
   };
   useEffect(() => { refreshOpenInvoiceHospitals(); }, []);
 
+  useEffect(() => {
+    getPublicStatsAPI()
+      .then(({ data }) => setReminderTemplate({
+        invoice_reminder_message: data.invoice_reminder_message,
+        invoice_company_name: data.invoice_company_name,
+      }))
+      .catch(() => {});
+  }, []);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchInvoices(); }, [page, pageSize, filters.hospitalId, filters.status, filters.month, filters.type, filters.party, sort.field, sort.dir]);
+
+  // One-click copy from the row icon — no modal, uses the template as-is.
+  // "Copy Reminder" in the row menu still opens the modal for anyone who
+  // wants to tweak the text first.
+  const copyReminderQuick = async (inv) => {
+    if (!reminderTemplate) { toast.error('Reminder template still loading — try again in a moment'); return; }
+    try {
+      await navigator.clipboard.writeText(
+        buildReminderMessage(reminderTemplate.invoice_reminder_message, inv, reminderTemplate.invoice_company_name)
+      );
+      toast.success('Copied - paste it into WhatsApp');
+    } catch {
+      toast.error('Could not copy — try the Copy Reminder menu option instead');
+    }
+  };
 
   const handleDelete = async (item) => {
     if (item.status !== 'draft' && item.status !== 'void') {
@@ -669,10 +700,18 @@ const InvoiceList = () => {
                         <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[inv.status] || 'bg-gray-100 text-gray-700'}`}>
                           {inv.status.replace('_', ' ')}
                         </span>
-                        {(inv.status === 'issued' || inv.status === 'partially_paid')
-                          && (inv.amountPending || 0) > 0
-                          && inv.dueDate && new Date(inv.dueDate) < new Date() && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 font-medium">overdue</span>
+                        {isInvoiceOverdue(inv) && (
+                          <>
+                            <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 font-medium">overdue</span>
+                            {canEdit && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); copyReminderQuick(inv); }}
+                                title="Copy reminder message"
+                                className="p-1 text-red-700 hover:text-white hover:bg-red-600 rounded transition-colors">
+                                <HiOutlineClipboardCopy className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>
@@ -770,11 +809,20 @@ const InvoiceList = () => {
                   </button>
                 </>
               )}
+              {canEdit && isInvoiceOverdue(inv) && (
+                <button
+                  onClick={() => { setActionMenu(null); setReminderInvoice(inv); }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                  <HiOutlineChatAlt2 className="w-4 h-4 text-primary-600" /> Copy Reminder
+                </button>
+              )}
             </div>
           );
         })(),
         document.body,
       )}
+
+      <ReminderModal open={!!reminderInvoice} invoice={reminderInvoice} onClose={() => setReminderInvoice(null)} />
 
       {deleteAllOpen && ReactDOM.createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">

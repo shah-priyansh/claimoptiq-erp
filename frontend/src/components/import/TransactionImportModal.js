@@ -17,7 +17,6 @@ import { dateCellToIso, ISSUE_COLORS } from './importHelpers';
  *   columns:        [{ key, label, width, required?, note? }],
  *   sampleRows:     [{ key: value }, ...],
  *   refSheets:      [{ name, header, values: [] }],        // optional
- *   dateKeys:       ['date'],                               // cells to coerce to ISO
  *   previewColumns: [{ key, label, align?, render? }],
  *   validateRow:    (row) => [{ type, label }],             // client-side issues
  *   uploadAPI:      (rows) => Promise<{ data }>,
@@ -141,7 +140,6 @@ const TransactionImportModal = ({ open, onClose, onImported, config }) => {
         const noteRow = aoa[dataStart] || [];
         if (noteRow.some((cell) => /YYYY-MM-DD|see .* sheet|Numbers only|cash \/ bank|general \/ contra/i.test(String(cell)))) dataStart += 1;
 
-        const dateKeys = config.dateKeys || [];
         const allKeys = config.columns.map((c) => c.key);
         const parsed = [];
         for (let i = dataStart; i < aoa.length; i++) {
@@ -150,7 +148,17 @@ const TransactionImportModal = ({ open, onClose, onImported, config }) => {
           const obj = {};
           headers.forEach((key, idx) => {
             if (!key) return;
-            obj[key] = dateKeys.includes(key) ? dateCellToIso(row[idx]) : row[idx];
+            const raw = row[idx];
+            // Any Excel date-formatted cell arrives here as a JS Date
+            // (cellDates:true) regardless of which column it's in — e.g. a
+            // "Month" cell a source spreadsheet happened to format as a date.
+            // Left as a raw Date, JSON.stringify serializes it via
+            // toISOString(), and the serial→Date conversion can land a hair
+            // off UTC midnight, shifting the calendar day (and therefore the
+            // month) by one when the cell is near a month boundary. Snap every
+            // Date cell to a clean YYYY-MM-DD string up front so that never
+            // happens, for every column, not just the ones known to be dates.
+            obj[key] = raw instanceof Date ? dateCellToIso(raw) : raw;
           });
           if (!allKeys.some((k) => String(obj[k] ?? '').trim())) continue;
           parsed.push(obj);

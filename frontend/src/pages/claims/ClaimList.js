@@ -1872,13 +1872,15 @@ const ClaimList = () => {
         <div className="sticker-print-portal fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0 print:static print:block">
           <style>{`
             @media print {
-              /* Real @page margins so the whitespace repeats on EVERY printed
-                 page — a container padding only pads page 1, which left stickers
-                 flowing onto page 2 flush against the paper's top edge. Trade-off:
-                 with a non-zero @page margin Chrome may print its own header/footer
-                 (date/URL/page number) IF the print dialog's "Headers and footers"
-                 box is ticked; that's a one-time toggle the user controls. */
-              @page { size: A4 portrait; margin: 10mm; }
+              /* margin:0 is what gets Chrome/Edge to drop the page header (date,
+                 title) and footer (URL, page numbers) even when the print
+                 dialog's "Headers and footers" box is ticked. A non-zero @page
+                 margin (tried previously, for repeating whitespace on every
+                 page) let that browser chrome print on top of insurance-facing
+                 courier stickers, so this stays 0 — inner padding on the print
+                 container restores the whitespace on the first page instead
+                 (continuation pages start flush against the edge). */
+              @page { size: A4 portrait; margin: 0; }
               html, body {
                 margin: 0 !important;
                 padding: 0 !important;
@@ -1936,9 +1938,11 @@ const ClaimList = () => {
                 max-height: none !important;
                 overflow: visible !important;
                 flex: none !important;
-                /* No padding — all page margins come from @page so the whitespace
-                   repeats on continuation pages, not just page 1. */
-                padding: 0 !important;
+                /* @page margin is 0 (see above), so the visible whitespace
+                   comes from here instead. No padding-bottom — trailing 10mm
+                   was spilling onto a fresh blank page when the last sticker
+                   landed near the page edge. */
+                padding: 10mm 10mm 0 10mm !important;
                 background: white !important;
               }
               /* Block layout (not flex/gap) so Chrome packs as many cards on one
