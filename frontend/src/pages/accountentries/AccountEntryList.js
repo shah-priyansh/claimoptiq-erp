@@ -44,7 +44,7 @@ const AccountEntryList = () => {
 
   const importConfig = useMemo(() => journalEntryImportConfig({ accounts }), [accounts]);
   const [page, setPage] = usePersistedFilters('journal:page', 1);
-  const [pageSize, setPageSize] = usePersistedFilters('journal:pageSize', 25);
+  const [pageSize, setPageSize] = usePersistedFilters('journal:pageSize', 100);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = usePersistedFilters('journal:filters', { from: '', to: '', q: '' });
 

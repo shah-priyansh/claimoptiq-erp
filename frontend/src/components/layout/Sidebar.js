@@ -224,7 +224,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, onCollapse }) => {
             </NavLink>
           )}
 
-          {canViewModule('claims') && (
+          {canViewModule('hospital_final_bills') && (
             <NavLink to="/hospital-final-bills" onClick={onClose} data-tip={collapsed ? 'Hospital Final Bills' : undefined}
               className={({ isActive }) => `${linkClass({ isActive })} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}>
               <HiOutlineClipboardCheck className="w-5 h-5 flex-shrink-0" />

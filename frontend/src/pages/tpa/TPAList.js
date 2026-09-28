@@ -41,7 +41,7 @@ const TPAList = () => {
   const [modal, setModal] = useState({ open: false, item: null });
   const [importOpen, setImportOpen] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(100);
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [applying, setApplying] = useState(false);

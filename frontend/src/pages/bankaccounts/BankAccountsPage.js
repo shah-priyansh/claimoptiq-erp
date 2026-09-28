@@ -99,7 +99,7 @@ const BankAccountsPage = () => {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(100);
   const [txnSearch, setTxnSearch] = useState('');
   const [loadingTxns, setLoadingTxns] = useState(false);
 

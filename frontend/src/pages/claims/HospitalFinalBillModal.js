@@ -8,7 +8,7 @@ import { getHospitalFinalBillAPI, saveHospitalFinalBillAPI, getRoomTypeValuesAPI
 import { formatCurrency, formatINRWords, round2 } from '../../utils/format';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
-const blankItem = () => ({ particulars: '', rate: 0, qtyRaw: '1' });
+const blankItem = () => ({ particulars: '', description: '', rate: 0, qtyRaw: '1' });
 
 // Same rule as the backend (hospitalFinalBillController.parseLineQty): a
 // value with "%" computes that percent of Rate, otherwise it's a plain
@@ -63,8 +63,9 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           dischargeTime: data.dischargeTime || '',
           billTime: data.billTime || '',
           discount: data.discount || 0,
+          remarks: data.remarks || '',
           items: (data.items || []).length
-            ? data.items.map(it => ({ particulars: it.particulars, rate: it.rate, qtyRaw: it.qtyRaw }))
+            ? data.items.map(it => ({ particulars: it.particulars, description: it.description || '', rate: it.rate, qtyRaw: it.qtyRaw }))
             : [blankItem()],
         });
       })
@@ -77,7 +78,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
             patientDob: '', patientAge: '', gender: '',
             dateOfAdmit: (claim.dateOfAdmit || '').slice(0, 10) || '', admitTime: '',
             dateOfDischarge: (claim.dateOfDischarge || '').slice(0, 10) || '', dischargeTime: '', billTime: '',
-            discount: 0, items: [blankItem()],
+            discount: 0, remarks: '', items: [blankItem()],
           });
           getNextHospitalBillNumberAPI(claim._id)
             .then(({ data }) => { if (!cancelled) setNextBillPreview(data.billNoFormatted || ''); })
@@ -97,7 +98,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
   // overlay + safe fallback data (never rendered, since the overlay blocks
   // interaction) keeps size/position stable instead.
   const ready = !loading && !!form;
-  const f = form || { billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '', patientDob: '', patientAge: '', gender: '', dateOfAdmit: '', admitTime: '', dateOfDischarge: '', dischargeTime: '', billTime: '', discount: 0, items: [blankItem()] };
+  const f = form || { billDate: todayIso(), opdNo: '', indoorNo: '', roomType: '', patientDob: '', patientAge: '', gender: '', dateOfAdmit: '', admitTime: '', dateOfDischarge: '', dischargeTime: '', billTime: '', discount: 0, remarks: '', items: [blankItem()] };
 
   const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const setItem = (idx, key, value) => setForm(prev => ({
@@ -113,7 +114,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
 
   const submit = async () => {
     const items = form.items
-      .map(it => ({ ...it, particulars: (it.particulars || '').trim() }))
+      .map(it => ({ ...it, particulars: (it.particulars || '').trim(), description: (it.description || '').trim() }))
       .filter(it => it.particulars);
     if (!items.length) { toast.error('Add at least one bill item'); return; }
     setSaving(true);
@@ -131,6 +132,7 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           dischargeTime: form.dischargeTime,
           billTime: form.billTime,
           discount,
+          remarks: (form.remarks || '').trim(),
           items,
         }),
         updateClaimAPI(claim._id, {
@@ -291,13 +293,15 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
               </button>
             </div>
             <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="grid grid-cols-[1fr_110px_130px_130px_32px] gap-2 bg-gray-50 px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                <span>Particulars</span><span>Qty / %</span><span>Rate (₹)</span><span className="text-right">Amount</span><span />
+              <div className="grid grid-cols-[1.2fr_1fr_90px_110px_120px_32px] gap-2 bg-gray-50 px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                <span>Particulars</span><span>Description</span><span>Qty / %</span><span>Rate (₹)</span><span className="text-right">Amount</span><span />
               </div>
               {f.items.map((it, idx) => (
-                <div key={idx} className="grid grid-cols-[1fr_110px_130px_130px_32px] gap-2 px-3 py-2 border-t border-gray-100 items-center">
+                <div key={idx} className="grid grid-cols-[1.2fr_1fr_90px_110px_120px_32px] gap-2 px-3 py-2 border-t border-gray-100 items-center">
                   <input value={it.particulars} onChange={e => setItem(idx, 'particulars', e.target.value)}
                     placeholder="e.g. Room Charges With Nursing Charges" className={inputCls} />
+                  <input value={it.description} onChange={e => setItem(idx, 'description', e.target.value)}
+                    placeholder="Description (optional)" className={inputCls} />
                   <input value={it.qtyRaw} onChange={e => setItem(idx, 'qtyRaw', e.target.value)}
                     placeholder='2 or 50%' className={inputCls} />
                   <AmountInput value={it.rate} allowDecimal showWords={false}
@@ -338,6 +342,12 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
           <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Final Bill Amount In Words</p>
             <p className="text-sm font-semibold text-gray-700">{wordsText}</p>
+          </div>
+
+          <div>
+            <label className={labelCls}>Remarks</label>
+            <textarea value={f.remarks} onChange={e => setField('remarks', e.target.value)}
+              rows={2} placeholder="Any additional remarks for this bill…" className={`${inputCls} resize-none`} />
           </div>
         </div>
 

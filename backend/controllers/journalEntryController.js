@@ -110,7 +110,7 @@ const buildEntryPayload = async (body) => {
 
 exports.list = async (req, res) => {
   try {
-    const { from, to, q, page, limit = 25 } = req.query;
+    const { from, to, q, page, limit = 100 } = req.query;
     const where = {};
     const fromD = parseDate(from);
     const toD = parseDate(to);
@@ -126,7 +126,7 @@ exports.list = async (req, res) => {
         { lines: { some: { accountName: { contains: q.trim(), mode: 'insensitive' } } } },
       ];
     }
-    const take = Math.min(Number(limit) || 25, 200);
+    const take = Math.min(Number(limit) || 100, 200);
     const skip = page ? (Number(page) - 1) * take : 0;
     const [items, total] = await Promise.all([
       prisma.journalEntry.findMany({ where, include: journalInclude, orderBy: [{ date: 'desc' }, { createdAt: 'desc' }], skip, take }),

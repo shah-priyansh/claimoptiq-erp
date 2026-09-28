@@ -193,7 +193,7 @@ const resolvePartyId = async (tx, data) => {
 
 exports.list = async (req, res) => {
   try {
-    const { categoryId, referenceId, from, to, q, page, limit = 25, merge, unlinkedOnly } = req.query;
+    const { categoryId, referenceId, from, to, q, page, limit = 100, merge, unlinkedOnly } = req.query;
     const where = {};
     if (categoryId) where.categoryId = categoryId;
     if (referenceId) where.referenceId = referenceId;
@@ -216,7 +216,7 @@ exports.list = async (req, res) => {
     }
     if (q && q.trim()) where.notes = { contains: q.trim(), mode: 'insensitive' };
 
-    const take = Math.min(Number(limit) || 25, 200);
+    const take = Math.min(Number(limit) || 100, 200);
 
     // Monthly-merged view — collapses every Expense in the filter scope into
     // one synthetic row per (referenceId, calendar-month). Used by the

@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const prisma = require('./config/prisma');
 
 const allModules = [
-  'dashboard', 'claims', 'hospitals', 'insurance', 'tpa',
+  'dashboard', 'claims', 'hospital_final_bills', 'hospitals', 'insurance', 'tpa',
   'users', 'roles', 'reports', 'claim_statuses',
   'claim_document_types', 'document_submissions', 'staff',
   'references', 'parties', 'invoices', 'tds_rates',
@@ -29,6 +29,7 @@ const defaultRoles = [
     permissions: buildPermissions({
       dashboard:            { view: true },
       claims:               { view: true, create: true, edit: true, delete: true, export: true },
+      hospital_final_bills: { view: true, edit: true },
       hospitals:            { view: true, create: true, edit: true, delete: true },
       insurance:            { view: true, create: true, edit: true, delete: true },
       tpa:                  { view: true, create: true, edit: true, delete: true },
@@ -58,6 +59,7 @@ const defaultRoles = [
     permissions: buildPermissions({
       dashboard:            { view: true },
       claims:               { view: true, create: true, edit: true, delete: true, export: true },
+      hospital_final_bills: { view: true, edit: true },
       hospitals:            { view: true },
       insurance:            { view: true },
       tpa:                  { view: true },
@@ -84,6 +86,7 @@ const defaultRoles = [
     permissions: buildPermissions({
       dashboard:            { view: true },
       claims:               { view: true },
+      hospital_final_bills: { view: true },
       hospitals:            { view: true },
       insurance:            { view: true },
       tpa:                  { view: true },
@@ -100,6 +103,7 @@ const defaultRoles = [
     permissions: buildPermissions({
       dashboard:            { view: true },
       claims:               { view: true },
+      hospital_final_bills: { view: true },
       hospitals:            { view: true },
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
@@ -119,6 +123,7 @@ const defaultRoles = [
     permissions: buildPermissions({
       dashboard:            { view: true },
       claims:               { view: true },
+      hospital_final_bills: { view: true },
       hospitals:            { view: true },
       insurance:            { view: true },
       tpa:                  { view: true },

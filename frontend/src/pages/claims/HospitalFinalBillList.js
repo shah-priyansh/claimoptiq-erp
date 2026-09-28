@@ -7,16 +7,18 @@ import PaginationBar from '../../components/ui/PaginationBar';
 import Loader from '../../components/ui/Loader';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
 import { formatCurrency, formatDate } from '../../utils/format';
+import { useAuth } from '../../context/AuthContext';
 import HospitalFinalBillModal from './HospitalFinalBillModal';
 
 const HospitalFinalBillList = () => {
+  const { can } = useAuth();
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [hospitalId, setHospitalId] = useState('');
   const [hospitals, setHospitals] = useState([]);
   const [page, setPage] = usePersistedFilters('hospitalFinalBills:page', 1);
-  const [pageSize, setPageSize] = usePersistedFilters('hospitalFinalBills:pageSize', 25);
+  const [pageSize, setPageSize] = usePersistedFilters('hospitalFinalBills:pageSize', 100);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [editingClaim, setEditingClaim] = useState(null);
@@ -93,10 +95,12 @@ const HospitalFinalBillList = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 mt-3">
-                    <button onClick={() => setEditingClaim(b.claim)}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50">
-                      <HiOutlinePencil className="w-3.5 h-3.5" /> Edit
-                    </button>
+                    {can('hospital_final_bills', 'edit') && (
+                      <button onClick={() => setEditingClaim(b.claim)}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50">
+                        <HiOutlinePencil className="w-3.5 h-3.5" /> Edit
+                      </button>
+                    )}
                     <a href={getHospitalFinalBillPdfURL(b.claim?._id)} target="_blank" rel="noreferrer"
                       className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
                       <HiOutlineDownload className="w-3.5 h-3.5" /> PDF
@@ -145,10 +149,12 @@ const HospitalFinalBillList = () => {
                           className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg" title="Download PDF">
                           <HiOutlineDownload className="w-4 h-4" />
                         </a>
-                        <button onClick={() => setEditingClaim(b.claim)}
-                          className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg" title="Edit">
-                          <HiOutlinePencil className="w-4 h-4" />
-                        </button>
+                        {can('hospital_final_bills', 'edit') && (
+                          <button onClick={() => setEditingClaim(b.claim)}
+                            className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg" title="Edit">
+                            <HiOutlinePencil className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

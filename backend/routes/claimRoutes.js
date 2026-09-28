@@ -19,10 +19,10 @@ router.get('/dashboard', checkPermission('dashboard', 'view'), getDashboardStats
 router.get('/process-by-values', checkPermission('claims', 'view'), getClaimProcessByValues);
 // Distinct Room Type values for the Hospital Final Bill's self-learning
 // dropdown. Same "declared before '/:id'" rule as process-by-values above.
-router.get('/room-type-values', checkPermission('claims', 'view'), getRoomTypeValues);
+router.get('/room-type-values', checkPermission('hospital_final_bills', 'view'), getRoomTypeValues);
 // Hospital-wise list of every generated Hospital Final Bill. Same
 // "declared before '/:id'" rule as process-by-values above.
-router.get('/hospital-final-bills', checkPermission('claims', 'view'), listHospitalFinalBills);
+router.get('/hospital-final-bills', checkPermission('hospital_final_bills', 'view'), listHospitalFinalBills);
 router.get('/export', checkPermission('claims', 'export'), exportClaims);
 // ZIP of all settled/billed claims' documents, arranged into the FCC filing tree.
 // Hit via a browser download link, so `protect` accepts the JWT via ?token=.
@@ -51,9 +51,9 @@ router.post('/:id/documents', checkPermission('claims', 'view'), claimDocumentUp
 router.get('/:id/documents/:docId/file', checkPermission('claims', 'view'), streamDocument);
 router.delete('/:id/documents/:docId', checkPermission('claims', 'delete'), deleteDocument);
 
-router.get('/:id/hospital-final-bill', checkPermission('claims', 'view'), getHospitalFinalBill);
-router.put('/:id/hospital-final-bill', checkPermission('claims', 'edit'), upsertHospitalFinalBill);
-router.get('/:id/hospital-final-bill/pdf', checkPermission('claims', 'view'), downloadHospitalFinalBillPdf);
-router.get('/:id/hospital-final-bill/next-number', checkPermission('claims', 'view'), getNextHospitalBillNumber);
+router.get('/:id/hospital-final-bill', checkPermission('hospital_final_bills', 'view'), getHospitalFinalBill);
+router.put('/:id/hospital-final-bill', checkPermission('hospital_final_bills', 'edit'), upsertHospitalFinalBill);
+router.get('/:id/hospital-final-bill/pdf', checkPermission('hospital_final_bills', 'view'), downloadHospitalFinalBillPdf);
+router.get('/:id/hospital-final-bill/next-number', checkPermission('hospital_final_bills', 'view'), getNextHospitalBillNumber);
 
 module.exports = router;

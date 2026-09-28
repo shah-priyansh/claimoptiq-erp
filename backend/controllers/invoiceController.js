@@ -1408,7 +1408,7 @@ const sortInvoicesByNumber = (rows, direction) => {
 
 exports.list = async (req, res) => {
   try {
-    const { hospitalId, status, month, page, limit = 25, isDirectPatient, sort, dir, partyName } = req.query;
+    const { hospitalId, status, month, page, limit = 100, isDirectPatient, sort, dir, partyName } = req.query;
     const direction = dir === 'asc' ? 'asc' : 'desc';
     const sortBuilder = INVOICE_SORT_FIELDS[sort];
     // Append createdAt as a stable tiebreaker so equal keys keep a fixed order
@@ -1443,7 +1443,7 @@ exports.list = async (req, res) => {
     // The paginated listing caps at 100/page. The '__open' filter powers payment
     // dropdowns that must show EVERY still-owed invoice (client-side search only
     // filters what's loaded), so allow a much larger single fetch there.
-    const take = Math.min(Number(limit) || 25, status === '__open' ? 5000 : 100);
+    const take = Math.min(Number(limit) || 100, status === '__open' ? 5000 : 100);
     const skip = page ? (Number(page) - 1) * take : 0;
 
     let invoices;

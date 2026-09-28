@@ -222,7 +222,7 @@ const ExpenseList = () => {
     }
   };
   const [page, setPage] = usePersistedFilters('expenses:page', 1);
-  const [pageSize, setPageSize] = usePersistedFilters('expenses:pageSize', 25);
+  const [pageSize, setPageSize] = usePersistedFilters('expenses:pageSize', 100);
   const [total, setTotal] = useState(0);
   const [sumAmount, setSumAmount] = useState(0);
   const [sumPaid, setSumPaid] = useState(0);

@@ -9,6 +9,7 @@ exports.getModules = async (req, res) => {
     const modules = [
       { key: 'dashboard', label: 'Dashboard', actions: ['view'] },
       { key: 'claims', label: 'Claims', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+      { key: 'hospital_final_bills', label: 'Hospital Final Bills', actions: ['view', 'edit'] },
       { key: 'hospitals', label: 'Hospitals', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'insurance', label: 'Insurance Companies', actions: ['view', 'create', 'edit', 'delete'] },
       { key: 'tpa', label: 'TPA', actions: ['view', 'create', 'edit', 'delete'] },

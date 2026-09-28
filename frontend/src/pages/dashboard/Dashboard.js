@@ -23,6 +23,11 @@ import Loader from '../../components/ui/Loader';
 const StatCard = ({ title, value, icon: Icon, color, subtitle, valueClassName = 'text-gray-900', onClick }) => {
   const clickable = typeof onClick === 'function';
   const Wrap = clickable ? 'button' : 'div';
+  // Long rupee totals (crores, or a wide "− ..." prefix) at a fixed text-3xl
+  // could overflow their flex-1 box and visually overlap the icon, since the
+  // value is one unbreakable token (no spaces to wrap on). Step the size down
+  // for longer strings, with `truncate` as a hard backstop for anything longer still.
+  const valueSizeClass = String(value).length > 14 ? 'text-xl' : String(value).length > 10 ? 'text-2xl' : 'text-3xl';
   return (
     <Wrap
       {...(clickable ? { onClick, type: 'button' } : {})}
@@ -31,7 +36,7 @@ const StatCard = ({ title, value, icon: Icon, color, subtitle, valueClassName = 
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider leading-none">{title}</p>
-          <p className={`text-3xl font-bold mt-2 tabular-nums leading-none ${valueClassName}`}>{value}</p>
+          <p className={`${valueSizeClass} font-bold mt-2 tabular-nums leading-none truncate ${valueClassName}`} title={String(value)}>{value}</p>
           {subtitle && <p className="text-xs text-gray-400 mt-2 leading-tight">{subtitle}</p>}
         </div>
         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${color}`}>

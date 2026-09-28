@@ -86,7 +86,7 @@ function App() {
             <Route path="/claims/new" element={<ProtectedRoute module="claims"><ClaimForm /></ProtectedRoute>} />
             <Route path="/claims/:id/edit" element={<ProtectedRoute module="claims"><ClaimEditRedirect /></ProtectedRoute>} />
             <Route path="/claims/:id" element={<ProtectedRoute module="claims"><ClaimDetail /></ProtectedRoute>} />
-            <Route path="/hospital-final-bills" element={<ProtectedRoute module="claims"><HospitalFinalBillList /></ProtectedRoute>} />
+            <Route path="/hospital-final-bills" element={<ProtectedRoute module="hospital_final_bills"><HospitalFinalBillList /></ProtectedRoute>} />
             <Route path="/roles" element={<ProtectedRoute module="roles" requireManage><RoleList /></ProtectedRoute>} />
             <Route path="/roles/new" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />
             <Route path="/roles/:id/edit" element={<ProtectedRoute module="roles" requireManage><RoleForm /></ProtectedRoute>} />

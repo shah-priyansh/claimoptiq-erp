@@ -63,7 +63,7 @@ exports.run = async (req, res) => {
 
 exports.listRuns = async (req, res) => {
   try {
-    const limit = Math.min(Number(req.query.limit) || 25, 100);
+    const limit = Math.min(Number(req.query.limit) || 100, 100);
     const runs = await prisma.backupRun.findMany({
       orderBy: { startedAt: 'desc' },
       take: limit,

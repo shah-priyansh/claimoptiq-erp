@@ -56,7 +56,7 @@ const DocumentInbox = () => {
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 25;
+  const PAGE_SIZE = 100;
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState(null);
   const [openPatient, setOpenPatient] = useState(null);

@@ -809,6 +809,7 @@ model HospitalFinalBill {
   totalAmount     Float     @default(0) @map("total_amount")
   discount        Float     @default(0)
   finalAmount     Float     @default(0) @map("final_amount")
+  remarks         String    @default("")
   createdById     String?   @map("created_by_id")
   updatedById     String?   @map("updated_by_id")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -829,6 +830,7 @@ model HospitalFinalBillItem {
   billId       String @map("bill_id")
   srNo         Int    @map("sr_no")
   particulars  String
+  description  String @default("")
   rate         Float  @default(0)
   // Exact text the operator typed ("2" or "50%") so the form can redisplay
   // it unchanged; qtyIsPercent/qtyValue are the parsed form used to compute

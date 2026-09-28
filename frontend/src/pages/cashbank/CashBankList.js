@@ -96,7 +96,7 @@ const CashBankList = () => {
   const [modal, setModal] = useState({ open: false, item: null });
   const [importOpen, setImportOpen] = useState(false);
   const [page, setPage] = usePersistedFilters('cashbank:page', 1);
-  const [pageSize, setPageSize] = usePersistedFilters('cashbank:pageSize', 25);
+  const [pageSize, setPageSize] = usePersistedFilters('cashbank:pageSize', 100);
   const [total, setTotal] = useState(0);
   // Drill-down from the Chart of Accounts: ?mode=bank|cash preselects that
   // bucket. Seed it into the INITIAL filter so the very first fetch is already

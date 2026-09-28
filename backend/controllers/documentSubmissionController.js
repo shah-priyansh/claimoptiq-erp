@@ -61,7 +61,7 @@ exports.create = async (req, res) => {
 
 exports.getAll = async (req, res) => {
   try {
-    const { status, documentType, hospital, search, page = 1, limit = 25 } = req.query;
+    const { status, documentType, hospital, search, page = 1, limit = 100 } = req.query;
     const where = {};
 
     const userHospitalId = getUserHospitalId(req.user);

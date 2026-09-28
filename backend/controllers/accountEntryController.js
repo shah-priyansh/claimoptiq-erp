@@ -98,7 +98,7 @@ const buildEntryData = (body) => {
 
 exports.list = async (req, res) => {
   try {
-    const { from, to, entryType, q, page, limit = 25 } = req.query;
+    const { from, to, entryType, q, page, limit = 100 } = req.query;
     const where = {};
     if (entryType) where.entryType = entryType;
     const fromD = parseDate(from);
@@ -114,7 +114,7 @@ exports.list = async (req, res) => {
     }
     if (q && q.trim()) where.remarks = { contains: q.trim(), mode: 'insensitive' };
 
-    const take = Math.min(Number(limit) || 25, 200);
+    const take = Math.min(Number(limit) || 100, 200);
     const skip = page ? (Number(page) - 1) * take : 0;
     const [items, total] = await Promise.all([
       prisma.accountEntry.findMany({ where, include, orderBy: [{ date: 'desc' }, { createdAt: 'desc' }], skip, take }),

@@ -184,7 +184,7 @@ const Reports = ({ settlement = false }) => {
   // `serverTotals` come from the backend so totals + pagination work across
   // the entire filter scope, not just the page in memory.
   const [tablePage, setTablePage] = useState(1);
-  const [tablePageSize, setTablePageSize] = useState(50);
+  const [tablePageSize, setTablePageSize] = useState(100);
   const [serverTotal, setServerTotal] = useState(0);
   const [serverTotals, setServerTotals] = useState(null);
   // Cache the filters that produced the current result set so a paginate

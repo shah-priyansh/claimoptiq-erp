@@ -200,7 +200,12 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
       items.forEach((item, i) => {
         doc.font('Helvetica').fontSize(9);
         const nameH = doc.heightOfString(item.particulars || '', { width: cols[1].w - 10 });
-        const rowH = Math.max(ROW_MIN_H, nameH + 12);
+        let descH = 0;
+        if (item.description) {
+          doc.font('Helvetica-Oblique').fontSize(7.5);
+          descH = doc.heightOfString(item.description, { width: cols[1].w - 10 }) + 3;
+        }
+        const rowH = Math.max(ROW_MIN_H, nameH + descH + 12);
 
         if (y + rowH > H - 160) { doc.addPage(); y = 30; }
         if (i % 2 === 1) doc.rect(PAD, y, contentW, rowH).fill(COLORS.alt);
@@ -213,6 +218,10 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
             .fontSize(9)
             .text(data[c.key], c.x + 5, y + 6, { width: c.w - 10, align: c.align });
         });
+        if (item.description) {
+          doc.fillColor(COLORS.muted).font('Helvetica-Oblique').fontSize(7.5)
+            .text(item.description, cols[1].x + 5, y + 6 + nameH + 3, { width: cols[1].w - 10 });
+        }
         y += rowH;
       });
       doc.lineWidth(0.5).strokeColor(COLORS.border).moveTo(PAD, y).lineTo(RIGHT, y).stroke();
@@ -248,7 +257,23 @@ const renderHospitalFinalBillPdf = (claim, bill, hospital) =>
         .text('TOTAL FINAL BILL AMOUNT IN WORDS', PAD + 12, y + 8, { width: contentW - 24, characterSpacing: 0.4 });
       doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(9.5)
         .text(wordsText, PAD + 12, y + 19, { width: contentW - 24 });
-      y += wordsCardH + 30;
+      y += wordsCardH + 14;
+
+      // ===== Remarks (only when the operator entered one) =====
+      if (bill.remarks) {
+        doc.font('Helvetica').fontSize(9);
+        const remarksH = doc.heightOfString(bill.remarks, { width: contentW - 24 });
+        const remarksCardH = Math.max(34, remarksH + 24);
+        if (y + remarksCardH > H - 100) { doc.addPage(); y = 30; }
+        doc.roundedRect(PAD, y, contentW, remarksCardH, 6).fillAndStroke(COLORS.alt, COLORS.border);
+        doc.fillColor(COLORS.faint).font('Helvetica-Bold').fontSize(7.5)
+          .text('REMARKS', PAD + 12, y + 8, { width: contentW - 24, characterSpacing: 0.4 });
+        doc.fillColor(COLORS.body).font('Helvetica').fontSize(9)
+          .text(bill.remarks, PAD + 12, y + 19, { width: contentW - 24 });
+        y += remarksCardH + 16;
+      } else {
+        y += 16;
+      }
 
       // ===== Signatory =====
       // Leaves clearance for the footer (added below, ~40pt tall) so the two

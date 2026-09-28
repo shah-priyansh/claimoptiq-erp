@@ -27,7 +27,7 @@ const ReferenceList = () => {
   const [modal, setModal] = useState({ open: false, item: null });
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(100);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

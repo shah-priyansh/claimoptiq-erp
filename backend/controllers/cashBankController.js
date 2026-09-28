@@ -275,7 +275,7 @@ const journalLineToRow = (l) => {
 
 exports.list = async (req, res) => {
   try {
-    const { from, to, direction, mode, hospitalId, invoiceId, expenseId, bankAccountId, q, page, limit = 25 } = req.query;
+    const { from, to, direction, mode, hospitalId, invoiceId, expenseId, bankAccountId, q, page, limit = 100 } = req.query;
     const where = {};
     if (direction) where.direction = direction;
     if (mode) where.mode = mode;
@@ -301,7 +301,7 @@ exports.list = async (req, res) => {
       ];
     }
 
-    const take = Math.min(Number(limit) || 25, 200);
+    const take = Math.min(Number(limit) || 100, 200);
     const skip = page ? (Number(page) - 1) * take : 0;
 
     // Journal lines don't carry invoice/expense/hospital links and never touch

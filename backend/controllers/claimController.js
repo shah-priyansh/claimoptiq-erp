@@ -13,10 +13,7 @@ const fccPath = require('../utils/fccBackupPath');
 const amountInWords = require('../utils/amountInWords');
 const { reserveNextHospitalBillNumber, peekNextHospitalBillNumber } = require('../utils/hospitalBillSequence');
 const renderHospitalFinalBillPdf = require('../utils/renderHospitalFinalBillPdf');
-
-const getUserHospitalId = (user) => {
-  return user.hospitalId || user.hospital?.id || null;
-};
+const { getUserHospitalId, getReferenceHospitalIds, getUserHospitalScope } = require('../utils/hospitalScope');
 
 // D.O.A is optional. A blank, unparseable, or pre-1970 value is stored as NULL
 // rather than a bogus epoch date (e.g. an Excel blank cell that arrives as
@@ -25,41 +22,6 @@ const toAdmitDate = (val) => {
   if (!val) return null;
   const d = new Date(val);
   return (!isNaN(d.getTime()) && d.getFullYear() >= 1970) ? d : null;
-};
-
-// A hospital user is normally scoped to their own hospital's claims. A Hospital
-// *Admin* whose hospital is a *parent* additionally sees every branch's claims,
-// so their effective view scope is [ownId, ...branchIds]. Everyone else
-// (hospital staff, or an admin of a hospital with no branches) stays limited to
-// their own hospital. Returns an array of hospital IDs, or null for non-hospital
-// users (super admin / office) who aren't hospital-scoped at all. Used for READ
-// paths only — create/import/delete-all and per-claim write guards keep the
-// exact single-hospital rule.
-const getUserHospitalScope = async (user) => {
-  // Reference-scoped login: limited to the hospitals belonging to their
-  // reference. Matched both by the FK link and the free-text `referenceBy`
-  // name so hospitals linked either way are covered (may be []). Takes
-  // precedence — a reference user has no single hospitalId.
-  if (user?.referenceId) return getReferenceHospitalIds(user);
-  const hospitalId = getUserHospitalId(user);
-  if (!hospitalId) return null;
-  if (user.role?.slug !== 'hospital_admin') return [hospitalId];
-  const branches = await prisma.hospital.findMany({
-    where: { parentHospitalId: hospitalId },
-    select: { id: true },
-  });
-  return branches.length ? [hospitalId, ...branches.map((b) => b.id)] : [hospitalId];
-};
-
-// Hospital IDs owned by a reference-scoped user's reference — matched by the
-// referenceId FK OR the denormalised free-text `referenceBy` name (case-
-// insensitive), since only ~1/4 of hospitals carry the FK. Returns [] when the
-// reference owns no hospitals (so the user correctly sees nothing).
-const getReferenceHospitalIds = async (user) => {
-  const or = [{ referenceId: user.referenceId }];
-  if (user.reference?.name) or.push({ referenceBy: { equals: user.reference.name, mode: 'insensitive' } });
-  const hospitals = await prisma.hospital.findMany({ where: { OR: or }, select: { id: true } });
-  return hospitals.map((h) => h.id);
 };
 
 // Per-claim write/read guard: true if this scoped user may NOT touch `claim`.
@@ -238,7 +200,7 @@ const resolveClaimSort = (sortBy) => CLAIM_SORT_MAP[sortBy] || CLAIM_SORT_MAP.cr
 
 exports.getClaims = async (req, res) => {
   try {
-    const { hospital, status, claimType, claimProcessBy, month, dateFrom, dateTo, dateBasis, search, directPatient, reference, isBilled, page = 1, limit = 25, skipCount, includeTotals, idsOnly, sortBy } = req.query;
+    const { hospital, status, claimType, claimProcessBy, month, dateFrom, dateTo, dateBasis, search, directPatient, reference, isBilled, page = 1, limit = 100, skipCount, includeTotals, idsOnly, sortBy } = req.query;
     const where = {};
     const orderBy = resolveClaimSort(sortBy);
 
@@ -1958,7 +1920,7 @@ exports.getRoomTypeValues = async (req, res) => {
 // users see only their own hospital, reference users only theirs.
 exports.listHospitalFinalBills = async (req, res) => {
   try {
-    const { hospital, search, page = 1, limit = 25 } = req.query;
+    const { hospital, search, page = 1, limit = 100 } = req.query;
     const where = {};
 
     const hospitalScope = await getUserHospitalScope(req.user);
@@ -2070,7 +2032,12 @@ exports.upsertHospitalFinalBill = async (req, res) => {
         const rate = round2(Number(it.rate) || 0);
         const { qtyRaw, qtyIsPercent, qtyValue } = parseLineQty(it.qtyRaw ?? it.qty);
         const amount = round2(qtyIsPercent ? (rate * qtyValue) / 100 : rate * qtyValue);
-        return { srNo: idx + 1, particulars: String(it.particulars || '').trim(), rate, qtyRaw, qtyIsPercent, qtyValue, amount };
+        return {
+          srNo: idx + 1,
+          particulars: String(it.particulars || '').trim(),
+          description: String(it.description || '').trim(),
+          rate, qtyRaw, qtyIsPercent, qtyValue, amount,
+        };
       })
       .filter((it) => it.particulars);
     if (!items.length) return res.status(400).json({ message: 'Add at least one bill item' });
@@ -2091,6 +2058,7 @@ exports.upsertHospitalFinalBill = async (req, res) => {
     const dischargeTime = timeOrBlank(req.body.dischargeTime);
     const billTime = timeOrBlank(req.body.billTime);
     const gender = ['Male', 'Female'].includes(req.body.gender) ? req.body.gender : '';
+    const remarks = String(req.body.remarks || '').trim();
 
     const existing = await prisma.hospitalFinalBill.findUnique({ where: { claimId: req.params.id } });
 
@@ -2112,7 +2080,7 @@ exports.upsertHospitalFinalBill = async (req, res) => {
           opdNo: req.body.opdNo || '', patientDob, patientAge, gender,
           indoorNo: req.body.indoorNo || '', roomType: req.body.roomType || '',
           admitTime, dischargeTime, billTime,
-          totalAmount, discount, finalAmount,
+          totalAmount, discount, finalAmount, remarks,
           createdById: req.user.id, updatedById: req.user.id,
           items: { create: items },
         },
@@ -2120,7 +2088,7 @@ exports.upsertHospitalFinalBill = async (req, res) => {
           billDate, opdNo: req.body.opdNo || '', patientDob, patientAge, gender,
           indoorNo: req.body.indoorNo || '', roomType: req.body.roomType || '',
           admitTime, dischargeTime, billTime,
-          totalAmount, discount, finalAmount,
+          totalAmount, discount, finalAmount, remarks,
           updatedById: req.user.id,
           items: { deleteMany: {}, create: items },
         },

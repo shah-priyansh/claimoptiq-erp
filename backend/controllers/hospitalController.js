@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { getUserHospitalId, getReferenceHospitalIds } = require('../utils/hospitalScope');
 
 // Dropdown "all hospitals" endpoint gets hit on every page that renders a
 // hospital SearchableSelect. The payload is tiny + rarely changes, so we
@@ -305,22 +306,28 @@ exports.createHospital = async (req, res) => {
 
 exports.getHospitals = async (req, res) => {
   try {
-    const { search, active, page, limit = 25, all } = req.query;
+    const { search, active, page, limit = 100, all } = req.query;
     const where = {};
 
     if (active !== undefined) where.isActive = active === 'true';
     if (search) where.name = { contains: search, mode: 'insensitive' };
-    const userHospId = req.user.hospitalId || req.user.hospital?.id;
+    const userHospId = getUserHospitalId(req.user);
     if (userHospId) {
       where.id = userHospId;
+    } else if (req.user.referenceId) {
+      // Reference-scoped login: only the hospitals under their reference,
+      // same scoping used for Claims / Hospital Final Bills.
+      where.id = { in: await getReferenceHospitalIds(req.user) };
     }
 
     // Dropdown / "fetch everything" mode — pagination is explicitly
     // bypassed and we serve a minimal payload so the response stays cheap
-    // even with hundreds of hospitals. Cached per (userHospId, search,
-    // active) key so repeat page loads / dropdown remounts are near-free.
+    // even with hundreds of hospitals. Cached per (userHospId/referenceId,
+    // search, active) key so repeat page loads / dropdown remounts are
+    // near-free.
     if (all === 'true' || all === '1') {
-      const cacheKey = `${userHospId || 'admin'}|${search || ''}|${active ?? 'all'}`;
+      const scopeKey = userHospId || (req.user.referenceId ? `ref:${req.user.referenceId}` : 'admin');
+      const cacheKey = `${scopeKey}|${search || ''}|${active ?? 'all'}`;
       const cached = _dropdownCache.get(cacheKey);
       if (cached && cached.expiry > Date.now()) {
         return res.json(cached.payload);

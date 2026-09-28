@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Loader from '../../components/ui/Loader';
 import ReactDOM from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
@@ -79,7 +79,7 @@ const InvoiceList = () => {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = usePersistedFilters('invoices:filters', { hospitalId: '', status: '', month: '', type: '', party: '' });
   const [page, setPage] = usePersistedFilters('invoices:page', 1);
-  const [pageSize, setPageSize] = usePersistedFilters('invoices:pageSize', 25);
+  const [pageSize, setPageSize] = usePersistedFilters('invoices:pageSize', 100);
   // Server-side column sort. Empty field = backend default (month, then newest).
   const [sort, setSort] = usePersistedFilters('invoices:sort', { field: '', dir: 'desc' });
   const [total, setTotal] = useState(0);
@@ -129,14 +129,29 @@ const InvoiceList = () => {
     e.stopPropagation();
     const r = e.currentTarget.getBoundingClientRect();
     const menuWidth = 200;
-    const estH = 180;
-    const spaceBelow = window.innerHeight - r.bottom;
-    const openUp = spaceBelow < estH && r.top > spaceBelow;
     const left = Math.max(8, Math.min(r.right - menuWidth, window.innerWidth - menuWidth - 8));
-    setActionMenu(openUp
-      ? { id, bottom: window.innerHeight - r.top + 4, left }
-      : { id, top: r.bottom + 4, left });
+    // Open downward first; the menu's real height varies per-row (Cancel
+    // Invoice / Delete / Receive Payment are each conditional), so a fixed
+    // height guess here previously clipped the last item — e.g. "Receive
+    // Payment" — for rows near the bottom of the viewport. A layout effect
+    // below measures the actual rendered menu and flips it upward if needed,
+    // before the browser paints, so there's no visible jump.
+    setActionMenu({ id, top: r.bottom + 4, anchorTop: r.top, left });
   };
+
+  // Flip the menu upward if, once rendered at its real height, it would
+  // overflow the bottom of the viewport. Runs before paint (useLayoutEffect)
+  // so the flip is invisible, and only once per open (`flipped` guard) so it
+  // can't oscillate.
+  useLayoutEffect(() => {
+    if (!actionMenu || actionMenu.flipped || actionMenu.top === undefined || !actionMenuRef.current) return;
+    const rect = actionMenuRef.current.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight - 8) {
+      setActionMenu((prev) => (prev && !prev.flipped
+        ? { id: prev.id, left: prev.left, bottom: window.innerHeight - prev.anchorTop + 4, flipped: true }
+        : prev));
+    }
+  }, [actionMenu]);
 
   useEffect(() => {
     if (!actionMenu) return;
