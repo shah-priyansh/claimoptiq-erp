@@ -1943,6 +1943,15 @@ const ClaimList = () => {
                    was spilling onto a fresh blank page when the last sticker
                    landed near the page edge. */
                 padding: 10mm 10mm 0 10mm !important;
+                /* Block padding only renders on the fragment that carries that
+                   edge — by default that's padding-top on page 1 only, so
+                   pages 2+ started flush against the physical top edge. Most
+                   printers can't print all the way to the paper edge, so the
+                   first card on every continuation page was landing in the
+                   printer's unprintable margin and getting clipped. Cloning
+                   repeats the padding on every page fragment instead. */
+                -webkit-box-decoration-break: clone !important;
+                box-decoration-break: clone !important;
                 background: white !important;
               }
               /* Block layout (not flex/gap) so Chrome packs as many cards on one
@@ -1954,7 +1963,17 @@ const ClaimList = () => {
                 background: white !important;
               }
               #courier-stickers-print .sticker-card {
-                display: block !important;
+                /* display:table (not block) because break-inside:avoid on a
+                   plain block box is unreliable in WebKit/Safari's print
+                   engine — a card that lands close to the page bottom gets
+                   fragmented anyway, chopping its border mid-box. Table
+                   fragmentation goes through much older, more consistently
+                   respected browser code, so the whole card reliably jumps
+                   to the next page instead of splitting. Chrome renders
+                   identically either way (verified), so this is a pure
+                   cross-browser robustness fix. */
+                display: table !important;
+                table-layout: fixed !important;
                 width: 100% !important;
                 box-sizing: border-box !important;
                 margin: 0 0 6mm 0 !important;
