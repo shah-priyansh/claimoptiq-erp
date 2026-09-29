@@ -50,13 +50,16 @@ const DEFAULTS = {
   // across devices. Empty default on purpose — no hardcoded default column set;
   // the export uses whatever the operator last saved.
   report_export_columns:          '',
-  // WhatsApp-style payment reminder text for an overdue invoice — editable
-  // from Settings → Payment Reminder. Placeholders are substituted client-side
-  // (see frontend/src/utils/invoiceReminder.js) when the operator opens the
-  // "Copy Reminder" action on an overdue invoice; nothing is sent server-side,
-  // the operator pastes the copied text into WhatsApp themselves.
+  // WhatsApp-style payment reminder text — editable from Settings → Payment
+  // Reminder. Placeholders are substituted client-side (see
+  // frontend/src/utils/invoice.js buildPartyReminderMessage) when the operator
+  // opens "Copy Reminder" on an overdue invoice; nothing is sent server-side,
+  // the operator pastes the copied text into WhatsApp themselves. Always lists
+  // EVERY open invoice for that invoice's party (not just the one clicked), so
+  // a hospital with several pending invoices gets one reminder with a
+  // party-wise total instead of one message per invoice.
   invoice_reminder_message:
-    'Dear {{hospitalName}},\n\nThis is a gentle reminder that invoice {{invoiceNumber}} dated {{invoiceDate}} for {{grandTotal}} was due on {{dueDate}}. The pending amount of {{amountPending}} is still outstanding.\n\nKindly clear the payment at the earliest.\n\nThank you,\n{{companyName}}',
+    'Dear {{hospitalName}} Team,\n\nThis is a gentle reminder that the following invoices remain outstanding for payment:\n\n{{invoiceListBlock}}\n\nThe total outstanding balance is {{totalOutstanding}}.\n\nWe kindly request that you process this payment at your earliest convenience. If the payment has already been sent, please disregard this message or share the transaction details with us so we can update our records.\n\nThank you for your prompt attention to this matter.\n\nSincerely,\n\n{{companyName}}\n📞 {{companyPhone}}',
 };
 
 // Public — no auth (login page fields). Invoice template fields are also returned because rendering uses them

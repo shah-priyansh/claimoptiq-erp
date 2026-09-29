@@ -1,4 +1,4 @@
-import { formatDate, formatMonthLabel, formatCurrency } from './format';
+import { formatDate, formatCurrency } from './format';
 
 // Resolve the human name for a direct-patient / party invoice.
 // Hospital invoices return null (they render `hospital.name` instead).
@@ -36,20 +36,26 @@ export const isInvoiceOverdue = (inv) =>
   && !!inv.dueDate
   && new Date(inv.dueDate) < new Date();
 
-// Fills {{placeholder}} tokens in the admin-configured reminder template
-// (Settings → Payment Reminder) with this invoice's data. Unknown/blank
-// placeholders resolve to '' rather than being left in the text.
-export const buildReminderMessage = (template, inv, companyName) => {
+// Fills {{placeholder}} tokens in the reminder template with EVERY open
+// invoice for one party — {{invoiceListBlock}} becomes a bullet per invoice
+// (number, date, pending amount) and {{totalOutstanding}} is their sum. Used
+// so a hospital with several pending invoices gets a single reminder with a
+// party-wise total instead of one message per invoice. `invoices` should
+// already be filtered to open/pending ones (e.g. via `status: '__open'`);
+// falls back to `fallbackInvoice` alone if the list comes back empty (invoice
+// has no partyId yet, or its dues were cleared between opening and sending).
+export const buildPartyReminderMessage = (template, invoices, fallbackInvoice, companyName, companyPhone) => {
+  const list = invoices && invoices.length ? invoices : [fallbackInvoice].filter(Boolean);
+  const totalOutstanding = list.reduce((sum, inv) => sum + (Number(inv?.amountPending) || 0), 0);
+  const invoiceListBlock = list
+    .map((inv) => `• Invoice No: ${inv?.invoiceNumber || `Draft-${String(inv?._id || '').slice(0, 8)}`} | Date: ${formatDate(inv?.invoiceDate)} | Amount: ${formatCurrency(inv?.amountPending || 0)}`)
+    .join('\n\n');
   const values = {
-    hospitalName: invoiceDisplayName(inv) || '—',
-    invoiceNumber: inv?.invoiceNumber || `Draft-${String(inv?._id || '').slice(0, 8)}`,
-    invoiceDate: formatDate(inv?.invoiceDate),
-    dueDate: formatDate(inv?.dueDate),
-    month: formatMonthLabel(inv?.month),
-    grandTotal: formatCurrency((inv?.grandTotal || 0) - (inv?.previousBalance || 0)),
-    amountPaid: formatCurrency(inv?.amountPaid || 0),
-    amountPending: formatCurrency(inv?.amountPending || 0),
+    hospitalName: invoiceDisplayName(list[0] || fallbackInvoice) || '—',
+    invoiceListBlock,
+    totalOutstanding: formatCurrency(totalOutstanding),
     companyName: companyName || 'First Care Consultancy',
+    companyPhone: companyPhone || '',
   };
   return String(template || '').replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => (values[key] ?? ''));
 };

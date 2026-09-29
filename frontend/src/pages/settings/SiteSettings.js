@@ -3,7 +3,7 @@ import { getPublicStatsAPI, updateSiteSettingsAPI, uploadInvoiceLogoAPI, getTdsR
 import { toast } from 'react-toastify';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import BankAccountsSection from './BankAccountsSection';
-import { buildReminderMessage } from '../../utils/invoice';
+import { buildPartyReminderMessage } from '../../utils/invoice';
 
 const STATIC_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
 const resolveLogoSrc = (url) => {
@@ -17,32 +17,22 @@ const TABS = [
   { id: 'reminder', label: 'Payment Reminder' },
 ];
 
-// Placeholders buildReminderMessage (utils/invoice.js) substitutes — keep in
-// sync with the `values` map there.
+// Placeholders buildPartyReminderMessage (utils/invoice.js) substitutes —
+// keep in sync with the `values` map there.
 const REMINDER_PLACEHOLDERS = [
   ['{{hospitalName}}', 'Hospital / party name'],
-  ['{{invoiceNumber}}', 'Invoice number'],
-  ['{{invoiceDate}}', 'Invoice date'],
-  ['{{dueDate}}', 'Due date'],
-  ['{{month}}', 'Billing month'],
-  ['{{grandTotal}}', 'Invoice total'],
-  ['{{amountPaid}}', 'Amount already paid'],
-  ['{{amountPending}}', 'Amount still pending'],
+  ['{{invoiceListBlock}}', 'Bullet list of every open invoice for that party'],
+  ['{{totalOutstanding}}', 'Sum of all listed invoices\' pending amounts'],
   ['{{companyName}}', 'Your company name (from Invoice Template tab)'],
+  ['{{companyPhone}}', 'Your company phone (from Invoice Template tab)'],
 ];
 
-// Fake invoice for the live preview on this page — never sent anywhere.
-const PREVIEW_INVOICE = {
-  invoiceNumber: '26/0042',
-  hospital: { name: 'City Hospital' },
-  invoiceDate: '2026-09-01',
-  dueDate: '2026-09-16',
-  month: '2026-09-01',
-  grandTotal: 25000,
-  previousBalance: 0,
-  amountPaid: 10000,
-  amountPending: 15000,
-};
+// Fake invoices for the live preview on this page — never sent anywhere.
+// Mirrors what the modal shows for a party with more than one open invoice.
+const PREVIEW_INVOICES = [
+  { invoiceNumber: '26/0041', hospital: { name: 'City Hospital' }, invoiceDate: '2026-08-01', amountPending: 7000 },
+  { invoiceNumber: '26/0042', hospital: { name: 'City Hospital' }, invoiceDate: '2026-09-01', amountPending: 15000 },
+];
 
 const SiteSettings = () => {
   const [tab, setTab] = useState('login');
@@ -353,7 +343,7 @@ const SiteSettings = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Preview</label>
                 <div className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 whitespace-pre-wrap min-h-[220px]">
-                  {buildReminderMessage(form.invoice_reminder_message, PREVIEW_INVOICE, form.invoice_company_name)}
+                  {buildPartyReminderMessage(form.invoice_reminder_message, PREVIEW_INVOICES, null, form.invoice_company_name, form.invoice_company_phone)}
                 </div>
                 <p className="text-xs text-gray-400 mt-1">Sample data — the real message uses the actual invoice's details.</p>
               </div>

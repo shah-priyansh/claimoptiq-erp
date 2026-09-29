@@ -2,13 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { HiOutlineX, HiOutlineClipboardCopy } from 'react-icons/hi';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
-import { getPublicStatsAPI } from '../../services/api';
-import { buildReminderMessage } from '../../utils/invoice';
+import { getPublicStatsAPI, getInvoicesAPI } from '../../services/api';
+import { buildPartyReminderMessage } from '../../utils/invoice';
 
-// Payment-reminder text for one overdue invoice. Pulls the admin-configured
-// template (Settings → Payment Reminder) each time it opens, fills in this
-// invoice's details, and lets the operator tweak + copy it to paste into
-// WhatsApp themselves — no message is sent from here.
+// Payment-reminder text for an overdue invoice's party. Pulls the admin-
+// configured template (Settings → Payment Reminder) each time it opens,
+// pulls in every OTHER open (pending) invoice for the same party — not just
+// the one clicked — so a hospital with several pending invoices gets one
+// reminder listing all of them with a party-wise total, and lets the
+// operator tweak + copy it to paste into WhatsApp themselves — no message is
+// sent from here.
 const ReminderModal = ({ open, invoice, onClose }) => {
   const { roleSlug } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -17,9 +20,20 @@ const ReminderModal = ({ open, invoice, onClose }) => {
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    getPublicStatsAPI()
-      .then(({ data }) => {
-        setText(buildReminderMessage(data.invoice_reminder_message, invoice, data.invoice_company_name));
+    Promise.all([
+      getPublicStatsAPI(),
+      invoice?.partyId
+        ? getInvoicesAPI({ partyId: invoice.partyId, status: '__open' }).catch(() => ({ data: { invoices: [] } }))
+        : Promise.resolve({ data: { invoices: [] } }),
+    ])
+      .then(([{ data: settings }, { data: openInvoices }]) => {
+        setText(buildPartyReminderMessage(
+          settings.invoice_reminder_message,
+          openInvoices.invoices,
+          invoice,
+          settings.invoice_company_name,
+          settings.invoice_company_phone,
+        ));
       })
       .catch(() => toast.error('Failed to load reminder template'))
       .finally(() => setLoading(false));

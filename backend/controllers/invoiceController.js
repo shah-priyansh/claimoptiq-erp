@@ -1451,7 +1451,7 @@ const sortInvoicesByNumber = (rows, direction) => {
 
 exports.list = async (req, res) => {
   try {
-    const { hospitalId, status, month, page, limit = 100, isDirectPatient, sort, dir, partyName } = req.query;
+    const { hospitalId, partyId, status, month, page, limit = 100, isDirectPatient, sort, dir, partyName } = req.query;
     const direction = dir === 'asc' ? 'asc' : 'desc';
     const sortBuilder = INVOICE_SORT_FIELDS[sort];
     // Append createdAt as a stable tiebreaker so equal keys keep a fixed order
@@ -1461,6 +1461,10 @@ exports.list = async (req, res) => {
       : [{ month: 'desc' }, { createdAt: 'desc' }];
     const where = {};
     if (hospitalId) where.hospitalId = hospitalId;
+    // Party-wise lookup (e.g. the payment-reminder modal pulling every open
+    // invoice for the same counterparty, hospital or direct-patient/party bill
+    // alike) — partyId is the Vyapar-style unification key across both.
+    if (partyId) where.partyId = partyId;
     // Synthetic '__open' matches anything still owed: issued or partially
     // paid with a non-zero pending balance. Used by the "Hospitals with
     // Open Invoices" shortcut on the listing page.

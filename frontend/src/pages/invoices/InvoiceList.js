@@ -26,7 +26,7 @@ import ReminderModal from './ReminderModal';
 import { invoiceFilename } from './bulkInvoiceUtils';
 import { round2 } from '../../utils/format';
 import usePersistedFilters from '../../hooks/usePersistedFilters';
-import { patientNameForInvoice, isInvoiceOverdue, buildReminderMessage } from '../../utils/invoice';
+import { patientNameForInvoice, isInvoiceOverdue, buildPartyReminderMessage } from '../../utils/invoice';
 
 const STATUS_COLORS = {
   draft:          'bg-gray-100 text-gray-700',
@@ -384,6 +384,7 @@ const InvoiceList = () => {
       .then(({ data }) => setReminderTemplate({
         invoice_reminder_message: data.invoice_reminder_message,
         invoice_company_name: data.invoice_company_name,
+        invoice_company_phone: data.invoice_company_phone,
       }))
       .catch(() => {});
   }, []);
@@ -397,8 +398,17 @@ const InvoiceList = () => {
   const copyReminderQuick = async (inv) => {
     if (!reminderTemplate) { toast.error('Reminder template still loading — try again in a moment'); return; }
     try {
+      const openInvoices = inv.partyId
+        ? await getInvoicesAPI({ partyId: inv.partyId, status: '__open' }).then(({ data }) => data.invoices).catch(() => [])
+        : [];
       await navigator.clipboard.writeText(
-        buildReminderMessage(reminderTemplate.invoice_reminder_message, inv, reminderTemplate.invoice_company_name)
+        buildPartyReminderMessage(
+          reminderTemplate.invoice_reminder_message,
+          openInvoices,
+          inv,
+          reminderTemplate.invoice_company_name,
+          reminderTemplate.invoice_company_phone,
+        )
       );
       toast.success('Copied - paste it into WhatsApp');
     } catch {
