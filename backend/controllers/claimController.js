@@ -1880,12 +1880,26 @@ exports.exportClaims = async (req, res) => {
 
     const isSuperAdmin = req.user?.role?.slug === 'super_admin';
     const claimsData = toResponse(claims);
-    const stripped = isSuperAdmin
-      ? claimsData
-      : claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
-          ...rest,
-          hospital: hospital ? (({ referenceBy, ...h }) => h)(hospital) : hospital,
-        }));
+    let stripped;
+    if (isSuperAdmin) {
+      // Attach each billing service's claim-type applicability (from the
+      // BillingServiceName master) so the frontend's calculateFilePrice can
+      // filter by the claim's own type. Without this, every service reads as
+      // claimTypes=[] (universal) and the export sums cashless + reimbursement
+      // + every other type-specific service into one combined File Price.
+      const svcClaimTypes = await loadServiceClaimTypesMap();
+      stripped = claimsData.map((c) => ({
+        ...c,
+        hospital: c.hospital
+          ? { ...c.hospital, billingServices: attachClaimTypes(c.hospital.billingServices, svcClaimTypes) }
+          : c.hospital,
+      }));
+    } else {
+      stripped = claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
+        ...rest,
+        hospital: hospital ? (({ referenceBy, ...h }) => h)(hospital) : hospital,
+      }));
+    }
     res.json(stripped);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
