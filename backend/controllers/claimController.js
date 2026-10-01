@@ -1946,6 +1946,51 @@ exports.getRoomTypeValues = async (req, res) => {
   }
 };
 
+// Distinct line-item Particulars/Description values across past bills, for
+// the same self-learning dropdown behaviour as Room Type above — once a
+// value is saved on any bill item it shows up here for reuse on later bills.
+exports.getBillParticularsValues = async (req, res) => {
+  try {
+    const rows = await prisma.hospitalFinalBillItem.findMany({
+      where: { particulars: { not: '' } },
+      distinct: ['particulars'],
+      select: { particulars: true },
+      orderBy: { particulars: 'asc' },
+    });
+    res.json(rows.map((r) => r.particulars).filter(Boolean));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.getBillDescriptionValues = async (req, res) => {
+  try {
+    const rows = await prisma.hospitalFinalBillItem.findMany({
+      where: { description: { not: '' } },
+      distinct: ['description'],
+      select: { description: true },
+      orderBy: { description: 'asc' },
+    });
+    res.json(rows.map((r) => r.description).filter(Boolean));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.getBillRemarksValues = async (req, res) => {
+  try {
+    const rows = await prisma.hospitalFinalBill.findMany({
+      where: { remarks: { not: '' } },
+      distinct: ['remarks'],
+      select: { remarks: true },
+      orderBy: { remarks: 'asc' },
+    });
+    res.json(rows.map((r) => r.remarks).filter(Boolean));
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 // Hospital-wise list of every generated Hospital Final Bill, with the claim
 // data the builder modal needs already embedded so "Edit" can reopen it
 // straight from a row — no second fetch. Scoped like getClaims: hospital

@@ -10,7 +10,7 @@ const TABS = [
   { key: 'employees', label: 'Employees', adminOnly: true },
   { key: 'attendance', label: 'Attendance' },
   { key: 'salary', label: 'Salary' },
-  { key: 'holidays', label: 'Holidays', adminOnly: true },
+  { key: 'holidays', label: 'Holidays', requiresView: true },
 ];
 
 const StaffModule = () => {
@@ -36,6 +36,7 @@ const StaffModule = () => {
 
   const visibleTabs = TABS.filter(t => {
     if (t.adminOnly && !isAdmin) return false;
+    if (t.requiresView && !isAdmin && !canView) return false;
     return true;
   });
 
@@ -68,8 +69,8 @@ const StaffModule = () => {
       {activeTab === 'salary' && (
         <SalaryTab isAdmin={isAdmin} canEdit={canEdit} />
       )}
-      {activeTab === 'holidays' && isAdmin && (
-        <HolidayList canEdit={canEdit || canCreate} />
+      {activeTab === 'holidays' && (isAdmin || canView) && (
+        <HolidayList canEdit={isAdmin} />
       )}
     </div>
   );

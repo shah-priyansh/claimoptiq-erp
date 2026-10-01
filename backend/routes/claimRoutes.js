@@ -5,7 +5,7 @@ const {
   uploadDocuments, deleteDocument, streamDocument, getDashboardStats, bulkUpdateStatus, bulkBill, exportClaims, importClaims,
   deleteClaim, deleteAllClaims, fixBilledStatus,
   updateStatusHistory, deleteStatusHistory, downloadSettledBackup,
-  getRoomTypeValues, getHospitalFinalBill, upsertHospitalFinalBill, downloadHospitalFinalBillPdf, getNextHospitalBillNumber,
+  getRoomTypeValues, getBillParticularsValues, getBillDescriptionValues, getBillRemarksValues, getHospitalFinalBill, upsertHospitalFinalBill, downloadHospitalFinalBillPdf, getNextHospitalBillNumber,
   listHospitalFinalBills,
 } = require('../controllers/claimController');
 const { protect, checkPermission } = require('../middleware/auth');
@@ -20,6 +20,11 @@ router.get('/process-by-values', checkPermission('claims', 'view'), getClaimProc
 // Distinct Room Type values for the Hospital Final Bill's self-learning
 // dropdown. Same "declared before '/:id'" rule as process-by-values above.
 router.get('/room-type-values', checkPermission('hospital_final_bills', 'view'), getRoomTypeValues);
+// Same self-learning dropdown, for the line items' Particulars/Description
+// columns. Same "declared before '/:id'" rule as process-by-values above.
+router.get('/bill-particulars-values', checkPermission('hospital_final_bills', 'view'), getBillParticularsValues);
+router.get('/bill-description-values', checkPermission('hospital_final_bills', 'view'), getBillDescriptionValues);
+router.get('/bill-remarks-values', checkPermission('hospital_final_bills', 'view'), getBillRemarksValues);
 // Hospital-wise list of every generated Hospital Final Bill. Same
 // "declared before '/:id'" rule as process-by-values above.
 router.get('/hospital-final-bills', checkPermission('hospital_final_bills', 'view'), listHospitalFinalBills);

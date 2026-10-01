@@ -4,7 +4,7 @@ import { toast } from 'react-toastify';
 import DateInput from '../../components/ui/DateInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
-import { getHospitalFinalBillAPI, saveHospitalFinalBillAPI, getRoomTypeValuesAPI, getHospitalFinalBillPdfURL, getNextHospitalBillNumberAPI, updateClaimAPI } from '../../services/api';
+import { getHospitalFinalBillAPI, saveHospitalFinalBillAPI, getRoomTypeValuesAPI, getBillParticularsValuesAPI, getBillDescriptionValuesAPI, getBillRemarksValuesAPI, getHospitalFinalBillPdfURL, getNextHospitalBillNumberAPI, updateClaimAPI } from '../../services/api';
 import { formatCurrency, formatINRWords, round2 } from '../../utils/format';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -37,6 +37,9 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
   const [existingBillNo, setExistingBillNo] = useState('');
   const [nextBillPreview, setNextBillPreview] = useState('');
   const [roomTypeValues, setRoomTypeValues] = useState([]);
+  const [particularsValues, setParticularsValues] = useState([]);
+  const [descriptionValues, setDescriptionValues] = useState([]);
+  const [remarksValues, setRemarksValues] = useState([]);
   const [form, setForm] = useState(null);
 
   useEffect(() => {
@@ -45,6 +48,9 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
     setLoading(true);
     setNextBillPreview('');
     getRoomTypeValuesAPI().then(({ data }) => { if (!cancelled) setRoomTypeValues(data || []); }).catch(() => {});
+    getBillParticularsValuesAPI().then(({ data }) => { if (!cancelled) setParticularsValues(data || []); }).catch(() => {});
+    getBillDescriptionValuesAPI().then(({ data }) => { if (!cancelled) setDescriptionValues(data || []); }).catch(() => {});
+    getBillRemarksValuesAPI().then(({ data }) => { if (!cancelled) setRemarksValues(data || []); }).catch(() => {});
     getHospitalFinalBillAPI(claim._id)
       .then(({ data }) => {
         if (cancelled) return;
@@ -298,10 +304,23 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
               </div>
               {f.items.map((it, idx) => (
                 <div key={idx} className="grid grid-cols-[1.2fr_1fr_90px_110px_120px_32px] gap-2 px-3 py-2 border-t border-gray-100 items-center">
-                  <input value={it.particulars} onChange={e => setItem(idx, 'particulars', e.target.value)}
-                    placeholder="e.g. Room Charges With Nursing Charges" className={inputCls} />
-                  <input value={it.description} onChange={e => setItem(idx, 'description', e.target.value)}
-                    placeholder="Description (optional)" className={inputCls} />
+                  <SearchableSelect
+                    value={it.particulars}
+                    onChange={v => setItem(idx, 'particulars', v)}
+                    options={particularsValues.map(v => ({ value: v, label: v }))}
+                    placeholder="e.g. Room Charges With Nursing Charges"
+                    searchPlaceholder="Search or add particulars..."
+                    allowCustom
+                  />
+                  <SearchableSelect
+                    value={it.description}
+                    onChange={v => setItem(idx, 'description', v)}
+                    options={descriptionValues.map(v => ({ value: v, label: v }))}
+                    placeholder="Description (optional)"
+                    searchPlaceholder="Search or add description..."
+                    allowCustom
+                    allowClear
+                  />
                   <input value={it.qtyRaw} onChange={e => setItem(idx, 'qtyRaw', e.target.value)}
                     placeholder='2 or 50%' className={inputCls} />
                   <AmountInput value={it.rate} allowDecimal showWords={false}
@@ -346,8 +365,15 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
 
           <div>
             <label className={labelCls}>Remarks</label>
-            <textarea value={f.remarks} onChange={e => setField('remarks', e.target.value)}
-              rows={2} placeholder="Any additional remarks for this bill…" className={`${inputCls} resize-none`} />
+            <SearchableSelect
+              value={f.remarks}
+              onChange={v => setField('remarks', v)}
+              options={remarksValues.map(v => ({ value: v, label: v }))}
+              placeholder="Any additional remarks for this bill…"
+              searchPlaceholder="Search or add remarks..."
+              allowCustom
+              allowClear
+            />
           </div>
         </div>
 

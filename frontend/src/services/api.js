@@ -326,6 +326,9 @@ export const deleteClaimStatusHistoryAPI = (claimId, historyId) => API.delete(`/
 // Hospital Final Bill (itemized IPD-style bill FCC generates on the hospital's
 // behalf, linked to a claim's Discharge Details).
 export const getRoomTypeValuesAPI = () => API.get('/claims/room-type-values');
+export const getBillParticularsValuesAPI = () => API.get('/claims/bill-particulars-values');
+export const getBillDescriptionValuesAPI = () => API.get('/claims/bill-description-values');
+export const getBillRemarksValuesAPI = () => API.get('/claims/bill-remarks-values');
 export const getHospitalFinalBillsAPI = (params) => API.get('/claims/hospital-final-bills', { params });
 export const getHospitalFinalBillAPI = (claimId) => API.get(`/claims/${claimId}/hospital-final-bill`);
 export const getNextHospitalBillNumberAPI = (claimId) => API.get(`/claims/${claimId}/hospital-final-bill/next-number`);
