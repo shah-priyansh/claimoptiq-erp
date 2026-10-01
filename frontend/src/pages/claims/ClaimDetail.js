@@ -644,7 +644,9 @@ const ClaimDetail = () => {
   const handleSaveFileReceive = async () => {
     setSaving(true);
     try {
-      const status = fileForm.courierSubmitDate || fileForm.onlineSubmitDate ? 'file_submitted' : 'file_received';
+      const status = fileForm.submitMode === 'online'
+        ? 'claim_online_submitted'
+        : (fileForm.courierSubmitDate || fileForm.onlineSubmitDate ? 'file_submitted' : 'file_received');
       await updateClaimAPI(id, { ...fileForm, status });
       await uploadPendingFiles('pod', pendingFiles.pod, true);
       toast.success('File & submit details saved');
