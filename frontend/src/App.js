@@ -10,6 +10,8 @@ import ProtectedRoute from './components/layout/ProtectedRoute';
 import Login from './pages/auth/Login';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
+import PrivacyPolicy from './pages/legal/PrivacyPolicy';
+import TermsConditions from './pages/legal/TermsConditions';
 import Dashboard from './pages/dashboard/Dashboard';
 import HospitalList from './pages/hospitals/HospitalList';
 import HospitalForm from './pages/hospitals/HospitalForm';
@@ -71,6 +73,8 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/terms-and-conditions" element={<TermsConditions />} />
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<ProtectedRoute module="dashboard"><Dashboard /></ProtectedRoute>} />
             <Route path="/hospitals" element={<ProtectedRoute module="hospitals" requireManage><HospitalList /></ProtectedRoute>} />
