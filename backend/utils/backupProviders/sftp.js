@@ -11,7 +11,7 @@
 const path = require('path');
 const crypto = require('crypto');
 const Client = require('ssh2-sftp-client');
-const { decrypt } = require('./cryptoBackup');
+const { decrypt } = require('../cryptoBackup');
 
 const fingerprintOf = (key) => crypto.createHash('sha256').update(key).digest('base64');
 

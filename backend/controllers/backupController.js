@@ -4,6 +4,7 @@ const backupService = require('../services/backupService');
 const backupScheduler = require('../services/backupScheduler');
 const { isAvailable, keyError } = require('../utils/cryptoBackup');
 const { uploadsUsagePct } = require('../utils/diskUsage');
+const { isConfigured: gdriveConfigured } = require('../utils/gdriveOAuth');
 
 // BigInt (bytesFreed) isn't JSON-serializable — coerce to Number for the wire.
 const runToResponse = (run) => ({
@@ -23,6 +24,7 @@ exports.getConfig = async (req, res) => {
       defaults: BACKUP_DEFAULTS,
       encryptionReady: isAvailable(),
       encryptionError: keyError(),
+      gdriveAvailable: gdriveConfigured(),
       diskUsedPct,
     });
   } catch (error) {

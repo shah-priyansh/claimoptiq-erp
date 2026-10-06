@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
   getBackupConfigAPI, updateBackupConfigAPI, runBackupAPI, getBackupRunsAPI,
   getBackupServersAPI, createBackupServerAPI, updateBackupServerAPI, deleteBackupServerAPI,
   testBackupServerAPI, setPrimaryBackupServerAPI, replicateBackupServerAPI,
+  gdriveAuthUrlAPI, gdriveDisconnectAPI,
 } from '../../services/api';
 
 const TABS = [
@@ -176,44 +178,104 @@ const GlobalTab = () => {
 };
 
 // ─── Servers tab ─────────────────────────────────────────────────────────
-const blankServer = () => ({
-  _draft: true, name: '', host: '', port: 22, username: '', authType: 'password',
-  remoteBasePath: '/backups', isEnabled: true, password: '', privateKey: '', passphrase: '',
-});
+const GDRIVE_DEFAULT_FOLDER = 'ClaimOptiq Backups';
+
+const blankServer = (type = 'sftp') => (type === 'gdrive'
+  ? { _draft: true, type, name: 'Google Drive', gdriveRootFolderName: GDRIVE_DEFAULT_FOLDER, isEnabled: true }
+  : {
+    _draft: true, type, name: '', host: '', port: 22, username: '', authType: 'password',
+    remoteBasePath: '/backups', isEnabled: true, password: '', privateKey: '', passphrase: '',
+  });
+
+// Reason codes from the Google OAuth callback redirect (?gdrive=error&reason=…).
+const GDRIVE_ERRORS = {
+  state: 'The Google sign-in link expired or was invalid. Click Connect again.',
+  denied: 'Google access was not allowed.',
+  google: 'Google returned an error. Please try again.',
+  scope: 'Please tick the Google Drive permission box on the Google screen.',
+  no_refresh: 'Google did not give a lasting sign-in. Remove ClaimOptiq under your Google Account > Security > Third-party access, then Connect again.',
+  exchange: 'Could not finish the Google sign-in. Please try again.',
+  account: 'That is a different Google account. Reconnect with the original Gmail, or add a new Google Drive server.',
+  test: 'Connected, but the backup folder could not be created in Google Drive.',
+  server: 'Could not save the Google Drive connection.',
+};
+
+const Chip = ({ className, children }) => (
+  <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border ${className}`}>{children}</span>
+);
 
 const ServersTab = () => {
   const confirm = useConfirm();
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [gdriveAvailable, setGdriveAvailable] = useState(false);
 
   const load = useCallback(async () => {
-    try { const { data } = await getBackupServersAPI(); setServers(data.map((s) => ({ ...s, password: '', privateKey: '', passphrase: '' }))); }
+    try {
+      const [{ data }, cfg] = await Promise.all([getBackupServersAPI(), getBackupConfigAPI().catch(() => null)]);
+      setServers(data.map((s) => ({ ...s, password: '', privateKey: '', passphrase: '' })));
+      setGdriveAvailable(!!cfg?.data?.gdriveAvailable);
+    }
     catch { toast.error('Failed to load servers'); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const addRow = () => setServers((s) => [...s, blankServer()]);
+  const addRow = (type) => setServers((s) => [...s, blankServer(type)]);
   const patch = (idx, k, v) => setServers((s) => s.map((row, i) => (i === idx ? { ...row, [k]: v } : row)));
 
   const save = async (row, idx) => {
-    if (!row.name || !row.host || !row.username) { toast.error('Name, host and username are required'); return; }
+    const isDrive = row.type === 'gdrive';
+    if (isDrive ? !row.name : (!row.name || !row.host || !row.username)) {
+      toast.error(isDrive ? 'Name is required' : 'Name, host and username are required');
+      return;
+    }
     setBusyId(row._id || `draft-${idx}`);
     try {
-      const payload = {
-        name: row.name, host: row.host, port: Number(row.port) || 22, username: row.username,
-        authType: row.authType, remoteBasePath: row.remoteBasePath, isEnabled: row.isEnabled,
-      };
-      if (row.password) payload.password = row.password;
-      if (row.privateKey) payload.privateKey = row.privateKey;
-      if (row.passphrase) payload.passphrase = row.passphrase;
-      if (row._draft) await createBackupServerAPI(payload);
+      let payload;
+      if (isDrive) {
+        payload = { name: row.name, gdriveRootFolderName: row.gdriveRootFolderName, isEnabled: row.isEnabled };
+      } else {
+        payload = {
+          name: row.name, host: row.host, port: Number(row.port) || 22, username: row.username,
+          authType: row.authType, remoteBasePath: row.remoteBasePath, isEnabled: row.isEnabled,
+        };
+        if (row.password) payload.password = row.password;
+        if (row.privateKey) payload.privateKey = row.privateKey;
+        if (row.passphrase) payload.passphrase = row.passphrase;
+      }
+      if (row._draft) await createBackupServerAPI({ ...payload, type: row.type || 'sftp' });
       else await updateBackupServerAPI(row._id, payload);
-      toast.success('Server saved');
+      toast.success(isDrive && row._draft ? 'Saved — now click "Connect Google Drive"' : 'Server saved');
       load();
     } catch (e) { toast.error(e.response?.data?.message || 'Save failed'); }
     finally { setBusyId(null); }
+  };
+
+  // Sends the browser to Google; it comes back to /backup?gdrive=… (handled by BackupSettings).
+  const connectDrive = async (row) => {
+    setBusyId(row._id);
+    try {
+      const { data } = await gdriveAuthUrlAPI(row._id);
+      window.location.assign(data.url);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Could not start Google sign-in');
+      setBusyId(null);
+    }
+  };
+
+  const disconnectDrive = async (row) => {
+    if (!(await confirm(`Disconnect Google Drive "${row.name}"? Backups to it stop until you connect again. Files already in Drive stay there.`, { title: 'Disconnect Google Drive', confirmLabel: 'Disconnect', variant: 'danger' }))) return;
+    setBusyId(row._id);
+    try { await gdriveDisconnectAPI(row._id); toast.success('Google Drive disconnected'); load(); }
+    catch (e) {
+      const msg = e.response?.data?.message || 'Disconnect failed';
+      if (e.response?.status === 409 && await confirm(`${msg}\n\nReplicate those files to other servers now?`, { title: 'Files only on this server', confirmLabel: 'Replicate' })) {
+        try { const { data } = await replicateBackupServerAPI(row._id); toast.success(data.message); }
+        catch (er) { toast.error(er.response?.data?.message || 'Replicate failed'); }
+      } else { toast.error(msg); }
+    } finally { setBusyId(null); }
   };
 
   const remove = async (row, idx) => {
@@ -232,7 +294,17 @@ const ServersTab = () => {
 
   const test = async (row) => {
     setBusyId(row._id);
-    try { const { data } = await testBackupServerAPI(row._id); data.ok ? toast.success('Connection OK') : toast.error(`Failed: ${data.error}`); load(); }
+    try {
+      const { data } = await testBackupServerAPI(row._id);
+      if (!data.ok) toast.error(`Failed: ${data.error}`);
+      else if (data.email) {
+        const used = data.storage?.usage != null
+          ? ` · ${fmtBytes(data.storage.usage)}${data.storage.limit ? ` of ${fmtBytes(data.storage.limit)}` : ''} used`
+          : '';
+        toast.success(`Connection OK — ${data.email}${used}`);
+      } else toast.success('Connection OK');
+      load();
+    }
     catch (e) { toast.error(e.response?.data?.message || 'Test failed'); }
     finally { setBusyId(null); }
   };
@@ -256,6 +328,7 @@ const ServersTab = () => {
 
       {servers.map((row, idx) => {
         const busy = busyId === (row._id || `draft-${idx}`) || busyId === row._id;
+        const isDrive = row.type === 'gdrive';
         return (
           <div
             key={row._id || idx}
@@ -263,15 +336,20 @@ const ServersTab = () => {
           >
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => !row._draft && makePrimary(row)}
-                  title="Set primary"
-                  className={`text-lg leading-none ${row.isPrimary ? 'text-primary-500' : 'text-gray-300 hover:text-gray-400'}`}
-                >
-                  ★
-                </button>
+                {isDrive ? (
+                  <span title="Google Drive is a safety copy and can't be primary" className="text-lg leading-none text-gray-200 cursor-not-allowed">★</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => !row._draft && makePrimary(row)}
+                    title="Set primary"
+                    className={`text-lg leading-none ${row.isPrimary ? 'text-primary-500' : 'text-gray-300 hover:text-gray-400'}`}
+                  >
+                    ★
+                  </button>
+                )}
                 <h3 className="text-base font-semibold text-gray-800">{row.name || 'New server'}</h3>
+                <Chip className="text-gray-600 bg-gray-50 border-gray-200">{isDrive ? 'Google Drive' : 'SFTP'}</Chip>
                 {row.isPrimary && <span className="text-[10px] font-semibold uppercase tracking-wide text-primary-700 bg-primary-50 border border-primary-100 px-1.5 py-0.5 rounded">Primary</span>}
                 {row._draft && <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded">Unsaved</span>}
                 {!row._draft && row.lastTestOk === true && <span className="text-[10px] font-semibold uppercase tracking-wide text-green-700 bg-green-50 border border-green-100 px-1.5 py-0.5 rounded">Reachable</span>}
@@ -288,78 +366,111 @@ const ServersTab = () => {
               </label>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className={labelCls}>Name</label>
-                <input className={inputCls} value={row.name} onChange={(e) => patch(idx, 'name', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>Host</label>
-                <input className={inputCls} value={row.host} onChange={(e) => patch(idx, 'host', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>Port</label>
-                <input className={inputCls} type="number" value={row.port} onChange={(e) => patch(idx, 'port', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>Username</label>
-                <input className={inputCls} value={row.username} onChange={(e) => patch(idx, 'username', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>Base path</label>
-                <input className={inputCls} value={row.remoteBasePath} onChange={(e) => patch(idx, 'remoteBasePath', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>Auth</label>
-                <select className={inputCls} value={row.authType} onChange={(e) => patch(idx, 'authType', e.target.value)}>
-                  <option value="password">Password</option>
-                  <option value="key">SSH key</option>
-                </select>
-              </div>
-              {row.authType === 'password' ? (
+            {isDrive ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
-                  <label className={labelCls}>
-                    Password {row.hasPassword && <span className="text-green-600 text-xs ml-1">• set</span>}
-                  </label>
+                  <label className={labelCls}>Name</label>
+                  <input className={inputCls} value={row.name} onChange={(e) => patch(idx, 'name', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Folder in Google Drive</label>
                   <input
                     className={inputCls}
-                    type="password"
-                    placeholder={row.hasPassword ? '•••••• (unchanged)' : ''}
-                    value={row.password}
-                    onChange={(e) => patch(idx, 'password', e.target.value)}
+                    value={row.gdriveRootFolderName || ''}
+                    placeholder={GDRIVE_DEFAULT_FOLDER}
+                    onChange={(e) => patch(idx, 'gdriveRootFolderName', e.target.value)}
                   />
                 </div>
-              ) : (
-                <>
-                  <div className="md:col-span-2">
-                    <label className={labelCls}>
-                      Private key {row.hasPrivateKey && <span className="text-green-600 text-xs ml-1">• set</span>}
-                    </label>
-                    <textarea
-                      className={`${inputCls} resize-y font-mono text-xs`}
-                      rows={2}
-                      placeholder={row.hasPrivateKey ? '•••••• (unchanged)' : '-----BEGIN OPENSSH PRIVATE KEY-----'}
-                      value={row.privateKey}
-                      onChange={(e) => patch(idx, 'privateKey', e.target.value)}
-                    />
-                  </div>
+                <div className="md:col-span-2">
+                  <label className={labelCls}>Google account</label>
+                  {row._draft ? (
+                    <p className="text-sm text-gray-500 py-2">Save first, then connect.</p>
+                  ) : row.gdriveConnected ? (
+                    <p className="text-sm text-gray-700 py-2">Connected as <span className="font-medium">{row.gdriveAccountEmail || 'unknown account'}</span></p>
+                  ) : (
+                    <p className="text-sm text-amber-700 py-2">
+                      Not connected{row.gdriveAccountEmail ? ` (was ${row.gdriveAccountEmail})` : ''}
+                    </p>
+                  )}
+                </div>
+                <p className="md:col-span-2 lg:col-span-4 text-xs text-gray-500">
+                  Safety copy only: files are copied into this folder in the same Hospital › Patient layout. The app can only see files it creates in this Google Drive.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className={labelCls}>Name</label>
+                  <input className={inputCls} value={row.name} onChange={(e) => patch(idx, 'name', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Host</label>
+                  <input className={inputCls} value={row.host} onChange={(e) => patch(idx, 'host', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Port</label>
+                  <input className={inputCls} type="number" value={row.port} onChange={(e) => patch(idx, 'port', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Username</label>
+                  <input className={inputCls} value={row.username} onChange={(e) => patch(idx, 'username', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Base path</label>
+                  <input className={inputCls} value={row.remoteBasePath} onChange={(e) => patch(idx, 'remoteBasePath', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Auth</label>
+                  <select className={inputCls} value={row.authType} onChange={(e) => patch(idx, 'authType', e.target.value)}>
+                    <option value="password">Password</option>
+                    <option value="key">SSH key</option>
+                  </select>
+                </div>
+                {row.authType === 'password' ? (
                   <div>
                     <label className={labelCls}>
-                      Passphrase {row.hasPassphrase && <span className="text-green-600 text-xs ml-1">• set</span>}
+                      Password {row.hasPassword && <span className="text-green-600 text-xs ml-1">• set</span>}
                     </label>
                     <input
                       className={inputCls}
                       type="password"
-                      placeholder={row.hasPassphrase ? '•••••• (unchanged)' : ''}
-                      value={row.passphrase}
-                      onChange={(e) => patch(idx, 'passphrase', e.target.value)}
+                      placeholder={row.hasPassword ? '•••••• (unchanged)' : ''}
+                      value={row.password}
+                      onChange={(e) => patch(idx, 'password', e.target.value)}
                     />
                   </div>
-                </>
-              )}
-            </div>
+                ) : (
+                  <>
+                    <div className="md:col-span-2">
+                      <label className={labelCls}>
+                        Private key {row.hasPrivateKey && <span className="text-green-600 text-xs ml-1">• set</span>}
+                      </label>
+                      <textarea
+                        className={`${inputCls} resize-y font-mono text-xs`}
+                        rows={2}
+                        placeholder={row.hasPrivateKey ? '•••••• (unchanged)' : '-----BEGIN OPENSSH PRIVATE KEY-----'}
+                        value={row.privateKey}
+                        onChange={(e) => patch(idx, 'privateKey', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>
+                        Passphrase {row.hasPassphrase && <span className="text-green-600 text-xs ml-1">• set</span>}
+                      </label>
+                      <input
+                        className={inputCls}
+                        type="password"
+                        placeholder={row.hasPassphrase ? '•••••• (unchanged)' : ''}
+                        value={row.passphrase}
+                        onChange={(e) => patch(idx, 'passphrase', e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
-            <div className="flex items-center gap-2 mt-5 pt-4 border-t border-gray-100">
+            <div className="flex flex-wrap items-center gap-2 mt-5 pt-4 border-t border-gray-100">
               <button
                 onClick={() => save(row, idx)}
                 disabled={busy}
@@ -367,13 +478,31 @@ const ServersTab = () => {
               >
                 Save
               </button>
-              {!row._draft && (
+              {isDrive && !row._draft && (!row.gdriveConnected || row.lastTestOk === false) && (
+                <button
+                  onClick={() => connectDrive(row)}
+                  disabled={busy}
+                  className="bg-white border border-primary-300 text-primary-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-50 disabled:opacity-50"
+                >
+                  {row.gdriveConnected || row.gdriveAccountEmail ? 'Reconnect Google Drive' : 'Connect Google Drive'}
+                </button>
+              )}
+              {!row._draft && (!isDrive || row.gdriveConnected) && (
                 <button
                   onClick={() => test(row)}
                   disabled={busy}
                   className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
                 >
                   Test connection
+                </button>
+              )}
+              {isDrive && !row._draft && row.gdriveConnected && (
+                <button
+                  onClick={() => disconnectDrive(row)}
+                  disabled={busy}
+                  className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Disconnect
                 </button>
               )}
               <button
@@ -388,12 +517,27 @@ const ServersTab = () => {
         );
       })}
 
-      <button
-        onClick={addRow}
-        className="w-full bg-white border border-dashed border-gray-300 text-sm font-medium text-gray-500 rounded-xl py-3 hover:border-primary-400 hover:text-primary-600 transition-colors"
-      >
-        + Add server
-      </button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button
+          onClick={() => addRow('sftp')}
+          className="w-full bg-white border border-dashed border-gray-300 text-sm font-medium text-gray-500 rounded-xl py-3 hover:border-primary-400 hover:text-primary-600 transition-colors"
+        >
+          + Add SFTP server
+        </button>
+        <button
+          onClick={() => addRow('gdrive')}
+          disabled={!gdriveAvailable}
+          title={gdriveAvailable ? '' : 'Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI on the server first'}
+          className="w-full bg-white border border-dashed border-gray-300 text-sm font-medium text-gray-500 rounded-xl py-3 hover:border-primary-400 hover:text-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-300 disabled:hover:text-gray-500"
+        >
+          + Add Google Drive
+        </button>
+      </div>
+      {!gdriveAvailable && (
+        <p className="text-xs text-gray-400 text-center">
+          Google Drive needs GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI set on the server.
+        </p>
+      )}
     </div>
   );
 };
@@ -506,12 +650,23 @@ const RunsTab = () => {
 };
 
 const BackupSettings = () => {
-  const [tab, setTab] = useState('global');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get('gdrive') ? 'servers' : 'global');
+
+  // Coming back from the Google consent screen: report, then clean the URL.
+  useEffect(() => {
+    const result = searchParams.get('gdrive');
+    if (!result) return;
+    // Fixed toastId: StrictMode runs this effect twice in development.
+    if (result === 'connected') toast.success('Google Drive connected', { toastId: 'gdrive-result' });
+    else toast.error(GDRIVE_ERRORS[searchParams.get('reason')] || 'Google Drive connection failed', { toastId: 'gdrive-result' });
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   return (
     <div>
       <p className="text-sm text-gray-500 mb-5">
-        Offload uploaded files to remote SFTP servers to free local disk space.
+        Back up uploaded files to SFTP servers and Google Drive, and free local disk space.
       </p>
 
       <div className="flex gap-2 border-b border-gray-200 mb-5">
