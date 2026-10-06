@@ -1,11 +1,12 @@
 // File retrieval — serves a ClaimDocument / DocumentSubmission to the browser
-// whether it lives on local disk or on a remote SFTP server. Honors HTTP Range
-// (PDF/image viewers issue ranged/seek requests that express.static handled for
-// free) and tries every enabled server with a 'verified' copy before failing.
+// whether it lives on local disk or on a remote backup server (SFTP or Google
+// Drive). Honors HTTP Range (PDF/image viewers issue ranged/seek requests that
+// express.static handled for free) and tries every enabled server with a
+// 'verified' copy before failing.
 
 const fs = require('fs');
 const prisma = require('../config/prisma');
-const sftp = require('../utils/sftpProvider');
+const { providerFor } = require('../utils/backupProviders');
 const { resolveLocalPath } = require('./backupService');
 
 // Returns { stream, close, totalSize, source } for the given record + optional
@@ -39,7 +40,7 @@ const resolveFileStream = async (record, sourceType, range) => {
   let lastErr = null;
   for (const loc of locations) {
     try {
-      const { stream, close } = await sftp.openReadStream(loc.server, loc.remoteKey, rangeOpts);
+      const { stream, close } = await providerFor(loc.server).openReadStream(loc.server, loc.remoteKey, rangeOpts);
       return { stream, close, totalSize: record.fileSize || loc.remoteSize || null, source: 'remote' };
     } catch (err) {
       lastErr = err;

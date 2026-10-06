@@ -1033,15 +1033,21 @@ model SiteSetting {
 model BackupServer {
   id              String    @id @default(uuid())
   name            String
-  host            String
+  type            String    @default("sftp") // 'sftp' | 'gdrive'
+  host            String?   // sftp only
   port            Int       @default(22)
-  username        String
+  username        String?   // sftp only
   authType        String    @default("password") @map("auth_type") // 'password' | 'key'
   encPassword     String?   @map("enc_password")
   encPrivateKey   String?   @map("enc_private_key")
   encPassphrase   String?   @map("enc_passphrase")
   remoteBasePath  String    @default("/backups") @map("remote_base_path")
   hostFingerprint String?   @map("host_fingerprint")
+  // gdrive only: OAuth refresh token (encrypted like the SFTP secrets), the
+  // Gmail it belongs to, and the app-made top folder everything files under.
+  encGdriveRefreshToken String? @map("enc_gdrive_refresh_token")
+  gdriveAccountEmail    String? @map("gdrive_account_email")
+  gdriveRootFolderName  String? @map("gdrive_root_folder_name")
   isPrimary       Boolean   @default(false) @map("is_primary")
   isEnabled       Boolean   @default(true) @map("is_enabled")
   order           Int       @default(0)

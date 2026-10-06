@@ -257,6 +257,8 @@ export const deleteBackupServerAPI    = (id) => API.delete(`/backup/servers/${id
 export const testBackupServerAPI      = (id) => API.post(`/backup/servers/${id}/test`);
 export const setPrimaryBackupServerAPI = (id) => API.post(`/backup/servers/${id}/set-primary`);
 export const replicateBackupServerAPI = (id) => API.post(`/backup/servers/${id}/replicate`);
+export const gdriveAuthUrlAPI         = (id) => API.post(`/backup/servers/${id}/gdrive/auth-url`);
+export const gdriveDisconnectAPI      = (id) => API.post(`/backup/servers/${id}/gdrive/disconnect`);
 
 // Site settings — invoice logo upload (multipart/form-data)
 export const uploadInvoiceLogoAPI = (file) => {
