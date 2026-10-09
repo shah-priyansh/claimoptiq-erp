@@ -366,7 +366,7 @@ const BulkInvoiceWizard = () => {
     a.href = pdfBlobUrl;
     a.download = `Preview - ${invoiceFilename({
       isDirectPatient: draft.isDirectPatient,
-      hospitalName: draft.hospital?.name,
+      hospitalName: draft.hospital?.invoiceName || draft.hospital?.name,
       month: draft.month,
       lineItems: draft.previewLines,
     })}`;
@@ -421,7 +421,7 @@ const BulkInvoiceWizard = () => {
         const { data: blob } = await getInvoicePdfBlobAPI(r.invoice._id);
         let name = invoiceFilename({
           isDirectPatient: r.invoice.isDirectPatient ?? r.draft.isDirectPatient,
-          hospitalName: r.invoice.hospital?.name || r.draft.hospital?.name,
+          hospitalName: r.invoice.hospital?.invoiceName || r.invoice.hospital?.name || r.draft.hospital?.invoiceName || r.draft.hospital?.name,
           month: r.invoice.month || r.draft.month,
           lineItems: r.invoice.lineItems || r.draft.previewLines,
         });

@@ -63,7 +63,7 @@ const HospitalForm = () => {
   const isSuperAdmin = user?.role?.slug === 'super_admin';
 
   const [form, setForm] = useState({
-    name: '', contact: '', email: '', phone: '', address: '',
+    name: '', invoiceName: '', contact: '', email: '', phone: '', address: '',
     city: '', state: '', pincode: '', referenceBy: '', referenceId: '',
     parentHospitalId: '',
     hospitalBillStartNo: '',
@@ -104,6 +104,7 @@ const HospitalForm = () => {
     if (isEdit) {
       getHospitalAPI(id).then(({ data }) => setForm({
         ...data,
+        invoiceName: data.invoiceName || '',
         referenceId: data.referenceId || data.reference?._id || '',
         parentHospitalId: data.parentHospitalId || '',
         isActive: data.isActive !== false,
@@ -297,6 +298,13 @@ const HospitalForm = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Hospital Name *</label>
               <input name="name" value={form.name} onChange={handleChange} required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Name <span className="text-gray-400 font-normal">(Legal Name as per bank)</span></label>
+              <input name="invoiceName" value={form.invoiceName} onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Leave blank to use the hospital name" />
+              <p className="text-xs text-gray-400 mt-1">Used on generated invoices (Bill To) when it differs from the hospital/brand name. The hospital name above stays unchanged everywhere else.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Contact Person</label>

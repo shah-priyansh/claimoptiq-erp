@@ -38,6 +38,11 @@ model RoleModulePermission {
 model Hospital {
   id               String                   @id @default(uuid())
   name             String
+  // Legal/billing name "as per bank" — a hospital's brand name (`name`, used
+  // for selection everywhere) often differs from the legal entity on its bank
+  // account. When set, the generated invoice PDF's "Bill To" and the download
+  // filename use this instead of `name`; blank falls back to the brand name.
+  invoiceName      String                   @default("") @map("invoice_name")
   contact          String                   @default("")
   email            String                   @default("")
   phone            String                   @default("")

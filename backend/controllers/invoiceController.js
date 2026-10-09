@@ -98,7 +98,7 @@ const parseInvoiceMonth = (val) => {
 };
 
 const invoiceInclude = {
-  hospital: { select: { id: true, name: true, isDirect: true, address: true, city: true, state: true, pincode: true, phone: true } },
+  hospital: { select: { id: true, name: true, invoiceName: true, isDirect: true, address: true, city: true, state: true, pincode: true, phone: true } },
   createdBy: { select: { id: true, name: true, email: true } },
   issuedBy: { select: { id: true, name: true, email: true } },
   tdsRateMaster: { select: { id: true, taxName: true, rate: true, section: true } },
@@ -112,7 +112,7 @@ const invoiceInclude = {
 // line's description so the list can render the patient name on direct-
 // patient invoices (and the download-filename helper can pull the same).
 const invoiceListInclude = {
-  hospital: { select: { id: true, name: true, isDirect: true } },
+  hospital: { select: { id: true, name: true, invoiceName: true, isDirect: true } },
   lineItems: {
     where: { lineType: 'claim_tpa_desk' },
     select: { lineType: true, description: true },
@@ -2233,7 +2233,7 @@ const buildInvoiceDownloadName = (invoice) => {
   const monthLabel = invoice.month
     ? new Date(invoice.month).toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
     : '';
-  let base = invoice.hospital?.name || invoice.partyName || 'invoice';
+  let base = invoice.hospital?.invoiceName || invoice.hospital?.name || invoice.partyName || 'invoice';
   if (invoice.isDirectPatient) {
     const firstTpa = (invoice.lineItems || []).find((l) => l.lineType === 'claim_tpa_desk');
     const desc = firstTpa?.description || '';

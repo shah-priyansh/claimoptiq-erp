@@ -181,7 +181,7 @@ const InvoiceList = () => {
     try {
       await openInvoicePdf(inv._id, invoiceFilename({
         isDirectPatient: inv.isDirectPatient,
-        hospitalName: inv.hospital?.name,
+        hospitalName: inv.hospital?.invoiceName || inv.hospital?.name,
         partyName: inv.partyName,
         month: inv.month,
         lineItems: inv.lineItems,

@@ -162,7 +162,10 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       // collapse to "Multiple patients (Ref: <Hospital>)".
       // `hospital` is null for imported party / direct-patient bills that have no
       // hospital — bill the party name stored on the invoice.
-      let billName = hospital?.name || invoice.partyName || '-';
+      // Bill the hospital's legal/bank name when set (brand name differs from
+      // the bank account's legal entity); fall back to the brand name, then the
+      // imported party name. See Hospital.invoiceName.
+      let billName = hospital?.invoiceName || hospital?.name || invoice.partyName || '-';
       let billAddrPieces = [
         hospital?.address,
         [hospital?.city, hospital?.state, hospital?.pincode].filter(Boolean).join(', '),
