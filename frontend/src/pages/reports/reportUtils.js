@@ -25,9 +25,12 @@ export const BarChart = ({ rows = [], keyField = 'key', labelField = 'label', va
   }
   const defaultColors = colors || ['#1d4ed8', '#dc2626', '#16a34a', '#f59e0b'];
   const maxVal = Math.max(1, ...rows.flatMap((r) => valueFields.map((f) => Math.abs(Number(r[f]) || 0))));
-  const barWidth = Math.max(20, Math.floor(600 / Math.max(rows.length, 1)));
-  const chartWidth = Math.max(600, rows.length * (barWidth + 8) + 60);
+  // Each row is a group of valueFields bars. Size bars by the TOTAL bar count and
+  // derive chartWidth from the actual group layout below — otherwise the svg width
+  // is far narrower than the drawn bars and later months get clipped off (invisible).
+  const barWidth = Math.max(16, Math.floor(600 / Math.max(rows.length * valueFields.length, 1)));
   const groupWidth = barWidth * valueFields.length + 6;
+  const chartWidth = Math.max(600, 50 + rows.length * (groupWidth + 14) + 10);
   return (
     <div className="overflow-x-auto">
       <svg width={chartWidth} height={height + 40} className="block">
