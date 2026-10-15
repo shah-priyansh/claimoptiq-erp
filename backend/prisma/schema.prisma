@@ -733,6 +733,9 @@ model Claim {
   settlementAmountDeduction Float                @default(0) @map("settlement_amount_deduction")
   mouDiscountOnSettlement   Float                @default(0) @map("mou_discount_on_settlement")
   tds                       Float                @default(0)
+  // When true, `tds` was set by the operator and must survive the 10% auto-calc
+  // + reload (mirrors filePriceOverridden). Lets a deliberate TDS of 0 stick.
+  tdsOverridden             Boolean              @default(false) @map("tds_overridden")
   bankTransferAmount        Float                @default(0) @map("bank_transfer_amount")
   settlementDate            DateTime?            @map("settlement_date")
   neftNo                    String               @default("") @map("neft_no")

@@ -319,10 +319,11 @@ const ClaimDetail = () => {
 
   useEffect(() => {
     if (!showTds) return;
-    setSettlementForm(prev => ({
-      ...prev,
-      tds: round2((prev.settlementAmount || 0) * 0.10),
-    }));
+    // Don't clobber a manually entered TDS (incl. a deliberate 0). Reading
+    // prev.tdsOverridden here keeps the value fresh without widening deps.
+    setSettlementForm(prev => (prev.tdsOverridden
+      ? prev
+      : { ...prev, tds: round2((prev.settlementAmount || 0) * 0.10) }));
   }, [settlementForm.settlementAmount, showTds]);
 
   useEffect(() => {
@@ -404,8 +405,12 @@ const ClaimDetail = () => {
       const initialSettlementAmount = data.settlementAmount
         || ((data.finalApprovalAmount || 0) - (data.settlementAmountDeduction || 0) - (data.mouDiscountOnSettlement || 0))
         || 0;
-      const initialTds = data.tds
-        || (['cashless', 'cashless_anywhere', 'grievance'].includes(data.claimType) ? round2(initialSettlementAmount * 0.10) : 0);
+      // A manually-overridden TDS (incl. a deliberate 0) is honored as-is;
+      // otherwise it's the 10% auto-calc. Using `??` so a stored 0 isn't
+      // treated as "empty" and recomputed.
+      const initialTds = data.tdsOverridden
+        ? (data.tds ?? 0)
+        : (['cashless', 'cashless_anywhere', 'grievance'].includes(data.claimType) ? round2(initialSettlementAmount * 0.10) : 0);
       const initialBank = data.bankTransferAmount
         || Math.max(0, initialSettlementAmount - initialTds);
       setSettlementForm({
@@ -413,6 +418,7 @@ const ClaimDetail = () => {
         settlementAmountDeduction: data.settlementAmountDeduction || 0,
         mouDiscountOnSettlement: data.mouDiscountOnSettlement || 0,
         tds: initialTds,
+        tdsOverridden: !!data.tdsOverridden,
         bankTransferAmount: initialBank,
         settlementDate: data.settlementDate?.slice(0, 10) || '',
         neftNo: data.neftNo || '',
@@ -1635,7 +1641,13 @@ const ClaimDetail = () => {
                       <label className={labelCls}>{f.label}</label>
                       {f.type === 'amount'
                         ? <AmountInput value={settlementForm[f.name] || 0}
-                            onChange={v => setSettlementForm({ ...settlementForm, [f.name]: v })}
+                            onChange={v => setSettlementForm(sf => ({
+                              ...sf,
+                              [f.name]: v,
+                              // Editing TDS locks in the manual value (incl. 0) so
+                              // the 10% auto-calc stops overwriting it.
+                              ...(f.name === 'tds' ? { tdsOverridden: true } : {}),
+                            }))}
                             allowNegative={f.allowNegative}
                             allowDecimal
                             className={inputCls} />
