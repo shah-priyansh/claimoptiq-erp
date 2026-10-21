@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { toast } from 'react-toastify';
 import { HiOutlineDownload, HiChevronDown, HiOutlineX, HiOutlineSearch, HiOutlineCog } from 'react-icons/hi';
-import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
+import { formatCurrency, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
 import ClaimSummaryColumnsModal from '../invoices/ClaimSummaryColumnsModal';
@@ -297,8 +297,10 @@ const Reports = ({ settlement = false }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.hospital, filters.reference, filters.directPatient, filters.dateFrom, filters.dateTo, filters.status, filters.dateBasis]);
 
+  // Server-resolved, version-aware price (Task 3's `getClaims`/export already
+  // compute it per claim by billing month) — no client recompute.
   const getFilePrice = useCallback(
-    (c) => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType, c.settlementAmount || 0),
+    (c) => c.filePrice || 0,
     []
   );
 

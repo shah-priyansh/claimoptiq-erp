@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
 import { statusBadgeStyle, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
+import { formatCurrency, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import PaginationBar from '../../components/ui/PaginationBar';
 import * as XLSX from 'xlsx-js-style';
@@ -304,7 +304,9 @@ const ClaimList = () => {
     .filter(f => (!f.superAdminOnly || isSuperAdmin) && (!f.nonHospitalOnly || !isHospitalUser))
     .map(f =>
       f.key === 'filePrice'
-        ? { ...f, getValue: c => c.filePrice || calculateFilePrice(c.hospital?.billingServices || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType, c.settlementAmount || 0) }
+        // Server-resolved, version-aware price (Task 3's `getClaims`/export
+        // already compute it per claim by billing month) — no client recompute.
+        ? { ...f, getValue: c => c.filePrice || 0 }
         : f
     );
 
