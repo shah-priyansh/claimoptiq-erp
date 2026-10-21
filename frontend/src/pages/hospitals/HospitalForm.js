@@ -32,6 +32,54 @@ const CALC_BASIS_OPTIONS = [
 const emptyDoctor = { name: '', specialization: '', phone: '', email: '' };
 const emptySlab = { rangeStart: 0, rangeEnd: 0, price: 0 };
 
+// Client-only key so React can track a rate version across add/delete/select
+// before (and regardless of whether) it ever gets a server `id`.
+let versionKeySeq = 0;
+const makeVersionKey = () => `rv_${Date.now()}_${versionKeySeq++}`;
+
+const createBaseVersion = () => ({
+  _key: makeVersionKey(),
+  id: undefined,
+  effectiveFromMonth: null, // base version — applies to all months before the earliest dated version
+  note: '',
+  billingServices: [],
+});
+
+// `effectiveFromMonth` round-trips from the API as either `null` (base) or an
+// ISO datetime string like "2026-11-01T00:00:00.000Z". Pull the "YYYY-MM"
+// out with a plain string match (never `new Date(...)`) so a <input
+// type="month"> never shifts near a month/timezone boundary.
+const toMonthInputValue = (effectiveFromMonth) => {
+  if (!effectiveFromMonth) return '';
+  const match = String(effectiveFromMonth).match(/^(\d{4})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}` : '';
+};
+
+// "2026-11" (from <input type="month">) -> "2026-11-01". A plain date-only
+// string like this parses as UTC midnight on the backend (see
+// normalizeEffectiveFromMonth in hospitalController.js) — never construct a
+// local `new Date(...)` here, that's the known timezone bug this avoids.
+const monthInputToDateOnly = (monthValue) => (monthValue ? `${monthValue}-01` : null);
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const formatMonthLabel = (effectiveFromMonth) => {
+  const monthStr = toMonthInputValue(effectiveFromMonth);
+  if (!monthStr) return '';
+  const [y, m] = monthStr.split('-');
+  return `${MONTH_NAMES[parseInt(m, 10) - 1] || m} ${y}`;
+};
+
+// Default "apply from" month for a newly added rate change: next calendar
+// month from today. Reads local y/m fields only (no ISO-string timezone
+// shift) and hands off to monthInputToDateOnly for the actual payload string.
+const defaultNextMonthDateOnly = () => {
+  const now = new Date();
+  let year = now.getFullYear();
+  let month = now.getMonth() + 2; // getMonth() is 0-indexed current month; +2 = next month, 1-indexed
+  if (month > 12) { month -= 12; year += 1; }
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+};
+
 const emptyService = {
   serviceName: '',
   billingType: 'fixed_monthly',
@@ -63,7 +111,7 @@ const HospitalForm = () => {
   // wipe them (hospital PUT recreates from the request body).
   const isSuperAdmin = user?.role?.slug === 'super_admin';
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     name: '', invoiceName: '', contact: '', email: '', phone: '', address: '',
     city: '', state: '', pincode: '', referenceBy: '', referenceId: '',
     parentHospitalId: '',
@@ -71,8 +119,14 @@ const HospitalForm = () => {
     isActive: true,
     isDirect: false,
     doctors: [],
-    billingServices: [],
-  });
+    // New hospital: seed exactly one base (current-rate) version. Existing
+    // hospitals replace this in the getHospitalAPI load below.
+    rateVersions: [createBaseVersion()],
+  }));
+  // Which rate version's billingServices the per-service editor below is
+  // currently showing/editing. Tracked by client-only `_key`, not array
+  // index, so delete/select stay correct regardless of ordering.
+  const [selectedVersionKey, setSelectedVersionKey] = useState(() => form.rateVersions[0]._key);
   // All hospitals (active), used to populate + guard the parent-hospital picker.
   const [hospitals, setHospitals] = useState([]);
   const [errors, setErrors] = useState({});
@@ -103,14 +157,39 @@ const HospitalForm = () => {
       setHospitals(Array.isArray(hosps.data) ? hosps.data : (hosps.data?.hospitals || []));
     }).catch(() => {}).finally(() => setDropdownDataLoading(false));
     if (isEdit) {
-      getHospitalAPI(id).then(({ data }) => setForm({
-        ...data,
-        invoiceName: data.invoiceName || '',
-        referenceId: data.referenceId || data.reference?._id || '',
-        parentHospitalId: data.parentHospitalId || '',
-        isActive: data.isActive !== false,
-        isDirect: !!data.isDirect,
-      })).catch(() => {
+      getHospitalAPI(id).then(({ data }) => {
+        const rawVersions = Array.isArray(data.rateVersions) ? data.rateVersions : [];
+        let rateVersions = rawVersions.map((v) => ({
+          _key: v.id ? String(v.id) : makeVersionKey(),
+          id: v.id,
+          effectiveFromMonth: v.effectiveFromMonth || null,
+          note: v.note || '',
+          billingServices: Array.isArray(v.billingServices) ? v.billingServices : [],
+        }));
+        if (rateVersions.length === 0) {
+          // Legacy/defensive fallback — no rateVersions on the payload at
+          // all, use the flat billingServices mirror as the base version.
+          rateVersions = [{
+            ...createBaseVersion(),
+            billingServices: Array.isArray(data.billingServices) ? data.billingServices : [],
+          }];
+        } else if (!rateVersions.some((v) => v.effectiveFromMonth === null)) {
+          // Defensive — backend always includes a base version, but don't
+          // leave the form without one if that ever isn't true.
+          rateVersions = [createBaseVersion(), ...rateVersions];
+        }
+        setForm({
+          ...data,
+          invoiceName: data.invoiceName || '',
+          referenceId: data.referenceId || data.reference?._id || '',
+          parentHospitalId: data.parentHospitalId || '',
+          isActive: data.isActive !== false,
+          isDirect: !!data.isDirect,
+          rateVersions,
+        });
+        const base = rateVersions.find((v) => v.effectiveFromMonth === null) || rateVersions[0];
+        setSelectedVersionKey(base._key);
+      }).catch(() => {
         toast.error('Hospital not found');
         navigate('/hospitals');
       }).finally(() => setFetchLoading(false));
@@ -122,77 +201,141 @@ const HospitalForm = () => {
     setErrors(prev => ({ ...prev, [e.target.name]: '' }));
   };
 
+  // All billing-service editing below operates on the SELECTED rate
+  // version's billingServices only — other versions are untouched.
+  const updateSelectedVersionServices = (updater) => {
+    setForm((f) => ({
+      ...f,
+      rateVersions: f.rateVersions.map((v) =>
+        v._key === selectedVersionKey ? { ...v, billingServices: updater(v.billingServices) } : v
+      ),
+    }));
+  };
+
   const handleServiceChange = (idx, field, value) => {
-    const services = [...form.billingServices];
-    services[idx] = { ...services[idx], [field]: value };
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => {
+      const next = [...services];
+      next[idx] = { ...next[idx], [field]: value };
+      return next;
+    });
   };
 
   const addSlab = (svcIdx) => {
-    const services = [...form.billingServices];
-    services[svcIdx] = { ...services[svcIdx], slabs: [...(services[svcIdx].slabs || []), { ...emptySlab }] };
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => {
+      const next = [...services];
+      next[svcIdx] = { ...next[svcIdx], slabs: [...(next[svcIdx].slabs || []), { ...emptySlab }] };
+      return next;
+    });
   };
 
   const removeSlab = (svcIdx, slabIdx) => {
-    const services = [...form.billingServices];
-    services[svcIdx] = { ...services[svcIdx], slabs: services[svcIdx].slabs.filter((_, i) => i !== slabIdx) };
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => {
+      const next = [...services];
+      next[svcIdx] = { ...next[svcIdx], slabs: next[svcIdx].slabs.filter((_, i) => i !== slabIdx) };
+      return next;
+    });
   };
 
   const handleSlabChange = (svcIdx, slabIdx, field, value) => {
-    const services = [...form.billingServices];
-    const slabs = [...(services[svcIdx].slabs || [])];
-    slabs[slabIdx] = { ...slabs[slabIdx], [field]: value };
-    services[svcIdx] = { ...services[svcIdx], slabs };
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => {
+      const next = [...services];
+      const slabs = [...(next[svcIdx].slabs || [])];
+      slabs[slabIdx] = { ...slabs[slabIdx], [field]: value };
+      next[svcIdx] = { ...next[svcIdx], slabs };
+      return next;
+    });
   };
 
   const addService = () => {
-    setForm({ ...form, billingServices: [...form.billingServices, { ...emptyService }] });
+    updateSelectedVersionServices((services) => [...services, { ...emptyService }]);
   };
 
   const removeService = (idx) => {
-    const services = form.billingServices.filter((_, i) => i !== idx);
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => services.filter((_, i) => i !== idx));
   };
 
   const toggleInsurer = (svcIdx, insurerId) => {
-    const services = [...form.billingServices];
-    const current = services[svcIdx].overLimitInsurerIds || [];
-    const updated = current.includes(insurerId) ? current.filter(id => id !== insurerId) : [...current, insurerId];
-    services[svcIdx] = { ...services[svcIdx], overLimitInsurerIds: updated };
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => {
+      const next = [...services];
+      const current = next[svcIdx].overLimitInsurerIds || [];
+      const updated = current.includes(insurerId) ? current.filter(id => id !== insurerId) : [...current, insurerId];
+      next[svcIdx] = { ...next[svcIdx], overLimitInsurerIds: updated };
+      return next;
+    });
   };
 
   const selectAllInsurers = (svcIdx, ids) => {
-    const services = [...form.billingServices];
-    const current = services[svcIdx].overLimitInsurerIds || [];
-    const allSelected = ids.every(id => current.includes(id));
-    const updated = allSelected
-      ? current.filter(id => !ids.includes(id))
-      : [...new Set([...current, ...ids])];
-    services[svcIdx] = { ...services[svcIdx], overLimitInsurerIds: updated };
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => {
+      const next = [...services];
+      const current = next[svcIdx].overLimitInsurerIds || [];
+      const allSelected = ids.every(id => current.includes(id));
+      const updated = allSelected
+        ? current.filter(id => !ids.includes(id))
+        : [...new Set([...current, ...ids])];
+      next[svcIdx] = { ...next[svcIdx], overLimitInsurerIds: updated };
+      return next;
+    });
   };
 
   const toggleTpa = (svcIdx, tpaId) => {
-    const services = [...form.billingServices];
-    const current = services[svcIdx].overLimitTpaIds || [];
-    const updated = current.includes(tpaId) ? current.filter(id => id !== tpaId) : [...current, tpaId];
-    services[svcIdx] = { ...services[svcIdx], overLimitTpaIds: updated };
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => {
+      const next = [...services];
+      const current = next[svcIdx].overLimitTpaIds || [];
+      const updated = current.includes(tpaId) ? current.filter(id => id !== tpaId) : [...current, tpaId];
+      next[svcIdx] = { ...next[svcIdx], overLimitTpaIds: updated };
+      return next;
+    });
   };
 
   const selectAllTpas = (svcIdx, ids) => {
-    const services = [...form.billingServices];
-    const current = services[svcIdx].overLimitTpaIds || [];
-    const allSelected = ids.every(id => current.includes(id));
-    const updated = allSelected
-      ? current.filter(id => !ids.includes(id))
-      : [...new Set([...current, ...ids])];
-    services[svcIdx] = { ...services[svcIdx], overLimitTpaIds: updated };
-    setForm({ ...form, billingServices: services });
+    updateSelectedVersionServices((services) => {
+      const next = [...services];
+      const current = next[svcIdx].overLimitTpaIds || [];
+      const allSelected = ids.every(id => current.includes(id));
+      const updated = allSelected
+        ? current.filter(id => !ids.includes(id))
+        : [...new Set([...current, ...ids])];
+      next[svcIdx] = { ...next[svcIdx], overLimitTpaIds: updated };
+      return next;
+    });
+  };
+
+  // --- Rate version switcher: select / add / delete / retitle a version ---
+
+  const handleSelectVersion = (key) => setSelectedVersionKey(key);
+
+  const handleAddRateChange = () => {
+    const source = form.rateVersions.find((v) => v._key === selectedVersionKey) || form.rateVersions[0];
+    const newVersion = {
+      _key: makeVersionKey(),
+      id: undefined,
+      effectiveFromMonth: defaultNextMonthDateOnly(),
+      note: '',
+      // Deep copy so editing the new version never mutates the source version.
+      billingServices: JSON.parse(JSON.stringify(source.billingServices || [])),
+    };
+    setForm((f) => ({ ...f, rateVersions: [...f.rateVersions, newVersion] }));
+    setSelectedVersionKey(newVersion._key);
+  };
+
+  const handleVersionMonthChange = (monthValue) => {
+    const effectiveFromMonth = monthInputToDateOnly(monthValue);
+    setForm((f) => ({
+      ...f,
+      rateVersions: f.rateVersions.map((v) => (v._key === selectedVersionKey ? { ...v, effectiveFromMonth } : v)),
+    }));
+  };
+
+  const handleDeleteVersion = (key) => {
+    const version = form.rateVersions.find((v) => v._key === key);
+    if (!version || version.effectiveFromMonth === null) return; // base is not deletable
+    if (!window.confirm(`Delete the rate version effective ${formatMonthLabel(version.effectiveFromMonth)}? This cannot be undone.`)) return;
+    const remaining = form.rateVersions.filter((v) => v._key !== key);
+    setForm((f) => ({ ...f, rateVersions: f.rateVersions.filter((v) => v._key !== key) }));
+    if (selectedVersionKey === key) {
+      const base = remaining.find((v) => v.effectiveFromMonth === null) || remaining[0];
+      setSelectedVersionKey(base._key);
+    }
   };
 
   const addDoctor = () => {
@@ -235,11 +378,23 @@ const HospitalForm = () => {
     if (Object.keys(e_).length) { setErrors(e_); return; }
     setLoading(true);
     try {
+      // Strip the client-only `_key` and send a plain rateVersions array;
+      // the backend recreates every version from scratch on save (it doesn't
+      // match on `id`), so `id` is included only where present for clarity
+      // but isn't required.
+      const rateVersions = form.rateVersions.map((v) => ({
+        ...(v.id ? { id: v.id } : {}),
+        effectiveFromMonth: v.effectiveFromMonth,
+        note: v.note || '',
+        billingServices: v.billingServices,
+      }));
+      const payload = { ...form, rateVersions };
+      delete payload.billingServices; // stray legacy flat mirror from the getOne load — rateVersions is the source of truth now
       if (isEdit) {
-        await updateHospitalAPI(id, form);
+        await updateHospitalAPI(id, payload);
         toast.success('Hospital updated');
       } else {
-        await createHospitalAPI(form);
+        await createHospitalAPI(payload);
         toast.success('Hospital created');
       }
       navigate('/hospitals');
@@ -540,9 +695,18 @@ const HospitalForm = () => {
         </div>
 
         {/* Billing Services — super admin only */}
-        {isSuperAdmin && (
+        {isSuperAdmin && (() => {
+          const selectedVersion = form.rateVersions.find((v) => v._key === selectedVersionKey) || form.rateVersions[0];
+          const billingServices = selectedVersion.billingServices || [];
+          const base = form.rateVersions.find((v) => v.effectiveFromMonth === null);
+          const datedVersions = form.rateVersions
+            .filter((v) => v.effectiveFromMonth !== null)
+            .slice()
+            .sort((a, b) => toMonthInputValue(a.effectiveFromMonth).localeCompare(toMonthInputValue(b.effectiveFromMonth)));
+          const chips = base ? [base, ...datedVersions] : datedVersions;
+          return (
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-800">Billing Services</h2>
               <p className="text-xs text-gray-400 mt-0.5">Configure pricing and billing rules for this hospital</p>
@@ -553,15 +717,66 @@ const HospitalForm = () => {
             </button>
           </div>
 
-          {form.billingServices.length === 0 && (
+          {/* Rate version switcher */}
+          <div className="flex items-center gap-2 flex-wrap mb-2 pb-4 border-b border-gray-100">
+            {chips.map((v) => {
+              const isBase = v.effectiveFromMonth === null;
+              const isSelected = v._key === selectedVersionKey;
+              return (
+                <button
+                  key={v._key}
+                  type="button"
+                  onClick={() => handleSelectVersion(v._key)}
+                  className={`flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                    isSelected ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {isBase ? 'Current rate (base)' : (formatMonthLabel(v.effectiveFromMonth) || 'New version')}
+                  {!isBase && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      title="Delete this rate version"
+                      onClick={(e) => { e.stopPropagation(); handleDeleteVersion(v._key); }}
+                      className={`p-0.5 rounded-full ${isSelected ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-red-500 hover:bg-red-50'}`}
+                    >
+                      <HiOutlineTrash className="w-3 h-3" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <button type="button" onClick={handleAddRateChange}
+              className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 font-semibold border border-primary-200 hover:bg-primary-50 pl-2.5 pr-3 py-1.5 rounded-full transition-colors">
+              <HiOutlinePlus className="w-3.5 h-3.5" /> Add rate change
+            </button>
+          </div>
+
+          {/* Apply-from-month control for the selected dated version */}
+          {selectedVersion.effectiveFromMonth === null ? (
+            <p className="text-xs text-gray-400 mb-4">This is the current/base rate — it applies to all months before the earliest dated version above.</p>
+          ) : (
+            <div className="flex items-center gap-3 mb-4">
+              <label className="text-xs font-medium text-gray-600">Apply from month</label>
+              <input
+                type="month"
+                value={toMonthInputValue(selectedVersion.effectiveFromMonth)}
+                onChange={(e) => handleVersionMonthChange(e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              />
+              <span className="text-xs text-gray-400">Services below apply from this month onward, until a newer version takes over.</span>
+            </div>
+          )}
+
+          {billingServices.length === 0 && (
             <div className="border-2 border-dashed border-gray-200 rounded-xl py-10 text-center">
-              <p className="text-sm text-gray-400">No billing services configured.</p>
+              <p className="text-sm text-gray-400">No billing services configured for this rate version.</p>
               <button type="button" onClick={addService}
                 className="mt-2 text-sm text-primary-600 hover:text-primary-700 font-medium">+ Add first service</button>
             </div>
           )}
 
-          {form.billingServices.map((svc, idx) => {
+          {billingServices.map((svc, idx) => {
             const showSlabs = svc.billingType === 'per_claim_slab' ||
               (svc.billingType === 'fixed_monthly' && svc.overLimitBehavior === 'per_claim_slab');
             const svcSlabs = svc.slabs || [];
@@ -845,14 +1060,16 @@ const HospitalForm = () => {
                         <div className="flex items-center gap-2 pt-5">
                           <input type="checkbox" id={`ins-wise-bt-${idx}`} checked={isInsWise}
                             onChange={(e) => {
-                              const services = [...form.billingServices];
-                              services[idx] = {
-                                ...services[idx],
-                                overLimitInsuranceWise: e.target.checked,
-                                overLimitInsurerIds: e.target.checked ? (services[idx].overLimitInsurerIds || []) : [],
-                                overLimitTpaIds: e.target.checked ? (services[idx].overLimitTpaIds || []) : [],
-                              };
-                              setForm(f => ({ ...f, billingServices: services }));
+                              updateSelectedVersionServices((services) => {
+                                const next = [...services];
+                                next[idx] = {
+                                  ...next[idx],
+                                  overLimitInsuranceWise: e.target.checked,
+                                  overLimitInsurerIds: e.target.checked ? (next[idx].overLimitInsurerIds || []) : [],
+                                  overLimitTpaIds: e.target.checked ? (next[idx].overLimitTpaIds || []) : [],
+                                };
+                                return next;
+                              });
                             }}
                             className="w-4 h-4 rounded text-primary-600 border-gray-300 focus:ring-primary-500 cursor-pointer" />
                           <label htmlFor={`ins-wise-bt-${idx}`} className="text-xs font-medium text-gray-600 cursor-pointer select-none">Insurance Wise</label>
@@ -1125,7 +1342,8 @@ const HospitalForm = () => {
             );
           })}
         </div>
-        )}
+          );
+        })()}
 
         {/* Actions */}
         <div className="flex items-center gap-3">
