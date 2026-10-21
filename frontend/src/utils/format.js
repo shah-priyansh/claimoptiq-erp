@@ -147,7 +147,14 @@ export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, 
 const IST_OFFSET_MINUTES = 5 * 60 + 30;
 
 export const monthKeyNum = (date) => {
-  const shifted = new Date(date.getTime() + IST_OFFSET_MINUTES * 60 * 1000);
+  // The frontend receives serialized date values, not Date objects: axios does
+  // not revive JSON dates, so `claim.month` and version `effectiveFromMonth`
+  // both arrive here as ISO strings (e.g. "2026-09-01T00:00:00.000Z"). Normalize
+  // to a Date first so `.getTime()` can't throw — this keeps every frontend
+  // resolver caller (resolveRateVersion / resolveClaimFilePrice) safe. The
+  // backend monthKeyNum still receives Prisma Dates and is unaffected.
+  const d = date instanceof Date ? date : new Date(date);
+  const shifted = new Date(d.getTime() + IST_OFFSET_MINUTES * 60 * 1000);
   return shifted.getUTCFullYear() * 12 + shifted.getUTCMonth();
 };
 
