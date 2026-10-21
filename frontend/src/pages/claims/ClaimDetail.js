@@ -16,7 +16,7 @@ import {
   HiOutlineClipboardList, HiOutlinePrinter, HiOutlineExclamationCircle,
 } from 'react-icons/hi';
 import { statusBadgeStyle, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
-import { formatCurrency, calculateFilePrice, formatDate as _formatDate, formatDateTime as _formatDateTime, round2 } from '../../utils/format';
+import { formatCurrency, calculateFilePrice, resolveRateVersion, formatDate as _formatDate, formatDateTime as _formatDateTime, round2 } from '../../utils/format';
 import AmountInput from '../../components/AmountInput';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { isValidPhone, onPhoneInput } from '../../utils/validators';
@@ -305,9 +305,16 @@ const ClaimDetail = () => {
 
   useEffect(() => {
     if (filePriceManual) return;
-    if (!claim?.hospital?.billingServices?.length) return;
+    // Resolve the hospital rate version in effect for THIS claim's billing
+    // month (fixed for an existing claim — doesn't change as bill amounts
+    // are edited), not always the hospital's current/flat service list. A
+    // base-only hospital (the common case today) resolves to the same
+    // services the old flat `hospital.billingServices` list held.
+    const versions = claim?.hospital?.rateVersions || [];
+    const billingServices = resolveRateVersion(versions, claim?.month);
+    if (!billingServices.length) return;
     const computed = calculateFilePrice(
-      claim.hospital.billingServices,
+      billingServices,
       dischargeForm.hospitalFinalBill || 0,
       dischargeForm.finalApprovalAmount || 0,
       claim.claimType,

@@ -463,6 +463,15 @@ exports.getClaim = async (req, res) => {
       claim.hospital.billingServices = attachClaimTypes(claim.hospital.billingServices, svcClaimTypes);
     }
 
+    // Also attach the hospital's rate versions (claimTypes applied the same
+    // way as above) so the ClaimDetail live File Price preview can resolve
+    // the version in effect for this claim's billing month, instead of
+    // always pricing off the flat (current) service list.
+    if (claim.hospital) {
+      const versionsByHospital = await buildVersionsByHospital([claim.hospitalId]);
+      claim.hospital.rateVersions = versionsByHospital[claim.hospitalId] || [];
+    }
+
     res.json(toResponse(claim));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
