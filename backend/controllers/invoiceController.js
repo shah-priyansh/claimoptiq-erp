@@ -2,6 +2,7 @@ const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const calculateFilePrice = require('../utils/calculateFilePrice');
 const { loadServiceClaimTypesMap, attachClaimTypes } = require('../utils/billingServiceClaimTypes');
+const { resolveRateVersion } = require('../utils/rateVersions');
 const calculateInvoiceTotals = require('../utils/calculateInvoiceTotals');
 const { reserveNextInvoiceNumber } = require('../utils/invoiceSequence');
 const renderInvoicePdf = require('../utils/renderInvoicePdf');
@@ -155,6 +156,36 @@ const resolveTdsRate = async (tdsRateId, fallbackRate) => {
   return { rate: r.rate || 0, name: r.taxName, section: r.section };
 };
 
+// Builds the `versionsByHospital` map `resolveRateVersion` expects:
+// { [hospitalId]: [{ effectiveFromMonth, billingServices }] }. Fetches every
+// HospitalRateVersion for the given hospital ids (each hospital currently has
+// exactly one, the base version with effectiveFromMonth=null) and runs each
+// version's billingServices through the SAME `withClaimTypes` processing
+// (activeOf + attachClaimTypes) the old flat `hospital.billingServices` /
+// branch `billingServices` lists went through. Deliberately does NOT filter
+// by billingType here — a version's list must keep BOTH the per-claim
+// (slab/percentage) and fixed (fixed_monthly/fixed_onetime) services, because
+// buildInvoiceLines derives both line categories from the resolved version.
+const buildVersionsByHospital = async (hospitalIds, withClaimTypes) => {
+  const versionsByHospital = {};
+  if (!hospitalIds.length) return versionsByHospital;
+  const versions = await prisma.hospitalRateVersion.findMany({
+    where: { hospitalId: { in: hospitalIds } },
+    select: {
+      hospitalId: true,
+      effectiveFromMonth: true,
+      billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
+    },
+  });
+  for (const v of versions) {
+    (versionsByHospital[v.hospitalId] = versionsByHospital[v.hospitalId] || []).push({
+      effectiveFromMonth: v.effectiveFromMonth,
+      billingServices: withClaimTypes(v.billingServices),
+    });
+  }
+  return versionsByHospital;
+};
+
 // Build the line items + totals for a (hospital, month) without persisting.
 // Returns { lines, totals, hospital, claims }.
 // When `claimIds` is supplied, the line set is restricted to those claims and
@@ -233,6 +264,9 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
           select: {
             id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true, settlementAmount: true,
             filePrice: true, filePriceOverridden: true, claimType: true, hospitalId: true,
+            // Needed by resolveRateVersion to pick the rate version in effect
+            // for THIS claim (vs. the invoice's own billing month).
+            month: true,
           },
         }),
     // Previous balance only counts dues from the SAME stream — regular
@@ -266,12 +300,14 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     throw err;
   }
 
-  // Regular invoices price each claim from its OWN hospital's billingServices,
-  // so a branch claim billed on the parent's invoice costs the same as it would
-  // on its own branch invoice. Direct-patient invoices ignore the reference
-  // hospital and use the global DirectPatientBillingService config for every
-  // claim. `services` here is the BILLING-TARGET's own active services and
-  // still drives the fixed_monthly / fixed_onetime section + prior balance.
+  // Regular invoices price each claim from its OWN hospital's rate version in
+  // effect for the claim's billing month (see versionsByHospital below), so a
+  // branch claim billed on the parent's invoice costs the same as it would on
+  // its own branch invoice, and a past/future claim prices at the version that
+  // was/will be active then instead of the hospital's current flat rate.
+  // Direct-patient invoices ignore the reference hospital and rate versioning
+  // entirely — they use the global DirectPatientBillingService config
+  // (`services` below) for every claim and for the fixed section.
   const activeOf = (list) => (list || []).filter((s) => s.isActive);
   // Claim-type applicability lives on the BillingServiceName master (keyed by
   // name), not on the per-hospital service row. Attach it so calculateFilePrice
@@ -288,29 +324,37 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     ? directPatientServices.filter((s) => s.isActive)
     : withClaimTypes(hospital.billingServices);
 
-  // Active services + display name keyed by hospital id, across the billing
-  // target and every branch that can contribute a claim.
-  const servicesByHospital = new Map();
+  // Display name keyed by hospital id, across the billing target and every
+  // branch that can contribute a claim (used for the "sourceHospitalName" tag
+  // on branch-origin lines below — unrelated to rate versioning).
   const hospitalNameById = new Map();
+  // Per-hospital rate versions, resolved by month per claim below (and by the
+  // invoice's own month for fixed services further down) — NOT a flat
+  // `hospital.billingServices` snapshot, which would union every version's
+  // services together once a hospital has more than one. Direct-patient
+  // invoices never resolve by hospital rate version (they price off the
+  // single global `services` list above), so this stays empty there.
+  let versionsByHospital = {};
   if (!isDirectPatient) {
-    servicesByHospital.set(hospitalId, services);
     hospitalNameById.set(hospitalId, hospital.name);
-    for (const b of branchHospitals) {
-      servicesByHospital.set(b.id, withClaimTypes(b.billingServices));
-      hospitalNameById.set(b.id, b.name);
-    }
+    for (const b of branchHospitals) hospitalNameById.set(b.id, b.name);
+    versionsByHospital = await buildVersionsByHospital(
+      [hospitalId, ...branchHospitals.map((b) => b.id)],
+      withClaimTypes,
+    );
   }
-  // The service list that prices a given claim: its own hospital for regular
-  // invoices; the single global list for direct-patient.
-  const servicesForClaim = (c) =>
-    isDirectPatient ? services : (servicesByHospital.get(c.hospitalId) || services);
+  // The service list that prices a given claim: its own hospital's rate
+  // version in effect for the CLAIM's month (regular invoices); the single
+  // global list for direct-patient.
+  const resolveClaimServices = (c) =>
+    isDirectPatient ? services : resolveRateVersion(versionsByHospital[c.hospitalId] || [], c.month);
 
   // 1. TPA Desk per claim (slab/percentage). A claim's amount + metadata are
   // resolved from its own hospital's service list, so name/fallback lookups
   // gather across ALL service lists in scope. When a claim's hospital has no
   // active services we fall back to the claim-type-mapped "TPA DESK SERVICE -
   // …" master line (client convention: CASHLESS → cashless claims, etc.).
-  const allServiceLists = isDirectPatient ? [services] : [...servicesByHospital.values()];
+  const allServiceLists = isDirectPatient ? [services] : claims.map(resolveClaimServices);
   const allSlabServices = allServiceLists.flat().filter((s) => s.billingType === 'per_claim_slab' || s.billingType === 'percentage');
   const anyUseDefault = allServiceLists.some((list) => list.length === 0);
   const [serviceNameRows, fallbackRows] = await Promise.all([
@@ -345,7 +389,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   // share the same shape. Each claim is priced from its own hospital's list
   // (`cSvc`) via calculateFilePrice, respecting an existing filePrice override.
   const tpaDeskLines = claims.map((c) => {
-      const cSvc = servicesForClaim(c);
+      const cSvc = resolveClaimServices(c);
       const cUseDefault = cSvc.length === 0;
       const amount = c.filePriceOverridden
         ? c.filePrice
@@ -373,8 +417,10 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
         order: order++,
         claimId: c.id,
         // Direct-patient invoices reference the global service ids —
-        // consumers keying off billingServiceId (e.g. the fixed_onetime
-        // dedupe gate) know to disambiguate by looking at invoice.isDirectPatient.
+        // consumers keying off billingServiceId need to disambiguate by
+        // looking at invoice.isDirectPatient (it's a different id space, and
+        // for regular invoices it's version-specific — see billingServiceNameId
+        // below for the stable, version-independent identifier).
         billingServiceId: svc?.id || null,
         billingServiceNameId: svc
           ? (nameToGlobalId.get(svc.serviceName) || null)
@@ -392,11 +438,36 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       };
     });
 
-  // 2. Fixed services. `includeFixedServices=false` (operator toggle in the
-  // bulk wizard) skips the whole section — no monthly/one-time lines, and we
-  // avoid the prior-onetime gate query entirely.
-  const fixedMonthly = includeFixedServices ? services.filter((s) => s.billingType === 'fixed_monthly') : [];
-  const fixedOnetime = includeFixedServices ? services.filter((s) => s.billingType === 'fixed_onetime') : [];
+  // 2. Fixed services, resolved from the INVOICE's own hospital rate version
+  // in effect for the invoice's billing month (`month`) — not a flat live
+  // list — so re-pricing a past/future month's draft picks up the version
+  // that was/will-be active then. Direct-patient invoices are unaffected (no
+  // rate versions; `services` is the single global list computed above).
+  // `includeFixedServices=false` (operator toggle in the bulk wizard) skips
+  // the whole section — no monthly/one-time lines, and we avoid the
+  // prior-onetime gate query entirely.
+  const invoiceServices = isDirectPatient
+    ? services
+    : resolveRateVersion(versionsByHospital[hospitalId] || [], month);
+  const fixedMonthly = includeFixedServices ? invoiceServices.filter((s) => s.billingType === 'fixed_monthly') : [];
+  const fixedOnetime = includeFixedServices ? invoiceServices.filter((s) => s.billingType === 'fixed_onetime') : [];
+
+  // Master BillingServiceName ids for every fixed service in scope (monthly +
+  // one-time), resolved up front — the dedupe gate right below needs it to
+  // key on the SAME stable id a persisted line stores (`billingServiceNameId`,
+  // keyed off the name-keyed master row), not `billingServiceId`. A
+  // HospitalBillingService id is now version-specific (each rate version
+  // mints its own rows with fresh ids), so matching prior invoices by
+  // `billingServiceId` would never hit once a hospital gets a second version
+  // — the one-time fee would silently get re-billed every month.
+  const allFixedSvcRows = [...fixedMonthly, ...fixedOnetime];
+  const fixedNameRows = allFixedSvcRows.length
+    ? await prisma.billingServiceName.findMany({
+        where: { name: { in: [...new Set(allFixedSvcRows.map((s) => s.serviceName))] } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const fixedNameMap = new Map(fixedNameRows.map((r) => [r.name, r.id]));
 
   // Gate fixed_onetime: once a fixed one-time line has been added to ANY
   // non-void invoice in the SAME stream, it must not repeat on future
@@ -407,27 +478,27 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   // invoices. Void invoices don't count in either case.
   let onetimeIncluded = [];
   if (fixedOnetime.length) {
-    const priorOnetimeRows = await prisma.invoiceLineItem.findMany({
-      where: {
-        billingServiceId: { in: fixedOnetime.map((s) => s.id) },
-        invoice: isDirectPatient
-          ? { isDirectPatient: true, status: { not: 'void' } }
-          : { hospitalId, status: { not: 'void' } },
-      },
-      select: { billingServiceId: true },
-    });
-    const usedIds = new Set(priorOnetimeRows.map((r) => r.billingServiceId));
-    onetimeIncluded = fixedOnetime.filter((s) => !usedIds.has(s.id));
+    const onetimeNameIds = [...new Set(
+      fixedOnetime.map((s) => fixedNameMap.get(s.serviceName)).filter(Boolean),
+    )];
+    const priorOnetimeRows = onetimeNameIds.length
+      ? await prisma.invoiceLineItem.findMany({
+          where: {
+            billingServiceNameId: { in: onetimeNameIds },
+            invoice: isDirectPatient
+              ? { isDirectPatient: true, status: { not: 'void' } }
+              : { hospitalId, status: { not: 'void' } },
+          },
+          select: { billingServiceNameId: true },
+        })
+      : [];
+    const usedNameIds = new Set(priorOnetimeRows.map((r) => r.billingServiceNameId));
+    onetimeIncluded = fixedOnetime.filter((s) => !usedNameIds.has(fixedNameMap.get(s.serviceName)));
   }
 
+  // `fixedNameMap` already covers fixedMonthly + fixedOnetime (a superset of
+  // fixedSvcRowsAll below), so no repeat master-name fetch is needed here.
   const fixedSvcRowsAll = [...fixedMonthly, ...onetimeIncluded];
-  const fixedNameRows = fixedSvcRowsAll.length
-    ? await prisma.billingServiceName.findMany({
-        where: { name: { in: [...new Set(fixedSvcRowsAll.map((s) => s.serviceName))] } },
-        select: { id: true, name: true },
-      })
-    : [];
-  const fixedNameMap = new Map(fixedNameRows.map((r) => [r.name, r.id]));
 
   const fixedServiceLines = fixedSvcRowsAll.map((s) => {
     const isOneTime = s.billingType === 'fixed_onetime';
@@ -759,6 +830,9 @@ exports.previewBulk = async (req, res) => {
         hospitalFinalBill: c.hospitalFinalBill, finalApprovalAmount: c.finalApprovalAmount,
         filePrice: c.filePrice, filePriceOverridden: c.filePriceOverridden,
         claimType: c.claimType, hospitalId: c.hospitalId,
+        // Needed by resolveRateVersion inside buildInvoiceLines to pick the
+        // rate version in effect for THIS claim's month.
+        month: c.month,
       }]),
     );
 
