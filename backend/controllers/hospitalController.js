@@ -517,14 +517,20 @@ exports.updateHospital = async (req, res) => {
       if (parentErr) return res.status(400).json({ message: parentErr });
     }
 
-    await prisma.hospitalDoctor.deleteMany({ where: { hospitalId: req.params.id } });
-
     const hospitalData = await buildHospitalData(req.body);
     const hasRateVersionsPayload = Array.isArray(req.body.rateVersions);
 
     // Wrapped in a transaction so a hospital is never left with zero rate
-    // versions between the delete and the recreate below.
+    // versions between the delete and the recreate below. The doctor
+    // delete+recreate MUST live inside this transaction too: the recreate is
+    // nested on `tx.hospital.update` at the end, so if anything in here
+    // throws (e.g. a duplicate-month 400 from normalizeRateVersionsPayload,
+    // or a P2002 race) the delete has to roll back with it — otherwise a
+    // rejected update that changes nothing else would still silently wipe the
+    // hospital's entire doctors list.
     const hospital = await prisma.$transaction(async (tx) => {
+      await tx.hospitalDoctor.deleteMany({ where: { hospitalId: req.params.id } });
+
       if (hasRateVersionsPayload) {
         // Full version replace (Task 7 UI): delete every existing version
         // for this hospital — cascade removes their billingServices + slabs
