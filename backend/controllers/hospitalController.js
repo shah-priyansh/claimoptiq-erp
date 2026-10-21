@@ -336,7 +336,28 @@ exports.bulkImportHospitals = async (req, res) => {
           seenInBatch.add(key);
           updated.push({ row: rowNum, id: hospital.id, name: hospital.name });
         } else {
-          const hospital = await prisma.hospital.create({ data, select: { id: true, name: true } });
+          // Every hospital must always have exactly one base rate version
+          // (effectiveFromMonth: null) — see createHospital. The import
+          // template carries no billing-service columns today, so this seeds
+          // an empty base version in practice, but we still route any
+          // `row.billingServices` (if a future caller supplies them) through
+          // the same buildBillingServices/withHospitalId pre-generated-id
+          // pattern as createHospital, so nested services get the correct
+          // hospitalId stamp.
+          const hospitalId = randomUUID();
+          const hospital = await prisma.hospital.create({
+            data: {
+              id: hospitalId,
+              ...data,
+              rateVersions: {
+                create: {
+                  effectiveFromMonth: null,
+                  billingServices: { create: withHospitalId(buildBillingServices(row.billingServices), hospitalId) },
+                },
+              },
+            },
+            select: { id: true, name: true },
+          });
           seenInBatch.add(key);
           created.push({ row: rowNum, id: hospital.id, name: hospital.name });
         }

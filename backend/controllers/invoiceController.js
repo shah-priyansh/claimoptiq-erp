@@ -481,19 +481,47 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     const onetimeNameIds = [...new Set(
       fixedOnetime.map((s) => fixedNameMap.get(s.serviceName)).filter(Boolean),
     )];
-    const priorOnetimeRows = onetimeNameIds.length
+    // Direct-patient only: a fixed_onetime service whose serviceName has no
+    // BillingServiceName master match gets billingServiceNameId: null when
+    // billed (see `billingServiceNameId: fixedNameMap.get(...) || null`
+    // below), so the name-keyed gate above can never match it and the fee
+    // would silently be re-billed every month. DirectPatientBillingService
+    // ids ARE stable on this stream (no rate versions), so fall back to the
+    // legacy billingServiceId for just those null-name-id services. The
+    // hospital path deliberately does NOT get this fallback —
+    // HospitalBillingService ids are version-specific (see comment above).
+    const onetimeIdFallbacks = isDirectPatient
+      ? [...new Set(
+          fixedOnetime.filter((s) => !fixedNameMap.get(s.serviceName)).map((s) => s.id),
+        )]
+      : [];
+    const priorOnetimeRows = (onetimeNameIds.length || onetimeIdFallbacks.length)
       ? await prisma.invoiceLineItem.findMany({
           where: {
-            billingServiceNameId: { in: onetimeNameIds },
+            OR: [
+              ...(onetimeNameIds.length ? [{ billingServiceNameId: { in: onetimeNameIds } }] : []),
+              ...(onetimeIdFallbacks.length
+                ? [{ billingServiceNameId: null, billingServiceId: { in: onetimeIdFallbacks } }]
+                : []),
+            ],
             invoice: isDirectPatient
               ? { isDirectPatient: true, status: { not: 'void' } }
               : { hospitalId, status: { not: 'void' } },
           },
-          select: { billingServiceNameId: true },
+          select: { billingServiceNameId: true, billingServiceId: true },
         })
       : [];
-    const usedNameIds = new Set(priorOnetimeRows.map((r) => r.billingServiceNameId));
-    onetimeIncluded = fixedOnetime.filter((s) => !usedNameIds.has(fixedNameMap.get(s.serviceName)));
+    const usedNameIds = new Set(priorOnetimeRows.map((r) => r.billingServiceNameId).filter(Boolean));
+    const usedIdFallbacks = new Set(
+      priorOnetimeRows.filter((r) => !r.billingServiceNameId).map((r) => r.billingServiceId),
+    );
+    onetimeIncluded = fixedOnetime.filter((s) => {
+      const nameId = fixedNameMap.get(s.serviceName);
+      if (nameId) return !usedNameIds.has(nameId);
+      // No master-name match: direct-patient falls back to billingServiceId;
+      // the hospital path is left exactly as before (always included).
+      return isDirectPatient ? !usedIdFallbacks.has(s.id) : true;
+    });
   }
 
   // `fixedNameMap` already covers fixedMonthly + fixedOnetime (a superset of
