@@ -1,3 +1,4 @@
+const { randomUUID } = require('crypto');
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const { getUserHospitalId, getReferenceHospitalIds } = require('../utils/hospitalScope');
@@ -15,9 +16,31 @@ const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
 const isValidPincode = (v) => /^[1-9][0-9]{5}$/.test((v || '').trim());
 
 const hospitalInclude = {
+  // Legacy flat relation — spans EVERY rate version once a hospital has more
+  // than one (base + dated), so it must never be handed back to a client
+  // as-is (that would silently merge versions' services together). Kept in
+  // the include only so `pickBaseBillingServices` below can derive the
+  // back-compat `billingServices` field without a second round-trip; always
+  // overwritten before the response goes out.
   billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } },
+  rateVersions: {
+    include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
+    orderBy: { effectiveFromMonth: 'asc' },
+  },
   doctors: true,
   reference: { select: { id: true, name: true, commissionRate: true, isActive: true } },
+};
+
+// Overwrites the flat `billingServices` field (see comment above) with just
+// the BASE version's services (effectiveFromMonth === null) so any consumer
+// still reading `hospital.billingServices` keeps seeing exactly what it saw
+// before rate versions existed, while `rateVersions` carries the full
+// effective-dated picture. Safe to call on a single hospital or an array.
+const pickBaseBillingServices = (hospital) => {
+  if (Array.isArray(hospital)) return hospital.map(pickBaseBillingServices);
+  if (!hospital || !Array.isArray(hospital.rateVersions)) return hospital;
+  const base = hospital.rateVersions.find((v) => v.effectiveFromMonth === null);
+  return { ...hospital, billingServices: base ? base.billingServices : [] };
 };
 
 const hospitalListInclude = {
@@ -186,6 +209,17 @@ const buildBillingServices = (services) =>
     },
   }));
 
+// HospitalBillingService carries TWO required FKs: hospitalId (direct to
+// Hospital) and rateVersionId (direct to HospitalRateVersion). Nesting
+// `billingServices: { create: [...] }` under a rateVersion create only
+// auto-wires rateVersionId (the immediate parent relation) — Prisma does
+// NOT transitively infer hospitalId from the rateVersion's own hospital,
+// since it's a separate, sibling relation on the same model. Every
+// billingServices nested-create below must therefore stamp hospitalId
+// explicitly via this helper, or Prisma throws "Argument `hospital` is
+// missing."
+const withHospitalId = (services, hospitalId) => services.map((s) => ({ ...s, hospitalId }));
+
 const buildDoctors = (doctors) =>
   (doctors || []).map((d) => ({
     name: d.name.trim(),
@@ -193,6 +227,49 @@ const buildDoctors = (doctors) =>
     phone: d.phone || '',
     email: d.email || '',
   }));
+
+// Normalizes a payload `effectiveFromMonth` (ISO date/month string, Date, or
+// null/undefined/'') to a UTC first-of-month DateTime, matching the base
+// version's `null` convention and the DB's `@@unique([hospitalId,
+// effectiveFromMonth])` constraint. Date-only / month-only ISO strings
+// (`"2026-11-01"`, `"2026-11"`) parse as UTC already, so re-deriving the
+// UTC y/m and rebuilding with Date.UTC just drops any time-of-day instead of
+// shifting the calendar month.
+const normalizeEffectiveFromMonth = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    const err = new Error('Invalid rate version effective month');
+    err.status = 400;
+    throw err;
+  }
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+};
+
+// Validates + normalizes a `rateVersions` payload shared by create/update.
+// Throws a 400-flagged error for a duplicate month rather than letting it
+// fall through to the DB's unique constraint as an opaque Prisma P2002.
+// Does NOT enforce "exactly one base" — callers add/preserve the base
+// themselves (create vs. update need different fallback behavior for a
+// missing base).
+const normalizeRateVersionsPayload = (versions) => {
+  const seen = new Set();
+  return (versions || []).map((v) => {
+    const effectiveFromMonth = normalizeEffectiveFromMonth(v.effectiveFromMonth);
+    const key = effectiveFromMonth === null ? 'base' : effectiveFromMonth.toISOString();
+    if (seen.has(key)) {
+      const err = new Error(
+        effectiveFromMonth === null
+          ? 'Only one base rate version (no effective month) is allowed'
+          : `Two rate versions share the same effective month (${key.slice(0, 7)})`
+      );
+      err.status = 400;
+      throw err;
+    }
+    seen.add(key);
+    return { effectiveFromMonth, note: v.note || null, billingServices: v.billingServices };
+  });
+};
 
 exports.bulkImportHospitals = async (req, res) => {
   try {
@@ -294,18 +371,46 @@ exports.createHospital = async (req, res) => {
     const parentErr = await validateParentAssignment(req.body.parentHospitalId, undefined);
     if (parentErr) return res.status(400).json({ message: parentErr });
 
+    // `rateVersions` (Task 7 UI) takes priority over the legacy flat
+    // `billingServices` array; a caller that still sends only the legacy
+    // shape (CSV import, older bundles) gets it wrapped into a single base
+    // version so every hospital always ends up with exactly one
+    // effectiveFromMonth:null version, same as before rate versions existed.
+    const rawVersions = Array.isArray(req.body.rateVersions) && req.body.rateVersions.length
+      ? req.body.rateVersions
+      : [{ effectiveFromMonth: null, billingServices: req.body.billingServices }];
+    const normalizedVersions = normalizeRateVersionsPayload(rawVersions);
+    if (!normalizedVersions.some((v) => v.effectiveFromMonth === null)) {
+      normalizedVersions.unshift({ effectiveFromMonth: null, note: null, billingServices: [] });
+    }
+
+    // Pre-generate the id so it can be stamped onto each nested billing
+    // service below (see withHospitalId) — the hospital doesn't exist yet,
+    // but HospitalBillingService.hospitalId is required and Prisma can't
+    // infer it through the rateVersion grandparent relation.
+    const hospitalId = randomUUID();
     const hospital = await prisma.hospital.create({
       data: {
+        id: hospitalId,
         ...(await buildHospitalData(req.body)),
-        billingServices: { create: buildBillingServices(req.body.billingServices) },
+        rateVersions: {
+          create: normalizedVersions.map((v) => ({
+            effectiveFromMonth: v.effectiveFromMonth,
+            note: v.note,
+            billingServices: { create: withHospitalId(buildBillingServices(v.billingServices), hospitalId) },
+          })),
+        },
         doctors: { create: buildDoctors(req.body.doctors) },
       },
       include: hospitalInclude,
     });
     bustDropdownCache();
-    res.status(201).json(toResponse(hospital));
+    res.status(201).json(toResponse(pickBaseBillingServices(hospital)));
   } catch (error) {
     if (error.status === 400) return res.status(400).json({ message: error.message });
+    if (error.code === 'P2002') {
+      return res.status(400).json({ message: 'Two rate versions share the same effective month' });
+    }
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -372,7 +477,7 @@ exports.getHospitals = async (req, res) => {
       include: hospitalInclude,
       orderBy: { name: 'asc' },
     });
-    res.json(toResponse(hospitals));
+    res.json(toResponse(pickBaseBillingServices(hospitals)));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -390,7 +495,7 @@ exports.getHospital = async (req, res) => {
       include: hospitalInclude,
     });
     if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
-    res.json(toResponse(hospital));
+    res.json(toResponse(pickBaseBillingServices(hospital)));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -412,22 +517,85 @@ exports.updateHospital = async (req, res) => {
       if (parentErr) return res.status(400).json({ message: parentErr });
     }
 
-    await prisma.hospitalBillingService.deleteMany({ where: { hospitalId: req.params.id } });
     await prisma.hospitalDoctor.deleteMany({ where: { hospitalId: req.params.id } });
 
-    const hospital = await prisma.hospital.update({
-      where: { id: req.params.id },
-      data: {
-        ...(await buildHospitalData(req.body)),
-        billingServices: { create: buildBillingServices(req.body.billingServices) },
-        doctors: { create: buildDoctors(req.body.doctors) },
-      },
-      include: hospitalInclude,
+    const hospitalData = await buildHospitalData(req.body);
+    const hasRateVersionsPayload = Array.isArray(req.body.rateVersions);
+
+    // Wrapped in a transaction so a hospital is never left with zero rate
+    // versions between the delete and the recreate below.
+    const hospital = await prisma.$transaction(async (tx) => {
+      if (hasRateVersionsPayload) {
+        // Full version replace (Task 7 UI): delete every existing version
+        // for this hospital — cascade removes their billingServices + slabs
+        // — then recreate from the payload.
+        const normalizedVersions = normalizeRateVersionsPayload(req.body.rateVersions);
+        if (!normalizedVersions.some((v) => v.effectiveFromMonth === null)) {
+          // Payload dropped the base entirely — never let a save delete it.
+          // Preserve the hospital's EXISTING base version's services instead
+          // of erroring, so an omitted base behaves like "leave it alone"
+          // rather than wiping a hospital's current rates.
+          const currentBase = await tx.hospitalRateVersion.findFirst({
+            where: { hospitalId: req.params.id, effectiveFromMonth: null },
+            include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
+          });
+          normalizedVersions.unshift({
+            effectiveFromMonth: null,
+            note: currentBase?.note ?? null,
+            billingServices: currentBase ? currentBase.billingServices : [],
+          });
+        }
+
+        await tx.hospitalRateVersion.deleteMany({ where: { hospitalId: req.params.id } });
+        for (const v of normalizedVersions) {
+          await tx.hospitalRateVersion.create({
+            data: {
+              hospitalId: req.params.id,
+              effectiveFromMonth: v.effectiveFromMonth,
+              note: v.note,
+              billingServices: { create: withHospitalId(buildBillingServices(v.billingServices), req.params.id) },
+            },
+          });
+        }
+      } else {
+        // Legacy payload (no rateVersions key): replace ONLY the base
+        // version's services, leaving any dated versions created via the
+        // newer UI untouched. `buildBillingServices(undefined) -> []`
+        // mirrors the pre-rate-versions behavior, where an update call that
+        // omitted `billingServices` entirely wiped the hospital's services.
+        let base = await tx.hospitalRateVersion.findFirst({
+          where: { hospitalId: req.params.id, effectiveFromMonth: null },
+        });
+        if (base) {
+          await tx.hospitalBillingService.deleteMany({ where: { rateVersionId: base.id } });
+        } else {
+          base = await tx.hospitalRateVersion.create({
+            data: { hospitalId: req.params.id, effectiveFromMonth: null },
+          });
+        }
+        await tx.hospitalRateVersion.update({
+          where: { id: base.id },
+          data: { billingServices: { create: withHospitalId(buildBillingServices(req.body.billingServices), req.params.id) } },
+        });
+      }
+
+      return tx.hospital.update({
+        where: { id: req.params.id },
+        data: {
+          ...hospitalData,
+          doctors: { create: buildDoctors(req.body.doctors) },
+        },
+        include: hospitalInclude,
+      });
     });
+
     bustDropdownCache();
-    res.json(toResponse(hospital));
+    res.json(toResponse(pickBaseBillingServices(hospital)));
   } catch (error) {
     if (error.status === 400) return res.status(400).json({ message: error.message });
+    if (error.code === 'P2002') {
+      return res.status(400).json({ message: 'Two rate versions share the same effective month' });
+    }
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -451,7 +619,7 @@ exports.setHospitalStatus = async (req, res) => {
       include: hospitalInclude,
     });
     bustDropdownCache();
-    res.json(toResponse(hospital));
+    res.json(toResponse(pickBaseBillingServices(hospital)));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
