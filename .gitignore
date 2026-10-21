@@ -30,3 +30,6 @@ npm-debug.log*
 *.xlsx
 *.pdf
 !README.md
+
+# Superpowers brainstorm/scratch
+.superpowers/

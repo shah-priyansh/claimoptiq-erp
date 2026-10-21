@@ -21,6 +21,9 @@ const formatDate = (d) => _formatDate(d);
 const lineSummary = (lines = []) => lines.map((l) =>
   `${l.accountName} ${l.debit > 0 ? 'Dr ' + formatINR(l.debit) : 'Cr ' + formatINR(l.credit)}`).join('  →  ');
 
+const sumDebit = (lines = []) => lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+const sumCredit = (lines = []) => lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+
 const AccountEntryList = () => {
   const confirm = useConfirm();
   const { can } = useAuth();
@@ -127,6 +130,8 @@ const AccountEntryList = () => {
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Ref</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Entry</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Debit Amount</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Cr Amount</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Actions</th>
                 </tr>
@@ -137,6 +142,8 @@ const AccountEntryList = () => {
                     <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDate(e.date)}</td>
                     <td className="py-3 px-4 font-medium text-gray-700 whitespace-nowrap">{e.refNumber}</td>
                     <td className="py-3 px-4 text-gray-700 text-sm">{lineSummary(e.lines)}</td>
+                    <td className="py-3 px-4 text-right text-gray-700 whitespace-nowrap tabular-nums">{formatINR(sumDebit(e.lines))}</td>
+                    <td className="py-3 px-4 text-right text-gray-700 whitespace-nowrap tabular-nums">{formatINR(sumCredit(e.lines))}</td>
                     <td className="py-3 px-4 text-gray-600 max-w-xs truncate">{e.description || <span className="text-gray-300">—</span>}</td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex justify-end gap-1">
