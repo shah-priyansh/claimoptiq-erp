@@ -26,6 +26,7 @@ const OVER_LIMIT_OPTIONS = [
 const CALC_BASIS_OPTIONS = [
   { value: 'hospital_final_bill', label: 'Hospital Final Bill' },
   { value: 'final_approval',      label: 'Final Approval Amount' },
+  { value: 'settlement_amount',   label: 'Settlement Amount (Before TDS)' },
 ];
 
 const emptyDoctor = { name: '', specialization: '', phone: '', email: '' };

@@ -85,7 +85,7 @@ const _threeDigits = (n) => n >= 100
 // `claimTypes` (from the billing-service-name master). A service only counts
 // when its claimTypes is empty (universal) or includes the claim's type.
 // Without a claimType argument, no filtering happens (legacy callers unchanged).
-export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0, claimType = null) => {
+export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0, claimType = null, settlementAmount = 0) => {
   let total = 0;
   for (const svc of billingServices) {
     if (!svc.isActive) continue;
@@ -95,10 +95,16 @@ export const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, 
     // Skip services that don't apply to this claim's type (empty = universal).
     const svcClaimTypes = Array.isArray(svc.claimTypes) ? svc.claimTypes : [];
     if (claimType && svcClaimTypes.length && !svcClaimTypes.includes(claimType)) continue;
-    // per_claim_slab and percentage require a valid calculationBasis
-    const validBases = ['hospital_final_bill', 'final_approval'];
-    if (!validBases.includes(svc.calculationBasis)) continue;
-    const basis = svc.calculationBasis === 'hospital_final_bill' ? hospitalFinalBill : finalApprovalAmount;
+    // per_claim_slab and percentage require a valid calculationBasis. The basis
+    // picks which claim amount drives pricing; settlement_amount is the gross
+    // settlement filed BEFORE TDS. Mirrors backend calculateFilePrice.
+    const basisByType = {
+      hospital_final_bill: hospitalFinalBill,
+      final_approval: finalApprovalAmount,
+      settlement_amount: settlementAmount,
+    };
+    if (!(svc.calculationBasis in basisByType)) continue;
+    const basis = basisByType[svc.calculationBasis];
     // Skip when the basis is unset / zero, matching backend calculateFilePrice.
     // Otherwise a 0 basis matches the first `rangeStart: 0` slab and auto-fills
     // a price (e.g. ₹1,000) for rejected / no-bill claims. Operator overrides

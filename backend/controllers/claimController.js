@@ -5,6 +5,7 @@ const archiver = require('archiver');
 const { toResponse } = require('../utils/toResponse');
 const calculateFilePrice = require('../utils/calculateFilePrice');
 const { round2 } = require('../utils/money');
+const { parseLineQty, computeLineAmount } = require('../utils/lineQty');
 const { loadServiceClaimTypesMap, attachClaimTypes } = require('../utils/billingServiceClaimTypes');
 const { streamFileToResponse, resolveFileStream } = require('../services/fileRetrieval');
 const backupService = require('../services/backupService');
@@ -379,7 +380,7 @@ exports.getClaims = async (req, res) => {
         ...c,
         filePrice: c.filePriceOverridden && c.filePrice
           ? c.filePrice
-          : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType),
+          : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType, c.settlementAmount || 0),
       }));
     } else {
       stripped = claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
@@ -405,7 +406,7 @@ exports.getClaims = async (req, res) => {
         for (const c of priceRows) {
           totalFilePrice += c.filePriceOverridden && c.filePrice
             ? c.filePrice
-            : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType);
+            : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType, c.settlementAmount || 0);
         }
         totals.filePrice = totalFilePrice;
       }
@@ -2077,16 +2078,8 @@ exports.getNextHospitalBillNumber = async (req, res) => {
   }
 };
 
-// A single text field per line item doubles as rate multiplier or percentage:
-// "2" -> rate * 2 ; "50%" -> rate * 50 / 100. Blank/invalid numeric qty
-// defaults to 1 (a plain charge line); blank/invalid percent defaults to 0.
-const parseLineQty = (rawQty) => {
-  const qtyRaw = String(rawQty ?? '1').trim();
-  const isPercent = qtyRaw.includes('%');
-  const parsed = parseFloat(qtyRaw.replace('%', ''));
-  const qtyValue = Number.isFinite(parsed) ? parsed : (isPercent ? 0 : 1);
-  return { qtyRaw: qtyRaw || '1', qtyIsPercent: isPercent, qtyValue };
-};
+// qty/rate line math lives in utils/lineQty.js (parseLineQty/computeLineAmount),
+// shared with invoices and expenses.
 
 // Create or replace the claim's Hospital Final Bill. Totals are always
 // recomputed here from the submitted line items — never trusted from the
@@ -2108,7 +2101,7 @@ exports.upsertHospitalFinalBill = async (req, res) => {
       .map((it, idx) => {
         const rate = round2(Number(it.rate) || 0);
         const { qtyRaw, qtyIsPercent, qtyValue } = parseLineQty(it.qtyRaw ?? it.qty);
-        const amount = round2(qtyIsPercent ? (rate * qtyValue) / 100 : rate * qtyValue);
+        const amount = computeLineAmount(rate, qtyValue, qtyIsPercent);
         return {
           srNo: idx + 1,
           particulars: String(it.particulars || '').trim(),
@@ -2325,7 +2318,7 @@ exports.getDashboardStats = async (req, res) => {
       }),
       prisma.claim.findMany({
         where: { ...baseWhere, isBilled: true, month: { gte: monthStart, lte: monthEnd } },
-        select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, hospitalId: true, claimType: true },
+        select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, settlementAmount: true, hospitalId: true, claimType: true },
       }),
       // Hospital totals for the super-admin dashboard: total + active/inactive
       // split (one groupBy round trip instead of two counts). Hospital users
@@ -2394,7 +2387,7 @@ exports.getDashboardStats = async (req, res) => {
     for (const c of monthlyBilledClaims) {
       totalFilePrice += c.filePriceOverridden && c.filePrice
         ? c.filePrice
-        : calculateFilePrice(hospitalBillingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType);
+        : calculateFilePrice(hospitalBillingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType, c.settlementAmount || 0);
     }
 
     const payload = {

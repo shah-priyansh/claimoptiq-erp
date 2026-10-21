@@ -4,7 +4,7 @@
 // Without a claimType argument, no filtering happens (legacy callers unchanged).
 const { round2 } = require('./money');
 
-const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0, claimType = null) => {
+const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalApprovalAmount = 0, claimType = null, settlementAmount = 0) => {
   let total = 0;
   for (const svc of billingServices) {
     if (!svc.isActive) continue;
@@ -13,9 +13,16 @@ const calculateFilePrice = (billingServices = [], hospitalFinalBill = 0, finalAp
     // claimTypes = universal (applies to every claim type).
     const svcClaimTypes = Array.isArray(svc.claimTypes) ? svc.claimTypes : [];
     if (claimType && svcClaimTypes.length && !svcClaimTypes.includes(claimType)) continue;
-    const validBases = ['hospital_final_bill', 'final_approval'];
-    if (!validBases.includes(svc.calculationBasis)) continue;
-    const basis = svc.calculationBasis === 'hospital_final_bill' ? hospitalFinalBill : finalApprovalAmount;
+    // Calc basis picks which claim amount drives the slab / percentage.
+    // settlement_amount is the GROSS settlement filed BEFORE TDS (tds is 10% of
+    // it; bank transfer = settlement − tds).
+    const basisByType = {
+      hospital_final_bill: hospitalFinalBill,
+      final_approval: finalApprovalAmount,
+      settlement_amount: settlementAmount,
+    };
+    if (!(svc.calculationBasis in basisByType)) continue;
+    const basis = basisByType[svc.calculationBasis];
     // Skip when the basis is unset / zero. Previously a hospitalFinalBill of
     // 0 still matched the first `rangeStart: 0` slab and picked up its price,
     // so rejected / mid-flight claims with no bill entered came out at ₹1,500

@@ -311,9 +311,10 @@ const ClaimDetail = () => {
       dischargeForm.hospitalFinalBill || 0,
       dischargeForm.finalApprovalAmount || 0,
       claim.claimType,
+      settlementForm.settlementAmount || 0,
     );
     setSettlementForm(prev => ({ ...prev, filePrice: computed }));
-  }, [claim, dischargeForm.hospitalFinalBill, dischargeForm.finalApprovalAmount, filePriceManual]);
+  }, [claim, dischargeForm.hospitalFinalBill, dischargeForm.finalApprovalAmount, settlementForm.settlementAmount, filePriceManual]);
 
   const showTds = claim && ['cashless', 'cashless_anywhere', 'grievance'].includes(claim.claimType);
 

@@ -9,6 +9,29 @@ const { getInvoiceTemplate } = require('./siteSettingController');
 const { writeReferenceCommissionFlow, clearReferenceCommissionFlow, SOURCE_TYPE: COMMISSION_SOURCE_TYPE } = require('../utils/referenceCommissionFlow');
 const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
 const { round2 } = require('../utils/money');
+const { normalizeQtyRateLine } = require('../utils/lineQty');
+
+// Built / claim / imported lines carry only `amount`. Give them the qty/rate
+// shape (rate = amount, qty = 1) so the uniform QTY/RATE table displays them
+// sensibly and edits recompute from rate; `amount` itself is unchanged.
+const withLineQtyDefaults = (line) => ({
+  ...line,
+  rate: round2(Number(line.amount) || 0),
+  qtyRaw: '1',
+  qtyIsPercent: false,
+  qtyValue: 1,
+});
+
+// Normalize a wizard manual item into a stored line. The new wizard sends
+// `rate` + `qtyRaw`; fall back to a bare `amount` (rate x 1) for older callers.
+const manualItemToLine = (m) => {
+  const description = String(m?.description || '').slice(0, 300).trim();
+  const hasQtyRate = m?.rate != null || m?.qtyRaw != null || m?.qty != null;
+  const { rate, qtyRaw, qtyIsPercent, qtyValue, amount } = hasQtyRate
+    ? normalizeQtyRateLine({ rate: m.rate, qtyRaw: m.qtyRaw ?? m.qty })
+    : normalizeQtyRateLine({ rate: m?.amount });
+  return { description, rate, qtyRaw, qtyIsPercent, qtyValue, amount };
+};
 
 // Resolve a Party for a free-text party-bill name, so imported direct-patient /
 // "Party" invoices attach to the party ledger the way hospital invoices do via
@@ -208,7 +231,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       : prisma.claim.findMany({
           where: claimWhere,
           select: {
-            id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
+            id: true, patientName: true, ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true, settlementAmount: true,
             filePrice: true, filePriceOverridden: true, claimType: true, hospitalId: true,
           },
         }),
@@ -326,7 +349,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       const cUseDefault = cSvc.length === 0;
       const amount = c.filePriceOverridden
         ? c.filePrice
-        : calculateFilePrice(cSvc, c.hospitalFinalBill, c.finalApprovalAmount, c.claimType);
+        : calculateFilePrice(cSvc, c.hospitalFinalBill, c.finalApprovalAmount, c.claimType, c.settlementAmount);
       // The slab/percentage service that drives the line's billing-service
       // metadata. Prefer one that actually applies to this claim's type (empty
       // claimTypes = universal), so the stored billingServiceNameId matches the
@@ -551,7 +574,7 @@ exports.previewBulk = async (req, res) => {
         id: true, srNo: true, patientName: true, status: true,
         isBilled: true, hospitalId: true, dateOfDischarge: true,
         dateOfAdmit: true, month: true, isDirectPatient: true, claimType: true,
-        ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true,
+        ccnNo: true, hospitalFinalBill: true, finalApprovalAmount: true, settlementAmount: true,
         filePrice: true, filePriceOverridden: true,
       },
     });
@@ -886,10 +909,7 @@ exports.create = async (req, res) => {
     // Normalise manualItems passed alongside create — these let an operator
     // bill a month that has no claims/fixed services (e.g. a one-off charge).
     const normalisedManual = (Array.isArray(manualItems) ? manualItems : [])
-      .map((m) => ({
-        description: String(m?.description || '').slice(0, 300).trim(),
-        amount: round2(Number(m?.amount) || 0),
-      }))
+      .map(manualItemToLine)
       .filter((m) => m.description);
 
     // If a draft already exists, the wizard either re-submitted or this is a
@@ -914,6 +934,10 @@ exports.create = async (req, res) => {
     const manualLines = normalisedManual.map((m) => ({
       lineType: 'manual',
       description: m.description,
+      rate: m.rate,
+      qtyRaw: m.qtyRaw,
+      qtyIsPercent: m.qtyIsPercent,
+      qtyValue: m.qtyValue,
       amount: m.amount,
       order: baseOrder++,
       claimId: null,
@@ -921,7 +945,7 @@ exports.create = async (req, res) => {
       billingServiceNameId: null,
       meta: { addedManually: true },
     }));
-    const allLines = [...built.lines, ...manualLines];
+    const allLines = [...built.lines.map(withLineQtyDefaults), ...manualLines];
     const finalTotals = manualLines.length
       ? calculateInvoiceTotals({
           tpaDeskLines: allLines.filter((l) => l.lineType === 'claim_tpa_desk' || l.lineType === 'service_percentage'),
@@ -1262,7 +1286,7 @@ exports.bulkImport = async (req, res) => {
       const dueDate = members.map((m) => m.dueDate).find(Boolean)
         || (issuedAt ? new Date(issuedAt.getTime() + 15 * 24 * 60 * 60 * 1000) : null);
 
-      const lineItems = members.map((m, order) => ({
+      const lineItems = members.map((m, order) => withLineQtyDefaults({
         lineType: 'manual',
         description: (m.description || 'Imported opening balance').slice(0, 300),
         amount: round2(m.amount),
@@ -1676,7 +1700,7 @@ exports.update = async (req, res) => {
             previousBalance: built.totals.previousBalance,
             grandTotal: built.totals.grandTotal,
             amountPending: built.totals.grandTotal - (invoice.amountPaid || 0),
-            lineItems: { create: built.lines },
+            lineItems: { create: built.lines.map(withLineQtyDefaults) },
           },
         });
         await recomputeInvoicePaidStatus(tx, invoice.id);
@@ -1702,9 +1726,19 @@ exports.update = async (req, res) => {
           if (!edit?.id || !validIds.has(edit.id)) continue;
           const data = {};
           if (edit.description !== undefined) data.description = String(edit.description).slice(0, 300);
-          if (edit.amount !== undefined) {
+          // New wizard sends rate + qtyRaw per edited row; recompute amount from
+          // them server-side (never trust the client amount). A bare `amount`
+          // edit (older callers) is treated as rate x 1 so amount = rate stays true.
+          const hasQtyRate = edit.rate != null || edit.qtyRaw != null || edit.qty != null;
+          if (hasQtyRate) {
+            const { rate, qtyRaw, qtyIsPercent, qtyValue, amount } =
+              normalizeQtyRateLine({ rate: edit.rate, qtyRaw: edit.qtyRaw ?? edit.qty });
+            Object.assign(data, { rate, qtyRaw, qtyIsPercent, qtyValue, amount });
+          } else if (edit.amount !== undefined) {
             const n = round2(Number(edit.amount));
-            if (Number.isFinite(n)) data.amount = n;
+            if (Number.isFinite(n)) {
+              Object.assign(data, { amount: n, rate: n, qtyRaw: '1', qtyIsPercent: false, qtyValue: 1 });
+            }
           }
           if (Object.keys(data).length) {
             await tx.invoiceLineItem.update({ where: { id: edit.id }, data });
@@ -1716,15 +1750,18 @@ exports.update = async (req, res) => {
         for (let i = 0; i < manualItems.length; i++) {
           const m = manualItems[i];
           if (!m) continue;
-          const description = String(m.description || '').slice(0, 300).trim();
-          const amount = round2(Number(m.amount) || 0);
-          if (!description) continue;
+          const line = manualItemToLine(m);
+          if (!line.description) continue;
           await tx.invoiceLineItem.create({
             data: {
               invoiceId: invoice.id,
               lineType: 'manual',
-              description,
-              amount,
+              description: line.description,
+              rate: line.rate,
+              qtyRaw: line.qtyRaw,
+              qtyIsPercent: line.qtyIsPercent,
+              qtyValue: line.qtyValue,
+              amount: line.amount,
               order: baseOrder + 1 + i,
               meta: { addedManually: true },
             },

@@ -14,6 +14,21 @@ import { round2 } from '../../utils/format';
 
 const formatINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// Mirror of backend utils/lineQty.js so a row's amount updates live as the
+// operator types. The server always recomputes authoritatively on save.
+const parseQty = (raw) => {
+  const s = String(raw ?? '1').trim();
+  const isPercent = s.includes('%');
+  const parsed = parseFloat(s.replace('%', ''));
+  const qtyValue = Number.isFinite(parsed) ? parsed : (isPercent ? 0 : 1);
+  return { isPercent, qtyValue };
+};
+const calcLineAmount = (rate, qtyRaw) => {
+  const { isPercent, qtyValue } = parseQty(qtyRaw);
+  const r = Number(rate) || 0;
+  return round2(isPercent ? (r * qtyValue) / 100 : r * qtyValue);
+};
+
 const LINE_TYPE_LABEL = {
   claim_tpa_desk: 'TPA Desk',
   service_fixed: 'Fixed',
@@ -133,6 +148,10 @@ const InvoiceWizard = () => {
       if (gstRate === '') setGstRate(String(data.totals.gstRate ?? 0));
       setEditLines((data.lines || []).map((l) => ({
         description: l.description || '',
+        // Claim/service lines start as rate = amount, qty = 1 (totals unchanged),
+        // but the operator can retype rate/qty in the uniform table.
+        rate: l.amount,
+        qtyRaw: '1',
         amount: l.amount,
         lineType: l.lineType,
         // Source branch name for claims pulled from a branch onto this (parent)
@@ -188,7 +207,7 @@ const InvoiceWizard = () => {
       // Lets the operator bill a month with no claims/services using only manual items.
       const manualItemsForCreate = editLines
         .filter((row) => row._isManual)
-        .map((row) => ({ description: row.description || '', amount: Number(row.amount) || 0 }))
+        .map((row) => ({ description: row.description || '', rate: Number(row.rate) || 0, qtyRaw: String(row.qtyRaw ?? '1') }))
         .filter((m) => (m.description || '').trim());
 
       // 1. Create the draft. The backend builds claim/service lines, then appends manualItems.
@@ -225,9 +244,13 @@ const InvoiceWizard = () => {
           if (!id) return;
           const newDesc = row.description || '';
           const newAmt = round2(Number(row.amount) || 0);
+          const newRate = round2(Number(row.rate) || 0);
+          const newQty = String(row.qtyRaw ?? '1');
           const origAmt = round2(Number((preview.lines.find((l) => l.description === origDesc) || {}).amount) || 0);
-          if (newDesc !== origDesc || newAmt !== origAmt) {
-            lineEdits.push({ id, description: newDesc, amount: newAmt });
+          // Built lines load as rate = amount, qty = '1'. Edit on desc, rate, qty,
+          // or resulting amount triggers a line edit; server recomputes amount.
+          if (newDesc !== origDesc || newAmt !== origAmt || newRate !== origAmt || newQty !== '1') {
+            lineEdits.push({ id, description: newDesc, rate: newRate, qtyRaw: newQty });
           }
         });
 
@@ -255,8 +278,17 @@ const InvoiceWizard = () => {
   };
 
   const addManualRow = () => {
-    setEditLines((rows) => [...rows, { description: '', amount: 0, lineType: 'manual', _isManual: true }]);
+    setEditLines((rows) => [...rows, { description: '', rate: 0, qtyRaw: '1', amount: 0, lineType: 'manual', _isManual: true }]);
   };
+
+  // Patch a row and keep its amount = rate x qty in sync so live totals update.
+  const updateLine = (idx, patch) =>
+    setEditLines((rows) => rows.map((r, i) => {
+      if (i !== idx) return r;
+      const next = { ...r, ...patch };
+      next.amount = calcLineAmount(next.rate, next.qtyRaw);
+      return next;
+    }));
 
   return (
     <div>
@@ -364,13 +396,15 @@ const InvoiceWizard = () => {
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-10">#</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Description</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-28">Type</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-44">Amount</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-24">Qty</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-36">Rate</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase w-40">Amount</th>
                   <th className="py-3 px-4 w-10"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {editLines.length === 0 ? (
-                  <tr><td colSpan={5} className="py-6 text-center text-sm text-gray-400">No items. Click "Add Item" to add a manual row.</td></tr>
+                  <tr><td colSpan={7} className="py-6 text-center text-sm text-gray-400">No items. Click "Add Item" to add a manual row.</td></tr>
                 ) : lineGroups.flatMap((g) => {
                   // Single-row 'group' (e.g. one Fixed service or a manual row) — render flat, no header.
                   if (g.items.length === 1 && !g.groupable) {
@@ -380,7 +414,7 @@ const InvoiceWizard = () => {
                         <td className="py-3 px-4 text-gray-400 text-xs">{idx + 1}</td>
                         <td className="py-3 px-4">
                           <SearchableSelect value={row.description} options={serviceOptions} allowCustom allowClear
-                            onChange={(v) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, description: v } : r))}
+                            onChange={(v) => updateLine(idx, { description: v })}
                             placeholder="Select or type a service"
                             searchPlaceholder="Search services..." />
                         </td>
@@ -390,9 +424,18 @@ const InvoiceWizard = () => {
                           </span>
                         </td>
                         <td className="py-3 px-4">
-                          <AmountInput value={row.amount} showWords={false}
-                            onChange={(v) => setEditLines((rows) => rows.map((r, i) => i === idx ? { ...r, amount: v } : r))}
+                          <input type="text" value={row.qtyRaw ?? '1'} placeholder="1"
+                            onChange={(e) => updateLine(idx, { qtyRaw: e.target.value })}
+                            title={`e.g. 2 or 50%`}
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                        </td>
+                        <td className="py-3 px-4">
+                          <AmountInput value={row.rate} showWords={false} allowDecimal
+                            onChange={(v) => updateLine(idx, { rate: v })}
                             className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                        </td>
+                        <td className="py-3 px-4 text-right font-medium text-gray-800 tabular-nums">
+                          {formatINR(row.amount)}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <button onClick={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}
@@ -425,6 +468,8 @@ const InvoiceWizard = () => {
                           {LINE_TYPE_LABEL[g.lineType] || g.lineType}
                         </span>
                       </td>
+                      <td className="py-3 px-4" />
+                      <td className="py-3 px-4" />
                       <td className="py-3 px-4 text-right font-semibold text-gray-800 tabular-nums">
                         {formatINR(groupTotal)}
                       </td>
@@ -440,7 +485,7 @@ const InvoiceWizard = () => {
                           <td className="py-2 px-4 text-gray-400 text-xs pl-10">{idx + 1}</td>
                           <td className="py-2 px-4">
                             <SearchableSelect value={row.description} options={serviceOptions} allowCustom allowClear
-                              onChange={(v) => setEditLines((arr) => arr.map((r, i) => i === idx ? { ...r, description: v } : r))}
+                              onChange={(v) => updateLine(idx, { description: v })}
                               placeholder="Select or type a service"
                               searchPlaceholder="Search services..." />
                             {row.sourceHospitalName && (
@@ -449,9 +494,18 @@ const InvoiceWizard = () => {
                           </td>
                           <td className="py-2 px-4" />
                           <td className="py-2 px-4">
-                            <AmountInput value={row.amount} showWords={false}
-                              onChange={(v) => setEditLines((arr) => arr.map((r, i) => i === idx ? { ...r, amount: v } : r))}
+                            <input type="text" value={row.qtyRaw ?? '1'} placeholder="1"
+                              onChange={(e) => updateLine(idx, { qtyRaw: e.target.value })}
+                              title={`e.g. 2 or 50%`}
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          </td>
+                          <td className="py-2 px-4">
+                            <AmountInput value={row.rate} showWords={false} allowDecimal
+                              onChange={(v) => updateLine(idx, { rate: v })}
                               className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                          </td>
+                          <td className="py-2 px-4 text-right font-medium text-gray-800 tabular-nums">
+                            {formatINR(row.amount)}
                           </td>
                           <td className="py-2 px-4 text-right">
                             <button onClick={() => setEditLines((arr) => arr.filter((_, i) => i !== idx))}
@@ -469,7 +523,7 @@ const InvoiceWizard = () => {
               </tbody>
               <tfoot className="bg-gray-50 border-t border-gray-200">
                 <tr>
-                  <td colSpan={3} className="py-3 px-4 text-right text-xs uppercase text-gray-500 font-semibold">Subtotal</td>
+                  <td colSpan={5} className="py-3 px-4 text-right text-xs uppercase text-gray-500 font-semibold">Subtotal</td>
                   <td className="py-3 px-4 text-right font-semibold text-gray-800 tabular-nums">
                     {formatINR(editLines.reduce((a, r) => a + (Number(r.amount) || 0), 0))}
                   </td>

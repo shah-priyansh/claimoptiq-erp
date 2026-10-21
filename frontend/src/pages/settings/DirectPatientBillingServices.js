@@ -21,6 +21,7 @@ const CALC_BASIS_OPTIONS = [
   { value: 'none',                label: 'None' },
   { value: 'hospital_final_bill', label: 'Hospital Final Bill' },
   { value: 'final_approval',      label: 'Final Approval Amount' },
+  { value: 'settlement_amount',   label: 'Settlement Amount (Before TDS)' },
 ];
 
 const emptyService = {

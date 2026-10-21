@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
+const { normalizeQtyRateLine } = require('../utils/lineQty');
 
 // Expense amounts carry paisa (a ₹899.37 petrol bill), so round to 2 decimals —
 // never to whole rupees, which silently dropped the paisa on save and made a
@@ -14,6 +15,28 @@ const expenseInclude = {
   // The cash/bank OUT movement(s) that pay this expense. Kept in sync by
   // create/update/remove so Total On Hand reflects money actually spent.
   payments: { select: { id: true, mode: true, bankAccountId: true, direction: true, amount: true } },
+  // Invoice-style qty/rate line items. The expense's amount is the sum of these.
+  lineItems: { orderBy: { order: 'asc' } },
+};
+
+// Normalize an incoming expense `lineItems[]` into stored rows + their summed
+// total. Returns null when the body carries no lineItems array (older callers /
+// bulk import that still send a flat `amount`). Amounts are always recomputed
+// server-side from rate x qty (see utils/lineQty.js); the client total is ignored.
+const buildExpenseLines = (body) => {
+  if (!Array.isArray(body.lineItems)) return null;
+  const lines = body.lineItems
+    .map((raw, order) => {
+      const description = String(raw?.description || '').slice(0, 300).trim();
+      const hasQtyRate = raw?.rate != null || raw?.qtyRaw != null || raw?.qty != null;
+      const { rate, qtyRaw, qtyIsPercent, qtyValue, amount } = hasQtyRate
+        ? normalizeQtyRateLine({ rate: raw.rate, qtyRaw: raw.qtyRaw ?? raw.qty })
+        : normalizeQtyRateLine({ rate: raw?.amount });
+      return { description, rate, qtyRaw, qtyIsPercent, qtyValue, amount, order };
+    })
+    .filter((l) => l.description || l.amount);
+  const total = round2(lines.reduce((s, l) => s + l.amount, 0));
+  return { lines, total };
 };
 
 // Payment rollup for one expense, derived from its linked cash/bank entries
@@ -356,6 +379,13 @@ exports.getOne = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     const data = pickFields(req.body);
+    // When the form sends line items, the expense amount is their server-computed
+    // sum (never the client-sent flat amount).
+    const lineData = buildExpenseLines(req.body);
+    if (lineData) {
+      if (!lineData.lines.length) return res.status(400).json({ message: 'Add at least one line item' });
+      data.amount = lineData.total;
+    }
     if (!data.date || !data.categoryId || data.amount === undefined) {
       return res.status(400).json({ message: 'date, categoryId, and amount are required' });
     }
@@ -369,7 +399,14 @@ exports.create = async (req, res) => {
 
     const item = await prisma.$transaction(async (tx) => {
       const partyId = await resolvePartyId(tx, data);
-      const created = await tx.expense.create({ data: { ...data, partyId, createdById: req.user?.id || null } });
+      const created = await tx.expense.create({
+        data: {
+          ...data,
+          partyId,
+          createdById: req.user?.id || null,
+          ...(lineData ? { lineItems: { create: lineData.lines } } : {}),
+        },
+      });
       // Mirror the paid portion into the cashbook so Total On Hand drops. When
       // Paid is 0 (Unpaid) nothing is recorded and the expense reads Unpaid;
       // a partial pays only that much. Honour paymentMode 'none'.
@@ -504,6 +541,12 @@ exports.update = async (req, res) => {
     });
     if (!existing) return res.status(404).json({ message: 'Not found' });
     const data = pickFields(req.body);
+    // When line items are sent, replace them and set amount to their summed total.
+    const lineData = buildExpenseLines(req.body);
+    if (lineData) {
+      if (!lineData.lines.length) return res.status(400).json({ message: 'Add at least one line item' });
+      data.amount = lineData.total;
+    }
     // Re-attribute the party only when a party-related field was edited, so an
     // unrelated update never clears an existing partyId.
     if (['partyId', 'referenceId', 'partyName'].some((k) => req.body[k] !== undefined)) {
@@ -523,7 +566,12 @@ exports.update = async (req, res) => {
     const item = await prisma.$transaction(async (tx) => {
       const updated = await tx.expense.update({
         where: { id: req.params.id },
-        data: { ...data, updatedById: req.user?.id || null },
+        data: {
+          ...data,
+          updatedById: req.user?.id || null,
+          // Replace the full line set when the form sent one.
+          ...(lineData ? { lineItems: { deleteMany: {}, create: lineData.lines } } : {}),
+        },
         include: expenseInclude,
       });
 
