@@ -76,6 +76,7 @@ model Hospital {
   createdAt           DateTime                 @default(now()) @map("created_at")
   updatedAt           DateTime                 @updatedAt @map("updated_at")
   billingServices     HospitalBillingService[]
+  rateVersions        HospitalRateVersion[]
   doctors             HospitalDoctor[]
   users               User[]
   claims              Claim[]
@@ -515,6 +516,7 @@ model InvoiceLineItem {
 model HospitalBillingService {
   id                      String                       @id @default(uuid())
   hospitalId              String                       @map("hospital_id")
+  rateVersionId           String                       @map("rate_version_id")
   serviceName             String                       @map("service_name")
   billingType             String                       @map("billing_type")
   fixedAmount             Float                        @default(0) @map("fixed_amount")
@@ -534,9 +536,34 @@ model HospitalBillingService {
   percentageRate          Float                        @default(0) @map("percentage_rate")
   isActive                Boolean                      @default(true) @map("is_active")
   hospital                Hospital                     @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  rateVersion             HospitalRateVersion          @relation(fields: [rateVersionId], references: [id], onDelete: Cascade)
   slabs                   HospitalBillingServiceSlab[]
 
+  @@index([rateVersionId])
   @@map("hospital_billing_services")
+}
+
+// Groups a hospital's HospitalBillingService rows into an effective-dated
+// "rate version". Every hospital gets exactly one version with
+// effectiveFromMonth = null — the "base" version holding its current rates
+// (enforced by a partial unique index in the migration SQL, since Prisma
+// has no partial-unique-index syntax). Future versions (effectiveFromMonth
+// set) let a hospital's rates change for claims from a given month onward
+// without losing history; the resolver that picks a version for a given
+// month is added in a later task.
+model HospitalRateVersion {
+  id                 String                   @id @default(uuid())
+  hospitalId         String                   @map("hospital_id")
+  effectiveFromMonth DateTime?                @map("effective_from_month")
+  note               String?
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+  hospital           Hospital                 @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  billingServices    HospitalBillingService[]
+
+  @@unique([hospitalId, effectiveFromMonth])
+  @@index([hospitalId])
+  @@map("hospital_rate_versions")
 }
 
 model HospitalBillingServiceSlab {
