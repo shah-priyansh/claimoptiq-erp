@@ -3,10 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const archiver = require('archiver');
 const { toResponse } = require('../utils/toResponse');
-const calculateFilePrice = require('../utils/calculateFilePrice');
 const { round2 } = require('../utils/money');
 const { parseLineQty, computeLineAmount } = require('../utils/lineQty');
 const { loadServiceClaimTypesMap, attachClaimTypes } = require('../utils/billingServiceClaimTypes');
+const { resolveClaimFilePrice } = require('../utils/rateVersions');
 const { streamFileToResponse, resolveFileStream } = require('../services/fileRetrieval');
 const backupService = require('../services/backupService');
 const { loadConfig: loadBackupConfig } = require('../utils/backupConfig');
@@ -104,6 +104,40 @@ const claimFullInclude = {
     orderBy: { changedAt: 'asc' },
     include: { changedBy: auditorSelect },
   },
+};
+
+// Builds the `versionsByHospital` map `resolveClaimFilePrice` expects:
+// { [hospitalId]: [{ effectiveFromMonth, billingServices }] }. Fetches every
+// HospitalRateVersion for the given hospital ids (each hospital currently has
+// exactly one, the base version with effectiveFromMonth=null), filters each
+// version's billingServices to active per_claim_slab/percentage rows (the
+// only types calculateFilePrice reads — same filter the old flat fetch used),
+// and attaches claim-type applicability from the BillingServiceName master.
+const buildVersionsByHospital = async (hospitalIds) => {
+  const versionsByHospital = {};
+  if (!hospitalIds.length) return versionsByHospital;
+  const [versions, svcClaimTypes] = await Promise.all([
+    prisma.hospitalRateVersion.findMany({
+      where: { hospitalId: { in: hospitalIds } },
+      select: {
+        hospitalId: true,
+        effectiveFromMonth: true,
+        billingServices: {
+          where: { isActive: true, billingType: { in: ['per_claim_slab', 'percentage'] } },
+          include: { slabs: { orderBy: { rangeStart: 'asc' } } },
+        },
+      },
+    }),
+    loadServiceClaimTypesMap(),
+  ]);
+  for (const v of versions) {
+    const billingServices = attachClaimTypes(v.billingServices, svcClaimTypes);
+    (versionsByHospital[v.hospitalId] = versionsByHospital[v.hospitalId] || []).push({
+      effectiveFromMonth: v.effectiveFromMonth,
+      billingServices,
+    });
+  }
+  return versionsByHospital;
 };
 
 exports.createClaim = async (req, res) => {
@@ -337,6 +371,12 @@ exports.getClaims = async (req, res) => {
               claimType: true,
               hospitalFinalBill: true,
               finalApprovalAmount: true,
+              // NOTE: settlementAmount intentionally NOT selected here — the
+              // pre-existing ternary this replaces never selected it either
+              // (so `c.settlementAmount || 0` always resolved to 0 for this
+              // totals aggregate). Preserved as-is for base-version
+              // faithfulness; fixing that is out of scope for this task.
+              month: true,
               filePrice: true,
               filePriceOverridden: true,
             },
@@ -344,33 +384,15 @@ exports.getClaims = async (req, res) => {
         : Promise.resolve(null),
     ]);
 
-    // Union the hospital IDs across page + totals scope and pull billing
-    // services *once* for all of them — used to be two separate fetches.
-    const billingMap = {};
-    if (isSuperAdmin) {
-      const allHospitalIds = new Set(pageHospitalIds);
-      if (priceRows) {
-        for (const r of priceRows) if (r.hospitalId) allHospitalIds.add(r.hospitalId);
-      }
-      if (allHospitalIds.size) {
-        const [hosps, svcClaimTypes] = await Promise.all([
-          prisma.hospital.findMany({
-            where: { id: { in: [...allHospitalIds] } },
-            select: {
-              id: true,
-              billingServices: {
-                where: { isActive: true, billingType: { in: ['per_claim_slab', 'percentage'] } },
-                include: { slabs: { orderBy: { rangeStart: 'asc' } } },
-              },
-            },
-          }),
-          loadServiceClaimTypesMap(),
-        ]);
-        // Attach each service's claim-type applicability (from the master) so
-        // calculateFilePrice can skip services that don't apply to a claim's type.
-        hosps.forEach((h) => { billingMap[h.id] = attachClaimTypes(h.billingServices, svcClaimTypes); });
-      }
+    // Union the hospital IDs across page + totals scope and resolve each
+    // hospital's rate versions *once* for all of them — used to be one flat
+    // billing-services fetch; now grouped per effective-dated version so the
+    // resolver can pick the version in effect for each claim's month.
+    const allHospitalIds = new Set(pageHospitalIds);
+    if (priceRows) {
+      for (const r of priceRows) if (r.hospitalId) allHospitalIds.add(r.hospitalId);
     }
+    const versionsByHospital = isSuperAdmin ? await buildVersionsByHospital([...allHospitalIds]) : {};
 
     // For super-admin we need `filePrice` per row so the table column + export
     // can render without pulling billingServices in the row join.
@@ -378,9 +400,7 @@ exports.getClaims = async (req, res) => {
     if (isSuperAdmin) {
       stripped = claimsData.map((c) => ({
         ...c,
-        filePrice: c.filePriceOverridden && c.filePrice
-          ? c.filePrice
-          : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType, c.settlementAmount || 0),
+        filePrice: resolveClaimFilePrice(c, versionsByHospital),
       }));
     } else {
       stripped = claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
@@ -391,7 +411,7 @@ exports.getClaims = async (req, res) => {
 
     // Aggregate sums for the matching filter scope (NOT the page) drive the
     // Claims Report summary cards. Reuses `agg`, `priceRows`, and
-    // `billingMap` computed above.
+    // `versionsByHospital` computed above.
     let totals = null;
     if (wantTotals && agg) {
       totals = {
@@ -404,9 +424,7 @@ exports.getClaims = async (req, res) => {
       if (isSuperAdmin && priceRows) {
         let totalFilePrice = 0;
         for (const c of priceRows) {
-          totalFilePrice += c.filePriceOverridden && c.filePrice
-            ? c.filePrice
-            : calculateFilePrice(billingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType, c.settlementAmount || 0);
+          totalFilePrice += resolveClaimFilePrice(c, versionsByHospital);
         }
         totals.filePrice = totalFilePrice;
       }
@@ -1889,11 +1907,18 @@ exports.exportClaims = async (req, res) => {
       // claimTypes=[] (universal) and the export sums cashless + reimbursement
       // + every other type-specific service into one combined File Price.
       const svcClaimTypes = await loadServiceClaimTypesMap();
+      // Resolved server-side so the frontend export builder (Task 9) can
+      // consume `filePrice` directly instead of recomputing from the flat
+      // service list — resolves each claim's hospital rate version by its
+      // billing month rather than always pricing from the current rates.
+      const hospitalIds = [...new Set(claimsData.map((c) => c.hospitalId).filter(Boolean))];
+      const versionsByHospital = await buildVersionsByHospital(hospitalIds);
       stripped = claimsData.map((c) => ({
         ...c,
         hospital: c.hospital
           ? { ...c.hospital, billingServices: attachClaimTypes(c.hospital.billingServices, svcClaimTypes) }
           : c.hospital,
+        filePrice: resolveClaimFilePrice(c, versionsByHospital),
       }));
     } else {
       stripped = claimsData.map(({ filePrice, isBilled, hospital, ...rest }) => ({
@@ -2318,7 +2343,7 @@ exports.getDashboardStats = async (req, res) => {
       }),
       prisma.claim.findMany({
         where: { ...baseWhere, isBilled: true, month: { gte: monthStart, lte: monthEnd } },
-        select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, settlementAmount: true, hospitalId: true, claimType: true },
+        select: { filePrice: true, filePriceOverridden: true, hospitalFinalBill: true, finalApprovalAmount: true, settlementAmount: true, hospitalId: true, claimType: true, month: true },
       }),
       // Hospital totals for the super-admin dashboard: total + active/inactive
       // split (one groupBy round trip instead of two counts). Hospital users
@@ -2332,33 +2357,15 @@ exports.getDashboardStats = async (req, res) => {
           }),
     ]);
 
-    // Fetch billing services only for unique hospitals that still need
-    // calculation. Narrow the include to slab/percentage services (the only
-    // types calculateFilePrice reads) so we skip pulling every fixed_monthly
-    // / fixed_onetime row + their (empty) slabs subquery.
+    // Resolve rate versions only for unique hospitals that still need
+    // calculation (skips hospitals whose claims are all overridden).
     const hospitalsNeedingCalc = [...new Set(
       monthlyBilledClaims
         .filter(c => !(c.filePriceOverridden && c.filePrice))
         .map(c => c.hospitalId)
         .filter(Boolean)
     )];
-    const hospitalBillingMap = {};
-    if (hospitalsNeedingCalc.length > 0) {
-      const [hospitals, svcClaimTypes] = await Promise.all([
-        prisma.hospital.findMany({
-          where: { id: { in: hospitalsNeedingCalc } },
-          select: {
-            id: true,
-            billingServices: {
-              where: { isActive: true, billingType: { in: ['per_claim_slab', 'percentage'] } },
-              include: { slabs: { orderBy: { rangeStart: 'asc' } } },
-            },
-          },
-        }),
-        loadServiceClaimTypesMap(),
-      ]);
-      hospitals.forEach(h => { hospitalBillingMap[h.id] = attachClaimTypes(h.billingServices, svcClaimTypes); });
-    }
+    const versionsByHospital = await buildVersionsByHospital(hospitalsNeedingCalc);
 
     // Compute counts and breakdowns in memory
     const countMap = {};
@@ -2385,9 +2392,7 @@ exports.getDashboardStats = async (req, res) => {
 
     let totalFilePrice = 0;
     for (const c of monthlyBilledClaims) {
-      totalFilePrice += c.filePriceOverridden && c.filePrice
-        ? c.filePrice
-        : calculateFilePrice(hospitalBillingMap[c.hospitalId] || [], c.hospitalFinalBill || 0, c.finalApprovalAmount || 0, c.claimType, c.settlementAmount || 0);
+      totalFilePrice += resolveClaimFilePrice(c, versionsByHospital);
     }
 
     const payload = {
