@@ -3,12 +3,22 @@ import { useNavigate } from 'react-router-dom';
 import {
   HiOutlineBell, HiOutlineCheck, HiOutlineDocumentText,
   HiOutlineRefresh, HiOutlineInboxIn, HiOutlineExternalLink,
+  HiOutlineClipboardList, HiOutlineClock,
 } from 'react-icons/hi';
 import { getNotificationsAPI, markNotificationReadAPI, markAllNotificationsReadAPI } from '../../services/api';
 
 const TYPE_META = {
   document_uploaded:       { label: 'Document Uploaded', icon: HiOutlineInboxIn,    palette: 'bg-blue-50 text-blue-600 ring-blue-100' },
   document_status_changed: { label: 'Status Updated',    icon: HiOutlineRefresh,    palette: 'bg-emerald-50 text-emerald-600 ring-emerald-100' },
+  staff_request:           { label: 'Staff Request',       icon: HiOutlineClipboardList, palette: 'bg-indigo-50 text-indigo-600 ring-indigo-100' },
+  attendance_pending:      { label: 'Attendance Approval', icon: HiOutlineClock,         palette: 'bg-amber-50 text-amber-600 ring-amber-100' },
+};
+
+// Where a notification takes you when clicked, by type.
+const notifLink = (n) => {
+  if (n.type === 'staff_request' || n.type === 'attendance_pending') return '/staff';
+  if (n.referenceId) return `/documents/inbox?submissionId=${n.referenceId}`;
+  return null;
 };
 
 const DEFAULT_META = { label: 'Notification', icon: HiOutlineDocumentText, palette: 'bg-gray-50 text-gray-500 ring-gray-100' };
@@ -51,9 +61,10 @@ const NotificationBell = () => {
 
   const handleClick = async (n) => {
     if (!n.isRead) await handleMarkRead(n._id);
-    if (n.referenceId) {
+    const to = notifLink(n);
+    if (to) {
       setOpen(false);
-      navigate(`/documents/inbox?submissionId=${n.referenceId}`);
+      navigate(to);
     }
   };
 

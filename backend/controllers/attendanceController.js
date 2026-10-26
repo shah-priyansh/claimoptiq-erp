@@ -1,5 +1,5 @@
 const prisma = require('../config/prisma');
-
+const { notifyRoles } = require('../utils/createNotifications');
 
 const getOtType = async (date) => {
   const d = new Date(date);
@@ -199,6 +199,11 @@ exports.addMyAttendance = async (req, res) => {
       update: { inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType, status },
       create: { employeeId: employee.id, date: dateObj, inTime: inTimeObj, outTime: outTimeObj, totalMinutes, extraMinutes, otType, status },
     });
+    // Back-dated entries land as 'pending' and need super-admin sign-off — alert them.
+    if (record.status === 'pending') {
+      const fmt = new Date(dateObj).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+      await notifyRoles(['super_admin'], `${employee.name} submitted back-dated attendance for ${fmt} — needs approval`, 'attendance_pending', record.id);
+    }
     res.json(record);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
