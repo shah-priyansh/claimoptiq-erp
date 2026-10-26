@@ -299,11 +299,11 @@ const HospitalFinalBillModal = ({ open, claim, onClose, onSaved }) => {
               </button>
             </div>
             <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="grid grid-cols-[1.2fr_1fr_90px_110px_120px_32px] gap-2 bg-gray-50 px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+              <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_90px_110px_120px_32px] gap-2 bg-gray-50 px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
                 <span>Particulars</span><span>Description</span><span>Qty / %</span><span>Rate (₹)</span><span className="text-right">Amount</span><span />
               </div>
               {f.items.map((it, idx) => (
-                <div key={idx} className="grid grid-cols-[1.2fr_1fr_90px_110px_120px_32px] gap-2 px-3 py-2 border-t border-gray-100 items-center">
+                <div key={idx} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_90px_110px_120px_32px] gap-2 px-3 py-2 border-t border-gray-100 items-center">
                   <SearchableSelect
                     value={it.particulars}
                     onChange={v => setItem(idx, 'particulars', v)}
