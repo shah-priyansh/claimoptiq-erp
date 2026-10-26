@@ -85,7 +85,7 @@ const defaultRoles = [
     isSystem: true,
     permissions: buildPermissions({
       dashboard:            { view: true },
-      claims:               { view: true },
+      claims:               { view: true, export: true },
       hospital_final_bills: { view: true },
       hospitals:            { view: true },
       insurance:            { view: true },
@@ -93,6 +93,9 @@ const defaultRoles = [
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
       document_submissions: { view: true, create: true, edit: true, delete: true },
+      // Claim Settlement report (own hospital only) + claim export, on by
+      // default. Financial reports are hard-blocked for hospital logins server-side.
+      reports:              { view: true },
     }),
   },
   {
@@ -102,12 +105,14 @@ const defaultRoles = [
     isSystem: true,
     permissions: buildPermissions({
       dashboard:            { view: true },
-      claims:               { view: true },
+      claims:               { view: true, export: true },
       hospital_final_bills: { view: true },
       hospitals:            { view: true },
       claim_statuses:       { view: true },
       claim_document_types: { view: true },
       document_submissions: { view: true, create: true },
+      // Claim Settlement report (own hospital only) + claim export, on by default.
+      reports:              { view: true },
     }),
   },
   {
