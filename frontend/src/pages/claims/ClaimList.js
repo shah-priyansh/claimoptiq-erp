@@ -2090,9 +2090,7 @@ const ClaimList = () => {
                               <div className="border-t-2 border-dashed border-gray-400" />
 
                               <div>
-                                <p className="tracking-wide mb-1">
-                                  FROM{sender.label !== 'Hospital' ? ` · ${sender.label}` : ''}
-                                </p>
+                                <p className="tracking-wide mb-1">FROM</p>
                                 <p className="leading-snug">{sender.name || '—'}</p>
                                 {stickerEditMode && (
                                   <textarea
