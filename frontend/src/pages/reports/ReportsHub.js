@@ -6,10 +6,13 @@ import {
   HiOutlineScale, HiOutlineReceiptTax, HiOutlineClipboardCheck,
 } from 'react-icons/hi';
 import { getReportDashboardAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { formatINR } from './reportUtils';
 
 const CARDS = [
-  { to: '/reports/claim-settlement', title: 'Claim Settlement', desc: 'Claim-wise bills, approvals & settlements', icon: HiOutlineClipboardCheck, color: 'bg-teal-50 text-teal-700' },
+  // scopedOk: visible to hospital/reference logins. Everything else is an
+  // FCC-internal financial report, hidden from (and blocked for) those logins.
+  { to: '/reports/claim-settlement', title: 'Claim Settlement', desc: 'Claim-wise bills, approvals & settlements', icon: HiOutlineClipboardCheck, color: 'bg-teal-50 text-teal-700', scopedOk: true },
   { to: '/reports/sales', title: 'Sales', desc: 'Revenue by month, hospital, service', icon: HiOutlineCurrencyRupee, color: 'bg-primary-50 text-primary-700' },
   { to: '/reports/expenses', title: 'Expenses', desc: 'Category-wise + monthly trend', icon: HiOutlineDocumentText, color: 'bg-amber-50 text-amber-700' },
   { to: '/reports/profit', title: 'Profit', desc: 'Sales − Expenses, monthly', icon: HiOutlineTrendingUp, color: 'bg-green-50 text-green-700' },
@@ -20,15 +23,21 @@ const CARDS = [
 ];
 
 const ReportsHub = () => {
+  const { user } = useAuth();
+  // Hospital- and reference-scoped logins only get the Claim Settlement report
+  // (scoped to their own data). The firm-wide financial dashboard is hidden.
+  const isScoped = !!(user?.hospital || user?.reference);
   const [dash, setDash] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!isScoped);
+  const visibleCards = CARDS.filter((c) => !isScoped || c.scopedOk);
 
   useEffect(() => {
+    if (isScoped) return;
     getReportDashboardAPI()
       .then(({ data }) => setDash(data))
       .catch(() => setDash(null))
       .finally(() => setLoading(false));
-  }, []);
+  }, [isScoped]);
 
   const m = dash?.thisMonth || {};
   const cb = dash?.cashBank || {};
@@ -87,7 +96,7 @@ const ReportsHub = () => {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Report families</h2>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {CARDS.map((c) => (
+        {visibleCards.map((c) => (
           <Link key={c.to} to={c.to}
             className="block bg-white border border-gray-200 hover:border-primary-300 rounded-xl p-4 transition-colors group">
             <div className="flex items-start gap-3">

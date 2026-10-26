@@ -108,15 +108,15 @@ function App() {
             <Route path="/loans" element={<ProtectedRoute module="loans"><LoansPage /></ProtectedRoute>} />
             <Route path="/loans/:id" element={<ProtectedRoute module="loans"><LoanDetail /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute module="reports"><ReportsHub /></ProtectedRoute>} />
-            <Route path="/reports/claims" element={<ProtectedRoute module="reports"><Reports /></ProtectedRoute>} />
+            <Route path="/reports/claims" element={<ProtectedRoute module="reports" internalOnly><Reports /></ProtectedRoute>} />
             <Route path="/reports/claim-settlement" element={<ProtectedRoute module="reports"><Reports settlement /></ProtectedRoute>} />
-            <Route path="/reports/sales" element={<ProtectedRoute module="reports"><SalesReport /></ProtectedRoute>} />
-            <Route path="/reports/expenses" element={<ProtectedRoute module="reports"><ExpensesReport /></ProtectedRoute>} />
-            <Route path="/reports/profit" element={<ProtectedRoute module="reports"><ProfitReport /></ProtectedRoute>} />
-            <Route path="/reports/references" element={<ProtectedRoute module="reports"><ReferencesReport /></ProtectedRoute>} />
-            <Route path="/reports/cash-bank" element={<ProtectedRoute module="reports"><CashBankReport /></ProtectedRoute>} />
-            <Route path="/reports/balance-sheet" element={<ProtectedRoute module="reports"><BalanceSheetReport /></ProtectedRoute>} />
-            <Route path="/reports/taxes" element={<ProtectedRoute module="reports"><TaxesReport /></ProtectedRoute>} />
+            <Route path="/reports/sales" element={<ProtectedRoute module="reports" internalOnly><SalesReport /></ProtectedRoute>} />
+            <Route path="/reports/expenses" element={<ProtectedRoute module="reports" internalOnly><ExpensesReport /></ProtectedRoute>} />
+            <Route path="/reports/profit" element={<ProtectedRoute module="reports" internalOnly><ProfitReport /></ProtectedRoute>} />
+            <Route path="/reports/references" element={<ProtectedRoute module="reports" internalOnly><ReferencesReport /></ProtectedRoute>} />
+            <Route path="/reports/cash-bank" element={<ProtectedRoute module="reports" internalOnly><CashBankReport /></ProtectedRoute>} />
+            <Route path="/reports/balance-sheet" element={<ProtectedRoute module="reports" internalOnly><BalanceSheetReport /></ProtectedRoute>} />
+            <Route path="/reports/taxes" element={<ProtectedRoute module="reports" internalOnly><TaxesReport /></ProtectedRoute>} />
             <Route path="/claim-statuses" element={<ProtectedRoute module="claim_statuses" requireManage><ClaimStatusMaster /></ProtectedRoute>} />
             <Route path="/claim-document-types" element={<ProtectedRoute module="claim_document_types" requireManage><ClaimDocumentTypeMaster /></ProtectedRoute>} />
             <Route path="/billing-service-names" element={<ProtectedRoute module="billing_service_names" requireManage><BillingServiceNameList /></ProtectedRoute>} />
