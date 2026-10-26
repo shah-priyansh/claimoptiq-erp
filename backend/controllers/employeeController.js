@@ -5,6 +5,13 @@ const employeeInclude = {
   user: { select: { id: true, name: true, email: true } },
 };
 
+// Weekly off is a day-of-week index: 0 = Sunday … 6 = Saturday. Anything out of
+// range (or missing) falls back to Sunday, matching the pre-existing default.
+const normalizeWeeklyOff = (v) => {
+  const n = parseInt(v, 10);
+  return Number.isInteger(n) && n >= 0 && n <= 6 ? n : 0;
+};
+
 const generateEmpNumber = async () => {
   const last = await prisma.employee.findFirst({ orderBy: { empNumber: 'desc' } });
   if (!last) return 'EMP001';
@@ -64,7 +71,7 @@ const parseDate = (v) => {
 
 exports.createEmployee = async (req, res) => {
   try {
-    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, allowances = [], dailyOtEnabled, joiningDate, lastDate } = req.body;
+    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, allowances = [], dailyOtEnabled, joiningDate, lastDate, weeklyOff } = req.body;
     const empNumber = await generateEmpNumber();
     const employee = await prisma.employee.create({
       data: {
@@ -78,6 +85,7 @@ exports.createEmployee = async (req, res) => {
         lastDate: parseDate(lastDate),
         userId: userId || null,
         dailyOtEnabled: dailyOtEnabled !== undefined ? !!dailyOtEnabled : true,
+        weeklyOff: normalizeWeeklyOff(weeklyOff),
         allowances: {
           create: allowances.map(a => ({ name: a.name, amount: parseFloat(a.amount) })),
         },
@@ -93,7 +101,7 @@ exports.createEmployee = async (req, res) => {
 
 exports.updateEmployee = async (req, res) => {
   try {
-    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, isActive, allowances, dailyOtEnabled, joiningDate, lastDate } = req.body;
+    const { name, basicSalary, shiftStart, shiftEnd, standardHours, userId, isActive, allowances, dailyOtEnabled, joiningDate, lastDate, weeklyOff } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (basicSalary !== undefined) data.basicSalary = parseFloat(basicSalary);
@@ -105,6 +113,7 @@ exports.updateEmployee = async (req, res) => {
     if (userId !== undefined) data.userId = userId || null;
     if (isActive !== undefined) data.isActive = isActive;
     if (dailyOtEnabled !== undefined) data.dailyOtEnabled = !!dailyOtEnabled;
+    if (weeklyOff !== undefined) data.weeklyOff = normalizeWeeklyOff(weeklyOff);
 
     if (allowances !== undefined) {
       await prisma.employeeAllowance.deleteMany({ where: { employeeId: req.params.id } });

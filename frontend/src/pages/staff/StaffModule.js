@@ -5,11 +5,13 @@ import EmployeeList from './EmployeeList';
 import AttendanceTab from './AttendanceTab';
 import SalaryTab from './SalaryTab';
 import HolidayList from './HolidayList';
+import RequestsTab from './RequestsTab';
 
 const TABS = [
   { key: 'employees', label: 'Employees', adminOnly: true },
   { key: 'attendance', label: 'Attendance' },
   { key: 'salary', label: 'Salary' },
+  { key: 'requests', label: 'Requests', selfOrAdmin: true },
   { key: 'holidays', label: 'Holidays', requiresView: true },
 ];
 
@@ -37,6 +39,8 @@ const StaffModule = () => {
   const visibleTabs = TABS.filter(t => {
     if (t.adminOnly && !isAdmin) return false;
     if (t.requiresView && !isAdmin && !canView) return false;
+    // Requests tab: employees (self-service) and admins (review) only.
+    if (t.selfOrAdmin && !isAdmin && !isEmployee) return false;
     return true;
   });
 
@@ -68,6 +72,9 @@ const StaffModule = () => {
       )}
       {activeTab === 'salary' && (
         <SalaryTab isAdmin={isAdmin} canEdit={canEdit} />
+      )}
+      {activeTab === 'requests' && (
+        <RequestsTab isSuperAdmin={isSuperAdmin} />
       )}
       {activeTab === 'holidays' && (isAdmin || canView) && (
         <HolidayList canEdit={isAdmin} />

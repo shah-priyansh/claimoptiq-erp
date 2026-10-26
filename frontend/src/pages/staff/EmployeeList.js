@@ -9,10 +9,13 @@ import Toggle from '../../components/ui/Toggle';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { formatCurrency } from '../../utils/format';
 
+// 0 = Sunday … 6 = Saturday — matches JS getDay()/the backend weeklyOff index.
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 const emptyForm = {
   name: '', basicSalary: '', shiftStart: '09:00', shiftEnd: '18:00',
   standardHours: '9', userId: '', allowances: [], dailyOtEnabled: true,
-  joiningDate: '', lastDate: '',
+  joiningDate: '', lastDate: '', weeklyOff: 0,
 };
 
 const fmtDate = (v) => v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
@@ -27,6 +30,7 @@ const EmployeeForm = ({ emp, users, loadingUsers, onSave, onClose }) => {
           dailyOtEnabled: emp.dailyOtEnabled !== false,
           joiningDate: emp.joiningDate ? emp.joiningDate.slice(0, 10) : '',
           lastDate: emp.lastDate ? emp.lastDate.slice(0, 10) : '',
+          weeklyOff: Number.isInteger(emp.weeklyOff) ? emp.weeklyOff : 0,
         }
       : { ...emptyForm }
   );
@@ -108,6 +112,16 @@ const EmployeeForm = ({ emp, users, loadingUsers, onSave, onClose }) => {
               <input type="date" value={form.lastDate} min={form.joiningDate || undefined} onChange={e => set('lastDate', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
               <p className="text-[11px] text-gray-400 mt-0.5">Leave blank if still working. Salary stops after this date.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Weekly Off</label>
+              <select value={form.weeklyOff} onChange={e => set('weeklyOff', Number(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+              </select>
+              <p className="text-[11px] text-gray-400 mt-0.5">Paid day off each week — never docks salary; worked = off-day OT.</p>
             </div>
           </div>
           <div>

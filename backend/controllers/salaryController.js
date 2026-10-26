@@ -25,7 +25,7 @@ const istTodayIso = () => {
 //                                                fully-attended month stays full)
 // Days outside the employment window (before joining / after last day) are
 // neither paid nor absent — the person simply wasn't employed then.
-const computeDayCounts = (employee, attendance, calendarDays, monthStart, holidaySet, todayIso = istTodayIso()) => {
+const computeDayCounts = (employee, attendance, calendarDays, monthStart, holidaySet, todayIso = istTodayIso(), paidLeaveSet = new Set()) => {
   const joinMs = employee.joiningDate ? new Date(employee.joiningDate).getTime() : null;
   const lastMs = employee.lastDate ? new Date(employee.lastDate).getTime() : null;
   const inWindow = (d) => {
@@ -41,14 +41,18 @@ const computeDayCounts = (employee, attendance, calendarDays, monthStart, holida
   );
   const y = monthStart.getUTCFullYear();
   const mo = monthStart.getUTCMonth();
+  // Employee's weekly off day (0 = Sunday … 6 = Saturday). Dynamic per employee;
+  // defaults to Sunday so existing data behaves exactly as before.
+  const weeklyOff = Number.isInteger(employee.weeklyOff) ? employee.weeklyOff : 0;
   let paidDays = 0, absentDays = 0;
   for (let d = 1; d <= calendarDays; d++) {
     const dayDate = new Date(Date.UTC(y, mo, d));
     if (!inWindow(dayDate)) continue;
     const iso = isoDateUTC(dayDate);
-    const isSun = dayDate.getUTCDay() === 0;
+    const isWeeklyOff = dayDate.getUTCDay() === weeklyOff;
     const isHol = holidaySet.has(iso);
-    if (isSun || isHol) { paidDays += 1; continue; }
+    // Approved paid leave / an off-day-swap's covered day count as paid too.
+    if (isWeeklyOff || isHol || paidLeaveSet.has(iso)) { paidDays += 1; continue; }
     if (presentSet.has(iso)) { paidDays += 1; continue; }
     // working day with no attendance: only a day that has already passed is a
     // genuine absence; today and future days are assumed paid until they lapse.
@@ -67,6 +71,7 @@ const computeSalary = (
   otMults = { dailyMultiplier: 1.5, sundayMultiplier: 2.0, holidayMultiplier: 2.0 },
   holidaySet = new Set(),
   shortHoursDeducted = false,
+  approvedRequests = [],
 ) => {
   // Ignore any attendance that falls outside the employment window
   // (before joining / after last working day) so a partial month is only
@@ -85,8 +90,27 @@ const computeSalary = (
   // Only 'approved' rows are paid — pending back-dated entries await sign-off.
   const stdMin = Math.round(employee.standardHours * 60);
   const dailyOtEnabled = employee.dailyOtEnabled !== false;
+  // Working on the employee's weekly off day earns the off-day OT premium (the
+  // same multiplier historically applied to Sunday). Dynamic per employee;
+  // defaults to Sunday. The internal 'sunday' type label is kept so the OT
+  // multiplier config and SalaryRecord fields stay unchanged.
+  const weeklyOff = Number.isInteger(employee.weeklyOff) ? employee.weeklyOff : 0;
+
+  // Fold in approved staff requests: paid leave + an off-day swap's covered day
+  // become paid days (no absence); approved OT hours add to this month's OT at
+  // the daily multiplier. Unpaid leave needs no handling — a day with no
+  // attendance already docks as an absence.
+  const paidLeaveSet = new Set();
+  let approvedOtMinutes = 0;
+  for (const r of (approvedRequests || [])) {
+    if (r.status !== 'approved' || !inWindow(r.date)) continue;
+    if (r.type === 'leave' && r.leavePaid) paidLeaveSet.add(isoDateUTC(r.date));
+    else if (r.type === 'off_swap') paidLeaveSet.add(isoDateUTC(r.date));
+    else if (r.type === 'ot') approvedOtMinutes += Math.round((Number(r.otHours) || 0) * 60);
+  }
+
   const classified = attendance.filter(a => a.outTime && a.status === 'approved' && inWindow(a.date)).map(a => {
-    const isSun = new Date(a.date).getUTCDay() === 0;
+    const isSun = new Date(a.date).getUTCDay() === weeklyOff;
     const isHol = holidaySet.has(isoDateUTC(a.date));
     const total = a.totalMinutes || 0;
     let type, mins, short = 0;
@@ -104,7 +128,7 @@ const computeSalary = (
   });
 
   const presentDays = classified.length;
-  const dailyOtMinutes   = classified.filter(a => a._otType === 'daily').reduce((s, a) => s + a._otMinutes, 0);
+  const dailyOtMinutes   = classified.filter(a => a._otType === 'daily').reduce((s, a) => s + a._otMinutes, 0) + approvedOtMinutes;
   const sundayOtMinutes  = classified.filter(a => a._otType === 'sunday').reduce((s, a) => s + a._otMinutes, 0);
   const holidayOtMinutes = classified.filter(a => a._otType === 'holiday').reduce((s, a) => s + a._otMinutes, 0);
   // Total shortfall across worked weekdays. Kept separate from OT pay — the admin
@@ -116,7 +140,7 @@ const computeSalary = (
 
   // Basic pay is driven by PAID days, not present days: Sundays and holidays
   // are always paid, and only genuine working-day absences dock the basic.
-  const { paidDays, absentDays } = computeDayCounts(employee, attendance, calendarDays, monthStart, holidaySet);
+  const { paidDays, absentDays } = computeDayCounts(employee, attendance, calendarDays, monthStart, holidaySet, undefined, paidLeaveSet);
 
   const basicSalary = employee.basicSalary;
   const perDayBasic = basicSalary / calendarDays;
@@ -198,7 +222,7 @@ exports.computeSalary = async (req, res) => {
     const empIds = employees.map(e => e.id);
 
     // Single batch fetch for all employees instead of N+1
-    const [allAttendance, allExisting, otMults, holidays] = await Promise.all([
+    const [allAttendance, allExisting, otMults, holidays, allRequests] = await Promise.all([
       prisma.attendanceRecord.findMany({
         where: { employeeId: { in: empIds }, date: { gte: monthStart, lte: monthEnd } },
       }),
@@ -209,8 +233,18 @@ exports.computeSalary = async (req, res) => {
       prisma.holidayMaster.findMany({
         where: { date: { gte: monthStart, lte: monthEnd }, isActive: true },
       }),
+      // Approved staff requests whose effective day falls in this month — paid
+      // leave / off-swap covered days (paid) and OT hours feed into the salary.
+      prisma.staffRequest.findMany({
+        where: { employeeId: { in: empIds }, status: 'approved', date: { gte: monthStart, lte: monthEnd } },
+      }),
     ]);
     const holidaySet = new Set(holidays.map(h => isoDateUTC(h.date)));
+    const requestsByEmp = {};
+    allRequests.forEach(r => {
+      if (!requestsByEmp[r.employeeId]) requestsByEmp[r.employeeId] = [];
+      requestsByEmp[r.employeeId].push(r);
+    });
 
     const attendanceByEmp = {};
     allAttendance.forEach(a => {
@@ -228,7 +262,7 @@ exports.computeSalary = async (req, res) => {
       const attendance = attendanceByEmp[emp.id] || [];
       const extraAllowances = existing?.extraAllowances || [];
       const shortHoursDeducted = existing?.shortHoursDeducted || false;
-      const calc = computeSalary(emp, attendance, calDays, monthStart, extraAllowances, otMults, holidaySet, shortHoursDeducted);
+      const calc = computeSalary(emp, attendance, calDays, monthStart, extraAllowances, otMults, holidaySet, shortHoursDeducted, requestsByEmp[emp.id] || []);
 
       const record = await prisma.salaryRecord.upsert({
         where: { employeeId_month: { employeeId: emp.id, month: monthStart } },

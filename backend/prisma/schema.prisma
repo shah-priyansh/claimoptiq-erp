@@ -661,6 +661,7 @@ model User {
   statusChangedSubmissions DocumentSubmission[] @relation("SubmissionStatusChangedBy")
   notifications            Notification[]
   employee                 Employee?
+  staffRequestsReviewed    StaffRequest[]       @relation("StaffRequestReviewer")
   invoicesCreated          Invoice[]            @relation("InvoiceCreatedBy")
   invoicesIssued           Invoice[]            @relation("InvoiceIssuedBy")
   expensesCreated          Expense[]            @relation("ExpenseCreatedBy")
@@ -995,6 +996,10 @@ model Employee {
   userId         String?             @unique @map("user_id")
   isActive       Boolean             @default(true) @map("is_active")
   dailyOtEnabled Boolean             @default(true) @map("daily_ot_enabled")
+  // Weekly off day of week (0 = Sunday … 6 = Saturday). Counted as a PAID day
+  // in salary (never docks basic) and triggers the Sunday/off-day OT premium
+  // when worked. Default 0 = Sunday keeps pre-existing behaviour unchanged.
+  weeklyOff      Int                 @default(0) @map("weekly_off")
   createdAt      DateTime            @default(now()) @map("created_at")
   updatedAt      DateTime            @updatedAt @map("updated_at")
   user           User?               @relation(fields: [userId], references: [id])
@@ -1002,8 +1007,37 @@ model Employee {
   attendance     AttendanceRecord[]
   salaryRecords  SalaryRecord[]
   loans          Loan[]
+  requests       StaffRequest[]
 
   @@map("employees")
+}
+
+// Employee-raised request (OT / leave / off-day swap) routed to super admins for
+// approval. On approval it feeds the salary calc: paid leave + the covered day
+// of an off-day swap count as paid days; approved OT hours add to that month's
+// OT. 'date' is the day the request concerns (OT day / leave day / the covered
+// leave day of a swap); 'swapWorkedDate' is the off day actually worked to cover it.
+model StaffRequest {
+  id             String    @id @default(uuid())
+  employeeId     String    @map("employee_id")
+  type           String    // 'ot' | 'leave' | 'off_swap'
+  status         String    @default("pending") // 'pending' | 'approved' | 'rejected'
+  date           DateTime  @db.Date
+  swapWorkedDate DateTime? @map("swap_worked_date") @db.Date
+  otHours        Float?    @map("ot_hours")
+  leavePaid      Boolean   @default(true) @map("leave_paid")
+  reason         String    @default("")
+  reviewNote     String    @default("") @map("review_note")
+  reviewedById   String?   @map("reviewed_by_id")
+  reviewedAt     DateTime? @map("reviewed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewedBy     User?     @relation("StaffRequestReviewer", fields: [reviewedById], references: [id])
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("staff_requests")
 }
 
 model EmployeeAllowance {

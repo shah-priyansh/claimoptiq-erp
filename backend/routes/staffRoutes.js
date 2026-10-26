@@ -18,6 +18,9 @@ const {
 const {
   getOtSettings, updateOtSettings,
 } = require('../controllers/otSettingsController');
+const {
+  createMyRequest, getMyRequests, cancelMyRequest, getRequests, reviewRequest,
+} = require('../controllers/staffRequestController');
 
 router.use(protect);
 
@@ -60,5 +63,13 @@ router.delete('/holidays/:id', checkPermission('staff', 'delete'), deleteHoliday
 // OT Settings
 router.get('/ot-settings', checkPermission('staff', 'view'), getOtSettings);
 router.put('/ot-settings', checkPermission('staff', 'edit'), updateOtSettings);
+
+// Staff requests (OT / leave / off-day swap) — employee self-service
+router.post('/requests/my', createMyRequest);
+router.get('/requests/my', getMyRequests);
+router.delete('/requests/my/:id', cancelMyRequest);
+// Staff requests — admin review (approve/reject is super_admin only)
+router.get('/requests', checkPermission('staff', 'view'), getRequests);
+router.patch('/requests/:id/review', authorize('super_admin'), reviewRequest);
 
 module.exports = router;

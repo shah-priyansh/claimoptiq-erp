@@ -384,6 +384,13 @@ export const getModulesAPI = () => API.get('/roles/modules');
 export const getEmployeesAPI = (params) => API.get('/staff/employees', { params });
 export const getEmployeeAPI = (id) => API.get(`/staff/employees/${id}`);
 export const getMyEmployeeAPI = () => API.get('/staff/employees/me');
+
+// Staff requests (OT / leave / off-day swap)
+export const createMyStaffRequestAPI = (data) => API.post('/staff/requests/my', data);
+export const getMyStaffRequestsAPI = () => API.get('/staff/requests/my');
+export const cancelMyStaffRequestAPI = (id) => API.delete(`/staff/requests/my/${id}`);
+export const getStaffRequestsAPI = (params) => API.get('/staff/requests', { params });
+export const reviewStaffRequestAPI = (id, data) => API.patch(`/staff/requests/${id}/review`, data);
 export const createEmployeeAPI = (data) => API.post('/staff/employees', data);
 export const updateEmployeeAPI = (id, data) => API.put(`/staff/employees/${id}`, data);
 
