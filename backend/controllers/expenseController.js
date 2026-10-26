@@ -275,25 +275,47 @@ exports.list = async (req, res) => {
             createdAt: exp.createdAt,
             updatedAt: exp.updatedAt,
             mergedCount: 0,
+            amountPaid: 0,
           });
         }
         const b = buckets.get(key);
         b.amount += Number(exp.amount) || 0;
+        // Aggregate paid across every expense folded into this (reference,
+        // month) bucket so the roll-up row carries real Paid/Balance/Status,
+        // not just the gross amount. Reuses rollupPayment's signed sum.
+        b.amountPaid += rollupPayment(Number(exp.amount) || 0, exp.payments).amountPaid;
         b.mergedCount += 1;
       }
       const merged = [...buckets.values()]
-        .map((b) => ({
-          ...b,
-          amount: round2(b.amount),
-          notes: `${b.mergedCount} entr${b.mergedCount === 1 ? 'y' : 'ies'} merged`,
-        }))
+        .map((b) => {
+          const amount = round2(b.amount);
+          const amountPaid = round2(b.amountPaid);
+          const amountPending = round2(amount - amountPaid);
+          // Same status rule as rollupPayment, applied to the bucket total.
+          let paymentStatus;
+          if (amountPaid === 0) paymentStatus = amount === 0 ? 'paid' : 'pending';
+          else if (amountPending <= 0) paymentStatus = 'paid';
+          else paymentStatus = 'partial';
+          return {
+            ...b,
+            amount,
+            amountPaid,
+            amountPending,
+            paymentStatus,
+            notes: `${b.mergedCount} entr${b.mergedCount === 1 ? 'y' : 'ies'} merged`,
+          };
+        })
         .sort((a, b) => b.date - a.date);
       const start = page ? (Number(page) - 1) * take : 0;
+      const mSumAmount = round2(merged.reduce((s, m) => s + m.amount, 0));
+      const mSumPaid = round2(merged.reduce((s, m) => s + m.amountPaid, 0));
       return res.json({
         expenses: toResponse(merged.slice(start, start + take)),
         total: merged.length,
         pages: Math.ceil(merged.length / take),
-        sumAmount: round2(merged.reduce((s, m) => s + m.amount, 0)),
+        sumAmount: mSumAmount,
+        sumPaid: mSumPaid,
+        sumPending: round2(mSumAmount - mSumPaid),
         merged: true,
       });
     }

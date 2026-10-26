@@ -493,11 +493,9 @@ const ExpenseList = () => {
                 <div className="text-right">
                   <p className="text-xs text-gray-400">{total} {total === 1 ? 'entry' : 'entries'}</p>
                   <p className={`text-base font-semibold ${sumAmount < 0 ? 'text-red-600' : 'text-gray-800'}`}>{formatINR(sumAmount)}</p>
-                  {!isMergedView && (
-                    <p className="text-[11px] text-gray-400">
-                      Paid {formatINR(sumPaid)} · Balance <span className={sumPending > 0 ? 'text-amber-600 font-medium' : ''}>{formatINR(sumPending)}</span>
-                    </p>
-                  )}
+                  <p className="text-[11px] text-gray-400">
+                    Paid {formatINR(sumPaid)} · Balance <span className={sumPending > 0 ? 'text-amber-600 font-medium' : ''}>{formatINR(sumPending)}</span>
+                  </p>
                 </div>
               </div>
 
@@ -571,19 +569,15 @@ const ExpenseList = () => {
                                 {formatINR(e.amount)}
                               </td>
                               <td className="py-3 px-4 text-right text-gray-600">
-                                {merged ? <span className="text-gray-300">—</span> : formatINR(e.amountPaid || 0)}
+                                {formatINR(e.amountPaid || 0)}
                               </td>
                               <td className="py-3 px-4 text-right text-gray-600">
-                                {merged ? <span className="text-gray-300">—</span> : formatINR(e.amountPending || 0)}
+                                {formatINR(e.amountPending || 0)}
                               </td>
                               <td className="py-3 px-4 text-center">
-                                {merged ? (
-                                  <span className="text-gray-300">—</span>
-                                ) : (
-                                  <span className={`text-xs px-2 py-0.5 rounded ${(PAY_STATUS[e.paymentStatus] || PAY_STATUS.pending).cls}`}>
-                                    {(PAY_STATUS[e.paymentStatus] || PAY_STATUS.pending).label}
-                                  </span>
-                                )}
+                                <span className={`text-xs px-2 py-0.5 rounded ${(PAY_STATUS[e.paymentStatus] || PAY_STATUS.pending).cls}`}>
+                                  {(PAY_STATUS[e.paymentStatus] || PAY_STATUS.pending).label}
+                                </span>
                               </td>
                               <td className="py-3 px-4 text-right">
                                 <div className="flex justify-end">
