@@ -7,6 +7,7 @@ router.use(protect);
 
 router.get('/open-hospitals', checkPermission('invoices', 'view'), ctrl.openHospitals);
 router.get('/party-names', checkPermission('invoices', 'view'), ctrl.partyNames);
+router.get('/service-names', checkPermission('invoices', 'view'), ctrl.serviceNames);
 router.post('/preview', checkPermission('invoices', 'view'), ctrl.preview);
 router.post('/preview-bulk', checkPermission('invoices', 'view'), ctrl.previewBulk);
 router.post('/preview-direct-patient', checkPermission('invoices', 'view'), ctrl.previewDirectPatient);

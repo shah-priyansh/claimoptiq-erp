@@ -12,7 +12,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import {
   getInvoiceAPI, updateInvoiceAPI, issueInvoiceAPI, voidInvoiceAPI, deleteInvoiceAPI, previewInvoicePdf, printInvoicePdf,
   getTdsRatesAPI, getCashBankAPI, recordInvoicePaymentAPI, deleteCashBankAPI, createCashBankAPI,
-  getBankAccountsAPI, getHospitalAPI,
+  getBankAccountsAPI, getHospitalAPI, getInvoiceServiceNamesAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
@@ -92,13 +92,30 @@ const InvoiceDetail = () => {
   // combobox: a clickable dropdown of services + type-to-search, while still
   // allowing a free-text description (allowCustom).
   const [serviceNames, setServiceNames] = useState([]);
-  const serviceOptions = useMemo(() => serviceNames.map((name) => ({ value: name, label: name })), [serviceNames]);
+  // Services typed on manual invoice lines before (self-learning) — merged after
+  // this hospital's own services so a previously-added custom service is still
+  // suggested, and so direct-patient invoices (no hospital) get a list at all.
+  const [learnedServices, setLearnedServices] = useState([]);
+  const serviceOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const name of [...serviceNames, ...learnedServices]) {
+      const n = (name || '').trim();
+      if (!n || seen.has(n.toLowerCase())) continue;
+      seen.add(n.toLowerCase());
+      out.push({ value: name, label: name });
+    }
+    return out;
+  }, [serviceNames, learnedServices]);
 
   useEffect(() => {
     getBankAccountsAPI({ active: 'true' })
       .then(({ data }) => setBankAccounts(data || []))
       .catch(() => setBankAccounts([]))
       .finally(() => setLoadingBankAccounts(false));
+    getInvoiceServiceNamesAPI()
+      .then(({ data }) => setLearnedServices(data.services || []))
+      .catch(() => setLearnedServices([]));
   }, []);
 
   // Line-item service dropdown lists THIS hospital's configured services.

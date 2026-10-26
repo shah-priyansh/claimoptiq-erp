@@ -137,6 +137,7 @@ export const importInvoicesAPI = (rows) => API.post('/invoices/import', { rows }
 export const getInvoicesAPI    = (params) => API.get('/invoices', { params });
 export const getOpenInvoiceHospitalsAPI = () => API.get('/invoices/open-hospitals');
 export const getInvoicePartyNamesAPI = () => API.get('/invoices/party-names');
+export const getInvoiceServiceNamesAPI = () => API.get('/invoices/service-names');
 export const getInvoiceAPI     = (id) => API.get(`/invoices/${id}`);
 export const updateInvoiceAPI  = (id, data) => API.patch(`/invoices/${id}`, data);
 export const editInvoiceLinesAPI = (id, payload) => API.patch(`/invoices/${id}`, payload);

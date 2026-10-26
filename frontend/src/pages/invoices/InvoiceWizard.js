@@ -7,6 +7,7 @@ import {
 } from 'react-icons/hi';
 import {
   getHospitalsAPI, getHospitalAPI, previewInvoiceAPI, createInvoiceAPI, updateInvoiceAPI, getTdsRatesAPI,
+  getInvoiceServiceNamesAPI,
 } from '../../services/api';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import AmountInput from '../../components/AmountInput';
@@ -63,7 +64,21 @@ const InvoiceWizard = () => {
   const [hospitals, setHospitals] = useState([]);
   const [tdsRates, setTdsRates] = useState([]);
   const [serviceNames, setServiceNames] = useState([]);
-  const serviceOptions = useMemo(() => serviceNames.map((name) => ({ value: name, label: name })), [serviceNames]);
+  // Services the operator has typed on manual invoice lines before — a newly
+  // added custom service is saved as a manual line, so it re-appears here next
+  // time instead of being forgotten. Merged after the hospital's own services.
+  const [learnedServices, setLearnedServices] = useState([]);
+  const serviceOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const name of [...serviceNames, ...learnedServices]) {
+      const n = (name || '').trim();
+      if (!n || seen.has(n.toLowerCase())) continue;
+      seen.add(n.toLowerCase());
+      out.push({ value: name, label: name });
+    }
+    return out;
+  }, [serviceNames, learnedServices]);
   const [loadingHospitals, setLoadingHospitals] = useState(true);
   const [loadingTdsRates, setLoadingTdsRates] = useState(true);
   const [hospitalId, setHospitalId] = useState('');
@@ -117,6 +132,9 @@ const InvoiceWizard = () => {
       .then(({ data }) => setTdsRates(data || []))
       .catch(() => setTdsRates([]))
       .finally(() => setLoadingTdsRates(false));
+    getInvoiceServiceNamesAPI()
+      .then(({ data }) => setLearnedServices(data.services || []))
+      .catch(() => setLearnedServices([]));
   }, []);
 
   // Line-item service dropdown lists the SELECTED hospital's configured services.

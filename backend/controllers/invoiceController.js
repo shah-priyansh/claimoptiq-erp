@@ -1531,6 +1531,26 @@ exports.partyNames = async (req, res) => {
   }
 };
 
+// Distinct service names the operator has typed on manual invoice lines before.
+// A custom service added during invoice create/edit is persisted as a `manual`
+// line item, so its description IS the "service" — this feeds those back into
+// the line-item service dropdown so a newly-added service re-appears next time
+// (self-learning, same idea as partyNames / claimProcessBy).
+exports.serviceNames = async (req, res) => {
+  try {
+    const rows = await prisma.invoiceLineItem.findMany({
+      where: { lineType: 'manual', description: { not: '' } },
+      distinct: ['description'],
+      select: { description: true },
+      orderBy: { description: 'asc' },
+    });
+    const services = rows.map((r) => r.description).filter((n) => n && n.trim());
+    res.json({ services });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 // Whitelisted sortable columns → Prisma orderBy builder. Keeps the sort param
 // from reaching arbitrary/nonexistent fields. `hospital` sorts by the related
 // hospital's name (direct-patient invoices have none, so the DB places them at
