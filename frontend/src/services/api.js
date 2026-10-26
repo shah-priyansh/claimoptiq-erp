@@ -88,6 +88,7 @@ export const updateTPAAPI = (id, data) => API.put(`/tpa/${id}`, data);
 export const deleteTPAAPI = (id) => API.delete(`/tpa/${id}`);
 export const importTPAAPI = (rows, mode = 'skip') => API.post('/tpa/import', { rows, mode });
 export const bulkTPAStatusAutomationAPI = (ids, statusAutomation) => API.put('/tpa/bulk-status-automation', { ids, statusAutomation });
+export const mergeTPAAPI = (sourceId, targetId) => API.post('/tpa/merge', { sourceId, targetId });
 
 // References (Commission Master)
 export const getReferencesAPI = (params) => API.get('/references', { params });

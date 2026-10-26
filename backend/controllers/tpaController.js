@@ -60,6 +60,45 @@ exports.update = async (req, res) => {
   }
 };
 
+// Merge one TPA into another to consolidate duplicate masters (same company
+// entered twice). Moves every claim from `sourceId` to `targetId`, swaps the id
+// inside hospital over-limit TPA lists, then deletes the source. One transaction
+// so a failure leaves the data untouched.
+exports.merge = async (req, res) => {
+  try {
+    const { sourceId, targetId } = req.body;
+    if (!sourceId || !targetId) return res.status(400).json({ message: 'Pick both the TPA to keep and the one to remove' });
+    if (sourceId === targetId) return res.status(400).json({ message: 'Cannot merge a TPA into itself' });
+
+    const [source, target] = await Promise.all([
+      prisma.tPA.findUnique({ where: { id: sourceId }, select: { id: true, name: true } }),
+      prisma.tPA.findUnique({ where: { id: targetId }, select: { id: true, name: true } }),
+    ]);
+    if (!source || !target) return res.status(404).json({ message: 'TPA not found' });
+
+    const result = await prisma.$transaction(async (tx) => {
+      const claims = await tx.claim.updateMany({ where: { tpaId: sourceId }, data: { tpaId: targetId } });
+      // overLimitTpaIds is a JSON array (no FK), so swap the id in place.
+      const svcs = await tx.hospitalBillingService.findMany({ select: { id: true, overLimitTpaIds: true } });
+      let services = 0;
+      for (const s of svcs) {
+        const arr = Array.isArray(s.overLimitTpaIds) ? s.overLimitTpaIds : [];
+        if (arr.includes(sourceId)) {
+          const next = [...new Set(arr.map((id) => (id === sourceId ? targetId : id)))];
+          await tx.hospitalBillingService.update({ where: { id: s.id }, data: { overLimitTpaIds: next } });
+          services += 1;
+        }
+      }
+      await tx.tPA.delete({ where: { id: sourceId } });
+      return { claims: claims.count, services };
+    });
+
+    res.json({ message: `Merged "${source.name}" into "${target.name}" — ${result.claims} claim(s) moved`, ...result });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 exports.bulkImport = async (req, res) => {
   try {
     const { rows } = req.body;

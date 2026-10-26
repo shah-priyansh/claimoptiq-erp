@@ -28,6 +28,10 @@ router.post('/import', checkPermission('tpa', 'create'), ctrl.bulkImport);
 // so it isn't swallowed by the param route.
 router.put('/bulk-status-automation', checkPermission('tpa', 'edit'), ctrl.bulkStatusAutomation);
 
+// Merge a duplicate TPA into another (reassigns claims, then deletes the
+// source). Declared before '/:id'. Deletes a master, so gated on tpa:delete.
+router.post('/merge', checkPermission('tpa', 'delete'), ctrl.merge);
+
 router.route('/:id')
   .put(checkPermission('tpa', 'edit'), ctrl.update)
   .delete(checkPermission('tpa', 'delete'), ctrl.remove);

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Loader from '../../components/ui/Loader';
-import { getTPAAPI, createTPAAPI, updateTPAAPI, deleteTPAAPI, importTPAAPI, getClaimStatusesAPI, bulkTPAStatusAutomationAPI } from '../../services/api';
+import SearchableSelect from '../../components/ui/SearchableSelect';
+import { getTPAAPI, createTPAAPI, updateTPAAPI, deleteTPAAPI, importTPAAPI, getClaimStatusesAPI, bulkTPAStatusAutomationAPI, mergeTPAAPI } from '../../services/api';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineUpload, HiOutlineLightningBolt, HiOutlineX } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineUpload, HiOutlineLightningBolt, HiOutlineX, HiOutlineSwitchHorizontal } from 'react-icons/hi';
 import MasterContactFormModal from '../../components/common/MasterContactFormModal';
 import BulkStatusAutomationModal from '../../components/common/BulkStatusAutomationModal';
 import StatusAutomationBadges from '../../components/common/StatusAutomationBadges';
@@ -45,6 +46,11 @@ const TPAList = () => {
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [applying, setApplying] = useState(false);
+  // Merge-duplicates modal: keep `mergeKeep`, remove (merge away) `mergeRemove`.
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeKeep, setMergeKeep] = useState('');
+  const [mergeRemove, setMergeRemove] = useState('');
+  const [merging, setMerging] = useState(false);
 
   const total = items.length;
   const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -86,6 +92,30 @@ const TPAList = () => {
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to save');
       throw error;
+    }
+  };
+
+  const closeMerge = () => { setMergeOpen(false); setMergeKeep(''); setMergeRemove(''); };
+  const handleMerge = async () => {
+    if (!mergeKeep || !mergeRemove) { toast.error('Pick both TPAs'); return; }
+    if (mergeKeep === mergeRemove) { toast.error('Pick two different TPAs'); return; }
+    const keepName = items.find((t) => t._id === mergeKeep)?.name || 'the kept TPA';
+    const removeName = items.find((t) => t._id === mergeRemove)?.name || 'the other TPA';
+    const ok = await confirm(
+      `Merge "${removeName}" into "${keepName}"? All its claims move to "${keepName}", then "${removeName}" is deleted. This can't be undone.`,
+      { title: 'Merge TPAs', confirmLabel: 'Merge', variant: 'danger' },
+    );
+    if (!ok) return;
+    setMerging(true);
+    try {
+      const { data } = await mergeTPAAPI(mergeRemove, mergeKeep);
+      toast.success(data?.message || 'TPAs merged');
+      closeMerge();
+      fetchItems();
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Merge failed');
+    } finally {
+      setMerging(false);
     }
   };
 
@@ -132,20 +162,33 @@ const TPAList = () => {
 
   return (
     <div>
-      {canCreate && (
+      {(canCreate || canDelete) && (
         <div className="flex justify-end mb-4 gap-2">
-          <button
-            onClick={() => setImportOpen(true)}
-            className="flex items-center gap-2 bg-white border border-primary-600 text-primary-700 hover:bg-primary-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
-          >
-            <HiOutlineUpload className="w-5 h-5" /> Import
-          </button>
-          <button
-            onClick={() => setModal({ open: true, item: null })}
-            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
-          >
-            <HiOutlinePlus className="w-4 h-4" /> Add TPA
-          </button>
+          {canDelete && (
+            <button
+              onClick={() => setMergeOpen(true)}
+              title="Consolidate two duplicate TPA entries into one"
+              className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlineSwitchHorizontal className="w-5 h-5" /> Merge Duplicates
+            </button>
+          )}
+          {canCreate && (
+            <button
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-2 bg-white border border-primary-600 text-primary-700 hover:bg-primary-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlineUpload className="w-5 h-5" /> Import
+            </button>
+          )}
+          {canCreate && (
+            <button
+              onClick={() => setModal({ open: true, item: null })}
+              className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlinePlus className="w-4 h-4" /> Add TPA
+            </button>
+          )}
         </div>
       )}
 
@@ -279,6 +322,39 @@ const TPAList = () => {
         onClose={() => setBulkOpen(false)}
         onApply={handleBulkApply}
       />
+
+      {mergeOpen && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="text-base font-semibold text-gray-900">Merge Duplicate TPAs</h3>
+              <button onClick={closeMerge} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><HiOutlineX className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-gray-500">Consolidate two entries for the same TPA. All claims from the removed TPA move to the kept one, then the removed TPA is deleted.</p>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Keep this TPA</label>
+                <SearchableSelect value={mergeKeep} onChange={setMergeKeep}
+                  placeholder="Select the TPA to keep" searchPlaceholder="Search TPAs..."
+                  options={items.map((t) => ({ value: t._id, label: t.name }))} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Remove (merge into the one above)</label>
+                <SearchableSelect value={mergeRemove} onChange={setMergeRemove}
+                  placeholder="Select the duplicate to remove" searchPlaceholder="Search TPAs..."
+                  options={items.filter((t) => t._id !== mergeKeep).map((t) => ({ value: t._id, label: t.name }))} />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button onClick={closeMerge} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onClick={handleMerge} disabled={merging || !mergeKeep || !mergeRemove}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
+                  {merging ? 'Merging…' : 'Merge'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
