@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { getClaimsAPI, updateClaimAPI, getHospitalsAPI, getClaimStatusesAPI, exportClaimsAPI, deleteClaimAPI, deleteAllClaimsAPI, getSettledBackupURL, getClaimProcessByValuesAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineEye, HiOutlinePencil, HiOutlineTrash, HiChevronDown, HiCheck, HiOutlineX, HiOutlineDocumentDownload, HiOutlineDownload, HiOutlineUpload, HiOutlinePrinter, HiOutlineDotsVertical, HiOutlineAdjustments } from 'react-icons/hi';
 import { statusBadgeStyle, statusAppliesToType } from '../claimstatus/ClaimStatusMaster';
 import { formatCurrency, formatDate as _formatDate, formatMonthLabel } from '../../utils/format';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -164,10 +164,26 @@ const ClaimList = () => {
   const location = useLocation();
   const { can, user, roleSlug } = useAuth();
   const isSuperAdmin = roleSlug === 'super_admin';
-  const isStaff = roleSlug === 'fcc_staff';
   const isHospitalUser = !!user?.hospital;
-  // Bill Status (FCC Billed / Unbilled) is internal billing info hidden from staff
-  const showBillStatus = !isStaff;
+  // Bill Status (isBilled), File Price and Reference-By are stripped from the
+  // list response for everyone except super admin (see claimController), so
+  // those columns are super-admin-only. These two flags drive the mobile card.
+  const showBillStatus = isSuperAdmin;
+  const showInsuranceMonth = isHospitalUser;
+
+  // Desktop Claims table columns are user-selectable and persisted per role.
+  // Default on-screen columns per role (keys reference CLAIM_COLUMNS below).
+  const defaultColKeys = isHospitalUser
+    ? ['insurance', 'type', 'doa', 'month', 'bill', 'status']
+    : isSuperAdmin
+      ? ['hospital', 'insurance', 'type', 'doa', 'bill', 'filePrice', 'status', 'billStatus']
+      : ['hospital', 'insurance', 'type', 'doa', 'bill', 'status'];
+  const colStorageKey = `claimListColumns:${roleSlug || 'default'}`;
+  const [visibleColKeys, setVisibleColKeys] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem(colStorageKey)); if (Array.isArray(s) && s.length) return s; } catch { /* ignore */ }
+    return defaultColKeys;
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
 
   const [claims, setClaims] = useState([]);
   const [hospitals, setHospitals] = useState([]);
@@ -1156,6 +1172,44 @@ const ClaimList = () => {
     );
   };
 
+  // Selectable column registry for the desktop Claims table. `superAdminOnly` /
+  // `nonHospitalOnly` mirror what claimController sends per role, so hospital
+  // logins can't pick File Price / Reference / Bill Status.
+  const CLAIM_COLUMNS = [
+    { key: 'hospital', label: 'Hospital', nonHospitalOnly: true, render: (c) => (
+      <div className="flex items-start gap-1.5 flex-wrap max-w-[220px]">
+        <span className="break-words">{c.hospital?.name || '-'}</span>
+        {c.hospital?.isDirect && <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase tracking-wide flex-shrink-0">Direct</span>}
+        {c.isDirectPatient && <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 flex-shrink-0">Direct</span>}
+      </div>
+    ) },
+    { key: 'reference',  label: 'Reference',          superAdminOnly: true, render: (c) => c.hospital?.referenceBy || '-' },
+    { key: 'insurance',  label: 'Insurance Company',  render: (c) => c.insuranceCompany?.name || '-' },
+    { key: 'tpa',        label: 'TPA',                render: (c) => c.tpa?.name || '-' },
+    { key: 'type',       label: 'Type',               render: (c) => <ClaimTypeTag slug={c.claimType} /> },
+    { key: 'doa',        label: 'DOA',  sortField: 'doa',   render: (c) => formatDate(c.dateOfAdmit) },
+    { key: 'month',      label: 'Month', sortField: 'month', render: (c) => (c.month ? formatMonthLabel(c.month) : '-') },
+    { key: 'bill',       label: 'Bill',               render: (c) => formatAmount(c.hospitalFinalBill) },
+    { key: 'filePrice',  label: 'File Price',         superAdminOnly: true, render: (c) => formatAmount(c.filePrice) },
+    { key: 'status',     label: 'Status',             render: (c) => <StatusBadge c={c} loading={filtersLoading} /> },
+    { key: 'billStatus', label: 'Bill Status',        superAdminOnly: true, render: (c) => (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>{c.isBilled ? 'FCC Billed' : 'Unbilled'}</span>
+    ) },
+    { key: 'policyNo',   label: 'Policy No',          render: (c) => c.policyNo || '-' },
+    { key: 'ccnNo',      label: 'CCN',                render: (c) => c.ccnNo || '-' },
+    { key: 'doctor',     label: 'Doctor',             render: (c) => c.doctorName || '-' },
+    { key: 'approval',   label: 'Approval Amt',       render: (c) => formatAmount(c.finalApprovalAmount) },
+  ];
+  const availableColumns = CLAIM_COLUMNS.filter((col) =>
+    (!col.superAdminOnly || isSuperAdmin) && (!col.nonHospitalOnly || !isHospitalUser));
+  const visibleColumns = availableColumns.filter((col) => visibleColKeys.includes(col.key));
+  const toggleCol = (key) => setVisibleColKeys((keys) => {
+    const next = keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
+    try { localStorage.setItem(colStorageKey, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
+  const resetCols = () => { try { localStorage.setItem(colStorageKey, JSON.stringify(defaultColKeys)); } catch { /* ignore */ } setVisibleColKeys(defaultColKeys); };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -1236,6 +1290,33 @@ const ClaimList = () => {
               Delete All
             </button>
           )}
+          <div className="relative">
+            <button
+              onClick={() => setColMenuOpen(o => !o)}
+              className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            >
+              <HiOutlineAdjustments className="w-5 h-5" />
+              Columns
+            </button>
+            {colMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setColMenuOpen(false)} />
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl border border-gray-200 shadow-lg z-20 p-2 max-h-80 overflow-auto">
+                  <div className="flex items-center justify-between px-2 py-1 mb-1">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Columns</span>
+                    <button onClick={resetCols} className="text-[11px] text-primary-600 hover:underline">Reset</button>
+                  </div>
+                  {availableColumns.map(col => (
+                    <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm text-gray-700">
+                      <input type="checkbox" checked={visibleColKeys.includes(col.key)} onChange={() => toggleCol(col.key)}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                      {col.label}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={() => {
               setStickerMode(m => {
@@ -1413,6 +1494,11 @@ const ClaimList = () => {
                       {c.tpa?.name || c.insuranceCompany?.name}
                     </p>
                   )}
+                  {showInsuranceMonth && c.month && (
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      <span className="font-semibold text-gray-600">Month:</span> {formatMonthLabel(c.month)}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -1426,24 +1512,19 @@ const ClaimList = () => {
               <tr>
                 <SortableTh label="SR"  field="srNo"        filters={filters} setFilters={setFilters} />
                 <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Patient</th>
-                {!isHospitalUser && (
-                  <SortableTh label="Hospital" field="month" filters={filters} setFilters={setFilters} title="Sort by claim month" />
-                )}
-                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                <SortableTh label="DOA" field="doa"         filters={filters} setFilters={setFilters} />
-                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Bill</th>
-                <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
-                {showBillStatus && (
-                  <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Bill Status</th>
-                )}
+                {visibleColumns.map((col) => (col.sortField ? (
+                  <SortableTh key={col.key} label={col.label} field={col.sortField} filters={filters} setFilters={setFilters} />
+                ) : (
+                  <th key={col.key} className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{col.label}</th>
+                )))}
                 <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={(isHospitalUser ? 8 : 9) - (showBillStatus ? 0 : 1)} className="py-8"><Loader label="Loading claims…" className="" /></td></tr>
+                <tr><td colSpan={3 + visibleColumns.length} className="py-8"><Loader label="Loading claims…" className="" /></td></tr>
               ) : claims.length === 0 ? (
-                <tr><td colSpan={(isHospitalUser ? 8 : 9) - (showBillStatus ? 0 : 1)} className="py-8 text-center text-gray-400">No claims found</td></tr>
+                <tr><td colSpan={3 + visibleColumns.length} className="py-8 text-center text-gray-400">No claims found</td></tr>
               ) : claims.map((c, rowIdx) => (
                 <tr key={c._id}
                   className={`hover:bg-gray-50 cursor-pointer ${stickerMode && stickerSelectedIds.includes(c._id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
@@ -1459,42 +1540,9 @@ const ClaimList = () => {
                     <p className="text-sm font-medium text-gray-800">{c.patientName}</p>
                     <p className="text-xs text-gray-400">{c.policyNo || '-'}</p>
                   </td>
-                  {!isHospitalUser && (
-                    <td className="py-3 px-3 text-sm text-gray-600 align-top max-w-[220px]">
-                      <div className="flex items-start gap-1.5 flex-wrap">
-                        <span className="break-words">{c.hospital?.name || '-'}</span>
-                        {c.hospital?.isDirect && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase tracking-wide flex-shrink-0">Direct</span>
-                        )}
-                        {c.isDirectPatient && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 flex-shrink-0">Direct</span>
-                        )}
-                      </div>
-                      {(c.tpa?.name || c.insuranceCompany?.name) && (
-                        <p className="text-xs text-gray-400 mt-0.5 break-words leading-snug">
-                          {c.tpa?.name || c.insuranceCompany?.name}
-                        </p>
-                      )}
-                      {c.month && (
-                        <p className="text-[11px] text-gray-500 mt-1">
-                          <span className="font-semibold text-gray-600">Month:</span> {formatMonthLabel(c.month)}
-                        </p>
-                      )}
-                    </td>
-                  )}
-                  <td className="py-3 px-3 align-top"><ClaimTypeTag slug={c.claimType} /></td>
-                  <td className="py-3 px-3 text-sm text-gray-600 align-top whitespace-nowrap">{formatDate(c.dateOfAdmit)}</td>
-                  <td className="py-3 px-3 text-sm text-gray-600 align-top whitespace-nowrap">{formatAmount(c.hospitalFinalBill)}</td>
-                  <td className="py-3 px-3 align-top"><StatusBadge c={c} loading={filtersLoading} /></td>
-                  {showBillStatus && (
-                    <td className="py-3 px-3 align-top">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                        c.isBilled ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {c.isBilled ? 'FCC Billed' : 'Unbilled'}
-                      </span>
-                    </td>
-                  )}
+                  {visibleColumns.map((col) => (
+                    <td key={col.key} className="py-3 px-3 text-sm text-gray-600 align-top">{col.render(c)}</td>
+                  ))}
                   <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => navigate(`/claims/${c._id}`)}
