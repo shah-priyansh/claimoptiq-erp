@@ -393,6 +393,7 @@ const ClaimDetail = () => {
       });
       setMobileError('');
       setDischargeForm({
+        ccnNo: data.ccnNo || '',
         dateOfAdmit: data.dateOfAdmit?.slice(0, 10) || '',
         dateOfDischarge: data.dateOfDischarge?.slice(0, 10) || '',
         hospitalFinalBill: data.hospitalFinalBill || 0,
@@ -1464,6 +1465,7 @@ const ClaimDetail = () => {
             {isEditable ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[
+                  { label: 'CCN No',                  name: 'ccnNo',              type: 'text' },
                   { label: 'Date of Admit',           name: 'dateOfAdmit',        type: 'date' },
                   { label: 'Date of Discharge',       name: 'dateOfDischarge',    type: 'date' },
                   { label: 'Final Approval Date',     name: 'finalApprovalDate',  type: 'date' },
@@ -1528,6 +1530,10 @@ const ClaimDetail = () => {
                             className={inputCls} />
                         )}
                       </div>
+                    ) : f.type === 'text' ? (
+                      <input type="text" value={dischargeForm[f.name] || ''}
+                        onChange={e => setDischargeForm({ ...dischargeForm, [f.name]: e.target.value })}
+                        className={inputCls} />
                     ) : (
                       <DateInput type="date" value={dischargeForm[f.name] || ''}
                         onChange={e => setDischargeForm({ ...dischargeForm, [f.name]: e.target.value })}
@@ -1546,6 +1552,7 @@ const ClaimDetail = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {[
+                  ['CCN No',                 claim.ccnNo || '—'],
                   ['Date of Admit',          formatDate(claim.dateOfAdmit)],
                   ['Date of Discharge',      formatDate(claim.dateOfDischarge)],
                   ['Final Approval Date',    formatDate(claim.finalApprovalDate)],
