@@ -3,6 +3,7 @@ const { toResponse } = require('../utils/toResponse');
 const { round2 } = require('../utils/money');
 const { recomputeInvoicePaidStatus } = require('../utils/invoicePaidRollup');
 const { getJournalNetByAccount, journalKey } = require('../services/journalBalances');
+const { payableOf } = require('../utils/expenseTotals');
 
 const VALID_DIRECTIONS = ['in', 'out'];
 const VALID_MODES = ['cash', 'bank', 'upi'];
@@ -201,7 +202,7 @@ const createAllocationEntries = async ({
   if (expIds.length) {
     const expenses = await prisma.expense.findMany({
       where: { id: { in: expIds } },
-      select: { id: true, amount: true, partyId: true, payments: { select: { direction: true, amount: true } } },
+      select: { id: true, amount: true, discount: true, gstAmount: true, roundOff: true, tdsAmount: true, partyId: true, payments: { select: { direction: true, amount: true } } },
     });
     for (const e of expenses) expById.set(e.id, e);
   }
@@ -217,7 +218,7 @@ const createAllocationEntries = async ({
       const exp = expById.get(a.expenseId);
       if (!exp) throw { status: 400, message: 'Expense not found' };
       if (validateExpense) validateExpense(exp);
-      const pending = round2((exp.amount || 0) - paidOnExpense(exp.payments));
+      const pending = round2(payableOf(exp) - paidOnExpense(exp.payments));
       if (a.amount > pending) throw { status: 400, message: 'Allocation exceeds the expense pending amount' };
     }
   }

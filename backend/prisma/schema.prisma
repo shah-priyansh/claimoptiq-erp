@@ -299,7 +299,21 @@ model Expense {
   id          String   @id @default(uuid())
   date        DateTime
   categoryId  String   @map("category_id")
+  // Pre-tax line subtotal (Σ line items). Stays the figure used by P&L / expense
+  // reports / the category sidebar; the tax fields below only affect the net
+  // amount payable to the vendor (balance + cash-out), not the reported amount.
   amount      Float
+  // Purchase-bill taxes & adjustments (mirrors the invoice). GST is added, TDS is
+  // withheld, discount reduces and round-off adjusts — all on the post-discount
+  // taxable base. Net payable = amount − discount + gstAmount + roundOff −
+  // tdsAmount (see utils/expenseTotals.js). All default 0, so legacy /
+  // auto-created / imported expenses stay payable == amount.
+  discount    Float    @default(0)
+  gstRate     Float    @default(0) @map("gst_rate")
+  gstAmount   Float    @default(0) @map("gst_amount")
+  tdsRate     Float    @default(0) @map("tds_rate")
+  tdsAmount   Float    @default(0) @map("tds_amount")
+  roundOff    Float    @default(0) @map("round_off")
   notes       String   @default("")
   partyName   String   @default("") @map("party_name")
   referenceId String?  @map("reference_id")

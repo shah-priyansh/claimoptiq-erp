@@ -1,6 +1,17 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const { normalizeQtyRateLine } = require('../utils/lineQty');
+const { payableOf, computeExpenseTax } = require('../utils/expenseTotals');
+
+// Raw tax/adjustment inputs off the request body, each falling back to an
+// existing value (used on update so an unrelated edit never wipes stored taxes).
+const pickTaxInput = (body, fallback = {}) => {
+  const take = (k) => (body[k] !== undefined ? body[k] : fallback[k]) || 0;
+  return {
+    gstRate: take('gstRate'), tdsRate: take('tdsRate'),
+    discount: take('discount'), roundOff: take('roundOff'),
+  };
+};
 
 // Expense amounts carry paisa (a ₹899.37 petrol bill), so round to 2 decimals —
 // never to whole rupees, which silently dropped the paisa on save and made a
@@ -324,7 +335,10 @@ exports.list = async (req, res) => {
     const [items, total, agg, payAgg] = await Promise.all([
       prisma.expense.findMany({ where, include: expenseInclude, orderBy: [{ date: 'desc' }, { createdAt: 'desc' }], skip, take }),
       prisma.expense.count({ where }),
-      prisma.expense.aggregate({ where, _sum: { amount: true } }),
+      // Sum the components so the filtered Balance total reflects the net payable
+      // (amount − discount + GST + roundOff − TDS), while sumAmount stays the
+      // pre-tax figure that ties to the category sidebar / P&L.
+      prisma.expense.aggregate({ where, _sum: { amount: true, discount: true, gstAmount: true, roundOff: true, tdsAmount: true } }),
       // Paid total across the WHOLE filtered set — sum of the linked cash/bank
       // entries (out − in) so header/footer totals stay page-independent.
       // `expenseId: { not: null }` restricts to expense-linked entries (an empty
@@ -332,8 +346,14 @@ exports.list = async (req, res) => {
       // applies the same category/date/reference scope as the expense list.
       prisma.cashBankEntry.groupBy({ by: ['direction'], where: { expenseId: { not: null }, expense: where }, _sum: { amount: true } }),
     ]);
-    const expenses = toResponse(items).map((e) => ({ ...e, ...rollupPayment(e.amount, e.payments) }));
+    // Balance/paid/status roll up against the net payable (taxes included), not
+    // the pre-tax amount, so a GST-bearing expense can be fully settled.
+    const expenses = toResponse(items).map((e) => ({ ...e, ...rollupPayment(payableOf(e), e.payments) }));
     const sumAmount = round2(agg._sum.amount || 0);
+    const sumPayable = round2(
+      (agg._sum.amount || 0) - (agg._sum.discount || 0) + (agg._sum.gstAmount || 0)
+      + (agg._sum.roundOff || 0) - (agg._sum.tdsAmount || 0)
+    );
     const sumPaid = round2(
       payAgg.reduce((s, r) => s + (r.direction === 'in' ? -1 : 1) * (r._sum.amount || 0), 0)
     );
@@ -343,7 +363,7 @@ exports.list = async (req, res) => {
       pages: Math.ceil(total / take),
       sumAmount,
       sumPaid,
-      sumPending: round2(sumAmount - sumPaid),
+      sumPending: round2(sumPayable - sumPaid),
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -411,13 +431,18 @@ exports.create = async (req, res) => {
     if (!data.date || !data.categoryId || data.amount === undefined) {
       return res.status(400).json({ message: 'date, categoryId, and amount are required' });
     }
+    // Taxes/adjustments computed from the pre-tax subtotal. `amount` is left as
+    // the subtotal; the net payable drives the paid clamp + cashbook outflow.
+    const tax = computeExpenseTax(data.amount, pickTaxInput(req.body));
+    Object.assign(data, { discount: tax.discount, gstRate: tax.gstRate, gstAmount: tax.gstAmount, tdsRate: tax.tdsRate, tdsAmount: tax.tdsAmount, roundOff: tax.roundOff });
+    const payable = tax.grandTotal;
 
     const category = await prisma.expenseCategory.findUnique({ where: { id: data.categoryId } });
     if (!category) return res.status(400).json({ message: 'Category not found' });
     if (!category.isActive) return res.status(400).json({ message: 'Category is inactive' });
 
     const payment = await resolvePayment(req.body);
-    const paidReq = resolvePaidAmount(req.body, data.amount);
+    const paidReq = resolvePaidAmount(req.body, payable);
 
     const item = await prisma.$transaction(async (tx) => {
       const partyId = await resolvePartyId(tx, data);
@@ -431,8 +456,9 @@ exports.create = async (req, res) => {
       });
       // Mirror the paid portion into the cashbook so Total On Hand drops. When
       // Paid is 0 (Unpaid) nothing is recorded and the expense reads Unpaid;
-      // a partial pays only that much. Honour paymentMode 'none'.
-      const payAmt = payAmountFor(created.amount, paidReq);
+      // a partial pays only that much. Honour paymentMode 'none'. Paid is against
+      // the net payable (incl. taxes), not the pre-tax amount.
+      const payAmt = payAmountFor(payableOf(created), paidReq);
       if (payment && payAmt !== 0) {
         await tx.cashBankEntry.create({
           data: { ...paymentEntryFields(created, payment, category, payAmt), expenseId: created.id, createdById: req.user?.id || null },
@@ -582,7 +608,12 @@ exports.update = async (req, res) => {
     // Payment reconciliation. Only when the form sent a paid amount (paidReq
     // !== null); resolvePayment validates the mode/bank up-front (may throw 400).
     const newAmount = data.amount !== undefined ? data.amount : existing.amount;
-    const paidReq = resolvePaidAmount(req.body, newAmount);
+    // Recompute taxes from the (possibly new) subtotal; each rate / discount /
+    // round-off falls back to the stored value so an unrelated edit keeps them.
+    const tax = computeExpenseTax(newAmount, pickTaxInput(req.body, existing));
+    Object.assign(data, { discount: tax.discount, gstRate: tax.gstRate, gstAmount: tax.gstAmount, tdsRate: tax.tdsRate, tdsAmount: tax.tdsAmount, roundOff: tax.roundOff });
+    const payable = tax.grandTotal;
+    const paidReq = resolvePaidAmount(req.body, payable);
     const payment = paidReq !== null ? await resolvePayment(req.body) : null;
 
     const item = await prisma.$transaction(async (tx) => {
@@ -598,7 +629,7 @@ exports.update = async (req, res) => {
       });
 
       if (paidReq !== null) {
-        const payAmt = payAmountFor(updated.amount, paidReq);
+        const payAmt = payAmountFor(payableOf(updated), paidReq);
         const cur = existing.payments || [];
         const curPaid = cur.reduce((s, p) => s + (p.direction === 'in' ? -1 : 1) * (Number(p.amount) || 0), 0);
         const only = cur.length === 1 ? cur[0] : null;

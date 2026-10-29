@@ -27,8 +27,24 @@ import Loader from '../../components/ui/Loader';
 
 const buildExpenseVoucherHtml = (e) => {
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-  const amt = '₹' + (Number(e.amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = (x) => Number(x) || 0;
+  const money = (n) => '₹' + num(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Net payable = pre-tax amount − discount + GST + round-off − TDS.
+  const payable = round2(num(e.amount) - num(e.discount) + num(e.gstAmount) + num(e.roundOff) - num(e.tdsAmount));
+  const hasAdj = !!(num(e.discount) || num(e.gstAmount) || num(e.roundOff) || num(e.tdsAmount));
+  const amt = money(hasAdj ? payable : e.amount);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  const adjRow = (label, value) => `<tr><td style="padding:3px 0;color:#6b7280;">${esc(label)}</td><td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;">${value}</td></tr>`;
+  const breakdownHtml = hasAdj ? `
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:16px;border-top:1px solid #e5e7eb;padding-top:8px;">
+        <tbody>
+          ${adjRow('Subtotal', money(e.amount))}
+          ${num(e.discount) ? adjRow('Discount', '− ' + money(e.discount)) : ''}
+          ${num(e.gstAmount) ? adjRow('GST' + (num(e.gstRate) ? ` (${num(e.gstRate)}%)` : ''), '+ ' + money(e.gstAmount)) : ''}
+          ${num(e.roundOff) ? adjRow('Round Off', (num(e.roundOff) < 0 ? '− ' : '+ ') + money(Math.abs(num(e.roundOff)))) : ''}
+          ${num(e.tdsAmount) ? adjRow('TDS' + (num(e.tdsRate) ? ` (${num(e.tdsRate)}%)` : '') + ' withheld', '− ' + money(e.tdsAmount)) : ''}
+        </tbody>
+      </table>` : '';
   return `
     <div style="max-width:560px;margin:0 auto;padding:32px;font-family:'Helvetica Neue',Arial,sans-serif;color:#111827;">
       <div style="border-bottom:2px solid #1f2937;padding-bottom:12px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end;">
@@ -50,9 +66,10 @@ const buildExpenseVoucherHtml = (e) => {
           <tr><td style="padding:8px 0;color:#6b7280;vertical-align:top;">Notes</td><td style="padding:8px 0;white-space:pre-wrap;">${esc(e.notes || '-')}</td></tr>
         </tbody>
       </table>
-      <div style="margin-top:24px;padding:14px 16px;background:#f3f4f6;border-radius:10px;display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:0.5px;">TOTAL AMOUNT</span>
-        <span style="font-size:20px;font-weight:700;color:${(e.amount || 0) < 0 ? '#b91c1c' : '#111827'};">${amt}</span>
+      ${breakdownHtml}
+      <div style="margin-top:${hasAdj ? '12px' : '24px'};padding:14px 16px;background:#f3f4f6;border-radius:10px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:0.5px;">${hasAdj ? 'NET PAYABLE' : 'TOTAL AMOUNT'}</span>
+        <span style="font-size:20px;font-weight:700;color:${(hasAdj ? payable : (e.amount || 0)) < 0 ? '#b91c1c' : '#111827'};">${amt}</span>
       </div>
       <div style="margin-top:40px;display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
         <div>Prepared by _______________</div>

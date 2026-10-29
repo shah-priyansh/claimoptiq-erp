@@ -25,8 +25,16 @@ const calcLineAmount = (rate, qtyRaw) => {
   return round2(isPercent ? (r * qtyValue) / 100 : r * qtyValue);
 };
 
+// One line in the totals breakdown (label left, signed amount right).
+const Row = ({ label, value }) => (
+  <div className="flex items-center justify-between text-gray-600">
+    <span>{label}</span>
+    <span className="tabular-nums">{value}</span>
+  </div>
+);
+
 const blankLine = () => ({ description: '', qtyRaw: '1', rate: '' });
-const blank = { date: todayIso(), categoryId: '', lineItems: [blankLine()], notes: '', partyName: '', referenceId: '', partyId: '', paymentMode: 'cash', bankAccountId: '', paidAmount: '' };
+const blank = { date: todayIso(), categoryId: '', lineItems: [blankLine()], notes: '', partyName: '', referenceId: '', partyId: '', gstRate: '', tdsRate: '', discount: '', roundOff: '', paymentMode: 'cash', bankAccountId: '', paidAmount: '' };
 
 const PAYMENT_MODES = [{ value: 'cash', label: 'Cash' }, { value: 'bank', label: 'Bank' }, { value: 'upi', label: 'UPI' }];
 
@@ -55,6 +63,12 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
         partyName: initial.partyName || '',
         referenceId: initial.reference?._id || initial.referenceId || '',
         partyId: initial.party?._id || initial.partyId || '',
+        // Taxes/adjustments are part of the bill, so they carry into a duplicate
+        // too (only the payment resets). Show 0 as blank for a clean placeholder.
+        gstRate: initial.gstRate ? String(initial.gstRate) : '',
+        tdsRate: initial.tdsRate ? String(initial.tdsRate) : '',
+        discount: initial.discount ? String(initial.discount) : '',
+        roundOff: initial.roundOff ? String(initial.roundOff) : '',
         paymentMode: isDuplicate ? 'cash' : (pay?.mode || 'cash'),
         bankAccountId: isDuplicate ? '' : (pay?.bankAccount?._id || pay?.bankAccountId || ''),
         paidAmount: isDuplicate ? '' : (initial.amountPaid ? String(initial.amountPaid) : ''),
@@ -81,9 +95,20 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
 
   const lines = form.lineItems || [];
   const linesTotal = round2(lines.reduce((s, l) => s + calcLineAmount(l.rate, l.qtyRaw), 0));
-  const amountNum = linesTotal;
+  const amountNum = linesTotal; // pre-tax subtotal — backend stores this as `amount`
+  // Purchase-bill math, mirrors backend utils/expenseTotals.js: discount reduces
+  // the base; GST is added; TDS is withheld — all on the post-discount taxable
+  // base. Net payable is what the vendor is owed (drives balance/paid).
+  const discountNum = Math.max(0, Math.min(Math.max(0, linesTotal), round2(form.discount || 0)));
+  const roundOffNum = round2(form.roundOff || 0);
+  const taxable = round2(linesTotal - discountNum);
+  const gstAmt = round2((taxable * (Number(form.gstRate) || 0)) / 100);
+  const tdsAmt = round2((taxable * (Number(form.tdsRate) || 0)) / 100);
+  const grandTotal = round2(taxable + gstAmt + roundOffNum); // before TDS
+  const netPayable = round2(grandTotal - tdsAmt);
+  const hasAdjustments = !!(discountNum || gstAmt || tdsAmt || roundOffNum);
   const paidNum = form.paidAmount === '' ? 0 : round2(form.paidAmount);
-  const balance = round2(amountNum - paidNum);
+  const balance = round2(netPayable - paidNum);
   const needsBank = form.paymentMode === 'bank' || form.paymentMode === 'upi';
   const validLines = lines.filter((l) => (l.description || '').trim() || Number(l.rate));
 
@@ -110,8 +135,13 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
         partyName: form.partyName,
         referenceId: form.referenceId || null,
         partyId: form.partyId || null,
-        // Payment: paidAmount 0 => Unpaid. Backend clamps to [0, amount] and
-        // records a cash/bank OUT entry for the paid portion.
+        // Taxes/adjustments — backend recomputes the amounts + net payable.
+        gstRate: Number(form.gstRate) || 0,
+        tdsRate: Number(form.tdsRate) || 0,
+        discount: round2(form.discount || 0),
+        roundOff: round2(form.roundOff || 0),
+        // Payment: paidAmount 0 => Unpaid. Backend clamps to [0, net payable]
+        // and records a cash/bank OUT entry for the paid portion.
         paymentMode: form.paymentMode,
         bankAccountId: needsBank ? (form.bankAccountId || null) : null,
         paidAmount: paidNum,
@@ -218,6 +248,56 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
             <p className="text-xs text-gray-400 mt-1">Tip: leave Qty as 1 and type the amount in Rate for a simple single-amount expense. Qty also accepts a percent like "50%".</p>
           </div>
 
+          {/* Taxes & adjustments — same purchase-bill math as invoices. The
+              expense amount stays the pre-tax subtotal; GST adds, TDS is
+              withheld, discount & round-off adjust — driving the net payable
+              (balance + cash-out). Leave blank for a plain expense. */}
+          <div className="border border-gray-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">Taxes &amp; Adjustments</span>
+              <span className="text-[11px] text-gray-400">optional</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">GST %</label>
+                <input type="number" step="0.01" min="0" max="100" value={form.gstRate} placeholder="0"
+                  onChange={(e) => setForm((f) => ({ ...f, gstRate: e.target.value }))}
+                  className="w-full px-2.5 py-2 border border-gray-300 rounded-md text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">TDS %</label>
+                <input type="number" step="0.01" min="0" max="100" value={form.tdsRate} placeholder="0"
+                  onChange={(e) => setForm((f) => ({ ...f, tdsRate: e.target.value }))}
+                  className="w-full px-2.5 py-2 border border-gray-300 rounded-md text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">Discount ₹</label>
+                <input type="number" step="0.01" min="0" value={form.discount} placeholder="0"
+                  onChange={(e) => setForm((f) => ({ ...f, discount: e.target.value }))}
+                  className="w-full px-2.5 py-2 border border-gray-300 rounded-md text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">Round Off ±₹</label>
+                <input type="number" step="0.01" value={form.roundOff} placeholder="0"
+                  onChange={(e) => setForm((f) => ({ ...f, roundOff: e.target.value }))}
+                  className="w-full px-2.5 py-2 border border-gray-300 rounded-md text-sm text-right tabular-nums focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+            </div>
+            {hasAdjustments && (
+              <div className="mt-3 border-t border-gray-100 pt-3 space-y-1 text-sm">
+                <Row label="Subtotal" value={fmtINR(linesTotal)} />
+                {discountNum !== 0 && <Row label="Discount" value={`− ${fmtINR(discountNum)}`} />}
+                {gstAmt !== 0 && <Row label={`GST${Number(form.gstRate) ? ` (${Number(form.gstRate)}%)` : ''}`} value={`+ ${fmtINR(gstAmt)}`} />}
+                {roundOffNum !== 0 && <Row label="Round Off" value={`${roundOffNum < 0 ? '− ' : '+ '}${fmtINR(Math.abs(roundOffNum))}`} />}
+                {tdsAmt !== 0 && <Row label={`TDS${Number(form.tdsRate) ? ` (${Number(form.tdsRate)}%)` : ''} withheld`} value={`− ${fmtINR(tdsAmt)}`} />}
+                <div className="flex items-center justify-between pt-1.5 border-t border-gray-100 mt-1.5">
+                  <span className="text-sm font-semibold text-gray-800">Net Payable</span>
+                  <span className="text-sm font-bold text-gray-900 tabular-nums">{fmtINR(netPayable)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Reference (optional)
@@ -283,7 +363,7 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-sm font-medium text-gray-700">Paid (₹)</label>
                   <button type="button"
-                    onClick={() => setForm((f) => ({ ...f, paidAmount: String(Math.abs(amountNum)) }))}
+                    onClick={() => setForm((f) => ({ ...f, paidAmount: String(Math.abs(netPayable)) }))}
                     className="text-xs font-medium text-primary-600 hover:text-primary-700">Full</button>
                 </div>
                 <input type="number" min="0" step="0.01" value={form.paidAmount}
@@ -314,7 +394,7 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
                 ₹{Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{balance < 0 ? ' over' : ''}
               </span>
             </div>
-            {balance < 0 && <p className="text-xs text-red-600 mt-1">Paid exceeds the amount — it will be capped to ₹{amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.</p>}
+            {balance < 0 && <p className="text-xs text-red-600 mt-1">Paid exceeds the amount payable — it will be capped to ₹{netPayable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.</p>}
           </div>
 
           </div>

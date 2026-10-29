@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { toResponse } = require('../utils/toResponse');
 const { round2 } = require('../utils/money');
+const { payableOf } = require('../utils/expenseTotals');
 
 const OPEN_INVOICE_STATUSES = ['issued', 'partially_paid'];
 
@@ -38,7 +39,7 @@ const pickFields = (body) => {
 async function computeBalances() {
   const [invAgg, expAgg, paidRows] = await Promise.all([
     prisma.invoice.groupBy({ by: ['partyId'], where: { partyId: { not: null }, status: { in: OPEN_INVOICE_STATUSES } }, _sum: { amountPending: true } }),
-    prisma.expense.groupBy({ by: ['partyId'], where: { partyId: { not: null } }, _sum: { amount: true } }),
+    prisma.expense.groupBy({ by: ['partyId'], where: { partyId: { not: null } }, _sum: { amount: true, discount: true, gstAmount: true, roundOff: true, tdsAmount: true } }),
     prisma.$queryRaw`
       SELECT e.party_id AS "partyId",
              COALESCE(SUM(CASE WHEN cbe.direction = 'in' THEN -cbe.amount ELSE cbe.amount END), 0) AS paid
@@ -48,7 +49,12 @@ async function computeBalances() {
       GROUP BY e.party_id`,
   ]);
   const receivable = new Map(invAgg.map((r) => [r.partyId, round2(r._sum.amountPending || 0)]));
-  const expTotal = new Map(expAgg.map((r) => [r.partyId, round2(r._sum.amount || 0)]));
+  // Payable base = net of taxes (amount − discount + GST + roundOff − TDS),
+  // matching what the vendor is actually owed on each expense.
+  const expTotal = new Map(expAgg.map((r) => [r.partyId, round2(
+    (r._sum.amount || 0) - (r._sum.discount || 0) + (r._sum.gstAmount || 0)
+    + (r._sum.roundOff || 0) - (r._sum.tdsAmount || 0)
+  )]));
   const expPaid = new Map(paidRows.map((r) => [r.partyId, round2(Number(r.paid) || 0)]));
   return { receivable, expTotal, expPaid };
 }
@@ -107,7 +113,8 @@ exports.ledger = async (req, res) => {
       prisma.expense.findMany({
         where: { partyId },
         select: {
-          id: true, amount: true, date: true, notes: true,
+          id: true, amount: true, discount: true, gstAmount: true, roundOff: true, tdsAmount: true,
+          date: true, notes: true,
           category: { select: { label: true } },
           payments: { select: { id: true, direction: true, amount: true, date: true } },
         },
@@ -131,7 +138,7 @@ exports.ledger = async (req, res) => {
 
     let payable = 0;
     for (const e of expenses) {
-      const total = round2(e.amount || 0);
+      const total = payableOf(e);
       const paid = expensePaidOf(e.payments);
       const pending = total - paid;
       payable += pending;
