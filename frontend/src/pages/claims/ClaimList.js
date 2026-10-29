@@ -1263,7 +1263,7 @@ const ClaimList = () => {
               )}
             </div>
           )}
-          {can('claims', 'export') && (
+          {!isHospitalUser && can('claims', 'export') && (
             <button
               onClick={() => {
                 const a = document.createElement('a');
@@ -1317,22 +1317,24 @@ const ClaimList = () => {
               </>
             )}
           </div>
-          <button
-            onClick={() => {
-              setStickerMode(m => {
-                if (m) setStickerSelectedMap({});
-                return !m;
-              });
-            }}
-            className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors border ${
-              stickerMode
-                ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
-                : 'bg-white border-indigo-600 text-indigo-700 hover:bg-indigo-50'
-            }`}
-          >
-            <HiOutlinePrinter className="w-5 h-5" />
-            {stickerMode ? 'Done' : 'Print Stickers'}
-          </button>
+          {!isHospitalUser && (
+            <button
+              onClick={() => {
+                setStickerMode(m => {
+                  if (m) setStickerSelectedMap({});
+                  return !m;
+                });
+              }}
+              className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors border ${
+                stickerMode
+                  ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+                  : 'bg-white border-indigo-600 text-indigo-700 hover:bg-indigo-50'
+              }`}
+            >
+              <HiOutlinePrinter className="w-5 h-5" />
+              {stickerMode ? 'Done' : 'Print Stickers'}
+            </button>
+          )}
           {can('claims', 'create') && (
             <button onClick={() => navigate('/claims/new')}
               className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg text-sm font-medium">
