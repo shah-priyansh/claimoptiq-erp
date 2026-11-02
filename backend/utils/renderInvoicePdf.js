@@ -342,9 +342,14 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       // owes) instead of the Sub Total.
       const gross = Number(invoice.gross) || 0;
       const discount = Number(invoice.discount) || 0;
-      const taxable = Math.max(0, gross - discount);
       const tdsAmt = Number(invoice.tdsAmount) || 0;
       const gstAmt = Number(invoice.gstAmount) || 0;
+      // When taxInclusive, `gross` already includes GST — the taxable base is
+      // (gross - discount) minus the GST backed out of it, not the full
+      // (gross - discount) itself (that would double-count GST below).
+      const taxable = invoice.taxInclusive
+        ? Math.max(0, gross - discount - gstAmt)
+        : Math.max(0, gross - discount);
       const netTotal = Number(invoice.netTotal) || (taxable + gstAmt - tdsAmt);
       const amountPaid = Number(invoice.amountPaid) || 0;
       const roundOff = Number(invoice.roundOff) || 0;

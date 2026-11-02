@@ -198,7 +198,7 @@ const buildVersionsByHospital = async (hospitalIds, withClaimTypes) => {
 // hospital, claims, and priorOpen and reads from the passed maps instead.
 // This collapses O(N × 4) roundtrips into O(4) for N-hospital selections
 // (the N=23 case that dominated the 2.5-3s wall-clock on WAN links).
-const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, isDirectPatient = false, includeFixedServices = true, preloadedTpl = null, bulkContext = null } = {}) => {
+const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, taxInclusive = false, isDirectPatient = false, includeFixedServices = true, preloadedTpl = null, bulkContext = null } = {}) => {
   const hasClaimIds = Array.isArray(claimIds) && claimIds.length > 0;
   // Parent/branch scope: when `hospitalId` is a parent hospital, its branches'
   // claims are billable on this (the parent's) invoice too. Branch hospitals
@@ -618,6 +618,7 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
     tdsRate: tds.rate,
     previousBalance,
     discount,
+    taxInclusive,
   });
 
   return {
@@ -633,10 +634,10 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
 
 exports.preview = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, adjustments, tdsRateId, gstRate, claimIds, discount, includeFixedServices } = req.body;
+    const { hospitalId, month: rawMonth, adjustments, tdsRateId, gstRate, claimIds, discount, taxInclusive, includeFixedServices } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, includeFixedServices: includeFixedServices !== false });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, taxInclusive: !!taxInclusive, includeFixedServices: includeFixedServices !== false });
     res.json({
       hospital: toResponse(built.hospital),
       month,
@@ -990,7 +991,7 @@ exports.previewDirectPatient = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, manualItems, isDirectPatient, invoiceDate, includeFixedServices } = req.body;
+    const { hospitalId, month: rawMonth, notes, adjustments, tdsRateId, gstRate, claimIds, discount, taxInclusive, manualItems, isDirectPatient, invoiceDate, includeFixedServices } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month (YYYY-MM-01) are required' });
 
@@ -1025,7 +1026,7 @@ exports.create = async (req, res) => {
       }
     }
 
-    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, isDirectPatient: isDirectPatientInvoice, includeFixedServices: includeFixedServices !== false });
+    const built = await buildInvoiceLines(hospitalId, month, { adjustments, tdsRateId, gstRateOverride: gstRate, claimIds, discount, taxInclusive: !!taxInclusive, isDirectPatient: isDirectPatientInvoice, includeFixedServices: includeFixedServices !== false });
     if (!built.lines.length && !normalisedManual.length) {
       return res.status(400).json({ message: 'No claims or fixed services found for this month. Add at least one manual item.' });
     }
@@ -1057,6 +1058,7 @@ exports.create = async (req, res) => {
           tdsRate: built.totals.tdsRate,
           previousBalance: built.totals.previousBalance,
           discount,
+          taxInclusive: built.totals.taxInclusive,
         })
       : built.totals;
 
@@ -1073,6 +1075,7 @@ exports.create = async (req, res) => {
       subtotalAdjust: finalTotals.subtotalAdjust,
       gross: finalTotals.gross,
       discount: finalTotals.discount,
+      taxInclusive: finalTotals.taxInclusive,
       netTotal: finalTotals.netTotal,
       previousBalance: finalTotals.previousBalance,
       grandTotal: finalTotals.grandTotal,
@@ -1697,7 +1700,7 @@ const recomputeInvoiceFromLines = async (tx, invoiceId) => {
     where: { id: invoiceId },
     select: {
       id: true, hospitalId: true, gstRate: true, tdsRate: true, roundOff: true,
-      amountPaid: true, previousBalance: true, discount: true,
+      amountPaid: true, previousBalance: true, discount: true, taxInclusive: true,
       lineItems: { select: { lineType: true, amount: true } },
     },
   });
@@ -1709,8 +1712,19 @@ const recomputeInvoiceFromLines = async (tx, invoiceId) => {
   const gross = round2(tpa + services + adjust);
   // Clamp discount to [0, gross] — see calculateInvoiceTotals for rationale.
   const discount = Math.min(Math.max(0, round2(Number(inv.discount) || 0)), gross);
-  const taxable = round2(gross - discount);
-  const gstAmount = round2((taxable * (inv.gstRate || 0)) / 100);
+  const netOfDiscount = round2(gross - discount);
+  const gstRate = inv.gstRate || 0;
+  // Matches calculateInvoiceTotals: when taxInclusive, GST is backed out of
+  // netOfDiscount instead of added on top.
+  let taxable;
+  let gstAmount;
+  if (inv.taxInclusive && gstRate > 0) {
+    taxable = round2(netOfDiscount / (1 + gstRate / 100));
+    gstAmount = round2(netOfDiscount - taxable);
+  } else {
+    taxable = netOfDiscount;
+    gstAmount = round2((taxable * gstRate) / 100);
+  }
   // TDS base = taxable + GST (matches `calculateInvoiceTotals`).
   const tdsAmount = round2(((taxable + gstAmount) * (inv.tdsRate || 0)) / 100);
   const netTotal = round2(taxable + gstAmount - tdsAmount);
@@ -1745,7 +1759,7 @@ exports.update = async (req, res) => {
     const {
       notes, adjustments, tdsRateId, gstRate,
       lineEdits, manualItems, removedLineIds,
-      roundOff, discount,
+      roundOff, discount, taxInclusive,
       month, invoiceDate, issuedAt, dueDate,
     } = req.body;
 
@@ -1775,16 +1789,19 @@ exports.update = async (req, res) => {
     const tdsChanged = tdsRateId !== undefined;
     const gstChanged = gstRate !== undefined;
     const discountChanged = discount !== undefined;
+    const taxInclusiveChanged = taxInclusive !== undefined;
     const fullRebuild = Array.isArray(adjustments);
     const tdsResolvedId = tdsChanged ? (tdsRateId || null) : invoice.tdsRateId;
     const gstResolved = gstChanged ? (Math.max(0, Number(gstRate) || 0)) : invoice.gstRate;
     const discountResolved = discountChanged ? Math.max(0, round2(Number(discount) || 0)) : invoice.discount;
+    const taxInclusiveResolved = taxInclusiveChanged ? !!taxInclusive : invoice.taxInclusive;
 
     const hasAnyChange =
       fullRebuild ||
       tdsChanged ||
       gstChanged ||
       discountChanged ||
+      taxInclusiveChanged ||
       dateChanged ||
       roundOff !== undefined ||
       notes !== undefined ||
@@ -1797,7 +1814,7 @@ exports.update = async (req, res) => {
     // Wipes line items and regenerates them from the source claims.
     // Used by the original wizard "Save Draft" flow that re-derives everything.
     if (fullRebuild) {
-      const built = await buildInvoiceLines(invoice.hospitalId, invoice.month, { adjustments, tdsRateId: tdsResolvedId, gstRateOverride: gstResolved, discount: discountResolved });
+      const built = await buildInvoiceLines(invoice.hospitalId, invoice.month, { adjustments, tdsRateId: tdsResolvedId, gstRateOverride: gstResolved, discount: discountResolved, taxInclusive: taxInclusiveResolved });
       const updated = await prisma.$transaction(async (tx) => {
         await tx.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
         await tx.invoice.update({
@@ -1811,6 +1828,7 @@ exports.update = async (req, res) => {
             subtotalAdjust: built.totals.subtotalAdjust,
             gross: built.totals.gross,
             discount: built.totals.discount,
+            taxInclusive: built.totals.taxInclusive,
             gstRate: built.totals.gstRate,
             gstAmount: built.totals.gstAmount,
             tdsRate: built.totals.tdsRate,
@@ -1898,6 +1916,7 @@ exports.update = async (req, res) => {
       if (roundOff !== undefined) settingsData.roundOff = round2(Number(roundOff) || 0);
       if (gstChanged) settingsData.gstRate = gstResolved;
       if (discountChanged) settingsData.discount = discountResolved;
+      if (taxInclusiveChanged) settingsData.taxInclusive = taxInclusiveResolved;
       if (tdsChanged) {
         const tds = await resolveTdsRate(tdsResolvedId, 0);
         settingsData.tdsRateId = tdsResolvedId;
@@ -2235,7 +2254,7 @@ exports.removeAll = async (req, res) => {
 //               gstRate?, tdsRateId?, roundOff?, notes? }
 exports.previewPdf = async (req, res) => {
   try {
-    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes, discount, isDirectPatient, claimIds: bodyClaimIds = [] } = req.body;
+    const { hospitalId, month: rawMonth, lines = [], gstRate, tdsRateId, roundOff, notes, discount, taxInclusive, isDirectPatient, claimIds: bodyClaimIds = [] } = req.body;
     const month = parseMonth(rawMonth);
     if (!hospitalId || !month) return res.status(400).json({ message: 'hospitalId and month are required' });
     const isDirectPatientPreview = !!isDirectPatient;
@@ -2291,7 +2310,7 @@ exports.previewPdf = async (req, res) => {
     const totals = calculateInvoiceTotals({
       tpaDeskLines, fixedServiceLines, adjustmentLines,
       gstRate: effectiveGstRate, tdsRate: tds.rate, previousBalance,
-      discount,
+      discount, taxInclusive: !!taxInclusive,
     });
 
     const roundOffI = round2(Number(roundOff) || 0);
@@ -2321,6 +2340,7 @@ exports.previewPdf = async (req, res) => {
       subtotalAdjust: totals.subtotalAdjust,
       gross: totals.gross,
       discount: totals.discount,
+      taxInclusive: totals.taxInclusive,
       netTotal: totals.netTotal,
       previousBalance: totals.previousBalance,
       roundOff: roundOffI,

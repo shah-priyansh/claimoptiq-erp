@@ -14,6 +14,12 @@
 //
 // Every tax column defaults to 0, so a legacy / auto-created / imported expense
 // (all zeros) collapses to netPayable == amount — no backfill needed.
+//
+// `taxInclusive` (on the Expense row) is a pure entry-mode flag: when set, the
+// frontend has already backed GST out of each line's typed rate before it
+// reached here, so `subtotal`/`amount` stay the pre-tax base either way. It
+// carries no weight in this file — kept only so edit can redisplay the
+// originally-typed GST-inclusive rates.
 const { round2 } = require('./money');
 
 const clampRate = (r) => Math.max(0, Math.min(100, Number(r) || 0));

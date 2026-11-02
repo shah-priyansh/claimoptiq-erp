@@ -110,12 +110,20 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
         </div>
         <div className="flex flex-col">
           <label className="block text-sm font-medium text-gray-700 mb-1">GST Rate (%)</label>
-          <input
-            type="number" min="0" max="100" step="0.01"
-            value={draft.settings.gstRate}
-            onChange={(e) => updateSettings({ gstRate: e.target.value })}
-            className="mt-auto w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
+          <div className="mt-auto">
+            <input
+              type="number" min="0" max="100" step="0.01"
+              value={draft.settings.gstRate}
+              onChange={(e) => updateSettings({ gstRate: e.target.value })}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+            <label className="flex items-center gap-2 mt-1.5 text-xs text-gray-600 cursor-pointer select-none">
+              <input type="checkbox" checked={!!draft.settings.taxInclusive}
+                onChange={(e) => updateSettings({ taxInclusive: e.target.checked })}
+                className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+              Includes GST
+            </label>
+          </div>
         </div>
         <div className="flex flex-col">
           <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate (optional)</label>
@@ -306,13 +314,16 @@ const BulkInvoiceDraftEditor = ({ draft, tdsRates, loadingTdsRates, onChange }) 
           <div className="space-y-1 text-sm text-gray-600">
             <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(liveTotals.gross)}</span></div>
             {liveTotals.discount > 0 && (
-              <>
-                <div className="flex justify-between text-green-700">
-                  <span>Discount</span>
-                  <span className="tabular-nums">- {formatINR(liveTotals.discount)}</span>
-                </div>
-                <div className="flex justify-between"><span>Taxable Value</span><span className="tabular-nums">{formatINR(liveTotals.taxable)}</span></div>
-              </>
+              <div className="flex justify-between text-green-700">
+                <span>Discount</span>
+                <span className="tabular-nums">- {formatINR(liveTotals.discount)}</span>
+              </div>
+            )}
+            {(liveTotals.discount > 0 || (draft.settings.taxInclusive && liveTotals.effectiveGst > 0)) && (
+              <div className="flex justify-between">
+                <span>Taxable Value{draft.settings.taxInclusive && liveTotals.effectiveGst > 0 ? ' (GST excl.)' : ''}</span>
+                <span className="tabular-nums">{formatINR(liveTotals.taxable)}</span>
+              </div>
             )}
             {liveTotals.effectiveGst > 0 && (
               <div className="flex justify-between"><span>GST ({liveTotals.effectiveGst}%)</span><span className="tabular-nums">{formatINR(liveTotals.gstAmount)}</span></div>

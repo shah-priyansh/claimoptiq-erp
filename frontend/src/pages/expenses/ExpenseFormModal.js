@@ -34,7 +34,12 @@ const Row = ({ label, value }) => (
 );
 
 const blankLine = () => ({ description: '', qtyRaw: '1', rate: '' });
-const blank = { date: todayIso(), categoryId: '', lineItems: [blankLine()], notes: '', partyName: '', referenceId: '', partyId: '', gstRate: '', tdsRate: '', discount: '', roundOff: '', paymentMode: 'cash', bankAccountId: '', paidAmount: '' };
+const blank = { date: todayIso(), categoryId: '', lineItems: [blankLine()], notes: '', partyName: '', referenceId: '', partyId: '', gstRate: '', tdsRate: '', discount: '', roundOff: '', taxInclusive: false, paymentMode: 'cash', bankAccountId: '', paidAmount: '' };
+
+// Redisplay a stored (pre-tax) rate as the GST-inclusive figure the operator
+// originally typed, so re-opening an inclusive-mode expense shows the same
+// numbers back. Inverse of the back-out applied in `submit` below.
+const toInclusiveRate = (storedRate, gstRate) => round2((Number(storedRate) || 0) * (1 + (Number(gstRate) || 0) / 100));
 
 const PAYMENT_MODES = [{ value: 'cash', label: 'Cash' }, { value: 'bank', label: 'Bank' }, { value: 'upi', label: 'UPI' }];
 
@@ -51,10 +56,13 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
       // duplicate starts fresh (Unpaid) — its money hasn't moved yet.
       const pay = (initial.payments || [])[0];
       // Prefer the stored line items; fall back to a single line derived from the
-      // flat amount for any expense predating line items.
+      // flat amount for any expense predating line items. Rates are stored
+      // pre-tax — redisplay them GST-inclusive if that's how they were entered.
+      const taxIncl = !!initial.taxInclusive;
+      const toDisplayRate = (r) => (taxIncl && r !== '' && r != null ? toInclusiveRate(r, initial.gstRate) : (r ?? ''));
       const lineItems = (initial.lineItems || []).length
-        ? initial.lineItems.map((l) => ({ description: l.description || '', qtyRaw: l.qtyRaw || '1', rate: l.rate ?? l.amount ?? '' }))
-        : [{ description: initial.notes || '', qtyRaw: '1', rate: initial.amount ?? '' }];
+        ? initial.lineItems.map((l) => ({ description: l.description || '', qtyRaw: l.qtyRaw || '1', rate: toDisplayRate(l.rate ?? l.amount) }))
+        : [{ description: initial.notes || '', qtyRaw: '1', rate: toDisplayRate(initial.amount) }];
       setForm({
         date: isDuplicate ? todayIso() : (initial.date || '').slice(0, 10),
         categoryId: initial.category?._id || initial.categoryId || '',
@@ -69,6 +77,7 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
         tdsRate: initial.tdsRate ? String(initial.tdsRate) : '',
         discount: initial.discount ? String(initial.discount) : '',
         roundOff: initial.roundOff ? String(initial.roundOff) : '',
+        taxInclusive: taxIncl,
         paymentMode: isDuplicate ? 'cash' : (pay?.mode || 'cash'),
         bankAccountId: isDuplicate ? '' : (pay?.bankAccount?._id || pay?.bankAccountId || ''),
         paidAmount: isDuplicate ? '' : (initial.amountPaid ? String(initial.amountPaid) : ''),
@@ -94,15 +103,21 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
   if (!open) return null;
 
   const lines = form.lineItems || [];
-  const linesTotal = round2(lines.reduce((s, l) => s + calcLineAmount(l.rate, l.qtyRaw), 0));
-  const amountNum = linesTotal; // pre-tax subtotal — backend stores this as `amount`
+  const gstRateNum = Number(form.gstRate) || 0;
+  // Sum of the literal typed rate x qty — what the Items table's own Total
+  // row shows. When "Rates include GST", this is the GST-inclusive figure.
+  const grossEntered = round2(lines.reduce((s, l) => s + calcLineAmount(l.rate, l.qtyRaw), 0));
+  // Pre-tax subtotal — backend stores this as `amount`. Back GST out of the
+  // entered gross when it was typed inclusive; otherwise it's already pre-tax.
+  const linesTotal = (form.taxInclusive && gstRateNum > 0) ? round2(grossEntered / (1 + gstRateNum / 100)) : grossEntered;
+  const amountNum = linesTotal;
   // Purchase-bill math, mirrors backend utils/expenseTotals.js: discount reduces
   // the base; GST is added; TDS is withheld — all on the post-discount taxable
   // base. Net payable is what the vendor is owed (drives balance/paid).
   const discountNum = Math.max(0, Math.min(Math.max(0, linesTotal), round2(form.discount || 0)));
   const roundOffNum = round2(form.roundOff || 0);
   const taxable = round2(linesTotal - discountNum);
-  const gstAmt = round2((taxable * (Number(form.gstRate) || 0)) / 100);
+  const gstAmt = round2((taxable * gstRateNum) / 100);
   const tdsAmt = round2((taxable * (Number(form.tdsRate) || 0)) / 100);
   const grandTotal = round2(taxable + gstAmt + roundOffNum); // before TDS
   const netPayable = round2(grandTotal - tdsAmt);
@@ -119,8 +134,15 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
   const submit = async (e) => {
     e.preventDefault();
     if (!form.categoryId || !form.date) return;
+    // When rates were typed GST-inclusive, back GST out of each line's rate
+    // before sending — the server always recomputes amount = rate x qty, and
+    // `amount` must stay the pre-tax base (see utils/expenseTotals.js).
+    const toExclusiveRate = (rate) => {
+      const r = Number(rate) || 0;
+      return (form.taxInclusive && gstRateNum > 0) ? round2(r / (1 + gstRateNum / 100)) : r;
+    };
     const lineItems = lines
-      .map((l) => ({ description: (l.description || '').trim(), qtyRaw: String(l.qtyRaw ?? '1'), rate: Number(l.rate) || 0 }))
+      .map((l) => ({ description: (l.description || '').trim(), qtyRaw: String(l.qtyRaw ?? '1'), rate: toExclusiveRate(l.rate) }))
       .filter((l) => l.description || l.rate);
     if (!lineItems.length) return;
     setSaving(true);
@@ -136,10 +158,11 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
         referenceId: form.referenceId || null,
         partyId: form.partyId || null,
         // Taxes/adjustments — backend recomputes the amounts + net payable.
-        gstRate: Number(form.gstRate) || 0,
+        gstRate: gstRateNum,
         tdsRate: Number(form.tdsRate) || 0,
         discount: round2(form.discount || 0),
         roundOff: round2(form.roundOff || 0),
+        taxInclusive: !!form.taxInclusive,
         // Payment: paidAmount 0 => Unpaid. Backend clamps to [0, net payable]
         // and records a cash/bank OUT entry for the paid portion.
         paymentMode: form.paymentMode,
@@ -239,7 +262,7 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
                 <tfoot className="bg-gray-50 border-t border-gray-200">
                   <tr>
                     <td colSpan={3} className="py-2 px-2 text-right text-[11px] uppercase text-gray-500 font-semibold">Total</td>
-                    <td className="py-2 px-2 text-right font-semibold text-gray-800 tabular-nums">{fmtINR(linesTotal)}</td>
+                    <td className="py-2 px-2 text-right font-semibold text-gray-800 tabular-nums">{fmtINR(grossEntered)}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -257,6 +280,12 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
               <span className="text-sm font-medium text-gray-700">Taxes &amp; Adjustments</span>
               <span className="text-[11px] text-gray-400">optional</span>
             </div>
+            <label className="flex items-center gap-2 mb-3 text-xs text-gray-600 cursor-pointer select-none">
+              <input type="checkbox" checked={form.taxInclusive}
+                onChange={(e) => setForm((f) => ({ ...f, taxInclusive: e.target.checked }))}
+                className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+              Rate includes GST (with tax) — leave unchecked if Rate excludes GST (without tax)
+            </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <label className="block text-[11px] font-medium text-gray-500 mb-1">GST %</label>
@@ -285,7 +314,8 @@ const ExpenseFormModal = ({ open, initial, mode = 'create', categories, referenc
             </div>
             {hasAdjustments && (
               <div className="mt-3 border-t border-gray-100 pt-3 space-y-1 text-sm">
-                <Row label="Subtotal" value={fmtINR(linesTotal)} />
+                {form.taxInclusive && gstRateNum > 0 && <Row label="Entered Amount (incl. GST)" value={fmtINR(grossEntered)} />}
+                <Row label={form.taxInclusive && gstRateNum > 0 ? 'Subtotal (excl. GST)' : 'Subtotal'} value={fmtINR(linesTotal)} />
                 {discountNum !== 0 && <Row label="Discount" value={`− ${fmtINR(discountNum)}`} />}
                 {gstAmt !== 0 && <Row label={`GST${Number(form.gstRate) ? ` (${Number(form.gstRate)}%)` : ''}`} value={`+ ${fmtINR(gstAmt)}`} />}
                 {roundOffNum !== 0 && <Row label="Round Off" value={`${roundOffNum < 0 ? '− ' : '+ '}${fmtINR(Math.abs(roundOffNum))}`} />}

@@ -10,6 +10,10 @@ const calculateInvoiceTotals = ({
   tdsRate = 0,
   previousBalance = 0,
   discount = 0,
+  // When true, `gross` (post-discount) is treated as GST-inclusive — GST is
+  // backed out of it instead of added on top. netTotal/grandTotal come out
+  // identical either way; only the taxable/GST split differs.
+  taxInclusive = false,
 }) => {
   const subtotalTpaDesk = round2(sum(tpaDeskLines));
   const subtotalServices = round2(sum(fixedServiceLines));
@@ -18,8 +22,17 @@ const calculateInvoiceTotals = ({
   // Pre-tax discount: reduces the taxable value before GST/TDS. Clamped to
   // [0, gross] so a typo can't flip the invoice negative or add a phantom credit.
   const discountAmt = Math.min(Math.max(0, round2(Number(discount) || 0)), gross);
-  const taxable = round2(gross - discountAmt);
-  const gstAmount = round2((taxable * (Number(gstRate) || 0)) / 100);
+  const netOfDiscount = round2(gross - discountAmt);
+  const rate = Number(gstRate) || 0;
+  let taxable;
+  let gstAmount;
+  if (taxInclusive && rate > 0) {
+    taxable = round2(netOfDiscount / (1 + rate / 100));
+    gstAmount = round2(netOfDiscount - taxable);
+  } else {
+    taxable = netOfDiscount;
+    gstAmount = round2((taxable * rate) / 100);
+  }
   // TDS is deducted on the GST-inclusive value (taxable + GST), not on the
   // bare SubTotal — when GST applies it must be summed in first.
   const tdsBase = round2(taxable + gstAmount);
@@ -39,6 +52,7 @@ const calculateInvoiceTotals = ({
     previousBalance: prev,
     grandTotal,
     amountPending: grandTotal,
+    taxInclusive,
   };
 };
 

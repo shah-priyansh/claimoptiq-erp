@@ -90,6 +90,10 @@ const InvoiceWizard = () => {
   const [roundOff, setRoundOff] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [gstRate, setGstRate] = useState('');
+  // When true, the line amounts below are treated as GST-inclusive — GST is
+  // backed out of the gross instead of added on top. Grand total is the same
+  // either way; only the gross/GST split on the invoice changes.
+  const [taxInclusive, setTaxInclusive] = useState(false);
   const [preview, setPreview] = useState(null);
   // Editable working copy of the preview lines. Each row carries:
   //   description, amount, lineType, _isManual (true for rows the operator added)
@@ -195,9 +199,19 @@ const InvoiceWizard = () => {
     const gross = round2(tpa + services + adjust);
     // Pre-tax discount: clamped to [0, gross] so a typo can't flip the invoice negative.
     const discountAmt = Math.min(Math.max(0, round2(Number(discount) || 0)), gross);
-    const taxable = gross - discountAmt;
+    const netOfDiscount = round2(gross - discountAmt);
     const effectiveGst = gstRate === '' ? (preview.totals.gstRate || 0) : (Number(gstRate) || 0);
-    const gstAmount = round2((taxable * effectiveGst) / 100);
+    // When taxInclusive, GST is backed out of netOfDiscount instead of added
+    // on top — matches backend `calculateInvoiceTotals`.
+    let taxable;
+    let gstAmount;
+    if (taxInclusive && effectiveGst > 0) {
+      taxable = round2(netOfDiscount / (1 + effectiveGst / 100));
+      gstAmount = round2(netOfDiscount - taxable);
+    } else {
+      taxable = netOfDiscount;
+      gstAmount = round2((taxable * effectiveGst) / 100);
+    }
     // TDS base = Taxable + GST (matches backend `calculateInvoiceTotals`).
     const tdsAmount = round2(((taxable + gstAmount) * (preview.totals.tdsRate || 0)) / 100);
     const netTotal = taxable + gstAmount - tdsAmount;
@@ -211,7 +225,7 @@ const InvoiceWizard = () => {
       roundOff: round2(Number(roundOff) || 0),
       grandTotal,
     };
-  }, [editLines, preview, roundOff, discount, gstRate]);
+  }, [editLines, preview, roundOff, discount, gstRate, taxInclusive]);
 
   const create = async () => {
     if (!preview) return;
@@ -236,6 +250,7 @@ const InvoiceWizard = () => {
         tdsRateId: tdsRateId || undefined,
         ...(invoiceDate ? { invoiceDate } : {}),
         ...(gstRate !== '' ? { gstRate: Number(gstRate) || 0 } : {}),
+        taxInclusive,
         ...(manualItemsForCreate.length ? { manualItems: manualItemsForCreate } : {}),
       });
 
@@ -362,6 +377,12 @@ const InvoiceWizard = () => {
               onChange={(e) => setGstRate(e.target.value)}
               placeholder="0"
               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+            <label className="flex items-center gap-2 mt-1.5 text-xs text-gray-600 cursor-pointer select-none">
+              <input type="checkbox" checked={taxInclusive}
+                onChange={(e) => setTaxInclusive(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+              Line amounts include GST (with tax)
+            </label>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate (optional)</label>
@@ -586,13 +607,16 @@ const InvoiceWizard = () => {
                 <div className="space-y-1 text-sm text-gray-600">
                   <div className="flex justify-between"><span>Sub Total</span><span className="tabular-nums">{formatINR(liveTotals?.gross || 0)}</span></div>
                   {(liveTotals?.discount || 0) > 0 && (
-                    <>
-                      <div className="flex justify-between text-green-700">
-                        <span>Discount</span>
-                        <span className="tabular-nums">- {formatINR(liveTotals?.discount || 0)}</span>
-                      </div>
-                      <div className="flex justify-between"><span>Taxable Value</span><span className="tabular-nums">{formatINR(liveTotals?.taxable || 0)}</span></div>
-                    </>
+                    <div className="flex justify-between text-green-700">
+                      <span>Discount</span>
+                      <span className="tabular-nums">- {formatINR(liveTotals?.discount || 0)}</span>
+                    </div>
+                  )}
+                  {((liveTotals?.discount || 0) > 0 || (taxInclusive && effGst > 0)) && (
+                    <div className="flex justify-between">
+                      <span>Taxable Value{taxInclusive && effGst > 0 ? ' (GST excl.)' : ''}</span>
+                      <span className="tabular-nums">{formatINR(liveTotals?.taxable || 0)}</span>
+                    </div>
                   )}
                   {effGst > 0 && (
                     <div className="flex justify-between"><span>GST ({effGst}%)</span><span className="tabular-nums">{formatINR(liveTotals?.gstAmount || 0)}</span></div>

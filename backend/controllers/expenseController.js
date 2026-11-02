@@ -199,6 +199,10 @@ const pickFields = (body) => {
   if (body.partyName !== undefined) data.partyName = String(body.partyName || '').slice(0, 200);
   if (body.referenceId !== undefined) data.referenceId = body.referenceId || null;
   if (body.partyId !== undefined) data.partyId = body.partyId || null;
+  // Entry-mode flag only (does not affect the tax math below) — remembers
+  // whether the operator typed line rates GST-inclusive, so edit can
+  // redisplay the original figures. See utils/expenseTotals.js header note.
+  if (body.taxInclusive !== undefined) data.taxInclusive = !!body.taxInclusive;
   return data;
 };
 

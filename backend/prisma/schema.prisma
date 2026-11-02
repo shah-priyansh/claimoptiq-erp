@@ -246,6 +246,11 @@ model Invoice {
   grandTotal       Float   @default(0) @map("grand_total")
   amountPaid       Float   @default(0) @map("amount_paid")
   amountPending    Float   @default(0) @map("amount_pending")
+  // When true, `gross` (subtotals) is treated as GST-inclusive — GST is backed
+  // out of it instead of added on top. grandTotal/netTotal are unaffected
+  // either way (see utils/calculateInvoiceTotals.js); only the gross/GST split
+  // changes. Defaults false so every existing invoice keeps its current math.
+  taxInclusive     Boolean @default(false) @map("tax_inclusive")
 
   notes       String    @default("")
   createdById String?   @map("created_by_id")
@@ -314,6 +319,10 @@ model Expense {
   tdsRate     Float    @default(0) @map("tds_rate")
   tdsAmount   Float    @default(0) @map("tds_amount")
   roundOff    Float    @default(0) @map("round_off")
+  // When true, line rates were typed GST-inclusive — the UI backs GST out of
+  // them before they're stored (amount/gstAmount stay as documented above,
+  // pre-tax). Kept only so edit can redisplay the original inclusive figures.
+  taxInclusive Boolean @default(false) @map("tax_inclusive")
   notes       String   @default("")
   partyName   String   @default("") @map("party_name")
   referenceId String?  @map("reference_id")

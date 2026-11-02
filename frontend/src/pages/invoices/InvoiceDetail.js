@@ -70,6 +70,9 @@ const InvoiceDetail = () => {
   const [discount, setDiscount] = useState(0);
   const [tdsRateId, setTdsRateId] = useState('');
   const [gstRate, setGstRate] = useState(0);
+  // When true, `gross` is treated as GST-inclusive — GST is backed out of it
+  // instead of added on top. netTotal/grandTotal are unaffected either way.
+  const [taxInclusive, setTaxInclusive] = useState(false);
   // Editable dates: month (accounting period, required), invoice date, issued
   // date (drives reports) and due date. Stored as <input>-friendly strings.
   const [month, setMonth] = useState('');
@@ -169,9 +172,19 @@ const InvoiceDetail = () => {
     const adjustSum = sumBy(['adjustment']);
     const gross = round2(tpaSum + servicesSum + adjustSum);
     const discountAmt = Math.min(Math.max(0, round2(Number(discount) || 0)), gross);
-    const taxable = gross - discountAmt;
+    const netOfDiscount = round2(gross - discountAmt);
     const effectiveGst = Number(gstRate) || 0;
-    const gstAmount = round2((taxable * effectiveGst) / 100);
+    // When taxInclusive, GST is backed out of netOfDiscount instead of added
+    // on top — matches backend `calculateInvoiceTotals`.
+    let taxable;
+    let gstAmount;
+    if (taxInclusive && effectiveGst > 0) {
+      taxable = round2(netOfDiscount / (1 + effectiveGst / 100));
+      gstAmount = round2(netOfDiscount - taxable);
+    } else {
+      taxable = netOfDiscount;
+      gstAmount = round2((taxable * effectiveGst) / 100);
+    }
     const selectedTds = tdsRateId ? tdsRates.find((r) => r._id === tdsRateId) : null;
     const effectiveTdsRate = selectedTds ? Number(selectedTds.rate) || 0 : (invoice?.tdsRate || 0);
     const effectiveTdsSection = selectedTds ? (selectedTds.section || '') : (invoice?.tdsSection || '');
@@ -188,7 +201,7 @@ const InvoiceDetail = () => {
       effectiveGst, tdsRate: effectiveTdsRate, tdsSection: effectiveTdsSection,
       roundOff: roundOffI, previousBalance, amountPaid, thisBalance, currentBalance,
     };
-  }, [editLines, discount, gstRate, tdsRateId, tdsRates, roundOff, invoice]);
+  }, [editLines, discount, gstRate, taxInclusive, tdsRateId, tdsRates, roundOff, invoice]);
 
   const reload = async () => {
     setLoading(true);
@@ -207,6 +220,7 @@ const InvoiceDetail = () => {
       setRoundOff(data.roundOff || 0);
       setDiscount(data.discount || 0);
       setGstRate(data.gstRate ?? 0);
+      setTaxInclusive(!!data.taxInclusive);
       setMonth(toMonthInput(data.month));
       setInvoiceDate(toDateInput(data.invoiceDate));
       setIssuedAt(toDateInput(data.issuedAt));
@@ -281,6 +295,7 @@ const InvoiceDetail = () => {
         roundOff: round2(Number(roundOff) || 0),
         discount: Math.max(0, round2(Number(discount) || 0)),
         gstRate: Math.max(0, Number(gstRate) || 0),
+        taxInclusive: !!taxInclusive,
       };
       if (lineEdits.length) payload.lineEdits = lineEdits;
       if (manualItems.length) payload.manualItems = manualItems;
@@ -729,6 +744,12 @@ const InvoiceDetail = () => {
                   onChange={(e) => setGstRate(e.target.value)}
                   placeholder="0"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                <label className="flex items-center gap-2 mt-1.5 text-xs text-gray-600 cursor-pointer select-none">
+                  <input type="checkbox" checked={taxInclusive}
+                    onChange={(e) => setTaxInclusive(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                  Sub Total includes GST (with tax)
+                </label>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">TDS Rate</label>
@@ -970,6 +991,7 @@ const InvoiceDetail = () => {
             subtotalAdjust: liveTotals.adjust,
             gross: liveTotals.gross,
             discount: liveTotals.discount,
+            taxable: liveTotals.taxable,
             gstRate: liveTotals.effectiveGst,
             gstAmount: liveTotals.gstAmount,
             tdsRate: liveTotals.tdsRate,
@@ -987,6 +1009,12 @@ const InvoiceDetail = () => {
             subtotalAdjust: invoice.subtotalAdjust,
             gross: invoice.gross,
             discount: invoice.discount || 0,
+            // Void invoices keep their persisted split — back GST out the same
+            // way `calculateInvoiceTotals` did at save time if it was inclusive.
+            taxable: (() => {
+              const net = round2((invoice.gross || 0) - (invoice.discount || 0));
+              return (invoice.taxInclusive && invoice.gstRate > 0) ? round2(net / (1 + invoice.gstRate / 100)) : net;
+            })(),
             gstRate: invoice.gstRate,
             gstAmount: invoice.gstAmount,
             tdsRate: invoice.tdsRate,
@@ -999,7 +1027,7 @@ const InvoiceDetail = () => {
             thisBalance: (invoice.netTotal || 0) + (invoice.roundOff || 0) - (invoice.amountPaid || 0),
             amountPending: invoice.amountPending || 0,
           };
-          const taxable = (t.gross || 0) - (t.discount || 0);
+          const taxable = t.taxable;
           return (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
               <div className="space-y-1 text-gray-600">

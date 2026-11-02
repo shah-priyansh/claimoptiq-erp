@@ -84,9 +84,19 @@ export const computeTotals = (editLines, settings, previewTotals, overrideTds) =
   const adjust = sumBy(['adjustment']);
   const gross = round2(tpa + services + adjust);
   const discount = Math.min(Math.max(0, round2(Number(settings.discount) || 0)), gross);
-  const taxable = gross - discount;
+  const netOfDiscount = round2(gross - discount);
   const effectiveGst = settings.gstRate === '' ? (previewTotals.gstRate || 0) : (Number(settings.gstRate) || 0);
-  const gstAmount = round2((taxable * effectiveGst) / 100);
+  // When taxInclusive, GST is backed out of netOfDiscount instead of added
+  // on top — matches backend `calculateInvoiceTotals`.
+  let taxable;
+  let gstAmount;
+  if (settings.taxInclusive && effectiveGst > 0) {
+    taxable = round2(netOfDiscount / (1 + effectiveGst / 100));
+    gstAmount = round2(netOfDiscount - taxable);
+  } else {
+    taxable = netOfDiscount;
+    gstAmount = round2((taxable * effectiveGst) / 100);
+  }
   const effectiveTdsRate = overrideTds ? (overrideTds.rate || 0) : (previewTotals.tdsRate || 0);
   const effectiveTdsSection = overrideTds ? (overrideTds.section || '') : (previewTotals.tdsSection || '');
   // TDS base = Taxable + GST (matches backend `calculateInvoiceTotals`).
@@ -121,6 +131,7 @@ export const commitDraft = async (draft, { autoIssue = false, includeFixedServic
     month: monthArg,
     notes: draft.settings.notes || '',
     ...(draft.settings.gstRate !== '' ? { gstRate: Number(draft.settings.gstRate) || 0 } : {}),
+    taxInclusive: !!draft.settings.taxInclusive,
     ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
     claimIds: draft.claimIds,
     ...(draft.settings.invoiceDate ? { invoiceDate: draft.settings.invoiceDate } : {}),

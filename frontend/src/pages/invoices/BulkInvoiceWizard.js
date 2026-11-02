@@ -52,6 +52,9 @@ const draftFromPreview = (p) => ({
     notes: '',
     roundOff: 0,
     discount: 0,
+    // When true, Sub Total is treated as GST-inclusive — GST is backed out
+    // of it instead of added on top (see bulkInvoiceUtils.computeTotals).
+    taxInclusive: false,
     invoiceDate: todayIso(),
   },
   isDirectPatient: !!p.isDirectPatient,
@@ -328,6 +331,7 @@ const BulkInvoiceWizard = () => {
           lineType: l.lineType,
         })),
         ...(draft.settings.gstRate !== '' ? { gstRate: Number(draft.settings.gstRate) || 0 } : {}),
+        taxInclusive: !!draft.settings.taxInclusive,
         ...(draft.settings.tdsRateId ? { tdsRateId: draft.settings.tdsRateId } : {}),
         roundOff: Number(draft.settings.roundOff) || 0,
         discount: Math.max(0, round2(Number(draft.settings.discount) || 0)),
