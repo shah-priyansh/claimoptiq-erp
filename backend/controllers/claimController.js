@@ -174,6 +174,9 @@ exports.createClaim = async (req, res) => {
         insuranceCompanyId: req.body.insuranceCompany || null,
         tpaId: req.body.tpa || null,
         policyNo: req.body.policyNo || '',
+        policyType: req.body.policyType === 'corporate' ? 'corporate' : 'retail',
+        corporateName: req.body.policyType === 'corporate' ? (req.body.corporateName || '') : '',
+        employeeId: req.body.policyType === 'corporate' ? (req.body.employeeId || '') : '',
         clientId: req.body.clientId || '',
         ccnNo: req.body.ccnNo || '',
         dateOfAdmit: toAdmitDate(req.body.dateOfAdmit),
@@ -505,7 +508,7 @@ exports.updateClaim = async (req, res) => {
     const dateFields = ['dateOfAdmit', 'dateOfDischarge', 'finalApprovalDate', 'fileReceivedDate', 'courierSubmitDate', 'onlineSubmitDate', 'settlementDate', 'month'];
     const allowed = [
       'status', 'patientName', 'patientMobile', 'patientAddress', 'doctorName', 'claimProcessBy', 'claimType',
-      'policyNo', 'clientId', 'ccnNo', 'hospitalFinalBill', 'isHospitalBillGeneratedByUs', 'mouDiscount',
+      'policyNo', 'policyType', 'corporateName', 'employeeId', 'clientId', 'ccnNo', 'hospitalFinalBill', 'isHospitalBillGeneratedByUs', 'mouDiscount',
       'deduction', 'finalApprovalAmount', 'fileReceivedDate', 'submitMode',
       'courierSubmitDate', 'onlineSubmitDate', 'courierCompanyName', 'podNumber',
       'settlementAmount', 'settlementAmountDeduction', 'mouDiscountOnSettlement',

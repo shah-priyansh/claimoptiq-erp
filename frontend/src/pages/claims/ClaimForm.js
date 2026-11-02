@@ -77,7 +77,7 @@ const ClaimForm = () => {
     claimProcessBy: '',
     claimType: 'cashless',
     insuranceCompany: '', tpa: '',
-    policyNo: '', clientId: '', ccnNo: '',
+    policyNo: '', policyType: 'retail', corporateName: '', employeeId: '', clientId: '', ccnNo: '',
     dateOfAdmit: new Date().toISOString().slice(0, 10),
     dateOfDischarge: '',
     treatmentType: '', diagnosis: '', surgeryName: '',
@@ -115,6 +115,9 @@ const ClaimForm = () => {
           insuranceCompany: data.insuranceCompany?._id || data.insuranceCompany || '',
           tpa: data.tpa?._id || data.tpa || '',
           policyNo: data.policyNo || '',
+          policyType: data.policyType === 'corporate' ? 'corporate' : 'retail',
+          corporateName: data.corporateName || '',
+          employeeId: data.employeeId || '',
           clientId: data.clientId || '',
           ccnNo: data.ccnNo || '',
           dateOfAdmit: data.dateOfAdmit ? new Date(data.dateOfAdmit).toISOString().slice(0, 10) : '',
@@ -239,6 +242,10 @@ const ClaimForm = () => {
       submitData.month = new Date(form.month + '-01');
       if (!submitData.tpa) delete submitData.tpa;
       if (!submitData.dateOfDischarge) delete submitData.dateOfDischarge;
+      if (submitData.policyType !== 'corporate') {
+        submitData.corporateName = '';
+        submitData.employeeId = '';
+      }
 
       let claimId;
       if (isEdit) {
@@ -486,6 +493,40 @@ const ClaimForm = () => {
               <input name="ccnNo" value={form.ccnNo} onChange={handleChange}
                 className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
             </div>
+            <div className="md:col-span-2 lg:col-span-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Policy Type</label>
+              <div className="flex gap-4 mt-1">
+                {[{ value: 'retail', label: 'Retail' }, { value: 'corporate', label: 'Corporate' }].map(opt => (
+                  <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="policyType" value={opt.value}
+                      checked={form.policyType === opt.value}
+                      onChange={() => setForm(f => ({
+                        ...f, policyType: opt.value,
+                        corporateName: opt.value === 'corporate' ? f.corporateName : '',
+                        employeeId: opt.value === 'corporate' ? f.employeeId : '',
+                      }))}
+                      className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500" />
+                    <span className="text-sm text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {form.policyType === 'corporate' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Corporate Name</label>
+                  <input name="corporateName" value={form.corporateName} onChange={handleChange}
+                    placeholder="e.g. Acme Corp"
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID Number</label>
+                  <input name="employeeId" value={form.employeeId} onChange={handleChange}
+                    placeholder="e.g. EMP00123"
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                </div>
+              </>
+            )}
           </div>
         </div>
 
