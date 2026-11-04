@@ -1,0 +1,15 @@
+# SPA fallback for React Router (BrowserRouter / HTML5 history).
+# Any request that is not a real file or directory is served index.html
+# so client-side routes (e.g. /staff, /claims/:id) work on direct load / hard refresh.
+# Requires mod_rewrite + AllowOverride FileInfo (or All) on the DocumentRoot.
+# NOTE: the live erp.claimoptiq.com vhost also sets `FallbackResource /index.html`;
+# this file is belt-and-suspenders so the fix ships with every build.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  # Never rewrite API calls (safe no-op here; erp vhost has no /api, API is on api.claimoptiq.com)
+  RewriteCond %{REQUEST_URI} !^/api/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ /index.html [L]
+</IfModule>
