@@ -811,7 +811,10 @@ const Reports = ({ settlement = false }) => {
       });
       startY = doc.lastAutoTable.finalY;
 
-      monthGroups.forEach(({ month, items }) => {
+      monthGroups.forEach(({ month, items }, mIdx) => {
+        // Each month's section starts on its own page; the first month shares the
+        // page with the hospital header so the header isn't left orphaned.
+        if (mIdx > 0) { doc.addPage(); startY = 14; }
         autoTable(doc, {
           startY,
           body: [[monthLabel(month)]],
@@ -865,7 +868,8 @@ const Reports = ({ settlement = false }) => {
           margin: { left: MARGIN_X, right: MARGIN_X },
         });
         startY = doc.lastAutoTable.finalY + 4;
-        if (startY > pageHeight - 30) { doc.addPage(); startY = 14; }
+        // No overflow page-break here: the next month forces its own page above,
+        // and the subtotal/footer below have their own guards.
       });
 
       if (monthGroups.length > 1) {
@@ -879,6 +883,8 @@ const Reports = ({ settlement = false }) => {
       renderSummaryRow('GRAND TOTAL', grandTotals, { fontSize: 9, fill: [37, 99, 235], text: [255, 255, 255], line: [37, 99, 235], lineWidth: 0.5 });
     }
 
+    // Keep the "Prepared by" footer from spilling off the bottom of the last page.
+    if (startY > pageHeight - 20) { doc.addPage(); startY = 14; }
     doc.setDrawColor(229, 231, 235);
     doc.setLineWidth(0.3);
     doc.line(MARGIN_X, startY + 2, pageWidth - MARGIN_X, startY + 2);
