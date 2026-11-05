@@ -848,25 +848,62 @@ const Reports = ({ settlement = false }) => {
             ? { content: fmtAmt(monthTotals[i]), styles: totalStyles }
             : { content: '', styles: totalStyles });
         }
-        bodyRows.push(totalRowObj);
 
-        autoTable(doc, {
-          startY,
-          head: [COLS.map(f => f.label || 'SR')],
-          body: bodyRows,
-          theme: 'grid',
-          styles: { lineColor: [156, 163, 175], lineWidth: 0.2, overflow: 'linebreak', cellPadding },
-          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: headFontSize, halign: 'center', valign: 'middle', lineColor: [37, 99, 235], lineWidth: 0.3 },
-          bodyStyles: { fontSize: bodyFontSize, textColor: [31, 41, 55], lineColor: [209, 213, 219], lineWidth: 0.2, valign: 'middle' },
-          columnStyles,
-          tableWidth: TABLE_WIDTH,
-          didParseCell: (data) => {
-            if (data.section === 'body' && data.row.index < items.length && amountIndices.includes(data.column.index)) {
-              data.cell.styles.halign = 'right';
-            }
-          },
-          margin: { left: MARGIN_X, right: MARGIN_X },
-        });
+        // Shared table styling for the month's data + TOTAL. A trimmed bottom
+        // margin (vs autoTable's ~14mm default) reclaims a few mm so more rows +
+        // the TOTAL can share a page.
+        const tableMargin = { left: MARGIN_X, right: MARGIN_X, bottom: 10 };
+        const headRow = [COLS.map(f => f.label || 'SR')];
+        const gridStyles = { lineColor: [156, 163, 175], lineWidth: 0.2, overflow: 'linebreak', cellPadding };
+        const headStyles = { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: headFontSize, halign: 'center', valign: 'middle', lineColor: [37, 99, 235], lineWidth: 0.3 };
+        const bodyStyles = { fontSize: bodyFontSize, textColor: [31, 41, 55], lineColor: [209, 213, 219], lineWidth: 0.2, valign: 'middle' };
+        const rightAlignAmounts = (data) => {
+          if (data.section === 'body' && amountIndices.includes(data.column.index)) data.cell.styles.halign = 'right';
+        };
+        const tailRightAlign = (data) => { if (data.row.index === 0) rightAlignAmounts(data); };
+
+        // Keep the TOTAL glued to the data so it can never land alone on a page.
+        // Data rows flow/paginate normally; the last data row + TOTAL form an
+        // atomic tail. If that tail fits under the data it renders inline (seamless,
+        // no repeated header); if not, it moves to a fresh page *with* the column
+        // header so the carried-over total still reads as a proper table. One-claim
+        // months can't orphan, so they render as a single unit.
+        if (bodyRows.length >= 2) {
+          const tailBody = [bodyRows[bodyRows.length - 1], totalRowObj];
+          autoTable(doc, {
+            startY,
+            head: headRow,
+            body: bodyRows.slice(0, -1),
+            theme: 'grid',
+            styles: gridStyles, headStyles, bodyStyles, columnStyles, tableWidth: TABLE_WIDTH,
+            didParseCell: rightAlignAmounts,
+            margin: tableMargin,
+          });
+          startY = doc.lastAutoTable.finalY;
+
+          // Measure the tail's height in a throwaway doc to decide if it fits on
+          // the current page before we commit to rendering it.
+          const probe = new jsPDF({ orientation: 'landscape', unit: 'mm', format: useA3 ? 'a3' : 'a4' });
+          autoTable(probe, { startY: 0, body: tailBody, theme: 'grid', styles: gridStyles, bodyStyles, columnStyles, tableWidth: TABLE_WIDTH, margin: { left: MARGIN_X, right: MARGIN_X }, didParseCell: tailRightAlign });
+          const tailHeight = probe.lastAutoTable.finalY;
+
+          if (startY + tailHeight > pageHeight - tableMargin.bottom) {
+            doc.addPage(); startY = 14;
+            autoTable(doc, { startY, head: headRow, body: tailBody, theme: 'grid', styles: gridStyles, headStyles, bodyStyles, columnStyles, tableWidth: TABLE_WIDTH, pageBreak: 'avoid', didParseCell: tailRightAlign, margin: tableMargin });
+          } else {
+            autoTable(doc, { startY, body: tailBody, theme: 'grid', styles: gridStyles, bodyStyles, columnStyles, tableWidth: TABLE_WIDTH, pageBreak: 'avoid', didParseCell: tailRightAlign, margin: tableMargin });
+          }
+        } else {
+          autoTable(doc, {
+            startY,
+            head: headRow,
+            body: [...bodyRows, totalRowObj],
+            theme: 'grid',
+            styles: gridStyles, headStyles, bodyStyles, columnStyles, tableWidth: TABLE_WIDTH,
+            didParseCell: rightAlignAmounts,
+            margin: tableMargin,
+          });
+        }
         startY = doc.lastAutoTable.finalY + 4;
         // No overflow page-break here: the next month forces its own page above,
         // and the subtotal/footer below have their own guards.
