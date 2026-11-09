@@ -12,6 +12,18 @@ const SOURCE_TYPE = 'staff_salary';
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (month) => `${MONTH_NAMES[month.getUTCMonth()]} ${month.getUTCFullYear()}`;
 
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+
+// The day a salary is finalized (IST calendar day), stored at UTC-midnight to
+// match how manual expense dates are stored (see parseImportDate in
+// expenseController.js). Booking on the finalize/pay day — rather than the
+// salary month-end — makes payroll show up in the month it is actually
+// processed, which is where users look for it.
+const finalizeDate = () => {
+  const nowIst = new Date(Date.now() + IST_OFFSET_MS);
+  return new Date(Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate()));
+};
+
 const writeSalaryExpenseFlow = async (tx, record, actorId) => {
   const category = await tx.expenseCategory.findUnique({ where: { slug: 'salary' } });
   if (!category) {
@@ -20,16 +32,10 @@ const writeSalaryExpenseFlow = async (tx, record, actorId) => {
     throw err;
   }
 
-  const y = record.month.getUTCFullYear();
-  const m = record.month.getUTCMonth();
-  // Booked on the last day of the paid month (accrual date), not the day it
-  // happens to be finalized.
-  const monthEnd = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999));
-
   try {
     await tx.expense.create({
       data: {
-        date: monthEnd,
+        date: finalizeDate(),
         categoryId: category.id,
         amount: record.totalAmount,
         notes: `Auto: Salary — ${record.employee.name} (${monthLabel(record.month)})`,
