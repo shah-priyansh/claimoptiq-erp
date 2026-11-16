@@ -1694,15 +1694,20 @@ const dedupeZipName = (dir, name, seen) => {
   return candidate;
 };
 
-// Download a ZIP of every SETTLED (and BILLED) claim's documents, arranged into
-// the First Care Consultancy filing tree (see utils/fccBackupPath). The tree is
-// composed on the fly from current claim data — storage layout is never touched.
-// Files may sit on local disk or on an SFTP backup server; resolveFileStream
-// transparently handles both. Hospital users are scoped to their own claims.
+// Download a ZIP of claim documents, arranged into the First Care Consultancy
+// filing tree (see utils/fccBackupPath). The tree is composed on the fly from
+// current claim data — storage layout is never touched. Files may sit on local
+// disk or on an SFTP backup server; resolveFileStream transparently handles
+// both. Hospital/reference users are scoped to their own claims.
+//
+// Scope (?scope=): 'all' backs up every claim regardless of status; anything
+// else (the default) backs up only SETTLED and BILLED claims.
+// (Route is still /settled-backup for backwards compatibility.)
 exports.downloadSettledBackup = async (req, res) => {
   try {
+    const allClaims = req.query.scope === 'all';
     const userHospitalId = getUserHospitalId(req.user);
-    const where = { status: { in: ['settled', 'billed'] } };
+    const where = allClaims ? {} : { status: { in: ['settled', 'billed'] } };
     if (userHospitalId) {
       where.hospitalId = userHospitalId;
       where.isDirectPatient = false;
@@ -1757,12 +1762,17 @@ exports.downloadSettledBackup = async (req, res) => {
     }
 
     if (entries.length === 0) {
-      return res.status(404).json({ message: 'No settled claim documents to back up.' });
+      return res.status(404).json({
+        message: allClaims
+          ? 'No claim documents to back up.'
+          : 'No settled claim documents to back up.',
+      });
     }
 
     const stamp = new Date().toISOString().slice(0, 10);
+    const fileLabel = allClaims ? 'All-Claims' : 'Settled';
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="FCC-Settled-Backup-${stamp}.zip"`);
+    res.setHeader('Content-Disposition', `attachment; filename="FCC-${fileLabel}-Backup-${stamp}.zip"`);
 
     const archive = archiver('zip', { store: true }); // pdf/jpg are already compressed
     const missing = [];

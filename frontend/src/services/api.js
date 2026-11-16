@@ -42,10 +42,13 @@ export const getClaimDocFileURL = (claimId, docId, download = false) => {
 // Browser-download URL for the settled-claims backup ZIP (arranged into the FCC
 // filing tree). Streamed server-side, so navigating the browser here downloads
 // straight to disk; auth rides along via ?token= like the doc-file link above.
-export const getSettledBackupURL = () => {
+// scope='all' backs up every claim regardless of status; otherwise (default)
+// only settled & billed claims.
+export const getSettledBackupURL = (scope) => {
   const base = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
   const token = localStorage.getItem('token') || '';
-  return `${base}/claims/settled-backup?token=${encodeURIComponent(token)}`;
+  const scopeParam = scope === 'all' ? '&scope=all' : '';
+  return `${base}/claims/settled-backup?token=${encodeURIComponent(token)}${scopeParam}`;
 };
 
 // Auth

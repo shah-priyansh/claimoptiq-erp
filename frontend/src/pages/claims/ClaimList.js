@@ -255,6 +255,9 @@ const ClaimList = () => {
   // Export dropdown + field modal
   const exportMenuRef = useRef(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  // Backup dropdown (settled & billed vs. all claims)
+  const backupMenuRef = useRef(null);
+  const [backupMenuOpen, setBackupMenuOpen] = useState(false);
   const [fieldModal, setFieldModal] = useState({ open: false, pendingFormat: null });
   const [fieldSearch, setFieldSearch] = useState('');
   const [importOpen, setImportOpen] = useState(false);
@@ -383,6 +386,30 @@ const ClaimList = () => {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [exportMenuOpen]);
+
+  useEffect(() => {
+    if (!backupMenuOpen) return;
+    const handler = (e) => { if (backupMenuRef.current && !backupMenuRef.current.contains(e.target)) setBackupMenuOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [backupMenuOpen]);
+
+  // Stream a documents backup ZIP to disk. scope='all' = every claim;
+  // otherwise only settled & billed claims.
+  const triggerBackup = (scope) => {
+    setBackupMenuOpen(false);
+    const a = document.createElement('a');
+    a.href = getSettledBackupURL(scope);
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast.info(
+      scope === 'all'
+        ? 'Preparing all-claims backup… your download will begin shortly.'
+        : 'Preparing settled-claims backup… your download will begin shortly.',
+    );
+  };
 
   useEffect(() => {
     const hospitalsP = isHospitalUser
@@ -1264,22 +1291,33 @@ const ClaimList = () => {
             </div>
           )}
           {!isHospitalUser && can('claims', 'export') && (
-            <button
-              onClick={() => {
-                const a = document.createElement('a');
-                a.href = getSettledBackupURL();
-                a.rel = 'noopener';
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                toast.info('Preparing settled-claims backup… your download will begin shortly.');
-              }}
-              title="Download all settled & billed claims' documents as a ZIP, organised into the First Care Consultancy folder tree"
-              className="flex items-center gap-2 bg-white border border-amber-600 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
-            >
-              <HiOutlineDownload className="w-5 h-5" />
-              Backup
-            </button>
+            <div className="relative" ref={backupMenuRef}>
+              <button
+                onClick={() => setBackupMenuOpen(o => !o)}
+                title="Download claim documents as a ZIP, organised into the First Care Consultancy folder tree"
+                className="flex items-center gap-2 bg-white border border-amber-600 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+              >
+                <HiOutlineDownload className="w-5 h-5" />
+                Backup
+                <HiChevronDown className={`w-4 h-4 transition-transform ${backupMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {backupMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 w-56 py-1">
+                  <button
+                    onClick={() => triggerBackup('settled')}
+                    className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"
+                  >
+                    <HiOutlineDownload className="w-4 h-4 text-amber-600" /> Settled &amp; Billed Claims
+                  </button>
+                  <button
+                    onClick={() => triggerBackup('all')}
+                    className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"
+                  >
+                    <HiOutlineDownload className="w-4 h-4 text-amber-600" /> All Claims
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {can('claims', 'delete') && total > 0 && (
             <button
