@@ -382,6 +382,9 @@ const ClaimDetail = () => {
         insuranceCompany: data.insuranceCompany?._id || data.insuranceCompany || '',
         tpa: data.tpa?._id || data.tpa || '',
         policyNo: data.policyNo || '',
+        policyType: data.policyType === 'corporate' ? 'corporate' : 'retail',
+        corporateName: data.corporateName || '',
+        employeeId: data.employeeId || '',
         clientId: data.clientId || '',
         ccnNo: data.ccnNo || '',
         monthClaimNo: data.monthClaimNo || '',
@@ -617,6 +620,10 @@ const ClaimDetail = () => {
     try {
       const payload = { ...admissionForm };
       if (!payload.tpa) delete payload.tpa;
+      if (payload.policyType !== 'corporate') {
+        payload.corporateName = '';
+        payload.employeeId = '';
+      }
       if (payload.month && payload.month.length === 7) {
         payload.month = new Date(payload.month + '-01').toISOString();
       } else if (!payload.month) {
@@ -1394,6 +1401,43 @@ const ClaimDetail = () => {
                 </div>
 
                 <div className="md:col-span-2 lg:col-span-3">
+                  <label className={labelCls}>Policy Type</label>
+                  <div className="flex gap-4 mt-1">
+                    {[{ value: 'retail', label: 'Retail' }, { value: 'corporate', label: 'Corporate' }].map(opt => (
+                      <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="policyType" value={opt.value}
+                          checked={admissionForm.policyType === opt.value}
+                          onChange={() => setAdmissionForm(f => ({
+                            ...f, policyType: opt.value,
+                            corporateName: opt.value === 'corporate' ? f.corporateName : '',
+                            employeeId: opt.value === 'corporate' ? f.employeeId : '',
+                          }))}
+                          className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500" />
+                        <span className="text-sm text-gray-700">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                {admissionForm.policyType === 'corporate' && (
+                  <>
+                    <div>
+                      <label className={labelCls}>Corporate Name</label>
+                      <input type="text" value={admissionForm.corporateName || ''}
+                        onChange={e => setAdmissionForm(f => ({ ...f, corporateName: e.target.value }))}
+                        placeholder="e.g. Acme Corp"
+                        className={inputCls} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Employee ID Number</label>
+                      <input type="text" value={admissionForm.employeeId || ''}
+                        onChange={e => setAdmissionForm(f => ({ ...f, employeeId: e.target.value }))}
+                        placeholder="e.g. EMP00123"
+                        className={inputCls} />
+                    </div>
+                  </>
+                )}
+
+                <div className="md:col-span-2 lg:col-span-3">
                   <label className={labelCls}>Treatment Type</label>
                   <div className="flex gap-4 mt-1">
                     {['Medical', 'Surgical'].map(t => (
@@ -1442,6 +1486,11 @@ const ClaimDetail = () => {
                   ['Insurance',          claim.insuranceCompany?.name || '—'],
                   ['TPA',                claim.tpa?.name || '—'],
                   ['Policy No',          claim.policyNo || '—'],
+                  ['Policy Type',        claim.policyType === 'corporate' ? 'Corporate' : 'Retail'],
+                  ...(claim.policyType === 'corporate' ? [
+                    ['Corporate Name',   claim.corporateName || '—'],
+                    ['Employee ID',      claim.employeeId || '—'],
+                  ] : []),
                   ['Client ID',          claim.clientId || '—'],
                   ['CCN No',             claim.ccnNo || '—'],
                   ['Month Claim #',      claim.monthClaimNo || '—'],
