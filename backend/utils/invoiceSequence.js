@@ -10,36 +10,44 @@ const getFiscalYear = (date) => {
   return `${startYear}-${String(endYear).padStart(2, '0')}`;
 };
 
-// Split the operator-supplied prefix into a literal "base" and a numeric
-// "seed". The seed is the trailing run of digits; the next invoice's sequence
-// starts at seed + 1, so typing "26/0" yields invoices "26/1", "26/2", ...
-// If the prefix has no trailing digits, we append a "/" so e.g. "FCC" still
-// produces a readable "FCC/1" rather than "FCC1".
+// The operator-supplied prefix is used literally and the sequence number is
+// appended as-is: "26/0" yields "26/01", "26/011", "26/0167", ... Only a
+// prefix ending in a letter gets a "/" separator, so "FCC" still produces a
+// readable "FCC/1" rather than "FCC1".
 const parseInvoicePrefix = (raw) => {
   const str = String(raw || '').trim();
-  if (!str) return { base: 'FCC/', seed: 0 };
-  const m = str.match(/^(.*?)(\d+)$/);
-  if (m) return { base: m[1], seed: parseInt(m[2], 10) || 0 };
-  // No trailing digit — add a separator unless the operator already ended
-  // the prefix with one (so "INV-" stays "INV-", "FCC" becomes "FCC/").
-  const needsSep = !(str.endsWith('/') || str.endsWith('-') || str.endsWith('_'));
-  return { base: needsSep ? str + '/' : str, seed: 0 };
+  if (!str) return { base: 'FCC/' };
+  const needsSep = /[A-Za-z]$/.test(str);
+  return { base: needsSep ? str + '/' : str };
+};
+
+// Highest numeric suffix among existing invoices that start with `base`, so
+// the sequence continues after imported/legacy bills (e.g. "26/0166" → 167).
+const maxExistingSequence = async (tx, base) => {
+  const rows = await tx.invoice.findMany({
+    where: { invoiceNumber: { startsWith: base } },
+    select: { invoiceNumber: true },
+  });
+  return rows.reduce((max, r) => {
+    const rest = r.invoiceNumber.slice(base.length);
+    return /^\d+$/.test(rest) ? Math.max(max, parseInt(rest, 10)) : max;
+  }, 0);
 };
 
 // Atomically reserve the next invoice number for the given prefix.
 // Stores the per-base counter in SiteSetting under `invoice.seq.<base>`.
-// The seed acts as a floor: changing the configured prefix from "26/0" to
-// "26/100" makes the next invoice "26/101" rather than going backwards.
+// The highest existing invoice number acts as a floor, so the sequence never
+// goes backwards or collides with bills created outside the counter.
 // Must be called inside a $transaction `tx` for atomicity.
 const reserveNextInvoiceNumber = async (tx, rawPrefix) => {
-  const { base, seed } = parseInvoicePrefix(rawPrefix);
+  const { base } = parseInvoicePrefix(rawPrefix);
   const key = `invoice.seq.${base}`;
   const existing = await tx.siteSetting.findUnique({ where: { key } });
   const stored = (() => {
     if (!existing) return 0;
     try { return Number(JSON.parse(existing.value)?.seq) || 0; } catch { return 0; }
   })();
-  const next = Math.max(stored, seed) + 1;
+  const next = Math.max(stored, await maxExistingSequence(tx, base)) + 1;
   if (existing) {
     await tx.siteSetting.update({ where: { key }, data: { value: JSON.stringify({ seq: next }) } });
   } else {

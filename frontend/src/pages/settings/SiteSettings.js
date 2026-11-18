@@ -299,7 +299,7 @@ const SiteSettings = () => {
                     className={inputCls}
                   />
                   <p className="text-xs text-gray-400 mt-1">
-                    Drives the invoice number. Trailing digits act as a starting seed — set <code className="bg-gray-100 px-1 rounded">26/0</code> and the next invoice becomes <code className="bg-gray-100 px-1 rounded">26/1</code>, then <code className="bg-gray-100 px-1 rounded">26/2</code>, … A plain <code className="bg-gray-100 px-1 rounded">FCC</code> becomes <code className="bg-gray-100 px-1 rounded">FCC/1</code>.
+                    Drives the invoice number. The prefix is kept as-is and the running number is added after it — set <code className="bg-gray-100 px-1 rounded">26/0</code> and invoices become <code className="bg-gray-100 px-1 rounded">26/01</code>, … <code className="bg-gray-100 px-1 rounded">26/011</code>, … <code className="bg-gray-100 px-1 rounded">26/0167</code>, continuing after the highest existing number. A plain <code className="bg-gray-100 px-1 rounded">FCC</code> becomes <code className="bg-gray-100 px-1 rounded">FCC/1</code>.
                   </p>
                 </div>
               </div>
