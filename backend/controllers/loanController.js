@@ -61,6 +61,13 @@ const shape = (loan) => {
     const months = now > from ? (now - from) / MS_PER_MONTH : 0;
     interestAccrued = round(outstanding * (Number(loan.annualInterestRate) || 0) / 1200 * months);
   }
+  // Interest still owed on top of the principal: open loans → accrued since the
+  // last collection; EMI loans → interest inside the unpaid installments.
+  const interestDue = open
+    ? interestAccrued
+    : round((loan.installments || [])
+      .filter((i) => i.status !== 'paid')
+      .reduce((s, i) => s + (i.interestComponent || 0), 0));
 
   return {
     ...toResponse(loan),
@@ -75,6 +82,8 @@ const shape = (loan) => {
     interestAccrued,
     interestCollected: round(totalInterest),
     lastInterestDate,
+    interestDue,
+    totalOutstanding: round(outstanding + interestDue),
   };
 };
 
@@ -93,8 +102,8 @@ exports.list = async (req, res) => {
     const loans = await prisma.loan.findMany({ where, include: loanInclude, orderBy: { createdAt: 'desc' } });
     const rows = loans.map(shape);
     const totals = {
-      given: rows.filter((l) => l.direction === 'given').reduce((s, l) => s + l.outstanding, 0),
-      taken: rows.filter((l) => l.direction === 'taken').reduce((s, l) => s + l.outstanding, 0),
+      given: round(rows.filter((l) => l.direction === 'given').reduce((s, l) => s + l.totalOutstanding, 0)),
+      taken: round(rows.filter((l) => l.direction === 'taken').reduce((s, l) => s + l.totalOutstanding, 0)),
       count: rows.length,
     };
     res.json({ loans: rows, totals });

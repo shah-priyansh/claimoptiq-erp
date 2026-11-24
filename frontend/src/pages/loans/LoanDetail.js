@@ -153,8 +153,8 @@ const MovementModal = ({ open, kind, loan, bankAccounts, onClose, onSaved }) => 
   );
 };
 
-const Stat = ({ label, value, cls }) => (
-  <div><p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p><p className={`text-lg font-semibold ${cls || 'text-gray-800'}`}>{value}</p></div>
+const Stat = ({ label, value, cls, sub }) => (
+  <div><p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p><p className={`text-lg font-semibold ${cls || 'text-gray-800'}`}>{value}</p>{sub && <p className="text-[11px] text-gray-400">{sub}</p>}</div>
 );
 
 const LoanDetail = () => {
@@ -205,7 +205,7 @@ const LoanDetail = () => {
         {isOpen ? (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mt-5">
             <Stat label="Principal" value={rs(loan.principal)} />
-            <Stat label="Outstanding" value={rs(loan.outstanding)} cls={dirColor} />
+            <Stat label="Outstanding" value={rs(loan.totalOutstanding ?? loan.outstanding)} cls={dirColor} sub={loan.interestDue > 0 ? `${rs(loan.outstanding)} principal + ${rs(loan.interestDue)} interest` : null} />
             <Stat label={`Interest / month`} value={rs(loan.monthlyInterest)} />
             <Stat label="Interest accrued" value={rs(loan.interestAccrued)} cls="text-amber-700" />
             <Stat label="Interest collected" value={rs(loan.interestCollected)} />
@@ -216,7 +216,7 @@ const LoanDetail = () => {
             <Stat label="Monthly EMI" value={rs(loan.emiAmount)} />
             <Stat label="Total interest" value={rs(loan.totalInterest)} />
             <Stat label="Total payable" value={rs(loan.totalPayable)} />
-            <Stat label="Outstanding" value={rs(loan.outstanding)} cls={dirColor} />
+            <Stat label="Outstanding" value={rs(loan.totalOutstanding ?? loan.outstanding)} cls={dirColor} sub={loan.interestDue > 0 ? `${rs(loan.outstanding)} principal + ${rs(loan.interestDue)} interest` : null} />
           </div>
         )}
       </div>

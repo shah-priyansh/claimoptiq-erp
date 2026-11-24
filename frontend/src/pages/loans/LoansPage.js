@@ -295,7 +295,10 @@ const LoansPage = () => {
                     <td className="py-3 px-4 text-right tabular-nums">{rs(l.principal)}</td>
                     <td className="py-3 px-4 text-right tabular-nums text-gray-500">{l.annualInterestRate || 0}%</td>
                     <td className="py-3 px-4 text-right tabular-nums">{l.isOpen ? <span>{rs(l.monthlyInterest)}<span className="text-[10px] text-gray-400"> /mo</span></span> : rs(l.emiAmount)}</td>
-                    <td className="py-3 px-4 text-right tabular-nums font-medium">{rs(l.outstanding)}</td>
+                    <td className="py-3 px-4 text-right tabular-nums font-medium">
+                      {rs(l.totalOutstanding ?? l.outstanding)}
+                      {l.interestDue > 0 && <p className="text-[10px] font-normal text-gray-400">{rs(l.outstanding)} + {rs(l.interestDue)} int.</p>}
+                    </td>
                     <td className="py-3 px-4 text-center text-xs text-gray-500">{l.isOpen ? <span className="text-purple-600 font-medium">Open</span> : `${l.paidInstallments}/${l.totalInstallments}`}</td>
                     <td className="py-3 px-4"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_CLS[l.status] || ''}`}>{(l.status || '').toUpperCase()}</span></td>
                     <td className="py-3 px-4 text-right whitespace-nowrap">
