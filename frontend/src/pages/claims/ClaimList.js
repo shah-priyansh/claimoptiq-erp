@@ -68,6 +68,9 @@ const BASE_FIELD_DEFS = [
   { key: 'tpa',                       label: 'TPA NAME',               width: 18, pdfW: 22, defaultOn: true,  getValue: c => c.tpa?.name || '' },
   { key: 'policyNo',                  label: 'POLICY NO',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.policyNo || '' },
   { key: 'clientId',                  label: 'CLIENT ID',              width: 14, pdfW: 15, defaultOn: false, getValue: c => c.clientId || '' },
+  { key: 'policyType',                label: 'POLICY TYPE',            width: 12, pdfW: 14, defaultOn: false, getValue: c => (c.policyType === 'corporate' ? 'Corporate' : 'Retail') },
+  { key: 'corporateName',             label: 'CORPORATE NAME',         width: 20, pdfW: 24, defaultOn: false, getValue: c => c.corporateName || '' },
+  { key: 'employeeId',                label: 'EMPLOYEE ID',            width: 14, pdfW: 15, defaultOn: false, getValue: c => c.employeeId || '' },
   { key: 'ccnNo',                     label: 'CCN NO',                 width: 13, pdfW: 14, defaultOn: true,  getValue: c => c.ccnNo || '' },
   { key: 'dateOfAdmit',               label: 'D.O.A.',                 width: 13, pdfW: 16, defaultOn: true,  getValue: c => fmtDateCell(c.dateOfAdmit) },
   { key: 'dateOfDischarge',           label: 'D.O.D.',                 width: 13, pdfW: 16, defaultOn: true,  getValue: c => fmtDateCell(c.dateOfDischarge) },
@@ -99,7 +102,7 @@ const BASE_FIELD_DEFS = [
   { key: 'filePrice',                 label: 'FILE PRICE',             width: 12, pdfW: 22, defaultOn: true,  superAdminOnly: true, isAmount: true, getValue: null },
 ];
 const FIELD_GROUPS = [
-  { label: 'Patient Info', keys: ['patientName', 'patientMobile', 'isDirectPatient', 'doctorName', 'claimProcessBy', 'claimType', 'policyNo', 'clientId'] },
+  { label: 'Patient Info', keys: ['patientName', 'patientMobile', 'isDirectPatient', 'doctorName', 'claimProcessBy', 'claimType', 'policyNo', 'clientId', 'policyType', 'corporateName', 'employeeId'] },
   { label: 'Hospital',     keys: ['hospital'] },
   { label: 'Payor',        keys: ['insuranceCompany', 'tpa', 'ccnNo'] },
   { label: 'Treatment',    keys: ['treatmentType', 'diagnosis', 'surgeryName'] },
