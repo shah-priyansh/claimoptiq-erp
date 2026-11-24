@@ -112,6 +112,16 @@ const deleteRemote = async (server, remoteKey) =>
     return true;
   });
 
+// Rename a file in place (no re-upload). Refuses to clobber an existing target.
+const renameRemote = async (server, fromKey, toKey) =>
+  withClient(server, async (sftp) => {
+    const to = remotePathFor(server, toKey);
+    if (await sftp.exists(to)) throw new Error(`target already exists: ${toKey}`);
+    await sftp.mkdir(path.posix.dirname(to), true).catch(() => {});
+    await sftp.rename(remotePathFor(server, fromKey), to);
+    return true;
+  });
+
 // Open a read stream for retrieval. Returns { stream, close }. The caller MUST
 // call close() (or it auto-closes when the stream emits 'close'/'error') so the
 // underlying SFTP connection is released. Supports an optional byte range.
@@ -147,6 +157,7 @@ module.exports = {
   remoteSize,
   existsRemote,
   deleteRemote,
+  renameRemote,
   openReadStream,
   remotePathFor,
   fingerprintOf,

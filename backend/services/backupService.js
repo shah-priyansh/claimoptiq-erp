@@ -44,17 +44,43 @@ const resolveLocalPath = (filePath, fileName) => {
 // and the Settled Claims Backup ZIP already use (Hospital -> Patient ->
 // category), so the SFTP server is human-browsable too. Everything else
 // (document submissions, or a claim document whose claim relation somehow
-// didn't load) keeps the flat sourceType/YYYY/MM/fileName scheme — those
-// don't carry the hospital/patient context the tree needs.
+// didn't load) keeps the flat sourceType/YYYY/MM/ scheme — those don't carry
+// the hospital/patient context the tree needs. The remote file is named after
+// what the user uploaded (originalName), not multer's timestamp disk name.
+const remoteNameFor = (item) => fccPath.sanitizeSegment(item.originalName || item.fileName, item.fileName);
+
 const remoteKeyFor = (item) => {
+  const name = remoteNameFor(item);
   if (item.sourceType === CLAIM_DOC && item.claim) {
     const dir = fccPath.documentFolderPath(item.claim, item.category);
-    return `${dir}/${item.fileName}`;
+    return `${dir}/${name}`;
   }
   const d = item.date instanceof Date ? item.date : new Date(item.date || Date.now());
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `${item.sourceType}/${yyyy}/${mm}/${item.fileName}`;
+  return `${item.sourceType}/${yyyy}/${mm}/${name}`;
+};
+
+// Original names repeat (two "scan.pdf" in one Discharge folder), and both
+// providers overwrite a same-named file — so a key already used by ANOTHER
+// record gets " (2)", " (3)"... before the extension. Keys this record already
+// holds don't count, which keeps retries and multi-server copies on one name.
+const uniqueRemoteKey = async (item) => {
+  if (item.remoteKey) return item.remoteKey;
+  const base = remoteKeyFor(item);
+  const ext = path.posix.extname(base);
+  const stem = base.slice(0, base.length - ext.length);
+  for (let n = 1; ; n += 1) {
+    const candidate = n === 1 ? base : `${stem} (${n})${ext}`;
+    const taken = await prisma.fileBackupLocation.findFirst({
+      where: {
+        remoteKey: candidate,
+        NOT: { sourceType: item.sourceType, sourceId: item.id },
+      },
+      select: { id: true },
+    });
+    if (!taken) return candidate;
+  }
 };
 
 // A Google Drive server that was never connected has nothing to talk to yet.
@@ -72,13 +98,13 @@ const CLAIM_PATH_SELECT = {
 };
 
 const docToItem = (d) => ({
-  sourceType: CLAIM_DOC, id: d.id, fileName: d.fileName, filePath: d.filePath,
-  fileSize: d.fileSize, date: d.uploadedAt, claim: d.claim, category: d.category,
+  sourceType: CLAIM_DOC, id: d.id, fileName: d.fileName, originalName: d.originalName,
+  filePath: d.filePath, fileSize: d.fileSize, date: d.uploadedAt, claim: d.claim, category: d.category,
   remoteKey: d.remoteKey,
 });
 const subToItem = (s) => ({
-  sourceType: SUBMISSION, id: s.id, fileName: s.fileName, filePath: s.filePath,
-  fileSize: s.fileSize, date: s.createdAt, remoteKey: s.remoteKey,
+  sourceType: SUBMISSION, id: s.id, fileName: s.fileName, originalName: s.originalName,
+  filePath: s.filePath, fileSize: s.fileSize, date: s.createdAt, remoteKey: s.remoteKey,
 });
 
 // Build the unified list of offloadable files (oldest-first), capped by `limit`.
@@ -124,7 +150,7 @@ const offloadOne = async (item, servers, primaryId, run, cfg, log) => {
     return { uploaded: false, deletedLocal: false, bytesFreed: 0 };
   }
   const localSize = fs.statSync(localPath).size;
-  const remoteKey = remoteKeyFor(item);
+  const remoteKey = await uniqueRemoteKey(item);
 
   let primaryVerified = false;
   for (const server of servers) {
@@ -363,7 +389,7 @@ const pickCatchUp = (docRows, subRows, limit) => [
 // from a verified copy on one of `others` (primary first). Copy-only — never
 // deletes anything. Returns true when the copy is verified.
 const catchUpOne = async (item, server, others, log) => {
-  const remoteKey = item.remoteKey || remoteKeyFor(item);
+  const remoteKey = await uniqueRemoteKey(item);
   const where = {
     sourceType_sourceId_serverId: { sourceType: item.sourceType, sourceId: item.id, serverId: server.id },
   };
@@ -600,6 +626,7 @@ module.exports = {
   pickCatchUp,
   getEnabledServers,
   remoteKeyFor,
+  uniqueRemoteKey,
   resolveLocalPath,
   CLAIM_DOC,
   SUBMISSION,

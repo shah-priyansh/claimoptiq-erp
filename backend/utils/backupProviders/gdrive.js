@@ -315,6 +315,25 @@ const deleteRemote = async (server, remoteKey) => {
   }
 };
 
+// Rename a file in place (same folder only — just the name changes). Refuses
+// to clobber an existing target.
+const renameRemote = async (server, fromKey, toKey) => {
+  if (path.posix.dirname(fromKey) !== path.posix.dirname(toKey)) {
+    throw new Error('renameRemote: only same-folder renames are supported');
+  }
+  try {
+    const drive = driveFor(server);
+    const file = await requireFile(drive, server, fromKey);
+    if (await findFile(drive, server, toKey)) throw new Error(`target already exists: ${toKey}`);
+    await withRetry(() => drive.files.update({
+      fileId: file.id, requestBody: { name: path.posix.basename(toKey) }, fields: 'id',
+    }));
+    return true;
+  } catch (err) {
+    throw normalizeError(err);
+  }
+};
+
 // Returns { stream, close }. Drive honors HTTP Range on alt=media, so PDF/image
 // viewers can seek the same as with local or SFTP files.
 const openReadStream = async (server, remoteKey, range) => {
@@ -346,6 +365,7 @@ module.exports = {
   remoteSize,
   existsRemote,
   deleteRemote,
+  renameRemote,
   openReadStream,
   forgetServer,
   normalizeError,
