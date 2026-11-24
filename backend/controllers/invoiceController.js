@@ -195,7 +195,7 @@ const buildVersionsByHospital = async (hospitalIds, withClaimTypes) => {
 // them.
 // `bulkContext` — optional shared preload used by the /invoices/preview-bulk
 // controller. When set, buildInvoiceLines skips its per-group queries for
-// hospital, claims, and priorOpen and reads from the passed maps instead.
+// hospital and claims and reads from the passed maps instead.
 // This collapses O(N × 4) roundtrips into O(4) for N-hospital selections
 // (the N=23 case that dominated the 2.5-3s wall-clock on WAN links).
 const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateId, gstRateOverride, claimIds, discount = 0, taxInclusive = false, isDirectPatient = false, includeFixedServices = true, preloadedTpl = null, bulkContext = null } = {}) => {
@@ -243,12 +243,11 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
   // and share it across all groups instead of paying the two-query cost per
   // group.
   const preHospital = bulkContext?.hospitals?.get(hospitalId);
-  const prePriorOpen = bulkContext?.priorOpen?.get(`${hospitalId}|${isDirectPatient ? 'dp' : 'reg'}`);
   const preClaims = bulkContext?.claimsById && hasClaimIds
     ? claimIds.map((id) => bulkContext.claimsById.get(id)).filter(Boolean)
     : null;
 
-  const [hospital, claims, priorOpen, tpl, directPatientServices] = await Promise.all([
+  const [hospital, claims, tpl, directPatientServices] = await Promise.all([
     preHospital
       ? Promise.resolve(preHospital)
       : (isDirectPatient
@@ -268,20 +267,6 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
             // for THIS claim (vs. the invoice's own billing month).
             month: true,
           },
-        }),
-    // Previous balance only counts dues from the SAME stream — regular
-    // invoices ignore direct-patient dues and vice versa. The hospital on
-    // a direct-patient invoice is purely a billing-template reference, not
-    // a financial relationship.
-    prePriorOpen
-      ? Promise.resolve(prePriorOpen)
-      : prisma.invoice.findMany({
-          where: {
-            hospitalId,
-            status: { in: ['issued', 'partially_paid'] },
-            isDirectPatient,
-          },
-          select: { amountPending: true },
         }),
     preloadedTpl ? Promise.resolve(preloadedTpl) : getInvoiceTemplate(),
     // Global direct-patient billing services — a single super-admin-managed
@@ -577,14 +562,11 @@ const buildInvoiceLines = async (hospitalId, month, { adjustments = [], tdsRateI
       meta: {},
     }));
 
-  // 4. Previous balance = Σ amountPending of issued|partially_paid prior
-  //    invoices for this hospital. `priorOpen` was fetched in parallel above.
-  //    Direct-patient invoices are per-patient now, so a hospital-wide
-  //    carry-forward would leak other patients' outstanding dues onto this
-  //    patient's bill — pin it to 0 for the direct-patient stream.
-  const previousBalance = isDirectPatient
-    ? 0
-    : priorOpen.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0);
+  // 4. Previous balance is never folded into a bill's own totals — the old
+  //    bills stay open on their own, so folding them in double-counted
+  //    receivables. The PDF shows the hospital's running Balance Payable
+  //    instead (see previousPendingFor).
+  const previousBalance = 0;
 
   // Resolve TDS + GST: per-invoice override wins, otherwise the site-wide
   // default from Settings → Tax & Numbering Defaults. The per-hospital
@@ -767,7 +749,7 @@ exports.previewBulk = async (req, res) => {
 
     // Batch every dependency that `buildInvoiceLines` needs across ALL groups
     // into a small handful of queries. Previously each group fired its own
-    // hospital / claim / priorOpen fetches → O(N × 4) roundtrips over the WAN
+    // hospital / claim fetches → O(N × 4) roundtrips over the WAN
     // link, which was the dominant wall-clock cost on multi-hospital previews
     // (~2.5–3s at N=23). Post-batch this is a constant ~4 queries regardless
     // of group count.
@@ -792,21 +774,12 @@ exports.previewBulk = async (req, res) => {
       .map((g) => ({ hospitalId: g.hospitalId, month: g.month, isDirectPatient: false }));
     const allDirectClaimIds = [...directGroups.values()].flatMap((g) => g.claimIds);
 
-    const [preloadedTpl, hospitalRows, priorOpenRows, existingInvoiceRows, existingDirectLines, svcClaimTypeMap] = await Promise.all([
+    const [preloadedTpl, hospitalRows, existingInvoiceRows, existingDirectLines, svcClaimTypeMap] = await Promise.all([
       getInvoiceTemplate(),
       allHospitalIds.length
         ? prisma.hospital.findMany({
             where: { id: { in: allHospitalIds } },
             include: { billingServices: { include: { slabs: { orderBy: { order: 'asc' } } } } },
-          })
-        : Promise.resolve([]),
-      allHospitalIds.length
-        ? prisma.invoice.findMany({
-            where: {
-              hospitalId: { in: allHospitalIds },
-              status: { in: ['issued', 'partially_paid'] },
-            },
-            select: { hospitalId: true, isDirectPatient: true, amountPending: true },
           })
         : Promise.resolve([]),
       existingInvoiceWhere.length
@@ -834,12 +807,6 @@ exports.previewBulk = async (req, res) => {
     ]);
 
     const hospitalsById = new Map(hospitalRows.map((h) => [h.id, h]));
-    const priorOpenByStream = new Map();
-    for (const r of priorOpenRows) {
-      const key = `${r.hospitalId}|${r.isDirectPatient ? 'dp' : 'reg'}`;
-      if (!priorOpenByStream.has(key)) priorOpenByStream.set(key, []);
-      priorOpenByStream.get(key).push({ amountPending: r.amountPending });
-    }
     const existingByKey = new Map();
     for (const r of existingInvoiceRows) {
       const key = `${r.hospitalId}|${new Date(r.month).toISOString()}|reg`;
@@ -867,7 +834,6 @@ exports.previewBulk = async (req, res) => {
 
     const bulkContext = {
       hospitals: hospitalsById,
-      priorOpen: priorOpenByStream,
       claimsById,
       svcClaimTypeMap,
       tdsCache: new Map(),
@@ -1968,23 +1934,11 @@ exports.issue = async (req, res) => {
 
     let commissionAutoFlow = { rowsCreated: 0, totalAmount: 0, skipped: true, reason: 'not run' };
     const result = await prisma.$transaction(async (tx) => {
-      // Recompute previousBalance at issue time (drift safety). Direct-patient
-      // invoices are per-patient — no hospital-wide carry-forward — so they
-      // pin to 0. Regular invoices still sum the hospital's open dues.
-      const previousBalance = invoice.isDirectPatient
-        ? 0
-        : await tx.invoice
-            .findMany({
-              where: {
-                hospitalId: invoice.hospitalId,
-                isDirectPatient: false,
-                status: { in: ['issued', 'partially_paid'] },
-                id: { not: invoice.id },
-              },
-              select: { amountPending: true },
-            })
-            .then((rows) => rows.reduce((acc, r) => acc + (Number(r.amountPending) || 0), 0));
-      const grandTotal = (invoice.netTotal || 0) + previousBalance;
+      // The bill's own total only — earlier open bills are never folded in
+      // (that double-counted receivables); the PDF shows the running
+      // Balance Payable instead.
+      const previousBalance = 0;
+      const grandTotal = round2((invoice.netTotal || 0) + (invoice.roundOff || 0));
 
       // Drafts created via exports.create already hold a reserved
       // invoiceNumber. Reserve a fresh one only for legacy drafts that
@@ -2436,6 +2390,35 @@ const buildInvoiceDownloadName = (invoice) => {
   return `${strip(base).toUpperCase()} - BILL OF ${strip(monthLabel).toUpperCase()}.pdf`;
 };
 
+// The hospital's earlier still-unpaid bills, relative to `invoice`: same
+// hospital, regular stream, issued before it (a draft takes every open
+// bill). Drives both the running Balance Payable on the PDF and the
+// previous-bill pages attached after it. Direct-patient bills are
+// per-patient and carry no hospital-wide dues.
+const priorPendingBills = async (invoice) => {
+  if (invoice.isDirectPatient || !invoice.hospitalId || invoice.status === 'void') return [];
+  return prisma.invoice.findMany({
+    where: {
+      hospitalId: invoice.hospitalId,
+      isDirectPatient: false,
+      status: { in: ['issued', 'partially_paid'] },
+      amountPending: { gt: 0 },
+      id: { not: invoice.id },
+      ...(invoice.issuedAt ? { issuedAt: { lt: invoice.issuedAt } } : {}),
+    },
+    select: { id: true, amountPending: true, previousBalance: true },
+    orderBy: [{ issuedAt: 'asc' }, { createdAt: 'asc' }],
+  });
+};
+
+// Σ of each prior bill's OWN pending. Legacy bills that folded an older
+// previousBalance into their total have it backed out so nothing is
+// counted twice.
+const sumOwnPending = (bills) => round2(bills.reduce(
+  (acc, b) => acc + Math.max(0, (Number(b.amountPending) || 0) - (Number(b.previousBalance) || 0)),
+  0,
+));
+
 // Shared helper: fetch one invoice + its linked claims + template, and hand
 // back the fully-rendered PDF Buffer. Used by both the single-invoice `pdf`
 // endpoint and the bulk-download flow. Templates are optional (caller can
@@ -2461,15 +2444,43 @@ const renderOneInvoicePdf = async (invoiceId, preloadedTpl = null) => {
       })
     : [];
   const claimsById = new Map(claims.map((c) => [c.id, c]));
-  const buf = await renderInvoicePdf(invoice, invoice.hospital, template, { claimsById });
-  return { invoice, buf };
+  const priorBills = await priorPendingBills(invoice);
+  const buf = await renderInvoicePdf(invoice, invoice.hospital, template, {
+    claimsById,
+    previousPending: sumOwnPending(priorBills),
+  });
+  return { invoice, buf, priorBills };
+};
+
+// Append the hospital's previous still-unpaid bills after this bill's pages,
+// so the hospital receives every outstanding bill in one PDF. Purely a print
+// attachment — no bill's stored totals change.
+const attachPreviousPendingBills = async (buf, priorBills) => {
+  if (!priorBills.length) return buf;
+  const tpl = await getInvoiceTemplate();
+  const { PDFDocument } = require('pdf-lib');
+  const merged = await PDFDocument.load(buf);
+  const CONCURRENCY = 5;
+  for (let i = 0; i < priorBills.length; i += CONCURRENCY) {
+    const results = await Promise.all(
+      priorBills.slice(i, i + CONCURRENCY).map((p) => renderOneInvoicePdf(p.id, tpl).catch(() => null)),
+    );
+    for (const r of results) {
+      if (!r?.buf) continue;
+      const src = await PDFDocument.load(r.buf);
+      const pages = await merged.copyPages(src, src.getPageIndices());
+      pages.forEach((p) => merged.addPage(p));
+    }
+  }
+  return Buffer.from(await merged.save());
 };
 
 exports.pdf = async (req, res) => {
   try {
     const result = await renderOneInvoicePdf(req.params.id);
     if (!result) return res.status(404).json({ message: 'Not found' });
-    const { invoice, buf } = result;
+    const { invoice, priorBills } = result;
+    const buf = await attachPreviousPendingBills(result.buf, priorBills);
     const filename = buildInvoiceDownloadName(invoice);
     res.setHeader('Content-Type', 'application/pdf');
     // ASCII-only `filename` for legacy compatibility + RFC 5987 `filename*`

@@ -353,7 +353,11 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
       const netTotal = Number(invoice.netTotal) || (taxable + gstAmt - tdsAmt);
       const amountPaid = Number(invoice.amountPaid) || 0;
       const roundOff = Number(invoice.roundOff) || 0;
-      const previousBalance = Number(invoice.previousBalance) || 0;
+      // Earlier unpaid bills of the hospital, supplied by the caller so the
+      // Balance Payable is the running total owed up to this bill.
+      const previousBalance = opts.previousPending != null
+        ? Number(opts.previousPending) || 0
+        : Number(invoice.previousBalance) || 0;
       const currentBalance = netTotal + roundOff - amountPaid + previousBalance;
 
       // ----- LEFT column (top): Amount-in-words card → Terms card -----
@@ -598,7 +602,8 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           PAD, footerY - 4, { width: W - 2 * PAD, align: 'center' },
         );
 
-      // ===== Page 2: Claims Summary (landscape, so many columns fit) =====
+      // ===== Page 2: Claims Summary (portrait, so it prints upright on A4 —
+      // a landscape page came out rotated when printed / saved via a printer) =====
       const claimLines = (invoice.lineItems || []).filter((l) => l.lineType === 'claim_tpa_desk' && l.claimId);
       if (claimLines.length) {
         // Columns are operator-configurable via Settings → invoice_summary_columns.
@@ -612,8 +617,8 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           ? orderedFields
           : resolveColumns(['patientName', 'doctorName', 'insuranceCompany', 'ccnNo', 'tpa', 'dateOfDischarge', 'finalApprovalDate', 'tpaFee']);
 
-        // Landscape A4 → 842 × 595. Way more horizontal room for the summary.
-        doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
+        // Portrait A4 → 595 × 842.
+        doc.addPage({ size: 'A4', margin: 0 });
         const LW = doc.page.width;
         const LH = doc.page.height;
         const LPAD = 28;
@@ -625,17 +630,52 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
         const remainingW = tableW - srW;
         const totalFlex = safeFields.reduce((s, f) => s + (Number(f.flex) || 1), 0) || 1;
 
+        // Amount and date/month columns hold single-line values that read badly
+        // when wrapped or shrunk, so they get a minimum width that fits their
+        // widest value; the text columns share what's left by flex. If even
+        // that can't fit (very many columns), fall back to plain flex widths.
+        const fieldWidths = (() => {
+          const isFixed = (f) => f.isAmount || f.align === 'center';
+          const minW = {};
+          safeFields.forEach((f) => {
+            if (!isFixed(f)) return;
+            let widest = 0;
+            claimLines.forEach((line) => {
+              const claim = claimsById.get(line.claimId);
+              let text;
+              if (f.key === 'tpaFee') text = formatINR(line.amount);
+              else if (claim && typeof f.get === 'function') {
+                const raw = f.get(claim);
+                text = f.isAmount ? formatINR(Number(raw) || 0) : String(raw ?? '-');
+              } else text = '-';
+              doc.font(f.key === 'tpaFee' ? 'Helvetica-Bold' : 'Helvetica').fontSize(7.5);
+              widest = Math.max(widest, doc.widthOfString(text));
+            });
+            minW[f.key] = Math.ceil(widest) + 10;
+          });
+          const fixedTotal = Object.values(minW).reduce((a, b) => a + b, 0);
+          const flexFields = safeFields.filter((f) => !isFixed(f));
+          const flexSum = flexFields.reduce((a, f) => a + (Number(f.flex) || 1), 0) || 1;
+          const left = remainingW - fixedTotal;
+          if (left < flexFields.length * 50) {
+            return safeFields.map((f) => Math.floor((remainingW * (Number(f.flex) || 1)) / totalFlex));
+          }
+          return safeFields.map((f) => (isFixed(f) ? minW[f.key] : Math.floor((left * (Number(f.flex) || 1)) / flexSum)));
+        })();
+
         const buildCols = (xStart) => {
           const cols = [{ key: '__sr', label: '#', x: xStart, w: srW, align: 'center', isAmount: false }];
           let cx = xStart + srW;
-          safeFields.forEach((f) => {
-            const w = Math.max(54, Math.floor((remainingW * (Number(f.flex) || 1)) / totalFlex));
+          safeFields.forEach((f, idx) => {
+            const w = fieldWidths[idx];
             cols.push({ key: f.key, label: f.label, x: cx, w, align: f.align || 'left', isAmount: !!f.isAmount, field: f });
             cx += w;
           });
           // Stretch the final column to the right edge to absorb any rounding gap.
           const last = cols[cols.length - 1];
           last.w = (tableX + tableW) - last.x;
+          // Never hand pdfkit a width it can't wrap into (it loops forever).
+          cols.forEach((c) => { c.w = Math.max(c.w, 14); });
           return cols;
         };
 
@@ -657,13 +697,13 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
         const drawHeaderBand = (cy) => {
           const cols = buildCols(tableX);
           const headerFont = 'Helvetica-Bold';
-          const headerSize = 8;
+          const headerSize = 6.5;
           let maxH = 16;
           cols.forEach((c) => {
             doc.font(headerFont).fontSize(headerSize);
             const h = doc.heightOfString(c.label.toUpperCase(), {
               width: c.w - 8,
-              characterSpacing: 0.4,
+              characterSpacing: 0.2,
               align: c.align,
             });
             if (h > maxH) maxH = h;
@@ -677,7 +717,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
               .text(c.label.toUpperCase(), c.x + 4, textY, {
                 width: c.w - 8,
                 align: c.align,
-                characterSpacing: 0.4,
+                characterSpacing: 0.2,
               });
           });
           return { cols, nextY: cy + bandH };
@@ -705,6 +745,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
         cy = header.nextY;
 
         const sumRowH = 20;
+        const CELL_SIZE = 7.5;
         const totals = {};
         safeFields.forEach((f) => { if (f.isAmount) totals[f.key] = 0; });
 
@@ -765,7 +806,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           let rowTextH = 11;
           cellData.forEach((cell) => {
             if (cell.isAmountCell || cell.col.key === '__sr') return;
-            doc.font(cell.fontName).fontSize(8.5);
+            doc.font(cell.fontName).fontSize(CELL_SIZE);
             const h = doc.heightOfString(cell.text, {
               width: cell.col.w - 8,
               align: cell.col.align,
@@ -777,7 +818,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
           // Leave room for the bottom rule + totals band (~ 50px) before
           // page-breaking. Account for the variable row height.
           if (cy + rowH > LH - 70) {
-            doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
+            doc.addPage({ size: 'A4', margin: 0 });
             doc.rect(0, 0, LW, 6).fill(COLORS.primary600);
             cy = LPAD;
             header = drawHeaderBand(cy);
@@ -790,7 +831,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
             const c = cell.col;
             if (cell.isAmountCell) {
               totals[c.key] = (totals[c.key] || 0) + cell.amountValue;
-              const size = shrinkToFit(cell.text, c.w - 8, cell.fontName, 8.5, 6);
+              const size = shrinkToFit(cell.text, c.w - 8, cell.fontName, CELL_SIZE, 5);
               doc.fillColor(COLORS.ink)
                 .font(cell.fontName)
                 .fontSize(size)
@@ -802,7 +843,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
             } else {
               doc.fillColor(COLORS.ink)
                 .font(cell.fontName)
-                .fontSize(8.5)
+                .fontSize(CELL_SIZE)
                 .text(cell.text, c.x + 4, cy + 5, {
                   width: c.w - 8,
                   align: c.align,
@@ -820,7 +861,7 @@ const renderInvoicePdf = async (invoice, hospital, template = {}, opts = {}) => 
 
         // Totals band — sums every amount column.
         if (cy > LH - 36) {
-          doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
+          doc.addPage({ size: 'A4', margin: 0 });
           doc.rect(0, 0, LW, 6).fill(COLORS.primary600);
           cy = LPAD;
         }
