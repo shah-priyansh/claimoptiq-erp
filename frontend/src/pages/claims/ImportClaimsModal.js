@@ -27,6 +27,9 @@ const COLUMNS = [
   { key: 'tpa',                 label: 'TPA',                           width: 24, note: 'Must match exactly (see TPA sheet)' },
   { key: 'policyNo',            label: 'Policy No',                     width: 16 },
   { key: 'clientId',            label: 'Client ID',                     width: 14 },
+  { key: 'policyType',          label: 'Policy Type',                   width: 12, note: 'Retail / Corporate (blank = Retail, or Corporate if a Corporate Name / Employee ID is given)' },
+  { key: 'corporateName',       label: 'Corporate Name',                width: 20, note: 'Only for Corporate policies' },
+  { key: 'employeeId',          label: 'Employee ID',                   width: 14, note: 'Only for Corporate policies' },
   { key: 'ccnNo',               label: 'CCN No',                        width: 14 },
   { key: 'dateOfAdmit',         label: 'Date of Admit',                 width: 14, note: 'YYYY-MM-DD or DD/MM/YYYY (optional)' },
   { key: 'dateOfDischarge',     label: 'Date of Discharge',             width: 14, note: 'YYYY-MM-DD or DD/MM/YYYY' },
@@ -329,6 +332,8 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       const ct = norm(cleanCell(r.claimType)).replace(/\s+/g, '_');
       if (!ct) { issues.push({ type: 'type', label: 'Claim type missing' }); bump('type'); }
       else if (!VALID_CLAIM_TYPES.includes(ct)) { issues.push({ type: 'type', label: `Claim type invalid: "${r.claimType}"` }); bump('type'); }
+      const pt = norm(cleanCell(r.policyType));
+      if (pt && !['retail', 'corporate', 'corp'].includes(pt)) { issues.push({ type: 'type', label: `Policy type invalid: "${r.policyType}"` }); bump('type'); }
 
       const direct = ['yes', 'true', '1', 'direct'].includes(cleanCell(r.isDirectPatient).toLowerCase());
       const hName = cleanCell(r.hospital);
@@ -402,6 +407,9 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       tpa: exampleTpa,
       policyNo: 'POL-2024-00123',
       clientId: 'CL-9988',
+      policyType: 'Corporate',
+      corporateName: 'Infosys Ltd',
+      employeeId: 'EMP-1042',
       ccnNo: 'CCN-44521',
       dateOfAdmit: '2025-03-12',
       dateOfDischarge: '2025-03-18',
@@ -444,6 +452,9 @@ const ImportClaimsModal = ({ open, onClose, onImported }) => {
       tpa: '',
       policyNo: 'POL-2024-00456',
       clientId: '',
+      policyType: 'Retail',
+      corporateName: '',
+      employeeId: '',
       ccnNo: 'CCN-44522',
       dateOfAdmit: '2025-04-02',
       dateOfDischarge: '2025-04-05',

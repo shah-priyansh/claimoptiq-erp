@@ -1354,6 +1354,28 @@ exports.importClaims = async (req, res) => {
       if (!claimType) rowErrors.push('Claim Type is required');
       else if (!CLAIM_TYPES.includes(claimType)) rowErrors.push(`Claim Type "${row.claimType}" is invalid — must be one of: ${CLAIM_TYPES.join(', ')}`);
 
+      // ── Policy Type (Retail / Corporate) ─────────────────────────────
+      // Newer than most saved sheets: only touched when the file carries one of
+      // these columns, so re-importing an older sheet keeps what's stored. A
+      // blank Policy Type infers Corporate from a Corporate Name / Employee ID.
+      const policyData = {};
+      if (['policyType', 'corporateName', 'employeeId'].some((k) => k in row)) {
+        const typeCell = norm(cleanCell(row.policyType));
+        const corpName = cleanCell(row.corporateName);
+        const empId = cleanCell(row.employeeId);
+        let isCorp = null;
+        if (!typeCell) isCorp = !!(corpName || empId);
+        else if (typeCell === 'retail') isCorp = false;
+        else if (typeCell === 'corporate' || typeCell === 'corp') isCorp = true;
+        else rowErrors.push(`Policy Type "${row.policyType}" is invalid — must be Retail or Corporate`);
+        if (isCorp === false) Object.assign(policyData, { policyType: 'retail', corporateName: '', employeeId: '' });
+        if (isCorp === true) {
+          policyData.policyType = 'corporate';
+          if ('corporateName' in row) policyData.corporateName = corpName;
+          if ('employeeId' in row) policyData.employeeId = empId;
+        }
+      }
+
       // D.O.A is optional — a blank cell stays blank (NULL). Only flag a value
       // that was actually provided but couldn't be parsed. parseDate treats a
       // pre-1970 epoch date (Excel serial-0 → 1899-12-30) as blank, so it too
@@ -1539,6 +1561,7 @@ exports.importClaims = async (req, res) => {
           tpaId,
           policyNo: cleanCell(row.policyNo),
           clientId: cleanCell(row.clientId),
+          ...policyData,
           ccnNo: cleanCell(row.ccnNo),
           dateOfAdmit,
           dateOfDischarge,
