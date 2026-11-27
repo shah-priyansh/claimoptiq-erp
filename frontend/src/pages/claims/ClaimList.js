@@ -488,6 +488,19 @@ const ClaimList = () => {
         ? { rejectedReason: '' }
         : {};
       await updateClaimAPI(claimId, { status: newStatus, ...extra });
+      // When the list is filtered by a workflow status, a claim moved to a
+      // different status no longer matches — drop it instead of leaving a
+      // stale row behind. (__billed / __unbilled filter on isBilled, which a
+      // status change doesn't touch.)
+      const activeStatus = filters.status;
+      if (activeStatus && !activeStatus.startsWith('__') && newStatus !== activeStatus) {
+        setClaims(prev => prev.filter(c => c._id !== claimId));
+        const nextTotal = Math.max(0, total - 1);
+        setTotal(nextTotal);
+        setPages(Math.max(1, Math.ceil(nextTotal / (filters.limit || 100))));
+        toast.success('Status updated');
+        return;
+      }
       setClaims(prev => prev.map(c =>
         c._id === claimId
           ? { ...c, status: newStatus, ...(extra.rejectedReason !== undefined ? { rejectedReason: extra.rejectedReason } : {}) }
